@@ -3,13 +3,17 @@
 Library seed for STEPPERONLINE ESS23-RS integrated closed-loop stepper motors
 with RS485/Modbus control. Prepared on 2026-10-02.
 
-This folder currently contains the project structure and development references.
+This folder currently contains the project structure, architecture baseline,
+and development references.
 No motor library, public API, examples, tests, or build configuration has been
 implemented yet.
 
 ## Start here
 
 - [Documentation and downloaded files](docs/README.md)
+- [Library architecture and ownership](docs/architecture.md)
+- [Standalone example CLI contract](docs/cli_contract.md)
+- [RS485 ecosystem review and FieldCore integration gaps](docs/reference/02_ecosystem_review.md)
 - [Source inventory](docs/reference/00_document_inventory.md)
 - [Implementation reference and open questions](docs/reference/01_implementation_reference.md)
 - [AI coder instructions](AGENTS.md)
@@ -37,6 +41,12 @@ docs/pdf-extracted-md/ Searchable extracts indexed by physical PDF page
 Follow the existing `../SHZK-PT`, `../VTN4xx`, and `../VibWire-108` library
 conventions: a bounded, transport-independent codec core, with UART, DE/RE,
 timing, retries, and bus ownership in the application or example layer.
+
+The architecture defines function naming, buffer/output contracts, protocol
+status versus motor state and application health, and explicit motor command
+workflows. The standalone console will own its transport and work without
+FieldCore. Future FieldCore integration needs changes to its current write
+framing, request capacity and control contracts; it is not implemented here.
 
 ## Original product pages
 

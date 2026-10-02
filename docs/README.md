@@ -1,4 +1,19 @@
-# ESS23-RS reference pack
+# ESS23-RS documentation
+
+## Architecture baseline
+
+- [Architecture and ownership](architecture.md): intended core layout,
+  function names, buffer/status contracts, motor workflows and implementation
+  stages. This is a design, not an implemented library.
+- [Standalone CLI contract](cli_contract.md): shared ecosystem vocabulary,
+  host/device distinctions, diagnostics, health and explicit motor operations.
+- [Ecosystem review](reference/02_ecosystem_review.md): source-based comparison
+  of SHZK-PT, VTN4xx, VibWire-108 and FieldCore-node, including integration gaps.
+- [Multi-vendor feasibility](reference/03_multi_vendor_feasibility.md): official
+  manufacturer evidence and a proposed common interface for selected serial
+  motion drives. This is a scope recommendation, not implemented support.
+
+## Manufacturer reference pack
 
 Start with the [inventory](reference/00_document_inventory.md) and the
 [implementation reference](reference/01_implementation_reference.md).

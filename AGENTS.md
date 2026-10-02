@@ -2,16 +2,19 @@
 
 ## Current scope
 
-This is a documentation and folder seed. Do not implement the library or add
-placeholder APIs/build metadata until implementation is requested. Preserve
-the original downloaded references.
+This is a documentation, architecture and folder seed. Do not implement the
+library or add placeholder APIs/build metadata until implementation is
+requested. Preserve the original downloaded references.
 
 ## Read before implementing
 
 1. `README.md` and `docs/README.md`.
-2. `docs/reference/00_document_inventory.md` and `sources.json`.
-3. `docs/reference/01_implementation_reference.md`.
-4. The original vendor function and hardware manuals in `docs/vendor/`.
+2. `docs/architecture.md`, `docs/cli_contract.md`, and
+   `docs/reference/02_ecosystem_review.md` for the inspected sibling contracts
+   and intentional ESS choices.
+3. `docs/reference/00_document_inventory.md` and `sources.json`.
+4. `docs/reference/01_implementation_reference.md`.
+5. The original vendor function and hardware manuals in `docs/vendor/`.
 
 The original PDFs are authoritative for documented motor behavior. Searchable
 extracts may scramble tables, omit figures, or lose notation. Check the actual
@@ -31,10 +34,26 @@ differences instead of guessing. No hardware behavior has been validated yet.
   FreeRTOS, logging, heap allocation, retries, and storage.
 - Applications own transport, DE/RE, RTU timing, timeouts, shared-bus
   arbitration, commissioning, and motion workflows.
+- Use the long generic builder/parser names from the architecture. All ESS
+  frame parsers require request expectations; output capacity is not the
+  expected register count. Payload outputs stay unchanged on error, with an
+  explicit output count reset to zero.
+- Keep codec `Status`, decoded motor alarms/flags, command outcome, and
+  application health/freshness separate. The codec has no lifecycle or health
+  service and retains no caller buffers.
 - Validate expected slave address, function, exact length, byte count, CRC,
   and applicable write echoes before publishing decoded results.
 - Make motion, enable/disable, homing, reset, persistent writes, and
   communication-setting changes explicit operations.
+- A write acknowledgement does not prove motion completion. A timeout after
+  transmission may leave execution unknown; do not inherit sensor retry or
+  recovery replay policies. Local cancellation is not a motor stop.
+- Example `status`/`health` are cached; explicit read/check commands refresh
+  them. `reset` clears local statistics only, `recover` is host transport
+  recovery, and motor operations use explicit names on every platform.
+- Future FieldCore integration belongs in its device module and existing bus
+  owner. Its current FC06 echo stripping, eight-byte TX capacity and
+  measurement-only contracts need review before claiming motor compatibility.
 - Establish supported register widths, signedness, scaling, word order,
   request limits, and exception behavior from the relevant vendor pages.
 - Keep board pins and platform adapters under `examples/common/`.

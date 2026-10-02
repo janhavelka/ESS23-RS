@@ -58,5 +58,21 @@ The [extracted function-manual text](../pdf-extracted-md/Modbus-Series-Bus-Produ
 - Error table p12 mentions only functions 03/06, while p8 documents 0x10 and p11 includes it in the supported-function discussion.
 - Stop table p25 contains start/position descriptions beside stop bits; its examples write 0x0100 for stop and 0x0200 for emergency stop. Cross-check p13-14 and the ESS-RS appendix before implementing.
 - ESS-RS default column p70 contains conflicting pairs such as acceleration `50 (100ms)` and starting speed `30 (60r/min)`. Its pulse-count range is also malformed. Do not infer scaling or signed limits from those entries alone; verify with readback and hardware.
+- Function p8 prints two different CRCs for the same FC10 request: the diagram ends in `B9 56`, while the prose example ends in `FD 12`. Inspection of the original page and independent Modbus CRC calculation for `01 10 00 24 00 02 04 00 00 13 88` confirm `FD 12`. Do not copy printed example bytes into tests without checking them.
+- Function p68 describes the DIP-status register as SW1-SW7, while the ESS23-RS hardware manual defines five switches (p8, p11). Preserve raw DIP status and confirm the actual firmware mapping before assigning model-specific switch labels.
+
+## Architecture consequences
+
+The [architecture](../architecture.md) and [CLI contract](../cli_contract.md)
+keep protocol result, decoded motor condition, communication health and motion
+completion separate. The original ESS status table (function p68) describes
+bit 4 as **0 = enabled, 1 = released**; do not infer its polarity from the
+"Motor enable bit" label. A valid alarm-bearing reply is successful decoding,
+not a protocol failure. Preserve raw flags and alarm values for unknown
+firmware behavior.
+
+The [ecosystem review](02_ecosystem_review.md) records actual sibling APIs and
+FieldCore limitations. Sibling timing, register limits, exception labels and
+write retry policies are not device evidence for ESS23-RS.
 
 For framing, CRC, timing and general function semantics, consult the [Modbus serial standard V1.02](../standards/Modbus_Serial_Line_V1.02.pdf) and [application standard V1.1b3](../standards/Modbus_Application_Protocol_V1.1b3.pdf). Device-specific addresses, limits and exception interpretation still come from the manufacturer and hardware validation.
