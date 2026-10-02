@@ -1,9 +1,11 @@
 # Multi vendor serial motion feasibility
 
-Research date: 2026-10-02. This is a feasibility recommendation, not a change
-to the accepted [ESS architecture](../architecture.md), a supported-device
-list, or a hardware qualification. No implementation or repository rename is
-part of this review.
+Research date: 2026-10-02. The user adopted the general-library direction from
+this review. The [architecture](../architecture.md),
+[axis contract](../axis_contract.md) and [profile contract](../profile_contract.md)
+are the resulting design baseline. This report preserves manufacturer
+evidence and its limits; it is not a supported-device list or hardware
+qualification. No implementation or repository rename is part of this review.
 
 ## Recommendation
 
@@ -208,8 +210,9 @@ ready-made, qualified, heap-free ESP32 library covering the families above.
 
 ## Proposed common interface
 
-This section is an engineering recommendation inferred from the evidence,
-not an implemented or approved replacement for the ESS API.
+This section records the engineering conclusions inferred from the evidence.
+The adopted, more detailed axis contract now defines the common API, including
+explicit step/angle/travel modes. These remain unimplemented contracts.
 
 | Common operation or data | Required contract |
 | --- | --- |
@@ -295,8 +298,8 @@ can coexist safely on the same physical bus.
 
 Keep the familiar `help`, `version`, `config`, `status`, `health`, `stats`,
 `read` and explicit `motor ...` vocabulary from the
-[CLI contract](../cli_contract.md). If broader scope is adopted, add explicit
-host profile selection and capability inspection. Selection changes local
+[CLI contract](../cli_contract.md). The adopted scope includes explicit host
+profile selection and capability inspection. Selection changes local
 interpretation and never commissions or moves a drive. Address syntax,
 limits and discovery behavior belong to the selected protocol; the ESS
 numeric `useaddr` contract cannot cover every ASCII or module/axis address.
@@ -333,12 +336,12 @@ starts or a common torque-control loop. Such features need a separate bus and
 drive capability design. A host timeout cannot itself stop an unreachable
 motor; communication-loss behavior must be qualified per profile.
 
-Recommended next steps, if the broader scope is adopted:
+Implementation order under the adopted broader scope:
 
 1. Keep ESS-RS as the concrete first backend and finish its unresolved register
-   contract. Select a neutral package identity only when adopting the scope.
-2. Design against one contrasting documented profile, such as Leadshine
-   iEM-RS or Oriental AZ, and obtain hardware before claiming its support.
+   contract. The architecture uses `RS485Motion` as its working common identity.
+2. Design against the contrasting Leadshine iEM-RS profile, and obtain
+   hardware before claiming its support. Oriental AZ remains another candidate.
 3. Test the small common command/state/capability contract using both profiles;
    leave protocol differences inside codecs and finite operation sequences.
 4. Qualify no-echo/echo behavior, exceptions, late responses, lost write

@@ -1,15 +1,20 @@
-# ESS23-RS engineering guidance
+# RS485Motion engineering guidance
 
 ## Current scope
 
 This is a documentation, architecture and folder seed. Do not implement the
 library or add placeholder APIs/build metadata until implementation is
-requested. Preserve the original downloaded references.
+requested. The accepted scope is a general framework-independent serial
+motion library: common axis API, drive profiles and application integration.
+Implement ESS first when requested; design against Leadshine iEM-RS without
+claiming it is implemented or qualified. Preserve the original downloaded
+references. The repository directory remains `ESS23-RS`.
 
 ## Read before implementing
 
 1. `README.md` and `docs/README.md`.
-2. `docs/architecture.md`, `docs/cli_contract.md`, and
+2. `docs/architecture.md`, `docs/axis_contract.md`,
+   `docs/profile_contract.md`, `docs/cli_contract.md`, and
    `docs/reference/02_ecosystem_review.md` for the inspected sibling contracts
    and intentional ESS choices.
 3. `docs/reference/00_document_inventory.md` and `sources.json`.
@@ -25,15 +30,34 @@ differences instead of guessing. No hardware behavior has been validated yet.
 
 ## Intended structure and architecture
 
-- Public API headers: `include/ESS23_RS/`; implementation: `src/`.
+- Planned common public headers: `include/RS485Motion/`, namespace
+  `RS485Motion`; ESS headers: `include/RS485Motion/profiles/ess_rs/`, namespace
+  `RS485Motion::ESS_RS`; implementation: `src/`. The existing empty
+  `include/ESS23_RS/` directory is an earlier seed, not a published API.
 - Follow the current stateless codec boundary in `../SHZK-PT`, `../VTN4xx`,
   and `../VibWire-108`. Do not copy their device registers or constants.
-- Core operations are bounded frame builders, validators, decoders, and
-  checked response parsers, using caller-supplied buffers and capacities.
+- Profile codecs are bounded frame builders, validators, decoders and checked
+  response parsers using caller-supplied buffers and capacities. The common
+  axis layer supplies typed motion intent, explicit units and checked
+  conversion; optional reusable sequencing advances bounded caller-owned
+  state from supplied events/time and yields work without performing I/O.
 - Keep reusable code independent of Arduino, ESP-IDF, GPIO, UART, clocks,
   FreeRTOS, logging, heap allocation, retries, and storage.
-- Applications own transport, DE/RE, RTU timing, timeouts, shared-bus
-  arbitration, commissioning, and motion workflows.
+- Applications own transport, DE/RE, framing/timing, timeouts, scheduling,
+  shared-bus arbitration, retries, commissioning and machine workflows.
+  They execute yielded profile sequences and retain contexts, caches and
+  health policy. Arduino, native ESP-IDF and FieldCore are independent
+  consumers; no framework or FieldCore types enter the reusable core.
+- Steps/counts, turns, degrees, radians and configured linear travel are
+  public API concepts, not CLI-only conversions. Distinguish motor steps,
+  command subdivisions, encoder counts, motor shaft and load coordinates.
+  Require explicit scale/origin, checked range/rounding and angle path policy.
+  Unresolved conversion or unsupported capability must fail before writes.
+- Expose the complete documented native command set for each supported
+  family/model/protocol/firmware through typed profile extensions. A generic
+  register escape hatch is not full command coverage. Track unresolved fields,
+  implementation coverage and hardware qualification separately; never invent
+  commands for capabilities available only through external inputs.
 - Use the long generic builder/parser names from the architecture. All ESS
   frame parsers require request expectations; output capacity is not the
   expected register count. Payload outputs stay unchanged on error, with an
@@ -48,9 +72,15 @@ differences instead of guessing. No hardware behavior has been validated yet.
 - A write acknowledgement does not prove motion completion. A timeout after
   transmission may leave execution unknown; do not inherit sensor retry or
   recovery replay policies. Local cancellation is not a motor stop.
+- Stop can interrupt an active operation with explicit deceleration and queue
+  semantics while the bus owner settles any in-flight transaction. Profiles
+  expose required service deadlines; missed refreshes do not prove a stop.
 - Example `status`/`health` are cached; explicit read/check commands refresh
   them. `reset` clears local statistics only, `recover` is host transport
   recovery, and motor operations use explicit names on every platform.
+  Common and native CLI commands call the same public API available to upper
+  firmware. Equivalent Arduino/ESP-IDF builds share command semantics and
+  profile coverage; platform adapters own I/O.
 - Future FieldCore integration belongs in its device module and existing bus
   owner. Its current FC06 echo stripping, eight-byte TX capacity and
   measurement-only contracts need review before claiming motor compatibility.

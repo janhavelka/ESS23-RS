@@ -1,17 +1,22 @@
-# ESS23-RS documentation
+# RS485Motion documentation
 
 ## Architecture baseline
 
 - [Architecture and ownership](architecture.md): intended core layout,
   function names, buffer/status contracts, motor workflows and implementation
   stages. This is a design, not an implemented library.
+- [Axis API and units](axis_contract.md): shared motion vocabulary, steps,
+  angles, linear travel, checked conversion and caller-owned operation state.
+- [Profile and command coverage](profile_contract.md): full documented native
+  command access per model/protocol/firmware, evidence and coverage requirements,
+  and the contrasting Leadshine design review.
 - [Standalone CLI contract](cli_contract.md): shared ecosystem vocabulary,
   host/device distinctions, diagnostics, health and explicit motor operations.
 - [Ecosystem review](reference/02_ecosystem_review.md): source-based comparison
   of SHZK-PT, VTN4xx, VibWire-108 and FieldCore-node, including integration gaps.
 - [Multi-vendor feasibility](reference/03_multi_vendor_feasibility.md): official
-  manufacturer evidence and a proposed common interface for selected serial
-  motion drives. This is a scope recommendation, not implemented support.
+  manufacturer evidence behind the accepted general-library scope. Research
+  coverage does not imply implemented device support.
 
 ## Manufacturer reference pack
 

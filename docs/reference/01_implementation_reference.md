@@ -1,6 +1,6 @@
 # Implementation reference
 
-This is a navigation aid for the future ESS23-RS library, not an implemented API or a verified hardware contract. Sources were downloaded on 2026-10-02. All page numbers below are **physical PDF pages, counted from 1**; printed page numbers in both manufacturer manuals are two lower.
+This is a navigation aid for the ESS-RS profile of the future RS485Motion library, not an implemented API or a verified hardware contract. Sources were downloaded on 2026-10-02. All page numbers below are **physical PDF pages, counted from 1**; printed page numbers in both manufacturer manuals are two lower.
 
 ## Source priority
 
@@ -46,8 +46,10 @@ The [extracted function-manual text](../pdf-extracted-md/Modbus-Series-Bus-Produ
 - Register 0x0013 lists default 0 and range 0-255, effective with address switches OFF (p69). Hardware p11 reserves address 0 and provides custom-address selection. Choose a valid unicast address explicitly; do not assume factory custom value 0 can identify one motor. The Modbus serial standard defines unicast 1-247 and broadcast 0 (standard PDF p8).
 - Register 0x0019 lists default 0, high word first; value 1 reverses the two words (function PDF p30, p70). Verify its current value and signed 32-bit interpretation. Modbus bytes within a 16-bit register and device word order are separate concerns.
 - Read Holding Registers is limited by the manufacturer to **16 registers per request** (p7, p12). Do not substitute the generic Modbus maximum; the write limit still needs confirmation.
-- Position feedback is described as encoder feedback converted to subdivision units (p69). Subdivision register 0x0011 lists default 1000 (p69), while encoder-resolution register 0x0101 lists 4000 counts for a 1000-line encoder (p77). Confirm pulse, subdivision and encoder units before offering rotations or degrees.
+- Position feedback is described as encoder feedback converted to subdivision units (p69). Subdivision register 0x0011 lists default 1000 (p69), while encoder-resolution register 0x0101 lists 4000 counts for a 1000-line encoder (p77). Confirm pulse, subdivision and encoder units before enabling rotations/degrees conversion for this profile; those units remain part of the common API design.
 - Read status/configuration first during bring-up. Saving/restoring parameters is documented only while stopped (p26); determine which settings persist and which need an explicit save from actual firmware behavior.
+- Multi-stage position and speed control are documented as external-input-triggered only (p13, checked in the original PDF). The native API must expose their serial parameter/I/O configuration without inventing a serial segment-start operation.
+- The ESS appendix documents X0-X3 input assignments and Y0-Y1 output assignments (p73-74, checked in the original PDF). Generic prose mentioning a wider input-register range does not establish extra ESS23-RS terminals; use the relevant model/firmware mapping and preserve reserved bits.
 
 ## Verified document inconsistencies to resolve
 
@@ -74,5 +76,12 @@ firmware behavior.
 The [ecosystem review](02_ecosystem_review.md) records actual sibling APIs and
 FieldCore limitations. Sibling timing, register limits, exception labels and
 write retry policies are not device evidence for ESS23-RS.
+
+The accepted [axis contract](../axis_contract.md) includes step, angle and
+travel modes, but ESS conversion still requires resolved native units and
+explicit axis configuration. Public API scope does not resolve the vendor
+scaling contradictions. The [profile contract](../profile_contract.md) requires
+coverage of the complete documented ESS command/register surface, with gaps
+tracked rather than silently omitted.
 
 For framing, CRC, timing and general function semantics, consult the [Modbus serial standard V1.02](../standards/Modbus_Serial_Line_V1.02.pdf) and [application standard V1.1b3](../standards/Modbus_Application_Protocol_V1.1b3.pdf). Device-specific addresses, limits and exception interpretation still come from the manufacturer and hardware validation.

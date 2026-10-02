@@ -1,63 +1,116 @@
-# ESS23-RS architecture
+# RS485Motion architecture
 
-This is the design baseline for a standalone ESS23-RS codec and its future
-bring-up applications. It follows the current SHZK-PT, VTN4xx and VibWire-108
-ownership model and accommodates later FieldCore-node integration. It does
-not describe implemented APIs or qualified motor behavior. No library code,
-build metadata, example firmware or FieldCore adapter exists here yet.
+This is the accepted design baseline for a general, framework-independent
+serial motion library. ESS23-RS is its first implementation target. A common
+axis interface provides the same motion vocabulary across selected drive
+profiles, while typed profile extensions expose each drive's complete
+documented command set. Arduino, native ESP-IDF, desktop/native consumers and
+FieldCore are separate applications of the same library.
 
-The [ecosystem review](reference/02_ecosystem_review.md) records the source
-evidence and differences between the peers. The [CLI contract](cli_contract.md)
-defines the example behavior. Device facts and unresolved register questions
-remain in the [implementation reference](reference/01_implementation_reference.md).
+This pass defines architecture and contracts only. No library code, public
+header, build metadata, example firmware or FieldCore adapter exists yet.
+No motor behavior has been qualified on hardware.
+
+The [axis contract](axis_contract.md) defines common operations and units;
+the [profile contract](profile_contract.md) defines native command coverage;
+the [CLI contract](cli_contract.md) maps both into the standalone console.
+The [ecosystem review](reference/02_ecosystem_review.md) records sibling
+conventions, and the [manufacturer review](reference/03_multi_vendor_feasibility.md)
+supports the chosen abstraction. Device facts and unresolved register
+questions remain in the [implementation reference](reference/01_implementation_reference.md).
 
 ## Scope and compatibility
 
-Start with ESS23-RS20 and account for ESS23-RS10 using their shared hardware
-manual. Treat model and firmware identity as observed data. Do not claim
-support for all STEPPERONLINE motors, the DM-PR family, or arbitrary Modbus
-drives. Another model becomes supported only after its register map, command
-semantics and tests establish compatibility.
+Use `RS485Motion` as the working common namespace and library identity, with
+an eventual `RS485Motion/RS485Motion.h` entry header. The repository folder
+remains `ESS23-RS`; no repository rename or registry-name availability is
+implied. The ESS family lives under `RS485Motion::ESS_RS`. There is no released
+API requiring compatibility aliases for the previous ESS-only design.
 
-Keep one library, namespace `ESS23_RS`, and eventual public entry header
-`ESS23_RS/ESS23_RS.h`. Use free functions, fixed-size value types, `camelCase`
-functions/fields, `PascalCase` types, and `CAPS_CASE` constants and enum values.
-FieldCore's `kPascalCase` constants and application types stay in FieldCore.
-Do not introduce a generic motor plugin framework for hypothetical models.
+Implement ESS23-RS20 first and account for ESS23-RS10 using their shared
+hardware manual. Design the common contracts against Leadshine iEM-RS as the
+contrasting family before freezing the API. Leadshine is a documented design
+comparison, not an implemented or qualified profile. Other manufacturers in
+the research report remain candidates.
+
+A supported profile identifies family/model, protocol and firmware scope.
+Full native command coverage means the documented surface for that scope,
+not all products from a manufacturer. Treat identity as observed data and
+track protocol evidence, implementation coverage and hardware qualification
+separately. No arbitrary Modbus register map establishes motion compatibility.
+
+Use free functions, fixed-size value types, `camelCase` functions/fields,
+`PascalCase` types and `CAPS_CASE` constants and enum values. Keep profile
+selection finite and explicit, using static dispatch or a small constant
+function table. Build-time selection can omit unused profiles; no dynamic
+plugin loader or heap-allocated driver hierarchy is required.
+
+The initial scope is drive-managed position, velocity, homing and related
+commands. Unit-oriented positioning in steps/counts, turns, degrees, radians
+and linear travel is part of the public axis design, not a CLI convenience.
+Advanced features stay accessible through typed native extensions even when
+they cannot map to the common interface. Synchronized multi-axis trajectories
+and a host servo loop are separate future scopes.
+
+## Three reusable layers and their consumers
+
+1. The common axis layer validates intent, resolves explicit unit conversion
+   and capability requirements, and projects validated observations with
+   explicit quality and qualification. Common
+   motion requests are independent of manufacturer register addresses.
+2. Drive profiles define exact wire values, stateless codecs, command
+   sequences, completion evidence and native extensions. A reusable finite
+   sequencer may advance caller-owned operation state from supplied events
+   and time. It yields transaction/wait/result descriptions without I/O.
+3. Application integration owns the transport and executes yielded work.
+   Standalone Arduino and native ESP-IDF examples, other firmware, native
+   tests and FieldCore can each supply their own integration.
+
+The shared sequencer is a deliberate addition above the sibling-style codec.
+It prevents each consumer from reimplementing device handshakes. It does not
+schedule itself, retry autonomously or choose machine workflows. Applications
+still decide which motions to perform and own interlocks, scheduling and
+recovery policy. Consumers may also use a profile codec directly.
 
 ## Ownership
 
-| Concern | Codec | Standalone example | Future FieldCore integration |
+| Concern | Reusable library | Standalone or other application | Future FieldCore integration |
 | --- | --- | --- | --- |
-| Register definitions, value encoding, CRC, frame validation | Owns | Calls codec | Device module calls codec |
-| TX/RX storage | Borrows during each call | Owns fixed buffers | Bus owner owns transaction/receive storage |
-| UART, pins, DE/RE, TX drain, RTU framing and silence | No ownership | Example transport | Existing RS485 owner/backend |
-| Address, serial tuple, word order and selected model | Explicit arguments | Owns configuration | Product settings and device module |
-| Polling, timeouts, retries and recovery | No ownership | Example application | Owner and device module under application policy |
-| Motion sequence and completion tracking | Encodes/decodes one operation | Application workflow | Typed motor command/module workflow |
-| Last valid readings, freshness, health and counters | No runtime state | Example application | Device module and health projection |
-| Logs, CLI, persistence and discovery | No ownership | Example-only features | Existing application services |
+| Axis intent, units, capabilities | Pure validation/conversion and common value types | Supplies scale, origin and limits | Module translates product settings |
+| Registers, framing, checksums and validation | Stateless per-profile codecs | Calls profile API | Device module calls profile API |
+| Device command sequence and completion evidence | Bounded advancement of caller-owned operation state | Owns context, feeds results/time, schedules work | Module owns context and uses existing owner |
+| TX/RX storage | Borrows during a call; retains no frame pointers | Owns fixed buffers | Bus owner owns transaction/receive storage |
+| UART, pins, DE/RE, TX drain and receive framing | No ownership | Application transport | Existing RS485 owner/backend |
+| Address, serial tuple, word order, scale and selected profile | Explicit immutable operation inputs | Owns configuration | Product settings and module |
+| Polling, timeouts, retries and recovery | Describes deadlines/replay constraints; makes no autonomous attempts | Executes application policy | Owner and module under product policy |
+| Last valid readings, freshness, health and counters | Supplies decoded observations and pure projections | Owns cache, timestamps and health policy | Module and health projection |
+| Logs, CLI, persistence and discovery | No services or side effects | Application features | Existing application services |
 
 ```mermaid
-flowchart LR
-  CLI[Standalone CLI] --> App[Example application]
-  App --> Port[Example RS485 transport]
-  App --> Codec[ESS23_RS codec]
-  Commands[FieldCore commands] --> Module[Future ESS device module]
-  Module --> Owner[FieldCore RS485 owner]
-  Module --> Codec
+flowchart TD
+  Standalone[Standalone Arduino or ESP-IDF application] --> Axis[Common axis API and explicit units]
+  Other[Other firmware or native consumer] --> Axis
+  FieldCore[Future FieldCore device module] --> Axis
+  Axis --> Profile[Selected drive profile and caller-owned sequence]
+  Native[Typed family command API] --> Profile
+  Profile --> Codec[Stateless family codec]
+  Profile --> Work[Yielded transaction or wait or result]
+  Work --> Owner[Consumer bus owner executes work and returns observations]
+  Owner --> Profile
 ```
 
-The diagram shows two alternative consumers. They must not independently
-drive the same UART. The reusable codec has no `begin`, `tick`, `end`, `read`
-transaction, `moveTo` workflow or background task. Those names imply state or
-I/O and belong to the consumer. A builder only writes bytes into a buffer;
-calling it never moves or configures a motor.
+The consumers are alternatives, not separate masters on the same UART.
+Exactly one application bus owner arbitrates a physical port. The stateless
+codec has no lifecycle, background task or transaction-performing `read` or
+`moveTo`. A builder only writes bytes; the common API and sequencer also
+produce data and transitions, never transport side effects.
 
-All codec work is bounded by explicit frame/register limits. No heap,
-Arduino/ESP-IDF headers, GPIO, clocks, sleeping, logging, transport callbacks,
+All work is bounded by explicit frame, command and operation-state limits.
+No heap, Arduino/ESP-IDF headers, GPIO, clock reads, sleeping, logging,
 FreeRTOS objects or hidden mutable globals enter `include/` or `src/`.
-Independent calls are reentrant; callers synchronize shared buffers and state.
+Time is an explicit input where needed. Contexts contain bounded copied
+values, not borrowed frame or transient request pointers. Independent
+contexts are reentrant; applications synchronize shared buffers and contexts.
 
 ## Planned file responsibilities
 
@@ -66,19 +119,29 @@ following files are an implementation layout, not a request to create stubs.
 
 | Future path | Responsibility |
 | --- | --- |
-| `include/ESS23_RS/ESS23_RS.h` | Bounded builders, validators and checked response parsers |
-| `include/ESS23_RS/Config.h` | Documented protocol constants, register definitions and value enums; no host runtime configuration |
-| `include/ESS23_RS/Status.h` | Operation result and parser error categories |
-| `include/ESS23_RS/Types.h` | Identity, raw/decoded motor status and explicit word order; no timestamps or live health |
-| `include/ESS23_RS/Labels.h` | Small static enum labels if the implemented API needs them |
-| `include/ESS23_RS/Version.h` | Generated from `library.json` once real code is packaged |
-| `src/ESS23_RS.cpp` | Single codec implementation initially; split only for concrete complexity |
-| `examples/01_basic_bringup_cli/src/main.cpp` | Arduino console, request scheduling, caches and motor workflows |
-| `examples/01_basic_bringup_cli/Commands.inc` | Command/help inventory, following SHZK's table pattern |
-| `examples/common/` | `BoardPins.h`, `BuildConfig.h`, `Log.h` and example transport/adapters |
-| `examples/espidf_basic/` | Separate native ESP-IDF consumer with a documented command subset |
-| `test/` | Native codec tests and separate example-contract tests when behavior exists |
+| `include/RS485Motion/RS485Motion.h` | Common public entry point, without forcing all profile headers into every consumer |
+| `include/RS485Motion/Axis.h` | Common command intent, capabilities and observations |
+| `include/RS485Motion/Units.h` | Explicit quantities, coordinate configuration and checked conversion |
+| `include/RS485Motion/Profiles.h` | Profile identity and finite dispatch contracts |
+| `include/RS485Motion/Sequence.h` | Bounded caller-owned operation state, supplied events and yielded work |
+| `include/RS485Motion/Status.h` | Shared validation result and parser error categories |
+| `include/RS485Motion/profiles/ess_rs/Codec.h` | ESS bounded builders, validators and checked response parsers |
+| `include/RS485Motion/profiles/ess_rs/Commands.h` | Full typed ESS command surface and sequence descriptions |
+| `include/RS485Motion/profiles/ess_rs/Registers.h` | Verified ESS register definitions and value enums |
+| `include/RS485Motion/profiles/ess_rs/Types.h` | Exact ESS values, raw flags, alarms and word order |
+| `include/RS485Motion/Version.h` | Generated from package metadata when real code exists |
+| `src/axis/`, `src/units/`, `src/protocol/` | Common validation, conversion and proven reusable framing helpers |
+| `src/profiles/ess_rs/` | ESS codec, native command mapping and bounded sequencing |
+| `examples/01_basic_bringup_cli/` | Arduino entry point, example transport and board integration |
+| `examples/common/` | Board pins, platform adapters, shared console inventory/dispatch and application support |
+| `examples/espidf_basic/` | First-class native ESP-IDF consumer of the same core and console semantics |
+| `test/` | Native codec, units, sequence and consumer-contract tests when behavior exists |
 | `docs/IDF_PORT.md` | Framework-neutral consumption and native IDF instructions when implemented |
+
+The existing empty `include/ESS23_RS/` directory is an earlier folder seed,
+not a published header path. The planned layout replaces it when actual code
+is requested. Do not create empty profile APIs or a Leadshine implementation
+merely to mirror the design table. Split implementation files only when useful.
 
 Every public header must compile alone and include only public or standard
 headers. Doxygen must state units, input limits, buffer lifetimes, failures,
@@ -86,10 +149,13 @@ output mutation and absence of I/O. Keep public structures small; do not copy
 sensor channel arrays, historical compatibility aliases or unused status
 members from siblings.
 
-## Function vocabulary and buffer contract
+## Codec function vocabulary and buffer contract
 
-These are intended naming families, not complete C++ declarations. Final
-signatures require the register/width review before implementation.
+These are intended ESS codec naming families, not complete C++ declarations.
+Final signatures require the register/width review before implementation.
+Common axis names are specified separately in the [axis contract](axis_contract.md).
+Non-Modbus profiles retain suitable native framing and address types; these
+register-oriented helpers are not mandatory public operations for every drive.
 
 | Family | Intended names and behavior |
 | --- | --- |
@@ -126,7 +192,7 @@ Check counts and register endpoints before overflow-safe size arithmetic;
 an arbitrary caller length must not turn bounded validation into an unbounded
 scan. Size helpers distinguish request and response sizes in their comments.
 
-No function retains a caller pointer after return. A consumer which queues
+No codec function retains a caller pointer after return. A consumer which queues
 work must own or copy its frame/request until completion. Timestamps and last
 valid cache updates happen in the consumer after successful parsing.
 
@@ -154,7 +220,7 @@ Keep four separate meanings of status:
 | --- | --- |
 | Codec `Status` | Whether this frame/value is valid for the expected operation |
 | Motor status/alarm | Successfully decoded device data, including raw status word and alarm code |
-| Transaction/workflow result | Application admission, transmission, acknowledgement, timeout, cancellation and execution uncertainty |
+| Transaction/workflow result | Application admission/transport facts plus profile sequence progress, completion evidence and execution uncertainty in caller-owned state |
 | Health/presence/freshness | Application judgement over observations and elapsed time |
 
 A valid alarm-bearing reply is codec success and communication evidence. It
@@ -163,6 +229,12 @@ cannot publish a new position or alarm. No reply gives no evidence that the
 motor is stopped. Preserve the last valid observation with its age and the
 latest attempt error separately for each independently refreshed data block.
 A successful identity read cannot refresh an older position or alarm value.
+
+Profiles classify read side effects as well as write effects. A read-to-clear
+completion word or event FIFO has one declared consumer; background polling,
+diagnostics and native getters must not independently consume sequence
+evidence. Cached queries stay passive. Explicit consuming reads participate
+in operation coordination and retain the consumed observation for callers.
 
 For the standalone example, use application health labels compatible in
 meaning with FieldCore: `unknown`, `initializing`, `ok`, `degraded`, `fault`,
@@ -178,7 +250,7 @@ retries, recoveries and uncertain writes. Polling statistics do not replace
 the retained result of an explicit command. Resetting counters does not clear
 motor alarms, cached safety-relevant observations or an uncertain operation.
 
-## Protocol decisions and unresolved limits
+## ESS protocol decisions and unresolved limits
 
 Use FC03, FC06 and FC10 only where the ESS pages support the operation. The
 documented FC03 limit is 16 registers (function PDF p7). A normal maximum
@@ -198,8 +270,11 @@ Broadcast motion and extended vendor address values are deferred. Never
 borrow a sensor's default address. Device serial settings and host settings
 are distinct; documented ESS defaults are commissioning hints, not detected
 facts. Word order must be read/selected explicitly, not guessed from plausible
-position values. Keep raw integer units until signedness and scaling are
-resolved; no premature turns/degrees convenience API.
+position values. The public common API includes turns/degrees and other
+engineering units, but an ESS operation using them is admissible only when
+its signedness, drive scale and configured axis conversion are established.
+Unresolved conversion returns a clear pre-transmission failure. Preserve raw
+integer access without claiming those integers are already physical units.
 
 Validate expected slave, function, exact frame length, exact byte count, CRC,
 and write echoes before publishing results. FC06 must echo register and value;
@@ -219,7 +294,7 @@ unknown bits, and avoid claiming a snapshot assembled from separate reads is
 atomic. In particular, the status enable bit has inverted semantics in the
 ESS table: bit 4 clear means enabled, set means released (function PDF p68).
 
-## Explicit motor operations
+## Explicit native commands and shared sequences
 
 Later typed builders should make `buildEnable`, `buildRelease`, `buildStop`,
 `buildEmergencyStop`, `buildStartPosition`, `buildStartSpeed`, `buildStartHoming`,
@@ -228,11 +303,26 @@ Later typed builders should make `buildEnable`, `buildRelease`, `buildStop`,
 review. These names describe frame construction only. Do not introduce a
 generic reboot/reset command unless the ESS documentation establishes one.
 
-The consumer sequences parameter writes, readback, start, status polling and
-completion. It owns motion deadlines, interlocks, limits and operator intent.
-If a prerequisite write/readback fails or is uncertain, it must not emit the
-start trigger. Retain evidence of any partial configuration and reconcile it
-before continuing.
+These initial names do not bound the native API. The
+[profile contract](profile_contract.md) requires complete coverage of every
+documented command and register for a supported ESS model/firmware scope,
+including tuning, I/O, segment configuration and persistence. Unresolved
+vendor fields stay explicit gaps; a generic write-register function does not
+count as complete typed support.
+
+Reusable profile sequences describe parameter writes, readback, start,
+status polling and completion; the application owns their context and
+execution. It supplies deadlines/time, interlocks, limits and operator intent.
+If a prerequisite write/readback fails or is uncertain, the sequence must not
+yield a start trigger. Retain partial-configuration evidence and require
+reconciliation before continuing. Direct native commands pass the same
+validation, arbitration and uncertainty handling as common axis commands.
+
+Common positioning, speed and coordinate conversion are public API features,
+not code hidden inside the example console. Typed native extensions preserve
+family features that have no common equivalent. A profile distinguishes
+unsupported device capability, unresolved mapping, missing implementation
+and absent qualification. None may be silently treated as a successful move.
 
 Arrival/homing flags must be interpreted in the context of the submitted
 operation and fresh observations; an old completion bit is not proof a new
@@ -253,16 +343,31 @@ the transport must settle queued TX, direction control and receive framing;
 cancellation cannot bypass those interlocks. A software emergency-stop command
 still depends on bus access and a responding drive. Application bus scheduling
 must account for urgent stop requests and bound time spent on other devices;
-the codec cannot guarantee a stop latency.
+the codec cannot guarantee a stop latency. Stop can supersede an active move,
+homing, velocity or native operation and must not be rejected solely because
+that operation is busy. Retain both the interrupted operation's evidence and
+the stop's result. An in-flight transaction still needs bounded settlement.
+
+Profiles yield service deadlines for required handshakes and periodic refresh
+commands. The bus owner admits only work whose timing it can support, reports
+missed deadlines, and reserves capacity for stop handling. A timeout or missed
+refresh does not prove that an unreachable drive physically stopped. Device
+command queues require an explicit retain/flush policy on stop.
 
 ## Standalone transport and example boundary
 
-The standalone console must run without FieldCore headers/services. Follow
-the peers' fixed-buffer cooperative example design: one transport owner,
+The standalone console and all reusable code must run without FieldCore
+headers/services. Native ESP-IDF is a first-class consumer, independent of
+Arduino. No Arduino compatibility layer is required to use the public API.
+Follow the peers' fixed-buffer cooperative example design: one transport owner,
 bounded RX/console work per iteration, wrap-safe deadlines, TX-drain-aware
 DE release, documented DE/RE polarity, and explicit idle-only recovery/flush.
 Pins, UART instance, host defaults and feature switches live in
-`examples/common/`, never in codec constants.
+`examples/common/`, never in codec constants. Common console semantics may be
+shared there while platform I/O stays in separate adapters. With equivalent
+build features and profile coverage, Arduino and ESP-IDF expose the same
+commands, units and result semantics. Any deliberate feature omission must
+be advertised by capabilities/help, not implied by framework choice.
 
 Audit any copied transport before use. VibWire's helper is restricted to FC04
 reads. Both request capacity and completion logic must handle ESS read/write
@@ -276,7 +381,7 @@ It performs no automatic enable, movement, alarm clear, homing, save, restore
 or device communication change. Persistence, if added, stores explicitly
 selected host settings only and never replays commands after boot.
 
-Changing target address, host serial tuple, model selection or word order
+Changing profile, target address, host serial tuple, scale, origin or word order
 invalidates the relevant identity, decoding and readiness assumptions. Retain
 historical observations and uncertain command results under their original
 target/tuple and decoding context; never reinterpret old words using a new
@@ -284,11 +389,15 @@ word order or make another selected motor inherit an old command result.
 
 ## FieldCore integration boundary
 
-A later FieldCore-owned `Ess23DeviceModule` should privately call this codec
-and implement that repository's binding contract. `Rs485Task` remains the
+A later FieldCore-owned motor device module should call the public axis/profile
+API and implement that repository's binding contract. `Rs485Task` remains the
 only physical bus owner. Status snapshots are passive, and borrowed RX bytes
 are consumed within the observation callback. Device wait periods release
-the bus for other modules. ESS23-RS itself has no FieldCore dependency.
+the bus for other modules. The library has no FieldCore dependency, service
+locator, task abstraction, health enum requirement or product settings type.
+FieldCore-specific naming and types are translated in its adapter. General
+library behavior and public API coverage must not be limited by its current
+measurement contracts or frame capacities.
 
 Current FieldCore is not ready for drop-in motor control. The
 [review](reference/02_ecosystem_review.md#fieldcore-integration-gaps) identifies
@@ -301,18 +410,23 @@ work is requested.
 
 ## Implementation stages and verification
 
-1. Resolve the minimum register contract from original PDFs: identity,
-   telemetry, read limits, exact widths, word order and exception behavior.
-   Preserve each unresolved claim in the reference notes.
-2. Implement the stateless core with real native tests and package metadata.
-   Add typed writes only for resolved commands; generate version metadata
-   from `library.json`, matching sibling practice.
-3. Implement a standalone ESP32-S2/S3 Arduino bring-up console and its bounded
-   transport. Add a separate native ESP-IDF example with an enforced,
-   documented command subset. Establish read-only bring-up before motion.
-4. Qualify explicit motor workflows on hardware and record exact motor model,
-   firmware, serial tuple, word order, board/transceiver and observed behavior.
-5. Integrate into FieldCore through its own contract/owner changes and tests.
+1. Finish the full ESS command inventory and resolve the first implementable
+   register contracts from the original PDFs. Preserve every unresolved
+   field and hardware question. Challenge the common API with the documented
+   Leadshine iEM-RS sequences and timing before fixing signatures.
+2. When implementation is requested, implement the stateless ESS core, public
+   units/conversion API and bounded profile sequences with native tests and
+   package metadata. Provide complete native ESS coverage incrementally;
+   publish actual coverage and do not claim completion while gaps remain.
+3. Implement independent standalone ESP32-S2/S3 Arduino and native ESP-IDF
+   consumers with shared console semantics and example-owned transport.
+   Establish read-only bring-up before motion. The entire core must also
+   compile and run native protocol/unit/sequence tests without either framework.
+4. Qualify motor workflows, conversions and full native commands on hardware;
+   record exact model/firmware, serial tuple, word order, scale, board and
+   transceiver. Obtain contrasting hardware before advertising that profile.
+5. Integrate into FieldCore when requested, through its own contract/owner
+   changes and tests. Standalone functionality does not depend on this step.
 
 When code exists, use native Unity tests, self-contained-header compilation,
 framework-boundary checks, example command-contract checks, Arduino S2/S3
@@ -325,8 +439,16 @@ do not manufacture release/build files during this architecture stage.
 Tests must establish independent golden frames/CRCs, count/capacity boundaries,
 invalid pointers/arguments, exact normal and exception shapes, wrong slave/FC,
 bad echoes, both word orders, signed boundaries, raw unknown flags/exceptions,
-and unchanged outputs on every failure. Do not use the same encoder as the
-sole oracle for its decoder. Add transport tests for partial/local echo,
+and unchanged codec/value/preparation payload outputs on validation failure.
+Sequence tests separately verify that valid timeout/failure events update
+caller-owned state and retain the failed or uncertain operation outcome;
+invalid event envelopes/correlation leave the context unchanged.
+Add unit conversion, quantization,
+overflow, scale revision, wrapped-angle direction/tie, reference validity,
+capability rejection and sequence interruption cases from the axis/profile
+contracts. Verify unsupported or unresolved requests yield no transaction.
+Do not use the same encoder as the sole oracle for its decoder.
+Add transport tests for partial/local echo,
 no-echo FC06 acknowledgement, late/overlong frames, short exceptions, deadline
 wrap, DE failure and uncertain writes. CLI tests must prove diagnostic commands
 do not emit writes and startup/recovery do not replay motor commands.
