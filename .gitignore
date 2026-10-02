@@ -1,0 +1,17 @@
+.pio/
+.vscode/
+.idea/
+build/
+__pycache__/
+*.py[cod]
+*.o
+*.a
+*.elf
+*.bin
+*.map
+*.log
+*.tmp
+*.bak
+.DS_Store
+Thumbs.db
+docs/doxygen/

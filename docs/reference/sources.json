@@ -1,0 +1,98 @@
+{
+  "collected_on": "2026-10-02",
+  "references": [
+    {
+      "path": "vendor/Modbus-Series-Bus-Product-Function-Manual-V1.0_1_.pdf",
+      "url": "https://www.omc-stepperonline.com/index.php?file=5476%2FModbus-Series-Bus-Product-Function-Manual-V1.0_1_.pdf&route=product%2Fproduct%2Fget_file",
+      "resolved_url": "https://www.stepperonline.co.uk/index.php?file=5476%2FModbus-Series-Bus-Product-Function-Manual-V1.0_1_.pdf&route=product%2Fproduct%2Fget_file",
+      "retrieved_at_utc": "2026-10-02T09:20:41.212768+00:00",
+      "bytes": 2941615,
+      "sha256": "0ca2d7f6b69404ead3ba9af982076c54f86eb16b1c24ba237f344aac079b81eb",
+      "purpose": "Motor functions and ESS-RS register appendix",
+      "pages": 90,
+      "text_extract": "pdf-extracted-md/Modbus-Series-Bus-Product-Function-Manual-V1.0_1_.md"
+    },
+    {
+      "path": "vendor/ESS23-RS1020_Series_Bus_Integrated_Motor_Hardware_Manual.pdf",
+      "url": "https://www.omc-stepperonline.com/index.php?file=5475%2FESS23-RS1020_Series_Bus_Integrated_Motor_Hardware_Manual.pdf&route=product%2Fproduct%2Fget_file",
+      "resolved_url": "https://www.stepperonline.co.uk/index.php?file=5475%2FESS23-RS1020_Series_Bus_Integrated_Motor_Hardware_Manual.pdf&route=product%2Fproduct%2Fget_file",
+      "retrieved_at_utc": "2026-10-02T09:20:41.212768+00:00",
+      "bytes": 503463,
+      "sha256": "44a16a4e164e8434702bf6f0e3f14e446c732d997111d189202fb627c961dfa0",
+      "purpose": "Shared ESS23-RS10/RS20 wiring and electrical requirements",
+      "pages": 12,
+      "text_extract": "pdf-extracted-md/ESS23-RS1020_Series_Bus_Integrated_Motor_Hardware_Manual.md"
+    },
+    {
+      "path": "vendor/ESS23-RS20_Full_Datasheet.pdf",
+      "url": "https://www.omc-stepperonline.com/index.php?file=5476%2FESS23-RS20_Full_Datasheet.pdf&route=product%2Fproduct%2Fget_file",
+      "resolved_url": "https://www.stepperonline.co.uk/index.php?file=5476%2FESS23-RS20_Full_Datasheet.pdf&route=product%2Fproduct%2Fget_file",
+      "retrieved_at_utc": "2026-10-02T09:20:41.212768+00:00",
+      "bytes": 122645,
+      "sha256": "2542a653ec0521a31a621068a498dc494935ed316602e92fe93d0223896dea02",
+      "purpose": "ESS23-RS20 electrical and mechanical specifications",
+      "pages": 1,
+      "text_extract": "pdf-extracted-md/ESS23-RS20_Full_Datasheet.md"
+    },
+    {
+      "path": "vendor/ESS23-RS10_Full_Datasheet.pdf",
+      "url": "https://www.omc-stepperonline.com/index.php?file=5475%2FESS23-RS10_Full_Datasheet.pdf&route=product%2Fproduct%2Fget_file",
+      "resolved_url": "https://www.stepperonline.co.uk/index.php?file=5475%2FESS23-RS10_Full_Datasheet.pdf&route=product%2Fproduct%2Fget_file",
+      "retrieved_at_utc": "2026-10-02T09:20:41.213771+00:00",
+      "bytes": 121483,
+      "sha256": "5b0e18093fc093d8a94c5de8656a684865236fd166d57616847b291a2f31492b",
+      "purpose": "ESS23-RS10 electrical and mechanical specifications",
+      "pages": 1,
+      "text_extract": "pdf-extracted-md/ESS23-RS10_Full_Datasheet.md"
+    },
+    {
+      "path": "vendor/cad/ESS23-RS20.STEP",
+      "url": "https://www.omc-stepperonline.com/index.php?file=5476%2FESS23-RS20.STEP&route=product%2Fproduct%2Fget_file",
+      "resolved_url": "https://www.stepperonline.co.uk/index.php?file=5476%2FESS23-RS20.STEP&route=product%2Fproduct%2Fget_file",
+      "retrieved_at_utc": "2026-10-02T09:20:44.516113+00:00",
+      "bytes": 5555894,
+      "sha256": "b0091576093daa0900752dcc1a9ed2bc33244bc597c991aa0ed4b99566957efd",
+      "purpose": "Optional RS20 mechanical reference"
+    },
+    {
+      "path": "vendor/cad/ESS23-RS10.STEP",
+      "url": "https://www.omc-stepperonline.com/index.php?file=5475%2FESS23-RS10.STEP&route=product%2Fproduct%2Fget_file",
+      "resolved_url": "https://www.stepperonline.co.uk/index.php?file=5475%2FESS23-RS10.STEP&route=product%2Fproduct%2Fget_file",
+      "retrieved_at_utc": "2026-10-02T09:20:44.988929+00:00",
+      "bytes": 5539313,
+      "sha256": "7f6c854178d9e5653dc3a33c317aa3167fa43268cdf5ac30875f14190bda7bbf",
+      "purpose": "Optional RS10 mechanical reference"
+    },
+    {
+      "path": "vendor/software/Y_Series_Stepper_Driver_Debug_Software_V1.2.7.zip",
+      "url": "https://raw.githubusercontent.com/StepperOnline/Tunning-Software/main/Y_Series_Stepper_Driver_Debug_Software_V1.2.7.zip",
+      "resolved_url": "https://raw.githubusercontent.com/StepperOnline/Tunning-Software/main/Y_Series_Stepper_Driver_Debug_Software_V1.2.7.zip",
+      "retrieved_at_utc": "2026-10-02T09:20:45.767975+00:00",
+      "bytes": 32468652,
+      "sha256": "def4cde14104d4a2e6d225ab844116a62a5f346d4526cfd6b29037edc245f871",
+      "purpose": "Tuning software linked from both official motor product pages"
+    },
+    {
+      "path": "standards/Modbus_Application_Protocol_V1.1b3.pdf",
+      "url": "https://www.modbus.org/file/secure/modbusprotocolspecification.pdf",
+      "resolved_url": "https://www.modbus.org/file/secure/modbusprotocolspecification.pdf",
+      "retrieved_at_utc": "2026-10-02T09:20:47.020186+00:00",
+      "bytes": 932519,
+      "sha256": "f80d0d7132fd035104c3f21b01026470e3310ca3d8d493d9a9737d0d32ad2eb1",
+      "purpose": "Supplemental Modbus function, frame and exception definitions",
+      "pages": 50,
+      "text_extract": "pdf-extracted-md/Modbus_Application_Protocol_V1.1b3.md"
+    },
+    {
+      "path": "standards/Modbus_Serial_Line_V1.02.pdf",
+      "url": "https://www.modbus.org/file/secure/modbusoverserial.pdf",
+      "resolved_url": "https://www.modbus.org/file/secure/modbusoverserial.pdf",
+      "retrieved_at_utc": "2026-10-02T09:20:49.399464+00:00",
+      "bytes": 264122,
+      "sha256": "85a91e278b26d68c94a2f61a5300cd39c9e4c855034833f391abc6541fbdf7e5",
+      "purpose": "Supplemental Modbus RTU framing, CRC and serial-line requirements",
+      "pages": 44,
+      "text_extract": "pdf-extracted-md/Modbus_Serial_Line_V1.02.md"
+    }
+  ]
+}
