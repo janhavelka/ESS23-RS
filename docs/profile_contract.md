@@ -34,6 +34,11 @@ Each profile declares:
 - Identification observations the drive can actually supply. An explicit
   caller-selected identity remains an assumption until verified; unavailable
   identity fields are not filled with a guessed model or firmware.
+- Discovery and minimal non-changing probe support, or an explicit reason
+  it is unavailable/unresolved. Use the [discovery contract](discovery_contract.md)
+  for exact query evidence, side effects, response/timing bounds, candidate
+  sets and manufacturer grouping; manufacturer identity is not inferred from
+  a generic valid frame.
 
 Selecting a profile performs no I/O. Identification is a separately prepared
 read operation, where documented. An unknown model or firmware remains
@@ -290,6 +295,10 @@ A future release may claim complete documented API coverage only when:
    firmware, configuration, operations and results. Protocol-test coverage
    alone does not establish physical motion, persistence, timing or stopping
    behavior.
+6. Discovery/probe/identity coverage is accounted for, including an explicit
+   unsupported result where no suitable non-changing operation exists. An
+   advertised fast probe has its own validation, side-effect and timing
+   evidence; a full identity/status sweep is not hidden behind `probe`.
 
 The present deliverable is this acceptance contract and source-grounded
 inventory outline. Creating the complete ledger, resolving the remaining

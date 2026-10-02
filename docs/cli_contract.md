@@ -83,7 +83,9 @@ implemented. Aliases have identical effects on every platform.
 | `host [baud <rate> \| fmt <format>]` | Show/change host serial tuple when idle, subject to adapter capability | None |
 | `axis config show` | `getAxisConfig`, including scale/reference sources and missing fields | None |
 | `axis config set <fields...>` | Build a complete candidate, `validateAxisConfig`, then idle-only `configureAxis` | None |
-| `ping` / `probe` / `read identity` | `prepareReadIdentity`; raw identity and compatibility evidence | Reads |
+| `ping` / `probe` | `prepareProbe`; smallest supported non-changing presence query, with explicit identity confidence | Minimal query |
+| `read identity` | `prepareReadIdentity`; supported raw identity fields and compatibility evidence | Reads |
+| `discover [manufacturer <id> \| profile <id>] [bounds...]` | Application-owned bounded scan through reviewed probe/identity operations | Non-changing queries |
 | `read state` / `read status` | `prepareReadState`; explicitly requested supported, non-consuming state fields | Reads |
 | `read config` | `prepareReadConfiguration`; supported device configuration | Reads |
 | `status` | Cached host, transport, motor and operation state with ages | None |
@@ -108,6 +110,17 @@ no automatic scan, guessed configuration write, enable or mode change occurs.
 Optional discovery is an explicit bounded read-only operation over reviewed
 protocol/tuple ranges; responding on RS485 does not establish compatibility
 or safe mixed-protocol coexistence.
+
+The [discovery contract](discovery_contract.md) defines query selection,
+manufacturer grouping, address/tuple/deadline/request/result bounds, partial
+results, cancellation and host-setting restoration. `profile list` is local;
+`probe` performs one minimal supported query, with no hidden identity/status
+sweep or automatic retries. A profile with no suitable probe returns a clear
+unsupported/unresolved result before TX. `read identity` remains explicit.
+The default discovery scope is the selected profile/current tuple, not an
+unbounded protocol scan. Findings do not automatically rebind the selected
+axis or write device settings. Probe success refreshes only the evidence
+actually observed, not stale position, alarms, homing or motion readiness.
 
 Classify observation effects, not merely the wire function. Some profiles have
 read-to-clear completion/event fields. Generic reads, discovery, diagnostics,

@@ -26,6 +26,7 @@ any transaction is yielded.
 | Operation | Planned callable behavior |
 | --- | --- |
 | Select and inspect | `getCapabilities`, `getAxisConfig`; report the selected profile and caller-owned configuration |
+| Discovery capability and presence | `getDiscoveryCapabilities`, `prepareProbe`; inspect per-profile discovery methods and prepare the smallest supported non-changing presence query |
 | Configure interpretation | `validateAxisConfig`, `configureAxis`; validate and replace host-side scale/reference configuration while idle |
 | Convert quantities | `convertPosition`, `convertDisplacement`, `convertVelocity`, `convertAcceleration`; checked, side-effect-free conversions with quantization reports |
 | Observe | `prepareReadIdentity`, `prepareReadState`, `prepareReadConfiguration`; prepare supported reads, with explicit requested fields |
@@ -42,6 +43,10 @@ any transaction is yielded.
 
 The common layer implements units, limits and operation semantics. The
 selected profile implements family sequencing and the codec validates frames.
+The [discovery contract](discovery_contract.md) separates minimal presence
+probing from identity reads and bounded application-owned scans. Not every
+profile has a suitable non-changing probe; absence or unresolved semantics
+is an explicit capability result before transmission.
 The CLI parses input and calls these functions; it must not contain another
 implementation of angle resolution, conversion, limit checks or motion
 sequencing. FieldCore can call the same surface without console text.

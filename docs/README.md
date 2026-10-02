@@ -12,11 +12,20 @@
   and the contrasting Leadshine design review.
 - [Standalone CLI contract](cli_contract.md): shared ecosystem vocabulary,
   host/device distinctions, diagnostics, health and explicit motor operations.
+- [Discovery and minimal probes](discovery_contract.md): per-profile and
+  manufacturer discovery, bounded scans and fast non-changing presence checks.
 - [Ecosystem review](reference/02_ecosystem_review.md): source-based comparison
   of SHZK-PT, VTN4xx, VibWire-108 and FieldCore-node, including integration gaps.
 - [Multi-vendor feasibility](reference/03_multi_vendor_feasibility.md): official
   manufacturer evidence behind the accepted general-library scope. Research
   coverage does not imply implemented device support.
+
+## Work tracking and bench
+
+- [Features, implementation tasks and open questions](backlog.md): current
+  roadmap, with design milestones separated from implementation and testing.
+- [COM13 motor bench](hardware_bench.md): user-reported CO2control/RS485 setup,
+  free-shaft mounting, continuing test authorization and unverified settings.
 
 ## Manufacturer reference pack
 

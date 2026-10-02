@@ -10,6 +10,32 @@ Implement ESS first when requested; design against Leadshine iEM-RS without
 claiming it is implemented or qualified. Preserve the original downloaded
 references. The repository directory remains `ESS23-RS`.
 
+## Delivery workflow
+
+The user requests a commit and sync after each prompt or completed logical
+block. Validate the block, commit the task-owned changes, and push to the
+configured upstream before declaring it finished. Fetch/check the remote
+state, preserve unrelated work, and resolve ordinary synchronization issues
+without rewriting published history. Report a real push/authentication
+failure rather than claiming the work is synced. Do not make empty commits
+for read-only replies or unfinished intermediate edits. The root agent owns
+staging/committing shared work when subagents are used.
+
+## Backlog and available bench
+
+Maintain [the implementation backlog](docs/backlog.md) as features, open
+questions and verification work are resolved. Mark implementation and
+hardware evidence independently; a documented contract is not completed code.
+
+The user has authorized future communication and motion testing on the motor
+bench described in [hardware bench notes](docs/hardware_bench.md). As reported
+on 2026-10-02, COM13 connects to a board running CO2control firmware with the
+motor on its RS485 bus. The motor has a green indicator, was left at defaults,
+is bolted to the table, and has a free shaft. This authorization persists for
+that setup; routine tests within it do not need repeated permission. Inspect
+the current port/firmware and actual settings when testing becomes relevant.
+This is recorded availability, not a claim that communication has been tested.
+
 ## Read before implementing
 
 1. `README.md` and `docs/README.md`.
@@ -17,6 +43,9 @@ references. The repository directory remains `ESS23-RS`.
    `docs/profile_contract.md`, `docs/cli_contract.md`, and
    `docs/reference/02_ecosystem_review.md` for the inspected sibling contracts
    and intentional ESS choices.
+   Read `docs/discovery_contract.md` for non-changing probes/discovery,
+   `docs/backlog.md` for remaining work, and `docs/hardware_bench.md` before
+   live tests.
 3. `docs/reference/00_document_inventory.md` and `sources.json`.
 4. `docs/reference/01_implementation_reference.md`.
 5. The original vendor function and hardware manuals in `docs/vendor/`.
@@ -81,6 +110,13 @@ differences instead of guessing. No hardware behavior has been validated yet.
   Common and native CLI commands call the same public API available to upper
   firmware. Equivalent Arduino/ESP-IDF builds share command semantics and
   profile coverage; platform adapters own I/O.
+- Each drive profile must account for discovery and an optional minimal,
+  non-changing presence probe. `probe`/`ping` use `prepareProbe`; full identity
+  reads remain separate. Manufacturer filtering selects reviewed profiles,
+  not a universal manufacturer command. Unsupported probes return clearly
+  before TX; discovery never guesses writes, clears read-to-clear state, or
+  treats an ambiguous responder as a confirmed model. Applications own bounded
+  scans and bus scheduling; see the discovery contract.
 - Future FieldCore integration belongs in its device module and existing bus
   owner. Its current FC06 echo stripping, eight-byte TX capacity and
   measurement-only contracts need review before claiming motor compatibility.

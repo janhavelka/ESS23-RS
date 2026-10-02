@@ -1,0 +1,162 @@
+# Features implementation tasks and open questions
+
+This is the working backlog for `RS485Motion`. The three-layer architecture
+is accepted; implementation has not started. Checked design decisions below
+are documentation milestones, not claims of implemented API or hardware
+support. Keep this list current after each completed logical block, and commit
+and sync that block under [the repository guidance](../AGENTS.md).
+
+## Accepted design
+
+- [x] General framework-independent common axis API, drive profiles and
+  application integration; ESS first, Leadshine iEM-RS as the design contrast.
+- [x] Stateless bounded codecs and optional caller-owned finite sequencing;
+  application-owned transport, timing, scheduling, retry policy and health.
+- [x] Common step/count/angle/travel modes with explicit units, gearing,
+  origin, rounding, limits and multi-turn versus wrapped-angle semantics.
+- [x] Complete documented native command access per supported model/protocol/
+  firmware, with typed extensions and API/CLI parity.
+- [x] Separate acknowledgement, completion, uncertain execution, device state
+  and communication/readiness/freshness health.
+- [x] Interruptible stop with explicit deceleration/queue behavior; unsupported
+  operations fail before transmission.
+- [x] Discovery and minimal non-changing probe requirements for every drive
+  profile/manufacturer grouping, with explicit capability/evidence gaps.
+- [x] Record COM13 bench availability, free-shaft mounting and testing
+  authorization in [hardware bench notes](hardware_bench.md).
+
+The authoritative contracts are [architecture](architecture.md),
+[axis API](axis_contract.md), [profiles](profile_contract.md),
+[discovery](discovery_contract.md) and [CLI](cli_contract.md).
+
+## ESS source and profile work
+
+- [ ] Expand the ESS source inventory into the complete per-register/command/
+  bitfield/indexed-record coverage ledger defined by the profile contract.
+- [ ] Resolve or explicitly retain every ambiguity in the
+  [implementation reference](reference/01_implementation_reference.md), using
+  original PDF pages and later exact-model readback.
+- [ ] Establish read/write windows and counts, widths, signedness, ranges,
+  paired-word order, reserved bits and exception semantics.
+- [ ] Establish command/feedback/encoder units, speed and ramp scaling,
+  host-origin mapping and configuration dependencies.
+- [ ] Define typed ESS identity, telemetry, motion, homing, stop, auxiliary,
+  I/O, segment, limits, tuning, communications and persistence operations.
+- [ ] Preserve external-input-only segment execution and model-specific I/O
+  counts; expose available serial configuration without fictional triggers.
+- [ ] Map common operations to ESS with exact prerequisites, completion
+  evidence, read side effects, partial-write outcomes and replay rules.
+- [ ] Complete the Leadshine design comparison before fixing common API
+  signatures; implementation/hardware qualification remain separate work.
+
+## Common API and desired modes
+
+- [ ] Implement capability/configuration inspection and exact native value
+  preservation, with structured unsupported/unresolved/unimplemented reasons.
+- [ ] Implement absolute/relative moves in command steps, full steps and
+  identified encoder counts where mappings exist.
+- [ ] Implement turns, degrees and radians: unwrapped multi-turn positioning
+  and wrapped orientations with direction and half-turn tie policy.
+- [ ] Implement configured linear travel, initially mm, and corresponding
+  velocity/acceleration conversions with rational scale/gear/lead values.
+- [ ] Implement conversion provenance, precision/rounding reports, overflow,
+  effective-target/path limits and reference/configuration generations.
+- [ ] Implement velocity/jog, explicit ramps and profile keepalive deadlines;
+  optional torque/current modes only where the profile supports them.
+- [ ] Implement enable/release, homing methods, host-origin changes, documented
+  device-counter changes, alarm clear and state observations.
+- [ ] Implement caller-owned contexts, operation correlation, retained
+  uncertain outcomes, stop preemption and explicit queue disposition.
+- [ ] Preserve per-field actual/commanded, valid/unknown/stale and raw/native
+  evidence; keep application health and clock ownership outside the core.
+
+## Discovery and minimal probes
+
+- [ ] Record discovery/probe/identity support for every supported profile and
+  manufacturer group, including explicit unsupported or unresolved entries.
+- [ ] Select the smallest documented non-changing ESS query; verify access,
+  side effects, response checking and expected timing before live use.
+- [ ] Design the contrasting Leadshine query with the same requirements;
+  do not consume its read-to-clear status as a generic presence probe.
+- [ ] Implement `getDiscoveryCapabilities`, `prepareProbe` and structured
+  responsiveness/identity/ambiguity results separately from full identity reads.
+- [ ] Implement application-owned bounded address/baud/format discovery with
+  profile/manufacturer filters, limits, cancellation and partial results.
+- [ ] Validate compatible query candidate sets; never assume safe automatic
+  protocol mixing or infer a manufacturer from a valid CRC alone.
+- [ ] Preserve host settings/selection and restore them after scans; expose
+  restoration failure, collisions and unresolved matches.
+- [ ] Add CLI catalog, quick `probe`/`ping`, explicit `read identity` and
+  `discover` using the same public API as upper firmware.
+- [ ] Qualify latency and non-changing behavior per exact model/firmware;
+  retain one-attempt quick probing and explicit bounded scan retry policies.
+
+## Standalone examples packaging and integration
+
+- [ ] Add real public headers/source, native tests and package/version/build
+  metadata together when implementation is requested; no placeholder APIs.
+- [ ] Implement common CLI inventory/dispatch and full native command coverage
+  through public APIs, cached status/health and retained operation results.
+- [ ] Implement example-owned transport with DE/RE, TX drain, RTU framing,
+  local-echo policy, exact reply lengths and bounded recovery.
+- [ ] Build standalone ESP32-S2/S3 Arduino consumers and a first-class native
+  ESP-IDF consumer with equivalent command semantics for equivalent features.
+- [ ] Verify framework-free native consumption, self-contained headers and
+  clean packaged consumers; exclude vendor downloads from source packages.
+- [ ] Add later FieldCore adapter work in that repository: typed motor control,
+  FC06 echo handling, larger TX frames, exception framing, exact integers,
+  scheduling and stop priority. Standalone work must not depend on this step.
+
+## Verification and COM13 bench work
+
+- [ ] Inspect COM13's current CO2control firmware and available console/bridge;
+  establish actual board, pins, direction control and serial settings.
+- [ ] Run the first minimal probe/identity read and record raw frames/timing,
+  echo behavior, actual motor identity and communication configuration.
+- [ ] Validate codec golden frames and malformed inputs with unchanged payload
+  outputs on errors; test exception/echo/word-order/count boundaries.
+- [ ] Validate conversion, angular-path, capability, sequencing and interruption
+  behavior independently of hardware; exercise failure/timeout events.
+- [ ] Qualify small moves in steps/angle/travel, velocity, homing where available,
+  enable/release, stopping, limits and stale/reference handling on the bench.
+- [ ] Qualify native I/O/segment configuration, tuning and persistence commands
+  as applicable, recording the before/after active and saved configuration.
+- [ ] Exercise lost acknowledgements, partial setup, late replies, cancellation,
+  power/reconnect and communication changes without accidental motion replay.
+- [ ] Record exact hardware/firmware/build/settings and distinguish software
+  test success, protocol observations and physical motion outcomes.
+
+## Open questions
+
+Resolve from references, existing firmware and bench observations where
+possible. This list is not a request for the user to answer everything now.
+
+| Question | Evidence or next action |
+| --- | --- |
+| What motor/model/firmware is actually connected? | Read documented identity; compare model markings if identity is insufficient. The project's RS20 target is not a bench measurement. |
+| Is COM13 a console, a usable RS485 bridge, or a board needing test firmware? | Inspect CO2control source/configuration and current interface before sending motor bytes. |
+| What are the board pins, DE/RE polarity, echo topology and bus wiring? | Establish from firmware and bench; record in the hardware note. |
+| Which address/baud/format is active despite reported defaults? | Reviewed bounded discovery/readback; defaults and console settings remain separate. |
+| Which ESS read is the minimal non-changing probe? | Resolve from the original identity/status access table and qualify with firmware; do not assume Modbus supplies a universal ping. |
+| Can discovery distinguish a manufacturer/model or only a responder? | Record exact reply evidence and retain ambiguous candidates; no guessed selection. |
+| Which candidate protocols can be probed on the same bus? | Review query effects for the actual attached families; use an isolated target when compatibility is unknown. |
+| What are the actual ESS command/feedback subdivisions and signed limits? | Resolve p69-70 inconsistencies with configuration readback and measured movement. |
+| What are the speed/ramp units and valid ranges? | Reconcile command prose and ESS appendix before physical-unit conversion. |
+| What are the exact FC10 limits and partial-write effects? | Vendor evidence plus bounded firmware qualification; do not use generic maximums as device facts. |
+| Which state/alarm/completion reads are non-consuming and correlated to a new operation? | Profile access ledger and controlled sequencing tests. |
+| What persists, applies immediately, waits for save or needs a power cycle? | Resolve access notation and test exact firmware; retain unknown application state after lost writes. |
+| How do collision-homing duplicate parameters and outside-map references apply? | Reconcile original pages/model scope; no guessed aliases or addresses. |
+| What happens on communication loss, release, restart and external shaft motion? | Qualify per profile; update stop/reference/keepalive contracts with observations. |
+| Which Leadshine model/firmware and hardware will qualify the contrast? | Select a concrete target before advertising support; current comparison is documentary. |
+
+## Later extensions
+
+- [ ] Qualify additional explicit families from the
+  [manufacturer review](reference/03_multi_vendor_feasibility.md), with full
+  native coverage and their own discovery/probe evidence.
+- [ ] Add non-Modbus framing only for a concrete profile, preserving common
+  API semantics and independently reviewing shared-bus compatibility.
+- [ ] Consider blending, online target updates, queued paths and advanced
+  ramps as declared capabilities rather than silent approximations.
+- [ ] Treat coordinated multi-axis timing/trajectories as a separate design
+  with explicit bus and device guarantees.

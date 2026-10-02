@@ -14,6 +14,10 @@ No motor behavior has been qualified on hardware.
 The [axis contract](axis_contract.md) defines common operations and units;
 the [profile contract](profile_contract.md) defines native command coverage;
 the [CLI contract](cli_contract.md) maps both into the standalone console.
+The [discovery contract](discovery_contract.md) defines minimal non-changing
+probes and bounded per-profile/manufacturer scans. Work and remaining questions
+are tracked in [the backlog](backlog.md); available test hardware is recorded
+in [the bench note](hardware_bench.md).
 The [ecosystem review](reference/02_ecosystem_review.md) records sibling
 conventions, and the [manufacturer review](reference/03_multi_vendor_feasibility.md)
 supports the chosen abstraction. Device facts and unresolved register
@@ -376,8 +380,12 @@ topology: FC06 acknowledgements are byte-identical to requests, so stripping
 all matching received frames loses valid acknowledgements; accepting local
 echo as an acknowledgement can falsely report success.
 
-Startup configures the host and offers read-only identity/status checks.
-It performs no automatic enable, movement, alarm clear, homing, save, restore
+Startup configures the host and offers explicit non-changing probes and
+identity/status checks. Applications own bounded discovery using profile
+metadata and prepared queries. Manufacturer grouping does not supply a
+universal detection command; ambiguous matches and unsupported probes stay
+explicit. A successful probe does not refresh position, alarms or readiness.
+Startup performs no automatic enable, movement, alarm clear, homing, save, restore
 or device communication change. Persistence, if added, stores explicitly
 selected host settings only and never replays commands after boot.
 
