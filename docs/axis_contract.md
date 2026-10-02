@@ -1,8 +1,11 @@
 # Common axis API contract
 
 This is the accepted design for the common axis layer of `RS485Motion`.
-It defines callable library behavior for applications and consoles; no API
-headers, implementation or hardware support are supplied by this document.
+It defines the intended callable library behavior for applications and consoles.
+`Units.h` currently implements pure displacement, velocity and acceleration
+conversion with independent unit preferences; origins, target quantization,
+motion limits and operation preparation below remain future work. See
+[encoder and units evidence](reference/06_encoder_units.md) for the initial API.
 The [architecture](architecture.md) defines the three layers and ownership,
 the [profile contract](profile_contract.md) defines complete family access,
 and the [CLI contract](cli_contract.md) maps commands to these same operations.

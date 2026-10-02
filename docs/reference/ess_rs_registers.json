@@ -1,0 +1,3803 @@
+{
+  "schema_version": 1,
+  "scope": "ESS-RS Appendix2 source catalogue; no operational command support or hardware qualification",
+  "sources": {
+    "function_manual": {
+      "path": "docs/vendor/Modbus-Series-Bus-Product-Function-Manual-V1.0_1_.pdf",
+      "sha256": "0ca2d7f6b69404ead3ba9af982076c54f86eb16b1c24ba237f344aac079b81eb",
+      "revision": "V1.0",
+      "visually_reviewed_physical_pages": [
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30,
+        32,
+        33,
+        34,
+        35,
+        36,
+        37,
+        38,
+        39,
+        40,
+        41,
+        42,
+        43,
+        44,
+        45,
+        46,
+        47,
+        48,
+        49,
+        50,
+        51,
+        52,
+        53,
+        54,
+        55,
+        56,
+        57,
+        58,
+        59,
+        60,
+        61,
+        62,
+        63,
+        64,
+        65,
+        66,
+        67,
+        68,
+        69,
+        70,
+        71,
+        72,
+        73,
+        74,
+        75,
+        76,
+        77,
+        78,
+        79
+      ]
+    },
+    "hardware_manual": {
+      "path": "docs/vendor/ESS23-RS1020_Series_Bus_Integrated_Motor_Hardware_Manual.pdf",
+      "sha256": "44a16a4e164e8434702bf6f0e3f14e446c732d997111d189202fb627c961dfa0",
+      "revision": "V1.0 2025-04-15",
+      "visually_reviewed_physical_pages": [
+        3,
+        8,
+        11,
+        12
+      ]
+    }
+  },
+  "qualification": {
+    "models": [
+      "ESS23-RS20",
+      "ESS23-RS10"
+    ],
+    "firmware": "unverified; model scope comes from vendor-linked hardware manual",
+    "hardware": "not tested",
+    "operational_api": "not implemented",
+    "cli": "not implemented",
+    "catalogue": "implemented source metadata only"
+  },
+  "global_notes": [
+    "Every register is 16 bits; paired records occupy two successive registers. Width does not settle signed encoding or range.",
+    "Source RW/S notation is preserved; no automatic persistence or save semantics inferred. RW persistence likewise unspecified.",
+    "All source defaults are metadata, not detected current values or library initialization writes.",
+    "Undocumented address holes are not labelled reserved: only the 16 position-segment reserved words are explicitly reserved.",
+    "Signed semantic values do not establish negative wire encoding. No setters/value acceptance functions are supplied.",
+    "Source catalogue completeness is independent from resolved semantics, implemented operations and hardware qualification.",
+    "Source text spacing is normalized for readability; contradictory numeric values and malformed ranges are retained and labelled."
+  ],
+  "registers": [
+    {
+      "address": "0x0000",
+      "name": "DRIVER_MODEL",
+      "pages": [
+        68
+      ],
+      "source_access": "RO",
+      "unit": "model code",
+      "source_range": "unspecified",
+      "source_default": "0x0305",
+      "words": 1,
+      "signedness": "UNSIGNED",
+      "word_order": "SINGLE_REGISTER",
+      "issues": [],
+      "notes": "A table default/model code is not proof of the attached model.",
+      "choices": null
+    },
+    {
+      "address": "0x0001",
+      "name": "DRIVER_VERSION",
+      "pages": [
+        68
+      ],
+      "source_access": "RO",
+      "unit": "version code",
+      "source_range": "unspecified",
+      "source_default": "0x0100",
+      "words": 1,
+      "signedness": "UNSIGNED",
+      "word_order": "SINGLE_REGISTER",
+      "issues": [],
+      "notes": "Source prints 0x010 0; no firmware compatibility inferred.",
+      "choices": null
+    },
+    {
+      "address": "0x0002",
+      "name": "ACTIVE_NODE",
+      "pages": [
+        68
+      ],
+      "source_access": "RO",
+      "unit": "slave address",
+      "source_range": "unspecified",
+      "source_default": "unspecified",
+      "words": 1,
+      "signedness": "UNSIGNED",
+      "word_order": "SINGLE_REGISTER",
+      "issues": [],
+      "notes": "Current active communication node; distinct from custom/staged node.",
+      "choices": null
+    },
+    {
+      "address": "0x0003",
+      "name": "DIP_STATUS",
+      "pages": [
+        68
+      ],
+      "source_access": "RO",
+      "unit": "bitfield",
+      "source_range": "unspecified",
+      "source_default": "unspecified",
+      "words": 1,
+      "signedness": "BITFIELD",
+      "word_order": "SINGLE_REGISTER",
+      "issues": [
+        "MODEL_APPLICABILITY"
+      ],
+      "notes": "Source describes SW1-SW7 in bits 0-6; ESS23 hardware has SW1-SW5. Preserve raw bits; mapping unqualified.",
+      "choices": "DipStatusBit"
+    },
+    {
+      "address": "0x0006",
+      "name": "ERROR_CODE",
+      "pages": [
+        68
+      ],
+      "source_access": "RO",
+      "unit": "alarm code",
+      "source_range": "0: normal; 1-5: error",
+      "source_default": "unspecified",
+      "words": 1,
+      "signedness": "ENUMERATED",
+      "word_order": "SINGLE_REGISTER",
+      "issues": [
+        "MODEL_APPLICABILITY"
+      ],
+      "notes": "Hardware p12 labels only 1, 2, 3, 5; code 4 remains unnamed. Preserve unknown codes.",
+      "choices": "AlarmCode"
+    },
+    {
+      "address": "0x0007",
+      "name": "MOTION_STATUS",
+      "pages": [
+        68
+      ],
+      "source_access": "RO",
+      "unit": "bitfield",
+      "source_range": "unspecified",
+      "source_default": "unspecified",
+      "words": 1,
+      "signedness": "BITFIELD",
+      "word_order": "SINGLE_REGISTER",
+      "issues": [],
+      "notes": "Bit 4 set means released, clear means enabled. Bits 7-15 undocumented; retain raw values.",
+      "choices": "MotionStatusBit"
+    },
+    {
+      "address": "0x0008",
+      "name": "INPUT_STATUS",
+      "pages": [
+        68,
+        69
+      ],
+      "source_access": "RO",
+      "unit": "bitfield",
+      "source_range": "unspecified",
+      "source_default": "unspecified",
+      "words": 1,
+      "signedness": "BITFIELD",
+      "word_order": "SINGLE_REGISTER",
+      "issues": [],
+      "notes": "X0-X3 bits 0-3, bits 4-15 reserved; 0 invalid, 1 valid.",
+      "choices": "InputBit"
+    },
+    {
+      "address": "0x0009",
+      "name": "OUTPUT_STATUS",
+      "pages": [
+        69
+      ],
+      "source_access": "RO",
+      "unit": "bitfield",
+      "source_range": "unspecified",
+      "source_default": "unspecified",
+      "words": 1,
+      "signedness": "BITFIELD",
+      "word_order": "SINGLE_REGISTER",
+      "issues": [],
+      "notes": "Y0-Y1 bits 0-1, bits 2-15 reserved; 0 invalid, 1 valid.",
+      "choices": "OutputBit"
+    },
+    {
+      "address": "0x000A",
+      "name": "CURRENT_POSITION",
+      "pages": [
+        69,
+        30
+      ],
+      "source_access": "RO",
+      "unit": "subdivision equivalent",
+      "source_range": "unspecified",
+      "source_default": "unspecified",
+      "words": 2,
+      "signedness": "UNRESOLVED",
+      "word_order": "CONFIGURABLE",
+      "issues": [
+        "SIGNED_ENCODING_UNRESOLVED",
+        "SCALE_UNRESOLVED"
+      ],
+      "notes": "Open-loop commanded position; closed-loop encoder feedback in subdivision equivalents. Signedness is not specified here.",
+      "choices": null
+    },
+    {
+      "address": "0x000C",
+      "name": "CURRENT_SPEED",
+      "pages": [
+        69
+      ],
+      "source_access": "RO",
+      "unit": "unspecified",
+      "source_range": "unspecified",
+      "source_default": "unspecified",
+      "words": 1,
+      "signedness": "UNRESOLVED",
+      "word_order": "SINGLE_REGISTER",
+      "issues": [
+        "UNIT_UNSPECIFIED",
+        "SIGNED_ENCODING_UNRESOLVED"
+      ],
+      "notes": "Current running speed; this row supplies no unit, range or signed encoding.",
+      "choices": null
+    },
+    {
+      "address": "0x0010",
+      "name": "DEFAULT_DIRECTION",
+      "pages": [
+        69
+      ],
+      "source_access": "RW",
+      "unit": "unspecified",
+      "source_range": "0-1",
+      "source_default": "0",
+      "words": 1,
+      "signedness": "ENUMERATED",
+      "word_order": "SINGLE_REGISTER",
+      "issues": [],
+      "notes": "",
+      "choices": "DefaultDirection"
+    },
+    {
+      "address": "0x0011",
+      "name": "SUBDIVISION",
+      "pages": [
+        69
+      ],
+      "source_access": "RW",
+      "unit": "subdivision setting",
+      "source_range": "400-51200",
+      "source_default": "1000",
+      "words": 1,
+      "signedness": "UNSIGNED",
+      "word_order": "SINGLE_REGISTER",
+      "issues": [
+        "SCALE_UNRESOLVED"
+      ],
+      "notes": "Source calls this Segment settings; mechanical/command/encoder relation needs resolution before engineering-unit conversion.",
+      "choices": null
+    },
+    {
+      "address": "0x0013",
+      "name": "CUSTOM_NODE",
+      "pages": [
+        69
+      ],
+      "source_access": "RW",
+      "unit": "slave address",
+      "source_range": "0-255",
+      "source_default": "0",
+      "words": 1,
+      "signedness": "UNSIGNED",
+      "word_order": "SINGLE_REGISTER",
+      "issues": [
+        "MODEL_APPLICABILITY"
+      ],
+      "notes": "Effective when address DIP switches are OFF. Hardware reserves 0; library unicast policy 1-247 is separate from source range.",
+      "choices": null
+    },
+    {
+      "address": "0x0014",
+      "name": "BAUD_RATE",
+      "pages": [
+        69
+      ],
+      "source_access": "RW",
+      "unit": "unspecified",
+      "source_range": "0-3",
+      "source_default": "0",
+      "words": 1,
+      "signedness": "ENUMERATED",
+      "word_order": "SINGLE_REGISTER",
+      "issues": [],
+      "notes": "Requires power cycle after modification.",
+      "choices": "BaudRateCode"
+    },
+    {
+      "address": "0x0015",
+      "name": "SERIAL_FORMAT",
+      "pages": [
+        69
+      ],
+      "source_access": "RW",
+      "unit": "unspecified",
+      "source_range": "0-3",
+      "source_default": "0",
+      "words": 1,
+      "signedness": "ENUMERATED",
+      "word_order": "SINGLE_REGISTER",
+      "issues": [],
+      "notes": "Requires power cycle after modification.",
+      "choices": "SerialFormatCode"
+    },
+    {
+      "address": "0x0017",
+      "name": "OVER_LIMIT_STOP",
+      "pages": [
+        70
+      ],
+      "source_access": "RW",
+      "unit": "unspecified",
+      "source_range": "0-1",
+      "source_default": "0",
+      "words": 1,
+      "signedness": "ENUMERATED",
+      "word_order": "SINGLE_REGISTER",
+      "issues": [
+        "SEMANTICS_UNRESOLVED"
+      ],
+      "notes": "Value 0 described only as free parking; do not assume controlled deceleration or release.",
+      "choices": "OverLimitStop"
+    },
+    {
+      "address": "0x0018",
+      "name": "SOFT_LIMIT_ENABLE",
+      "pages": [
+        70,
+        28,
+        29
+      ],
+      "source_access": "RW",
+      "unit": "unspecified",
+      "source_range": "0-1",
+      "source_default": "0",
+      "words": 1,
+      "signedness": "ENUMERATED",
+      "word_order": "SINGLE_REGISTER",
+      "issues": [
+        "SOURCE_CONFLICT"
+      ],
+      "notes": "Enabled limits take effect only after homing. Prose p28 says 0x0019; table p29 and appendix say 0x0018.",
+      "choices": "SoftLimitEnable"
+    },
+    {
+      "address": "0x0019",
+      "name": "WORD_ORDER",
+      "pages": [
+        70,
+        30
+      ],
+      "source_access": "RW",
+      "unit": "unspecified",
+      "source_range": "0-1",
+      "source_default": "0",
+      "words": 1,
+      "signedness": "ENUMERATED",
+      "word_order": "SINGLE_REGISTER",
+      "issues": [],
+      "notes": "Order of paired 16-bit words, not byte order within a Modbus register.",
+      "choices": "WordOrder"
+    },
+    {
+      "address": "0x001D",
+      "name": "JOG_SPEED",
+      "pages": [
+        70,
+        17,
+        18,
+        19
+      ],
+      "source_access": "RW",
+      "unit": "r/min (documented)",
+      "source_range": "-3000 -3000 r/min (as printed)",
+      "source_default": "120 (5 r/min)",
+      "words": 1,
+      "signedness": "SIGNED_ENCODING_UNRESOLVED",
+      "word_order": "SINGLE_REGISTER",
+      "issues": [
+        "RANGE_MALFORMED",
+        "DEFAULT_CONFLICT",
+        "SIGNED_ENCODING_UNRESOLVED",
+        "SCALE_UNRESOLVED"
+      ],
+      "notes": "Serial speed mode uses this signed speed. External JOG+/JOG- force direction independently of sign. No refresh watchdog specified.",
+      "choices": null
+    },
+    {
+      "address": "0x001E",
+      "name": "JOG_ACCELERATION_TIME",
+      "pages": [
+        70,
+        17
+      ],
+      "source_access": "RW",
+      "unit": "ms (documented)",
+      "source_range": "0-2000 ms",
+      "source_default": "50 (100 ms)",
+      "words": 1,
+      "signedness": "UNSIGNED",
+      "word_order": "SINGLE_REGISTER",
+      "issues": [
+        "DEFAULT_CONFLICT",
+        "SCALE_UNRESOLVED"
+      ],
+      "notes": "Conflicting default annotation retained; no factor-of-two scaling inferred.",
+      "choices": null
+    },
+    {
+      "address": "0x001F",
+      "name": "JOG_DECELERATION_TIME",
+      "pages": [
+        70,
+        17
+      ],
+      "source_access": "RW",
+      "unit": "ms (documented)",
+      "source_range": "0-2000 ms",
+      "source_default": "50 (100 ms)",
+      "words": 1,
+      "signedness": "UNSIGNED",
+      "word_order": "SINGLE_REGISTER",
+      "issues": [
+        "DEFAULT_CONFLICT",
+        "SCALE_UNRESOLVED"
+      ],
+      "notes": "Conflicting default annotation retained; no factor-of-two scaling inferred.",
+      "choices": null
+    },
+    {
+      "address": "0x0020",
+      "name": "POSITION_START_SPEED",
+      "pages": [
+        70
+      ],
+      "source_access": "RW",
+      "unit": "r/min (documented)",
+      "source_range": "0-3000 r/min",
+      "source_default": "30 (60 r/min)",
+      "words": 1,
+      "signedness": "UNSIGNED",
+      "word_order": "SINGLE_REGISTER",
+      "issues": [
+        "DEFAULT_CONFLICT",
+        "SCALE_UNRESOLVED"
+      ],
+      "notes": "",
+      "choices": null
+    },
+    {
+      "address": "0x0021",
+      "name": "POSITION_ACCELERATION_TIME",
+      "pages": [
+        70,
+        15
+      ],
+      "source_access": "RW",
+      "unit": "ms (documented)",
+      "source_range": "0-2000 ms",
+      "source_default": "50 (100 ms)",
+      "words": 1,
+      "signedness": "UNSIGNED",
+      "word_order": "SINGLE_REGISTER",
+      "issues": [
+        "DEFAULT_CONFLICT",
+        "SCALE_UNRESOLVED"
+      ],
+      "notes": "Conflicting default annotation retained; no factor-of-two scaling inferred.",
+      "choices": null
+    },
+    {
+      "address": "0x0022",
+      "name": "POSITION_DECELERATION_TIME",
+      "pages": [
+        70,
+        15
+      ],
+      "source_access": "RW",
+      "unit": "ms (documented)",
+      "source_range": "0-2000 ms",
+      "source_default": "50 (100 ms)",
+      "words": 1,
+      "signedness": "UNSIGNED",
+      "word_order": "SINGLE_REGISTER",
+      "issues": [
+        "DEFAULT_CONFLICT",
+        "SCALE_UNRESOLVED"
+      ],
+      "notes": "Conflicting default annotation retained; no factor-of-two scaling inferred.",
+      "choices": null
+    },
+    {
+      "address": "0x0023",
+      "name": "POSITION_SPEED",
+      "pages": [
+        70,
+        15
+      ],
+      "source_access": "RW",
+      "unit": "r/min (documented)",
+      "source_range": "0-3000 r/min",
+      "source_default": "60 (60 r/min)",
+      "words": 1,
+      "signedness": "UNSIGNED",
+      "word_order": "SINGLE_REGISTER",
+      "issues": [],
+      "notes": "",
+      "choices": null
+    },
+    {
+      "address": "0x0024",
+      "name": "POSITION_PULSES",
+      "pages": [
+        70,
+        14,
+        16,
+        30
+      ],
+      "source_access": "RW",
+      "unit": "pulse",
+      "source_range": "-0xFFFFFFF to 0xFFFFFFFF (as printed)",
+      "source_default": "5000 (combined pair)",
+      "words": 2,
+      "signedness": "SIGNED_ENCODING_UNRESOLVED",
+      "word_order": "CONFIGURABLE",
+      "issues": [
+        "RANGE_MALFORMED",
+        "SIGNED_ENCODING_UNRESOLVED",
+        "SCALE_UNRESOLVED"
+      ],
+      "notes": "Positive/negative direction documented; two-register width documented; full signed range/negative encoding unresolved.",
+      "choices": null
+    },
+    {
+      "address": "0x0027",
+      "name": "MOTION_COMMAND",
+      "pages": [
+        70,
+        71,
+        13,
+        14,
+        16,
+        18,
+        19,
+        25
+      ],
+      "source_access": "WO",
+      "unit": "bitfield",
+      "source_range": "0-65535",
+      "source_default": "-",
+      "words": 1,
+      "signedness": "BITFIELD",
+      "word_order": "SINGLE_REGISTER",
+      "issues": [
+        "SEMANTICS_UNRESOLVED",
+        "SOURCE_CONFLICT"
+      ],
+      "notes": "Only named bits are catalogued, no arbitrary combinations validated. Bit 3 interrupt applies only positioning per p16. p25 stop table text contradicts labels/examples; stop examples confirm bits 8/9.",
+      "choices": "MotionCommandBit"
+    },
+    {
+      "address": "0x002D",
+      "name": "AUXILIARY_COMMAND",
+      "pages": [
+        71,
+        26
+      ],
+      "source_access": "WO",
+      "unit": "opcode",
+      "source_range": "0-65535",
+      "source_default": "-",
+      "words": 1,
+      "signedness": "ENUMERATED",
+      "word_order": "SINGLE_REGISTER",
+      "issues": [],
+      "notes": "Save/factory restore ignored unless stopped. Clear-alarm only applies resettable alarms. No generic reboot opcode.",
+      "choices": "AuxiliaryCommand"
+    },
+    {
+      "address": "0x0030",
+      "name": "HOMING_AUXILIARY",
+      "pages": [
+        72
+      ],
+      "source_access": "RW",
+      "unit": "unspecified",
+      "source_range": "0-11",
+      "source_default": "0",
+      "words": 1,
+      "signedness": "ENUMERATED",
+      "word_order": "SINGLE_REGISTER",
+      "issues": [],
+      "notes": "",
+      "choices": "HomingAuxiliary"
+    },
+    {
+      "address": "0x0031",
+      "name": "HOMING_METHOD",
+      "pages": [
+        72,
+        19
+      ],
+      "source_access": "RW",
+      "unit": "unspecified",
+      "source_range": "0-65535; listed choices: -1 through -4, 1-14, 17-30, 33-35",
+      "source_default": "24 (printed twenty four)",
+      "words": 1,
+      "signedness": "SIGNED_ENCODING_UNRESOLVED",
+      "word_order": "SINGLE_REGISTER",
+      "issues": [
+        "SIGNED_ENCODING_UNRESOLVED",
+        "SOURCE_CONFLICT"
+      ],
+      "notes": "Negative collision modes appear only in ESS appendix, absent from positive-method diagrams/prose. Negative wire encoding is unresolved.",
+      "choices": "HomingMethod"
+    },
+    {
+      "address": "0x0032",
+      "name": "HOMING_SPEED",
+      "pages": [
+        72,
+        19,
+        20
+      ],
+      "source_access": "RW",
+      "unit": "r/min (documented)",
+      "source_range": "5-3000 r/min",
+      "source_default": "120 (60 r/min)",
+      "words": 1,
+      "signedness": "UNSIGNED",
+      "word_order": "SINGLE_REGISTER",
+      "issues": [
+        "DEFAULT_CONFLICT",
+        "SCALE_UNRESOLVED"
+      ],
+      "notes": "",
+      "choices": null
+    },
+    {
+      "address": "0x0033",
+      "name": "HOMING_QUERY_SPEED",
+      "pages": [
+        73,
+        19,
+        20
+      ],
+      "source_access": "RW",
+      "unit": "r/min (documented)",
+      "source_range": "5-300 r/min",
+      "source_default": "60 (60 r/min)",
+      "words": 1,
+      "signedness": "UNSIGNED",
+      "word_order": "SINGLE_REGISTER",
+      "issues": [],
+      "notes": "",
+      "choices": null
+    },
+    {
+      "address": "0x0034",
+      "name": "HOMING_RAMP_TIME",
+      "pages": [
+        73,
+        19,
+        20
+      ],
+      "source_access": "RW",
+      "unit": "ms (documented)",
+      "source_range": "30-2000 ms",
+      "source_default": "50 (100 ms)",
+      "words": 1,
+      "signedness": "UNSIGNED",
+      "word_order": "SINGLE_REGISTER",
+      "issues": [
+        "DEFAULT_CONFLICT",
+        "SCALE_UNRESOLVED"
+      ],
+      "notes": "",
+      "choices": null
+    },
+    {
+      "address": "0x0035",
+      "name": "HOMING_OFFSET",
+      "pages": [
+        73,
+        19,
+        30
+      ],
+      "source_access": "RW",
+      "unit": "native position; scale unresolved",
+      "source_range": "-0xFFFFFFF to 0xFFFFFFF",
+      "source_default": "0 (combined pair)",
+      "words": 2,
+      "signedness": "SIGNED_ENCODING_UNRESOLVED",
+      "word_order": "UNRESOLVED",
+      "issues": [
+        "SIGNED_ENCODING_UNRESOLVED",
+        "SCALE_UNRESOLVED",
+        "WORD_ORDER_UNRESOLVED"
+      ],
+      "notes": "High/low pair documented; omitted from p30 list of configurable-order pairs. Do not silently assume applies.",
+      "choices": null
+    },
+    {
+      "address": "0x0037",
+      "name": "POSITIVE_SOFT_LIMIT",
+      "pages": [
+        73,
+        29,
+        30
+      ],
+      "source_access": "RW",
+      "unit": "native position; scale unresolved",
+      "source_range": "-0xFFFFFFF to 0xFFFFFFF",
+      "source_default": "0 (combined pair)",
+      "words": 2,
+      "signedness": "SIGNED_ENCODING_UNRESOLVED",
+      "word_order": "CONFIGURABLE",
+      "issues": [
+        "SIGNED_ENCODING_UNRESOLVED",
+        "SCALE_UNRESOLVED"
+      ],
+      "notes": "Limit applies only after homing completes.",
+      "choices": null
+    },
+    {
+      "address": "0x0039",
+      "name": "NEGATIVE_SOFT_LIMIT",
+      "pages": [
+        73,
+        29,
+        30
+      ],
+      "source_access": "RW",
+      "unit": "native position; scale unresolved",
+      "source_range": "-0xFFFFFFF to 0xFFFFFFF",
+      "source_default": "0 (combined pair)",
+      "words": 2,
+      "signedness": "SIGNED_ENCODING_UNRESOLVED",
+      "word_order": "CONFIGURABLE",
+      "issues": [
+        "SIGNED_ENCODING_UNRESOLVED",
+        "SCALE_UNRESOLVED"
+      ],
+      "notes": "Limit applies only after homing completes.",
+      "choices": null
+    },
+    {
+      "address": "0x003B",
+      "name": "COLLISION_THRESHOLD_003B",
+      "pages": [
+        73
+      ],
+      "source_access": "UNSPECIFIED",
+      "unit": "position error; unit unspecified",
+      "source_range": "50-4000",
+      "source_default": "200",
+      "words": 1,
+      "signedness": "UNSIGNED",
+      "word_order": "SINGLE_REGISTER",
+      "issues": [
+        "ACCESS_UNSPECIFIED",
+        "DUPLICATE_MAPPING",
+        "UNIT_UNSPECIFIED"
+      ],
+      "notes": "Applies collision modes -1 through -4. Separate 0x0122 row has different lower bound; aliasing/model applicability unresolved.",
+      "choices": null
+    },
+    {
+      "address": "0x003C",
+      "name": "COLLISION_CURRENT_003C",
+      "pages": [
+        73
+      ],
+      "source_access": "UNSPECIFIED",
+      "unit": "percent",
+      "source_range": "20-100",
+      "source_default": "50",
+      "words": 1,
+      "signedness": "UNSIGNED",
+      "word_order": "SINGLE_REGISTER",
+      "issues": [
+        "ACCESS_UNSPECIFIED",
+        "DUPLICATE_MAPPING"
+      ],
+      "notes": "Applies collision modes -1 through -4. Separate 0x0123 row; aliasing/model applicability unresolved.",
+      "choices": null
+    },
+    {
+      "address": "0x0040",
+      "name": "INPUT_POLARITY",
+      "pages": [
+        73
+      ],
+      "source_access": "RW",
+      "unit": "bitfield",
+      "source_range": "0-65535",
+      "source_default": "0",
+      "words": 1,
+      "signedness": "BITFIELD",
+      "word_order": "SINGLE_REGISTER",
+      "issues": [],
+      "notes": "Bits 0-3 default 0 / inverted 1; bits 4-15 reserved.",
+      "choices": "InputBit"
+    },
+    {
+      "address": "0x0041",
+      "name": "INPUT_X0_FUNCTION",
+      "pages": [
+        73,
+        74,
+        14,
+        27
+      ],
+      "source_access": "RW",
+      "unit": "unspecified",
+      "source_range": "0-17",
+      "source_default": "1",
+      "words": 1,
+      "signedness": "ENUMERATED",
+      "word_order": "SINGLE_REGISTER",
+      "issues": [],
+      "notes": "Only X0-X3 in ESS appendix; generic prose 0x0041-0x0047 is not additional ESS pins.",
+      "choices": "InputFunction"
+    },
+    {
+      "address": "0x0042",
+      "name": "INPUT_X1_FUNCTION",
+      "pages": [
+        73,
+        74,
+        14,
+        27
+      ],
+      "source_access": "RW",
+      "unit": "unspecified",
+      "source_range": "0-17",
+      "source_default": "2",
+      "words": 1,
+      "signedness": "ENUMERATED",
+      "word_order": "SINGLE_REGISTER",
+      "issues": [],
+      "notes": "Only X0-X3 in ESS appendix; generic prose 0x0041-0x0047 is not additional ESS pins.",
+      "choices": "InputFunction"
+    },
+    {
+      "address": "0x0043",
+      "name": "INPUT_X2_FUNCTION",
+      "pages": [
+        73,
+        74,
+        14,
+        27
+      ],
+      "source_access": "RW",
+      "unit": "unspecified",
+      "source_range": "0-17",
+      "source_default": "3",
+      "words": 1,
+      "signedness": "ENUMERATED",
+      "word_order": "SINGLE_REGISTER",
+      "issues": [],
+      "notes": "Only X0-X3 in ESS appendix; generic prose 0x0041-0x0047 is not additional ESS pins.",
+      "choices": "InputFunction"
+    },
+    {
+      "address": "0x0044",
+      "name": "INPUT_X3_FUNCTION",
+      "pages": [
+        73,
+        74,
+        14,
+        27
+      ],
+      "source_access": "RW",
+      "unit": "unspecified",
+      "source_range": "0-17",
+      "source_default": "0",
+      "words": 1,
+      "signedness": "ENUMERATED",
+      "word_order": "SINGLE_REGISTER",
+      "issues": [],
+      "notes": "Only X0-X3 in ESS appendix; generic prose 0x0041-0x0047 is not additional ESS pins.",
+      "choices": "InputFunction"
+    },
+    {
+      "address": "0x004B",
+      "name": "OUTPUT_POLARITY",
+      "pages": [
+        74
+      ],
+      "source_access": "RW",
+      "unit": "bitfield",
+      "source_range": "0-65535",
+      "source_default": "0",
+      "words": 1,
+      "signedness": "BITFIELD",
+      "word_order": "SINGLE_REGISTER",
+      "issues": [],
+      "notes": "Bits 0-1 default 0 / inverted 1; bits 2-15 reserved.",
+      "choices": "OutputBit"
+    },
+    {
+      "address": "0x004C",
+      "name": "OUTPUT_Y0_FUNCTION",
+      "pages": [
+        74,
+        28
+      ],
+      "source_access": "RW",
+      "unit": "unspecified",
+      "source_range": "0-11; values6, 7, 8 not described",
+      "source_default": "0",
+      "words": 1,
+      "signedness": "ENUMERATED",
+      "word_order": "SINGLE_REGISTER",
+      "issues": [
+        "SEMANTICS_UNRESOLVED"
+      ],
+      "notes": "Custom value 11 is listed despite only two ESS outputs; exact custom-selector mapping unresolved. Generic 0x004E is not an ESS output register.",
+      "choices": "OutputFunction"
+    },
+    {
+      "address": "0x004D",
+      "name": "OUTPUT_Y1_FUNCTION",
+      "pages": [
+        74,
+        28
+      ],
+      "source_access": "RW",
+      "unit": "unspecified",
+      "source_range": "0-11; values6, 7, 8 not described",
+      "source_default": "0",
+      "words": 1,
+      "signedness": "ENUMERATED",
+      "word_order": "SINGLE_REGISTER",
+      "issues": [
+        "SEMANTICS_UNRESOLVED"
+      ],
+      "notes": "Custom value 11 is listed despite only two ESS outputs; exact custom-selector mapping unresolved. Generic 0x004E is not an ESS output register.",
+      "choices": "OutputFunction"
+    },
+    {
+      "address": "0x004F",
+      "name": "CUSTOM_OUTPUT",
+      "pages": [
+        74,
+        28
+      ],
+      "source_access": "RW",
+      "unit": "bitfield",
+      "source_range": "0-65535",
+      "source_default": "0",
+      "words": 1,
+      "signedness": "BITFIELD",
+      "word_order": "SINGLE_REGISTER",
+      "issues": [],
+      "notes": "Y0/Y1 bits 0/1; bits 2-15 reserved; applicable to outputs configured custom.",
+      "choices": "OutputBit"
+    },
+    {
+      "address": "0x0050",
+      "name": "EXTERNAL_POSITION_MODE",
+      "pages": [
+        75,
+        23
+      ],
+      "source_access": "RW",
+      "unit": "unspecified",
+      "source_range": "0-1",
+      "source_default": "0",
+      "words": 1,
+      "signedness": "ENUMERATED",
+      "word_order": "SINGLE_REGISTER",
+      "issues": [],
+      "notes": "Only external-input position/multisegment operation; serial position selects bit 2 in 0x0027.",
+      "choices": "PositionMode"
+    },
+    {
+      "address": "0x0051",
+      "name": "PV_TRIGGER_MODE",
+      "pages": [
+        75,
+        29
+      ],
+      "source_access": "RW",
+      "unit": "unspecified",
+      "source_range": "0-1",
+      "source_default": "0",
+      "words": 1,
+      "signedness": "ENUMERATED",
+      "word_order": "SINGLE_REGISTER",
+      "issues": [],
+      "notes": "Value 1 required to mix multivelocity and multiposition fixed-length interruption.",
+      "choices": "PvTriggerMode"
+    },
+    {
+      "address": "0x0100",
+      "name": "CONTROL_ALGORITHM",
+      "pages": [
+        77
+      ],
+      "source_access": "RW/S",
+      "unit": "unspecified",
+      "source_range": "1-2",
+      "source_default": "2",
+      "words": 1,
+      "signedness": "ENUMERATED",
+      "word_order": "SINGLE_REGISTER",
+      "issues": [],
+      "notes": "",
+      "choices": "ControlAlgorithm"
+    },
+    {
+      "address": "0x0101",
+      "name": "ENCODER_RESOLUTION",
+      "pages": [
+        77
+      ],
+      "source_access": "RW/S",
+      "unit": "counts (four times encoder line count)",
+      "source_range": "0-65535",
+      "source_default": "4000",
+      "words": 1,
+      "signedness": "UNSIGNED",
+      "word_order": "SINGLE_REGISTER",
+      "issues": [],
+      "notes": "The source explicitly defines counts as four times the encoder line count; its default of 4000 corresponds to 1000 lines. This documented scale does not establish the active device value or the separate command-subdivision configuration.",
+      "choices": null
+    },
+    {
+      "address": "0x0102",
+      "name": "MAXIMUM_CURRENT",
+      "pages": [
+        77
+      ],
+      "source_access": "RW/S",
+      "unit": "mA",
+      "source_range": "0-5600",
+      "source_default": "5600/2200",
+      "words": 1,
+      "signedness": "UNSIGNED",
+      "word_order": "SINGLE_REGISTER",
+      "issues": [
+        "DEFAULT_CONFLICT",
+        "MODEL_APPLICABILITY"
+      ],
+      "notes": "Default column gives two values without model mapping; do not select one.",
+      "choices": null
+    },
+    {
+      "address": "0x0103",
+      "name": "CLOSED_LOOP_CURRENT_PERCENT",
+      "pages": [
+        77
+      ],
+      "source_access": "RW/S",
+      "unit": "percent",
+      "source_range": "0-150",
+      "source_default": "100",
+      "words": 1,
+      "signedness": "UNSIGNED",
+      "word_order": "SINGLE_REGISTER",
+      "issues": [
+        "SOURCE_CONFLICT"
+      ],
+      "notes": "Prose references 0x2042 current register outside ESS map; do not create a 0x2042 alias or assume 0x0102 automatically.",
+      "choices": null
+    },
+    {
+      "address": "0x0104",
+      "name": "BASE_CURRENT_PERCENT",
+      "pages": [
+        78
+      ],
+      "source_access": "RW/S",
+      "unit": "percent",
+      "source_range": "0-75",
+      "source_default": "40",
+      "words": 1,
+      "signedness": "UNSIGNED",
+      "word_order": "SINGLE_REGISTER",
+      "issues": [
+        "SOURCE_CONFLICT"
+      ],
+      "notes": "Prose references 0x2042 current register outside ESS map; do not create a 0x2042 alias or assume 0x0102 automatically.",
+      "choices": null
+    },
+    {
+      "address": "0x0105",
+      "name": "OPEN_LOOP_CURRENT_PERCENT",
+      "pages": [
+        78
+      ],
+      "source_access": "RW/S",
+      "unit": "percent",
+      "source_range": "0-100",
+      "source_default": "100",
+      "words": 1,
+      "signedness": "UNSIGNED",
+      "word_order": "SINGLE_REGISTER",
+      "issues": [
+        "SOURCE_CONFLICT"
+      ],
+      "notes": "Prose references 0x2042 current register outside ESS map; do not create a 0x2042 alias or assume 0x0102 automatically.",
+      "choices": null
+    },
+    {
+      "address": "0x0106",
+      "name": "LOCK_CURRENT_PERCENT",
+      "pages": [
+        78
+      ],
+      "source_access": "RW/S",
+      "unit": "percent",
+      "source_range": "0-100",
+      "source_default": "100",
+      "words": 1,
+      "signedness": "UNSIGNED",
+      "word_order": "SINGLE_REGISTER",
+      "issues": [
+        "SOURCE_CONFLICT"
+      ],
+      "notes": "Prose references 0x2042 current register outside ESS map; do not create a 0x2042 alias or assume 0x0102 automatically.",
+      "choices": null
+    },
+    {
+      "address": "0x0107",
+      "name": "LOCK_TIME",
+      "pages": [
+        78
+      ],
+      "source_access": "RW/S",
+      "unit": "ms",
+      "source_range": "0-20000",
+      "source_default": "4000",
+      "words": 1,
+      "signedness": "UNSIGNED",
+      "word_order": "SINGLE_REGISTER",
+      "issues": [],
+      "notes": "",
+      "choices": null
+    },
+    {
+      "address": "0x0108",
+      "name": "INPUT_FILTER",
+      "pages": [
+        78
+      ],
+      "source_access": "RW/S",
+      "unit": "coefficient",
+      "source_range": "0-65535",
+      "source_default": "2",
+      "words": 1,
+      "signedness": "UNSIGNED",
+      "word_order": "SINGLE_REGISTER",
+      "issues": [],
+      "notes": "",
+      "choices": null
+    },
+    {
+      "address": "0x0109",
+      "name": "PULSE_LOW_PASS_FILTER",
+      "pages": [
+        78
+      ],
+      "source_access": "RW/S",
+      "unit": "coefficient",
+      "source_range": "0-1024",
+      "source_default": "5",
+      "words": 1,
+      "signedness": "UNSIGNED",
+      "word_order": "SINGLE_REGISTER",
+      "issues": [],
+      "notes": "",
+      "choices": null
+    },
+    {
+      "address": "0x010A",
+      "name": "POSITION_ERROR_ALARM_THRESHOLD",
+      "pages": [
+        78
+      ],
+      "source_access": "RW/S",
+      "unit": "unspecified",
+      "source_range": "1-65535",
+      "source_default": "4000",
+      "words": 1,
+      "signedness": "UNSIGNED",
+      "word_order": "SINGLE_REGISTER",
+      "issues": [
+        "UNIT_UNSPECIFIED"
+      ],
+      "notes": "",
+      "choices": null
+    },
+    {
+      "address": "0x010B",
+      "name": "POSITION_ARRIVAL_WINDOW",
+      "pages": [
+        78
+      ],
+      "source_access": "RW/S",
+      "unit": "unspecified",
+      "source_range": "1-256",
+      "source_default": "5",
+      "words": 1,
+      "signedness": "UNSIGNED",
+      "word_order": "SINGLE_REGISTER",
+      "issues": [
+        "UNIT_UNSPECIFIED"
+      ],
+      "notes": "",
+      "choices": null
+    },
+    {
+      "address": "0x010C",
+      "name": "ARRIVAL_TIME",
+      "pages": [
+        78
+      ],
+      "source_access": "RW/S",
+      "unit": "unspecified",
+      "source_range": "0-200",
+      "source_default": "10",
+      "words": 1,
+      "signedness": "UNSIGNED",
+      "word_order": "SINGLE_REGISTER",
+      "issues": [
+        "UNIT_UNSPECIFIED"
+      ],
+      "notes": "",
+      "choices": null
+    },
+    {
+      "address": "0x010D",
+      "name": "PULSE_MEAN_FILTER",
+      "pages": [
+        78
+      ],
+      "source_access": "RW/S",
+      "unit": "coefficient",
+      "source_range": "0-512",
+      "source_default": "512",
+      "words": 1,
+      "signedness": "UNSIGNED",
+      "word_order": "SINGLE_REGISTER",
+      "issues": [],
+      "notes": "",
+      "choices": null
+    },
+    {
+      "address": "0x010E",
+      "name": "CURRENT_LOOP_KP_MULTIPLIER",
+      "pages": [
+        78
+      ],
+      "source_access": "RW/S",
+      "unit": "gain",
+      "source_range": "0-65535",
+      "source_default": "4096",
+      "words": 1,
+      "signedness": "UNSIGNED",
+      "word_order": "SINGLE_REGISTER",
+      "issues": [],
+      "notes": "",
+      "choices": null
+    },
+    {
+      "address": "0x010F",
+      "name": "CURRENT_LOOP_KP",
+      "pages": [
+        79
+      ],
+      "source_access": "RW/S",
+      "unit": "unspecified",
+      "source_range": "0-65535",
+      "source_default": "1024",
+      "words": 1,
+      "signedness": "UNSIGNED",
+      "word_order": "SINGLE_REGISTER",
+      "issues": [
+        "UNIT_UNSPECIFIED"
+      ],
+      "notes": "",
+      "choices": null
+    },
+    {
+      "address": "0x0110",
+      "name": "CURRENT_LOOP_KI",
+      "pages": [
+        79
+      ],
+      "source_access": "RW/S",
+      "unit": "unspecified",
+      "source_range": "0-65535",
+      "source_default": "28",
+      "words": 1,
+      "signedness": "UNSIGNED",
+      "word_order": "SINGLE_REGISTER",
+      "issues": [
+        "UNIT_UNSPECIFIED"
+      ],
+      "notes": "",
+      "choices": null
+    },
+    {
+      "address": "0x0111",
+      "name": "CURRENT_LOOP_KC",
+      "pages": [
+        79
+      ],
+      "source_access": "RW/S",
+      "unit": "unspecified",
+      "source_range": "0-65535",
+      "source_default": "1228",
+      "words": 1,
+      "signedness": "UNSIGNED",
+      "word_order": "SINGLE_REGISTER",
+      "issues": [
+        "UNIT_UNSPECIFIED"
+      ],
+      "notes": "",
+      "choices": null
+    },
+    {
+      "address": "0x0112",
+      "name": "LA_SPEED_KP1",
+      "pages": [
+        79
+      ],
+      "source_access": "RW/S",
+      "unit": "unspecified",
+      "source_range": "0-65535",
+      "source_default": "10",
+      "words": 1,
+      "signedness": "UNSIGNED",
+      "word_order": "SINGLE_REGISTER",
+      "issues": [
+        "UNIT_UNSPECIFIED"
+      ],
+      "notes": "",
+      "choices": null
+    },
+    {
+      "address": "0x0113",
+      "name": "LA_SPEED_KV1",
+      "pages": [
+        79
+      ],
+      "source_access": "RW/S",
+      "unit": "unspecified",
+      "source_range": "0-65535",
+      "source_default": "32",
+      "words": 1,
+      "signedness": "UNSIGNED",
+      "word_order": "SINGLE_REGISTER",
+      "issues": [
+        "UNIT_UNSPECIFIED"
+      ],
+      "notes": "",
+      "choices": null
+    },
+    {
+      "address": "0x0114",
+      "name": "LA_SPEED_NODE1",
+      "pages": [
+        79
+      ],
+      "source_access": "RW/S",
+      "unit": "unspecified",
+      "source_range": "0-65535",
+      "source_default": "320",
+      "words": 1,
+      "signedness": "UNSIGNED",
+      "word_order": "SINGLE_REGISTER",
+      "issues": [
+        "UNIT_UNSPECIFIED"
+      ],
+      "notes": "",
+      "choices": null
+    },
+    {
+      "address": "0x0115",
+      "name": "LA_SPEED_KP2",
+      "pages": [
+        79
+      ],
+      "source_access": "RW/S",
+      "unit": "unspecified",
+      "source_range": "0-65535",
+      "source_default": "15",
+      "words": 1,
+      "signedness": "UNSIGNED",
+      "word_order": "SINGLE_REGISTER",
+      "issues": [
+        "UNIT_UNSPECIFIED"
+      ],
+      "notes": "",
+      "choices": null
+    },
+    {
+      "address": "0x0116",
+      "name": "LA_SPEED_KV2",
+      "pages": [
+        79
+      ],
+      "source_access": "RW/S",
+      "unit": "unspecified",
+      "source_range": "0-65535",
+      "source_default": "33",
+      "words": 1,
+      "signedness": "UNSIGNED",
+      "word_order": "SINGLE_REGISTER",
+      "issues": [
+        "UNIT_UNSPECIFIED"
+      ],
+      "notes": "",
+      "choices": null
+    },
+    {
+      "address": "0x0117",
+      "name": "LA_SPEED_NODE2",
+      "pages": [
+        79
+      ],
+      "source_access": "RW/S",
+      "unit": "unspecified",
+      "source_range": "0-65535",
+      "source_default": "320",
+      "words": 1,
+      "signedness": "UNSIGNED",
+      "word_order": "SINGLE_REGISTER",
+      "issues": [
+        "UNIT_UNSPECIFIED"
+      ],
+      "notes": "",
+      "choices": null
+    },
+    {
+      "address": "0x0118",
+      "name": "LA_SPEED_FEEDFORWARD_KVF",
+      "pages": [
+        79
+      ],
+      "source_access": "RW/S",
+      "unit": "unspecified",
+      "source_range": "0-65535",
+      "source_default": "20",
+      "words": 1,
+      "signedness": "UNSIGNED",
+      "word_order": "SINGLE_REGISTER",
+      "issues": [
+        "UNIT_UNSPECIFIED"
+      ],
+      "notes": "",
+      "choices": null
+    },
+    {
+      "address": "0x0119",
+      "name": "LA_POSITION_KI",
+      "pages": [
+        79
+      ],
+      "source_access": "RW/S",
+      "unit": "unspecified",
+      "source_range": "0-65535",
+      "source_default": "35",
+      "words": 1,
+      "signedness": "UNSIGNED",
+      "word_order": "SINGLE_REGISTER",
+      "issues": [
+        "UNIT_UNSPECIFIED"
+      ],
+      "notes": "",
+      "choices": null
+    },
+    {
+      "address": "0x0122",
+      "name": "COLLISION_THRESHOLD_0122",
+      "pages": [
+        79
+      ],
+      "source_access": "RW/S",
+      "unit": "position error; unit unspecified",
+      "source_range": "200-4000",
+      "source_default": "200",
+      "words": 1,
+      "signedness": "UNSIGNED",
+      "word_order": "SINGLE_REGISTER",
+      "issues": [
+        "DUPLICATE_MAPPING",
+        "UNIT_UNSPECIFIED"
+      ],
+      "notes": "Compare 0x003B lower bound 50 and absent access marker; retain separate entries.",
+      "choices": null
+    },
+    {
+      "address": "0x0123",
+      "name": "COLLISION_CURRENT_0123",
+      "pages": [
+        79
+      ],
+      "source_access": "RW/S",
+      "unit": "percent",
+      "source_range": "20-100",
+      "source_default": "50",
+      "words": 1,
+      "signedness": "UNSIGNED",
+      "word_order": "SINGLE_REGISTER",
+      "issues": [
+        "DUPLICATE_MAPPING"
+      ],
+      "notes": "Compare 0x003C; relationship unestablished.",
+      "choices": null
+    }
+  ],
+  "indexed_groups": [
+    {
+      "name": "POSITION_SEGMENT",
+      "count": 16,
+      "stride": 6,
+      "pages": [
+        22,
+        23,
+        75,
+        76
+      ],
+      "instances": [
+        {
+          "index": 1,
+          "base": "0x0060",
+          "last": "0x0065",
+          "page": 75
+        },
+        {
+          "index": 2,
+          "base": "0x0066",
+          "last": "0x006B",
+          "page": 75
+        },
+        {
+          "index": 3,
+          "base": "0x006C",
+          "last": "0x0071",
+          "page": 75
+        },
+        {
+          "index": 4,
+          "base": "0x0072",
+          "last": "0x0077",
+          "page": 75
+        },
+        {
+          "index": 5,
+          "base": "0x0078",
+          "last": "0x007D",
+          "page": 75
+        },
+        {
+          "index": 6,
+          "base": "0x007E",
+          "last": "0x0083",
+          "page": 75
+        },
+        {
+          "index": 7,
+          "base": "0x0084",
+          "last": "0x0089",
+          "page": 75
+        },
+        {
+          "index": 8,
+          "base": "0x008A",
+          "last": "0x008F",
+          "page": 75
+        },
+        {
+          "index": 9,
+          "base": "0x0090",
+          "last": "0x0095",
+          "page": 76
+        },
+        {
+          "index": 10,
+          "base": "0x0096",
+          "last": "0x009B",
+          "page": 76
+        },
+        {
+          "index": 11,
+          "base": "0x009C",
+          "last": "0x00A1",
+          "page": 76
+        },
+        {
+          "index": 12,
+          "base": "0x00A2",
+          "last": "0x00A7",
+          "page": 76
+        },
+        {
+          "index": 13,
+          "base": "0x00A8",
+          "last": "0x00AD",
+          "page": 76
+        },
+        {
+          "index": 14,
+          "base": "0x00AE",
+          "last": "0x00B3",
+          "page": 76
+        },
+        {
+          "index": 15,
+          "base": "0x00B4",
+          "last": "0x00B9",
+          "page": 76
+        },
+        {
+          "index": 16,
+          "base": "0x00BA",
+          "last": "0x00BF",
+          "page": 76
+        }
+      ],
+      "templates": [
+        {
+          "offset": 0,
+          "name": "PULSES",
+          "words": 2,
+          "source_access": "RW",
+          "unit": "pulse",
+          "source_range": "-0xFFFFFFF to 0xFFFFFFF",
+          "source_default": "high 0; low 5000",
+          "signedness": "SIGNED_ENCODING_UNRESOLVED",
+          "word_order": "CONFIGURABLE",
+          "issues": [
+            "SIGNED_ENCODING_UNRESOLVED",
+            "SCALE_UNRESOLVED"
+          ],
+          "notes": "Defaults explicitly listed for first segment only; later instance defaults not independently stated.",
+          "choices": null
+        },
+        {
+          "offset": 2,
+          "name": "SPEED",
+          "words": 1,
+          "source_access": "RW/S",
+          "unit": "r/min (documented)",
+          "source_range": "0-3000 r/min",
+          "source_default": "120 (0/min)",
+          "signedness": "UNSIGNED",
+          "word_order": "SINGLE_REGISTER",
+          "issues": [
+            "DEFAULT_CONFLICT",
+            "SCALE_UNRESOLVED"
+          ],
+          "notes": "",
+          "choices": null
+        },
+        {
+          "offset": 3,
+          "name": "ACCELERATION_TIME",
+          "words": 1,
+          "source_access": "RW/S",
+          "unit": "ms (documented)",
+          "source_range": "0-2000 ms",
+          "source_default": "50 (0 ms)",
+          "signedness": "UNSIGNED",
+          "word_order": "SINGLE_REGISTER",
+          "issues": [
+            "DEFAULT_CONFLICT",
+            "SCALE_UNRESOLVED"
+          ],
+          "notes": "",
+          "choices": null
+        },
+        {
+          "offset": 4,
+          "name": "DECELERATION_TIME",
+          "words": 1,
+          "source_access": "RW/S",
+          "unit": "ms (documented)",
+          "source_range": "0-2000 ms",
+          "source_default": "50 (0 ms)",
+          "signedness": "UNSIGNED",
+          "word_order": "SINGLE_REGISTER",
+          "issues": [
+            "DEFAULT_CONFLICT",
+            "SCALE_UNRESOLVED"
+          ],
+          "notes": "",
+          "choices": null
+        },
+        {
+          "offset": 5,
+          "name": "RESERVED",
+          "words": 1,
+          "source_access": "RW/S",
+          "unit": "reserved",
+          "source_range": "0",
+          "source_default": "0",
+          "signedness": "RESERVED",
+          "word_order": "SINGLE_REGISTER",
+          "issues": [],
+          "notes": "Explicit reserve row; metadata access is RESERVED despite printedRW/S; no writes offered.",
+          "choices": null
+        }
+      ],
+      "notes": "Execution is external-input-triggered only; PIN0-PIN3 choose 1-16. Four-input devices can choose at most 8 while reserving an input for trigger. Selection stable 5 ms before/after PT trigger."
+    },
+    {
+      "name": "SPEED_SEGMENT",
+      "count": 16,
+      "stride": 3,
+      "pages": [
+        23,
+        24,
+        76,
+        77
+      ],
+      "instances": [
+        {
+          "index": 1,
+          "base": "0x00C0",
+          "last": "0x00C2",
+          "page": 76
+        },
+        {
+          "index": 2,
+          "base": "0x00C3",
+          "last": "0x00C5",
+          "page": 76
+        },
+        {
+          "index": 3,
+          "base": "0x00C6",
+          "last": "0x00C8",
+          "page": 76
+        },
+        {
+          "index": 4,
+          "base": "0x00C9",
+          "last": "0x00CB",
+          "page": 76
+        },
+        {
+          "index": 5,
+          "base": "0x00CC",
+          "last": "0x00CE",
+          "page": 76
+        },
+        {
+          "index": 6,
+          "base": "0x00CF",
+          "last": "0x00D1",
+          "page": 76
+        },
+        {
+          "index": 7,
+          "base": "0x00D2",
+          "last": "0x00D4",
+          "page": 76
+        },
+        {
+          "index": 8,
+          "base": "0x00D5",
+          "last": "0x00D7",
+          "page": 76
+        },
+        {
+          "index": 9,
+          "base": "0x00D8",
+          "last": "0x00DA",
+          "page": 77
+        },
+        {
+          "index": 10,
+          "base": "0x00DB",
+          "last": "0x00DD",
+          "page": 77
+        },
+        {
+          "index": 11,
+          "base": "0x00DE",
+          "last": "0x00E0",
+          "page": 77
+        },
+        {
+          "index": 12,
+          "base": "0x00E1",
+          "last": "0x00E3",
+          "page": 77
+        },
+        {
+          "index": 13,
+          "base": "0x00E4",
+          "last": "0x00E6",
+          "page": 77
+        },
+        {
+          "index": 14,
+          "base": "0x00E7",
+          "last": "0x00E9",
+          "page": 77
+        },
+        {
+          "index": 15,
+          "base": "0x00EA",
+          "last": "0x00EC",
+          "page": 77
+        },
+        {
+          "index": 16,
+          "base": "0x00ED",
+          "last": "0x00EF",
+          "page": 77
+        }
+      ],
+      "templates": [
+        {
+          "offset": 0,
+          "name": "SPEED",
+          "words": 1,
+          "source_access": "RW/S",
+          "unit": "r/min (documented)",
+          "source_range": "-3000 -3000 r/min (as printed)",
+          "source_default": "100 (0/min)",
+          "signedness": "SIGNED_ENCODING_UNRESOLVED",
+          "word_order": "SINGLE_REGISTER",
+          "issues": [
+            "RANGE_MALFORMED",
+            "DEFAULT_CONFLICT",
+            "SIGNED_ENCODING_UNRESOLVED",
+            "SCALE_UNRESOLVED"
+          ],
+          "notes": "",
+          "choices": null
+        },
+        {
+          "offset": 1,
+          "name": "ACCELERATION_TIME",
+          "words": 1,
+          "source_access": "RW/S",
+          "unit": "ms (documented)",
+          "source_range": "0-2000 ms",
+          "source_default": "50 (0 ms)",
+          "signedness": "UNSIGNED",
+          "word_order": "SINGLE_REGISTER",
+          "issues": [
+            "DEFAULT_CONFLICT",
+            "SCALE_UNRESOLVED"
+          ],
+          "notes": "",
+          "choices": null
+        },
+        {
+          "offset": 2,
+          "name": "DECELERATION_TIME",
+          "words": 1,
+          "source_access": "RW/S",
+          "unit": "ms (documented)",
+          "source_range": "0-2000 ms",
+          "source_default": "50 (0 ms)",
+          "signedness": "UNSIGNED",
+          "word_order": "SINGLE_REGISTER",
+          "issues": [
+            "DEFAULT_CONFLICT",
+            "SCALE_UNRESOLVED"
+          ],
+          "notes": "",
+          "choices": null
+        }
+      ],
+      "notes": "Execution is external-input-triggered only; four-input devices limited to 8 externally selected segments, despite 16 stored parameter sets."
+    },
+    {
+      "name": "SEGMENT_START_SPEED",
+      "count": 16,
+      "stride": 1,
+      "pages": [
+        77
+      ],
+      "instances": [
+        {
+          "index": 1,
+          "base": "0x0130",
+          "last": "0x0130",
+          "page": 77
+        },
+        {
+          "index": 2,
+          "base": "0x0131",
+          "last": "0x0131",
+          "page": 77
+        },
+        {
+          "index": 3,
+          "base": "0x0132",
+          "last": "0x0132",
+          "page": 77
+        },
+        {
+          "index": 4,
+          "base": "0x0133",
+          "last": "0x0133",
+          "page": 77
+        },
+        {
+          "index": 5,
+          "base": "0x0134",
+          "last": "0x0134",
+          "page": 77
+        },
+        {
+          "index": 6,
+          "base": "0x0135",
+          "last": "0x0135",
+          "page": 77
+        },
+        {
+          "index": 7,
+          "base": "0x0136",
+          "last": "0x0136",
+          "page": 77
+        },
+        {
+          "index": 8,
+          "base": "0x0137",
+          "last": "0x0137",
+          "page": 77
+        },
+        {
+          "index": 9,
+          "base": "0x0138",
+          "last": "0x0138",
+          "page": 77
+        },
+        {
+          "index": 10,
+          "base": "0x0139",
+          "last": "0x0139",
+          "page": 77
+        },
+        {
+          "index": 11,
+          "base": "0x013A",
+          "last": "0x013A",
+          "page": 77
+        },
+        {
+          "index": 12,
+          "base": "0x013B",
+          "last": "0x013B",
+          "page": 77
+        },
+        {
+          "index": 13,
+          "base": "0x013C",
+          "last": "0x013C",
+          "page": 77
+        },
+        {
+          "index": 14,
+          "base": "0x013D",
+          "last": "0x013D",
+          "page": 77
+        },
+        {
+          "index": 15,
+          "base": "0x013E",
+          "last": "0x013E",
+          "page": 77
+        },
+        {
+          "index": 16,
+          "base": "0x013F",
+          "last": "0x013F",
+          "page": 77
+        }
+      ],
+      "templates": [
+        {
+          "offset": 0,
+          "name": "VALUE",
+          "words": 1,
+          "source_access": "RW/S",
+          "unit": "rpm (documented)",
+          "source_range": "-180 to180 rpm",
+          "source_default": "0 rpm",
+          "signedness": "SIGNED_ENCODING_UNRESOLVED",
+          "word_order": "SINGLE_REGISTER",
+          "issues": [
+            "SIGNED_ENCODING_UNRESOLVED"
+          ],
+          "notes": "",
+          "choices": null
+        }
+      ],
+      "notes": "Shared by PT and PV modes. Range row applies all 16 addresses."
+    }
+  ],
+  "enums": [
+    {
+      "name": "WordOrder",
+      "underlying": "uint16_t",
+      "pages": [
+        30,
+        70
+      ],
+      "notes": "Does not change Modbus byte order within a 16-bit register.",
+      "values": [
+        {
+          "name": "HIGH_WORD_FIRST",
+          "value": 0,
+          "description": "Lower address stores high 16 bits.",
+          "pages": [
+            30,
+            70
+          ]
+        },
+        {
+          "name": "LOW_WORD_FIRST",
+          "value": 1,
+          "description": "Lower address stores low 16 bits.",
+          "pages": [
+            30,
+            70
+          ]
+        }
+      ]
+    },
+    {
+      "name": "DefaultDirection",
+      "underlying": "uint16_t",
+      "pages": [
+        69
+      ],
+      "notes": "",
+      "values": [
+        {
+          "name": "DEFAULT",
+          "value": 0,
+          "description": "Default movement direction.",
+          "pages": [
+            69
+          ]
+        },
+        {
+          "name": "REVERSED",
+          "value": 1,
+          "description": "Reverse default movement direction.",
+          "pages": [
+            69
+          ]
+        }
+      ]
+    },
+    {
+      "name": "BaudRateCode",
+      "underlying": "uint16_t",
+      "pages": [
+        69
+      ],
+      "notes": "",
+      "values": [
+        {
+          "name": "BAUD_115200",
+          "value": 0,
+          "description": "115200 baud; power cycle required after changing.",
+          "pages": [
+            69
+          ]
+        },
+        {
+          "name": "BAUD_38400",
+          "value": 1,
+          "description": "38400 baud; power cycle required after changing.",
+          "pages": [
+            69
+          ]
+        },
+        {
+          "name": "BAUD_19200",
+          "value": 2,
+          "description": "19200 baud; power cycle required after changing.",
+          "pages": [
+            69
+          ]
+        },
+        {
+          "name": "BAUD_9600",
+          "value": 3,
+          "description": "9600 baud; power cycle required after changing.",
+          "pages": [
+            69
+          ]
+        }
+      ]
+    },
+    {
+      "name": "SerialFormatCode",
+      "underlying": "uint16_t",
+      "pages": [
+        69
+      ],
+      "notes": "",
+      "values": [
+        {
+          "name": "FORMAT_8N1",
+          "value": 0,
+          "description": "8N1; power cycle required after changing.",
+          "pages": [
+            69
+          ]
+        },
+        {
+          "name": "FORMAT_8N2",
+          "value": 1,
+          "description": "8N2; power cycle required after changing.",
+          "pages": [
+            69
+          ]
+        },
+        {
+          "name": "FORMAT_8E1",
+          "value": 2,
+          "description": "8E1; power cycle required after changing.",
+          "pages": [
+            69
+          ]
+        },
+        {
+          "name": "FORMAT_8O1",
+          "value": 3,
+          "description": "8O1; power cycle required after changing.",
+          "pages": [
+            69
+          ]
+        }
+      ]
+    },
+    {
+      "name": "OverLimitStop",
+      "underlying": "uint16_t",
+      "pages": [
+        70
+      ],
+      "notes": "",
+      "values": [
+        {
+          "name": "FREE_PARKING",
+          "value": 0,
+          "description": "Source term; stopping/torque semantics unresolved.",
+          "pages": [
+            70
+          ]
+        },
+        {
+          "name": "EMERGENCY_STOP",
+          "value": 1,
+          "description": "Emergency stop selection.",
+          "pages": [
+            70
+          ]
+        }
+      ]
+    },
+    {
+      "name": "SoftLimitEnable",
+      "underlying": "uint16_t",
+      "pages": [
+        29,
+        70
+      ],
+      "notes": "",
+      "values": [
+        {
+          "name": "DISABLED",
+          "value": 0,
+          "description": "Software limits disabled.",
+          "pages": [
+            29,
+            70
+          ]
+        },
+        {
+          "name": "AFTER_HOMING",
+          "value": 1,
+          "description": "Limits effective only after returning to zero.",
+          "pages": [
+            29,
+            70
+          ]
+        }
+      ]
+    },
+    {
+      "name": "PositionMode",
+      "underlying": "uint16_t",
+      "pages": [
+        16,
+        75
+      ],
+      "notes": "Used for external position mode register; motion-command bit 2 is a separate mask.",
+      "values": [
+        {
+          "name": "RELATIVE",
+          "value": 0,
+          "description": "Relative target.",
+          "pages": [
+            16,
+            75
+          ]
+        },
+        {
+          "name": "ABSOLUTE",
+          "value": 1,
+          "description": "Absolute target.",
+          "pages": [
+            16,
+            75
+          ]
+        }
+      ]
+    },
+    {
+      "name": "PvTriggerMode",
+      "underlying": "uint16_t",
+      "pages": [
+        29,
+        75
+      ],
+      "notes": "",
+      "values": [
+        {
+          "name": "LEVEL",
+          "value": 0,
+          "description": "Active level trigger.",
+          "pages": [
+            29,
+            75
+          ]
+        },
+        {
+          "name": "RISING_EDGE",
+          "value": 1,
+          "description": "Rising-edge trigger; needed for mixed PT/PV fixed-length operation.",
+          "pages": [
+            29,
+            75
+          ]
+        }
+      ]
+    },
+    {
+      "name": "ControlAlgorithm",
+      "underlying": "uint16_t",
+      "pages": [
+        77
+      ],
+      "notes": "",
+      "values": [
+        {
+          "name": "OPEN_LOOP",
+          "value": 1,
+          "description": "Open-loop operation.",
+          "pages": [
+            77
+          ]
+        },
+        {
+          "name": "ALGORITHM_1",
+          "value": 2,
+          "description": "Closed-loop algorithm 1 per source.",
+          "pages": [
+            77
+          ]
+        }
+      ]
+    },
+    {
+      "name": "MotionCommandBit",
+      "underlying": "uint16_t",
+      "pages": [
+        13,
+        14,
+        16,
+        18,
+        19,
+        25,
+        70,
+        71
+      ],
+      "notes": "Bit masks only; combinations and physical completion are not validated. Unnamed bits remain unknown.",
+      "values": [
+        {
+          "name": "START_POSITION",
+          "value": 1,
+          "description": "Generate position start.",
+          "pages": [
+            13,
+            14,
+            16,
+            18,
+            19,
+            25,
+            70,
+            71
+          ]
+        },
+        {
+          "name": "START_SPEED",
+          "value": 2,
+          "description": "Generate serial speed start.",
+          "pages": [
+            13,
+            14,
+            16,
+            18,
+            19,
+            25,
+            70,
+            71
+          ]
+        },
+        {
+          "name": "ABSOLUTE_POSITION",
+          "value": 4,
+          "description": "1: absolute; 0: relative.",
+          "pages": [
+            13,
+            14,
+            16,
+            18,
+            19,
+            25,
+            70,
+            71
+          ]
+        },
+        {
+          "name": "INTERRUPT_POSITION",
+          "value": 8,
+          "description": "1: interrupt current positioning; 0: ignore new positioning command while busy. Valid only positioning per p16.",
+          "pages": [
+            13,
+            14,
+            16,
+            18,
+            19,
+            25,
+            70,
+            71
+          ]
+        },
+        {
+          "name": "START_HOMING",
+          "value": 16,
+          "description": "Generate homing start.",
+          "pages": [
+            13,
+            14,
+            16,
+            18,
+            19,
+            25,
+            70,
+            71
+          ]
+        },
+        {
+          "name": "STOP",
+          "value": 256,
+          "description": "Decelerate with preconfigured ramp.",
+          "pages": [
+            13,
+            14,
+            16,
+            18,
+            19,
+            25,
+            70,
+            71
+          ]
+        },
+        {
+          "name": "EMERGENCY_STOP",
+          "value": 512,
+          "description": "Source says direct stop without deceleration.",
+          "pages": [
+            13,
+            14,
+            16,
+            18,
+            19,
+            25,
+            70,
+            71
+          ]
+        }
+      ]
+    },
+    {
+      "name": "AuxiliaryCommand",
+      "underlying": "uint16_t",
+      "pages": [
+        26,
+        71
+      ],
+      "notes": "",
+      "values": [
+        {
+          "name": "INVALID",
+          "value": 0,
+          "description": "No valid action.",
+          "pages": [
+            26,
+            71
+          ]
+        },
+        {
+          "name": "RELEASE",
+          "value": 17,
+          "description": "Release motor.",
+          "pages": [
+            26,
+            71
+          ]
+        },
+        {
+          "name": "ENABLE",
+          "value": 18,
+          "description": "Enable motor.",
+          "pages": [
+            26,
+            71
+          ]
+        },
+        {
+          "name": "CLEAR_ALARM",
+          "value": 33,
+          "description": "Clear a resettable alarm.",
+          "pages": [
+            26,
+            71
+          ]
+        },
+        {
+          "name": "CLEAR_POSITION",
+          "value": 49,
+          "description": "Clear current motor position.",
+          "pages": [
+            26,
+            71
+          ]
+        },
+        {
+          "name": "RESTORE_FACTORY",
+          "value": 65,
+          "description": "Restore factory parameters; ignored unless stopped.",
+          "pages": [
+            26,
+            71
+          ]
+        },
+        {
+          "name": "SAVE_PARAMETERS",
+          "value": 66,
+          "description": "Save all parameters; ignored unless stopped.",
+          "pages": [
+            26,
+            71
+          ]
+        }
+      ]
+    },
+    {
+      "name": "MotionStatusBit",
+      "underlying": "uint16_t",
+      "pages": [
+        68
+      ],
+      "notes": "Bits 7-15 are undocumented, not normalized to false.",
+      "values": [
+        {
+          "name": "IN_POSITION",
+          "value": 1,
+          "description": "1: in position; 0: not in position.",
+          "pages": [
+            68
+          ]
+        },
+        {
+          "name": "HOMING_COMPLETE",
+          "value": 2,
+          "description": "1: homing complete; 0: not complete.",
+          "pages": [
+            68
+          ]
+        },
+        {
+          "name": "RUNNING",
+          "value": 4,
+          "description": "1: running; 0: stationary.",
+          "pages": [
+            68
+          ]
+        },
+        {
+          "name": "ALARM",
+          "value": 8,
+          "description": "1: alarm; 0: normal.",
+          "pages": [
+            68
+          ]
+        },
+        {
+          "name": "RELEASED",
+          "value": 16,
+          "description": "1: released; 0: enabled; source label Motor enable bit has inverted polarity.",
+          "pages": [
+            68
+          ]
+        },
+        {
+          "name": "POSITIVE_SOFT_LIMIT",
+          "value": 32,
+          "description": "1: positive limit overtravel flag valid.",
+          "pages": [
+            68
+          ]
+        },
+        {
+          "name": "NEGATIVE_SOFT_LIMIT",
+          "value": 64,
+          "description": "1: negative limit overtravel flag valid.",
+          "pages": [
+            68
+          ]
+        }
+      ]
+    },
+    {
+      "name": "InputBit",
+      "underlying": "uint16_t",
+      "pages": [
+        68,
+        69,
+        73
+      ],
+      "notes": "Bits 4-15 are reserved in corresponding ESS registers.",
+      "values": [
+        {
+          "name": "X0",
+          "value": 1,
+          "description": "Input X0; bit semantics depend on status versus polarity register.",
+          "pages": [
+            68,
+            69,
+            73
+          ]
+        },
+        {
+          "name": "X1",
+          "value": 2,
+          "description": "Input X1; bit semantics depend on status versus polarity register.",
+          "pages": [
+            68,
+            69,
+            73
+          ]
+        },
+        {
+          "name": "X2",
+          "value": 4,
+          "description": "Input X2; bit semantics depend on status versus polarity register.",
+          "pages": [
+            68,
+            69,
+            73
+          ]
+        },
+        {
+          "name": "X3",
+          "value": 8,
+          "description": "Input X3; bit semantics depend on status versus polarity register.",
+          "pages": [
+            68,
+            69,
+            73
+          ]
+        }
+      ]
+    },
+    {
+      "name": "OutputBit",
+      "underlying": "uint16_t",
+      "pages": [
+        69,
+        74
+      ],
+      "notes": "Bits 2-15 are reserved in corresponding ESS registers.",
+      "values": [
+        {
+          "name": "Y0",
+          "value": 1,
+          "description": "Output Y0; bit semantics depend on status, polarity or custom-output register.",
+          "pages": [
+            69,
+            74
+          ]
+        },
+        {
+          "name": "Y1",
+          "value": 2,
+          "description": "Output Y1; bit semantics depend on status, polarity or custom-output register.",
+          "pages": [
+            69,
+            74
+          ]
+        }
+      ]
+    },
+    {
+      "name": "DipStatusBit",
+      "underlying": "uint16_t",
+      "pages": [
+        68
+      ],
+      "notes": "The function manual lists 7 switches; ESS23 hardware p8 defines 5. These names record source labels, not confirmed board mapping.",
+      "values": [
+        {
+          "name": "SOURCE_SW1",
+          "value": 1,
+          "description": "Source labels bit 0 as SW1; hardware mapping unqualified.",
+          "pages": [
+            68
+          ]
+        },
+        {
+          "name": "SOURCE_SW2",
+          "value": 2,
+          "description": "Source labels bit 1 as SW2; hardware mapping unqualified.",
+          "pages": [
+            68
+          ]
+        },
+        {
+          "name": "SOURCE_SW3",
+          "value": 4,
+          "description": "Source labels bit 2 as SW3; hardware mapping unqualified.",
+          "pages": [
+            68
+          ]
+        },
+        {
+          "name": "SOURCE_SW4",
+          "value": 8,
+          "description": "Source labels bit 3 as SW4; hardware mapping unqualified.",
+          "pages": [
+            68
+          ]
+        },
+        {
+          "name": "SOURCE_SW5",
+          "value": 16,
+          "description": "Source labels bit 4 as SW5; hardware mapping unqualified.",
+          "pages": [
+            68
+          ]
+        },
+        {
+          "name": "SOURCE_SW6",
+          "value": 32,
+          "description": "Source labels bit 5 as SW6; hardware mapping unqualified.",
+          "pages": [
+            68
+          ]
+        },
+        {
+          "name": "SOURCE_SW7",
+          "value": 64,
+          "description": "Source labels bit 6 as SW7; hardware mapping unqualified.",
+          "pages": [
+            68
+          ]
+        }
+      ]
+    },
+    {
+      "name": "InputFunction",
+      "underlying": "uint16_t",
+      "pages": [
+        14,
+        18,
+        19,
+        22,
+        23,
+        24,
+        27,
+        73,
+        74
+      ],
+      "notes": "",
+      "values": [
+        {
+          "name": "UNDEFINED",
+          "value": 0,
+          "description": "No function.",
+          "pages": [
+            14,
+            18,
+            19,
+            22,
+            23,
+            24,
+            27,
+            73,
+            74
+          ]
+        },
+        {
+          "name": "ORIGIN",
+          "value": 1,
+          "description": "Origin sensor.",
+          "pages": [
+            14,
+            18,
+            19,
+            22,
+            23,
+            24,
+            27,
+            73,
+            74
+          ]
+        },
+        {
+          "name": "POSITIVE_LIMIT",
+          "value": 2,
+          "description": "Positive-limit sensor.",
+          "pages": [
+            14,
+            18,
+            19,
+            22,
+            23,
+            24,
+            27,
+            73,
+            74
+          ]
+        },
+        {
+          "name": "NEGATIVE_LIMIT",
+          "value": 3,
+          "description": "Negative-limit sensor.",
+          "pages": [
+            14,
+            18,
+            19,
+            22,
+            23,
+            24,
+            27,
+            73,
+            74
+          ]
+        },
+        {
+          "name": "RELEASE_MOTOR",
+          "value": 4,
+          "description": "Valid level releases motor.",
+          "pages": [
+            14,
+            18,
+            19,
+            22,
+            23,
+            24,
+            27,
+            73,
+            74
+          ]
+        },
+        {
+          "name": "STOP",
+          "value": 5,
+          "description": "Valid level forces stop.",
+          "pages": [
+            14,
+            18,
+            19,
+            22,
+            23,
+            24,
+            27,
+            73,
+            74
+          ]
+        },
+        {
+          "name": "EMERGENCY_STOP",
+          "value": 6,
+          "description": "Valid level forces urgent stop.",
+          "pages": [
+            14,
+            18,
+            19,
+            22,
+            23,
+            24,
+            27,
+            73,
+            74
+          ]
+        },
+        {
+          "name": "POSITION_MOVE",
+          "value": 7,
+          "description": "Position start; edge valid.",
+          "pages": [
+            14,
+            18,
+            19,
+            22,
+            23,
+            24,
+            27,
+            73,
+            74
+          ]
+        },
+        {
+          "name": "SPEED_MOVE",
+          "value": 8,
+          "description": "Speed mode; level valid; speed sign sets direction.",
+          "pages": [
+            14,
+            18,
+            19,
+            22,
+            23,
+            24,
+            27,
+            73,
+            74
+          ]
+        },
+        {
+          "name": "JOG_POSITIVE",
+          "value": 9,
+          "description": "Level-valid motion always positive regardless speed sign.",
+          "pages": [
+            14,
+            18,
+            19,
+            22,
+            23,
+            24,
+            27,
+            73,
+            74
+          ]
+        },
+        {
+          "name": "JOG_NEGATIVE",
+          "value": 10,
+          "description": "Level-valid motion always negative regardless speed sign.",
+          "pages": [
+            14,
+            18,
+            19,
+            22,
+            23,
+            24,
+            27,
+            73,
+            74
+          ]
+        },
+        {
+          "name": "START_HOMING",
+          "value": 11,
+          "description": "Homing start; edge valid.",
+          "pages": [
+            14,
+            18,
+            19,
+            22,
+            23,
+            24,
+            27,
+            73,
+            74
+          ]
+        },
+        {
+          "name": "PT_TRIGGER",
+          "value": 12,
+          "description": "Position-segment trigger; edge valid.",
+          "pages": [
+            14,
+            18,
+            19,
+            22,
+            23,
+            24,
+            27,
+            73,
+            74
+          ]
+        },
+        {
+          "name": "PV_TRIGGER",
+          "value": 13,
+          "description": "Speed-segment trigger; level or configured rising edge.",
+          "pages": [
+            14,
+            18,
+            19,
+            22,
+            23,
+            24,
+            27,
+            73,
+            74
+          ]
+        },
+        {
+          "name": "SEGMENT_PIN0",
+          "value": 14,
+          "description": "Least significant segment selector.",
+          "pages": [
+            14,
+            18,
+            19,
+            22,
+            23,
+            24,
+            27,
+            73,
+            74
+          ]
+        },
+        {
+          "name": "SEGMENT_PIN1",
+          "value": 15,
+          "description": "Segment selector bit 1.",
+          "pages": [
+            14,
+            18,
+            19,
+            22,
+            23,
+            24,
+            27,
+            73,
+            74
+          ]
+        },
+        {
+          "name": "SEGMENT_PIN2",
+          "value": 16,
+          "description": "Segment selector bit 2.",
+          "pages": [
+            14,
+            18,
+            19,
+            22,
+            23,
+            24,
+            27,
+            73,
+            74
+          ]
+        },
+        {
+          "name": "SEGMENT_PIN3",
+          "value": 17,
+          "description": "Most significant segment selector.",
+          "pages": [
+            14,
+            18,
+            19,
+            22,
+            23,
+            24,
+            27,
+            73,
+            74
+          ]
+        }
+      ]
+    },
+    {
+      "name": "OutputFunction",
+      "underlying": "uint16_t",
+      "pages": [
+        28,
+        74
+      ],
+      "notes": "Values 6-8 lack descriptions and are deliberately not enum members.",
+      "values": [
+        {
+          "name": "UNDEFINED",
+          "value": 0,
+          "description": "No function.",
+          "pages": [
+            28,
+            74
+          ]
+        },
+        {
+          "name": "ALARM",
+          "value": 1,
+          "description": "Valid level when alarm.",
+          "pages": [
+            28,
+            74
+          ]
+        },
+        {
+          "name": "RUNNING",
+          "value": 2,
+          "description": "Valid level when drive moves.",
+          "pages": [
+            28,
+            74
+          ]
+        },
+        {
+          "name": "HOMING_COMPLETE",
+          "value": 3,
+          "description": "Valid level after homing.",
+          "pages": [
+            28,
+            74
+          ]
+        },
+        {
+          "name": "IN_POSITION",
+          "value": 4,
+          "description": "Valid level when correct position reached.",
+          "pages": [
+            28,
+            74
+          ]
+        },
+        {
+          "name": "BRAKE",
+          "value": 5,
+          "description": "Valid when motor locked; invalid when released.",
+          "pages": [
+            28,
+            74
+          ]
+        },
+        {
+          "name": "CUSTOM_0",
+          "value": 9,
+          "description": "Custom output controlled through 0x004F.",
+          "pages": [
+            28,
+            74
+          ]
+        },
+        {
+          "name": "CUSTOM_1",
+          "value": 10,
+          "description": "Custom output controlled through 0x004F.",
+          "pages": [
+            28,
+            74
+          ]
+        },
+        {
+          "name": "CUSTOM_2",
+          "value": 11,
+          "description": "Listed choice; mapping to only two ESS outputs unresolved.",
+          "pages": [
+            28,
+            74
+          ]
+        }
+      ]
+    },
+    {
+      "name": "HomingAuxiliary",
+      "underlying": "uint16_t",
+      "pages": [
+        72
+      ],
+      "notes": "",
+      "values": [
+        {
+          "name": "MOVE_OFFSET_SET_OFFSET",
+          "value": 0,
+          "description": "Run offset; resulting coordinate is offset value.",
+          "pages": [
+            72
+          ]
+        },
+        {
+          "name": "MOVE_OFFSET_SET_ZERO",
+          "value": 1,
+          "description": "Run offset; resulting coordinate is zero.",
+          "pages": [
+            72
+          ]
+        },
+        {
+          "name": "MOVE_OFFSET_SET_NEGATIVE_OFFSET",
+          "value": 2,
+          "description": "Run offset; resulting coordinate is negative offset value.",
+          "pages": [
+            72
+          ]
+        },
+        {
+          "name": "MOVE_OFFSET_KEEP_ACTUAL",
+          "value": 3,
+          "description": "Run offset; resulting coordinate is actual value.",
+          "pages": [
+            72
+          ]
+        },
+        {
+          "name": "MOVE_OFFSET_ADD_OFFSET",
+          "value": 4,
+          "description": "Run offset; resulting coordinate is actual value plus offset.",
+          "pages": [
+            72
+          ]
+        },
+        {
+          "name": "MOVE_OFFSET_SUBTRACT_OFFSET",
+          "value": 5,
+          "description": "Run offset; resulting coordinate is actual value minus offset.",
+          "pages": [
+            72
+          ]
+        },
+        {
+          "name": "KEEP_POSITION_SET_OFFSET",
+          "value": 6,
+          "description": "Do not run offset; resulting coordinate is offset value.",
+          "pages": [
+            72
+          ]
+        },
+        {
+          "name": "KEEP_POSITION_SET_ZERO",
+          "value": 7,
+          "description": "Do not run offset; resulting coordinate is zero.",
+          "pages": [
+            72
+          ]
+        },
+        {
+          "name": "KEEP_POSITION_SET_NEGATIVE_OFFSET",
+          "value": 8,
+          "description": "Do not run offset; resulting coordinate is negative offset value.",
+          "pages": [
+            72
+          ]
+        },
+        {
+          "name": "KEEP_POSITION_KEEP_ACTUAL",
+          "value": 9,
+          "description": "Do not run offset; resulting coordinate is actual value.",
+          "pages": [
+            72
+          ]
+        },
+        {
+          "name": "KEEP_POSITION_ADD_OFFSET",
+          "value": 10,
+          "description": "Do not run offset; resulting coordinate is actual value plus offset.",
+          "pages": [
+            72
+          ]
+        },
+        {
+          "name": "KEEP_POSITION_SUBTRACT_OFFSET",
+          "value": 11,
+          "description": "Do not run offset; resulting coordinate is actual value minus offset.",
+          "pages": [
+            72
+          ]
+        }
+      ]
+    },
+    {
+      "name": "HomingMethod",
+      "underlying": "int16_t",
+      "pages": [
+        19,
+        32,
+        33,
+        34,
+        35,
+        36,
+        37,
+        38,
+        39,
+        40,
+        41,
+        42,
+        43,
+        44,
+        45,
+        46,
+        47,
+        48,
+        49,
+        50,
+        51,
+        52,
+        53,
+        54,
+        55,
+        56,
+        57,
+        58,
+        59,
+        60,
+        61,
+        62,
+        63,
+        64,
+        65,
+        66,
+        67,
+        72,
+        73
+      ],
+      "notes": "Semantic method numbers, NOT a negative-value wire encoder. Modes 1-14, 33, 34 require closed-loop motor Z index. Modes 15, 16, 31, 32, 0 are not listed.",
+      "values": [
+        {
+          "name": "COLLISION_MINUS_4",
+          "value": -4,
+          "description": "Collision mode listed in ESS table; trajectory and negative wire encoding unresolved.",
+          "pages": [
+            72,
+            73
+          ]
+        },
+        {
+          "name": "COLLISION_MINUS_3",
+          "value": -3,
+          "description": "Collision mode listed in ESS table; trajectory and negative wire encoding unresolved.",
+          "pages": [
+            72,
+            73
+          ]
+        },
+        {
+          "name": "COLLISION_MINUS_2",
+          "value": -2,
+          "description": "Collision mode listed in ESS table; trajectory and negative wire encoding unresolved.",
+          "pages": [
+            72,
+            73
+          ]
+        },
+        {
+          "name": "COLLISION_MINUS_1",
+          "value": -1,
+          "description": "Collision mode listed in ESS table; trajectory and negative wire encoding unresolved.",
+          "pages": [
+            72,
+            73
+          ]
+        },
+        {
+          "name": "METHOD_1",
+          "value": 1,
+          "description": "Method 1: reference motor Z index; use cited diagrams for starting-state-dependent paths.",
+          "pages": [
+            32
+          ]
+        },
+        {
+          "name": "METHOD_2",
+          "value": 2,
+          "description": "Method 2: reference motor Z index; use cited diagrams for starting-state-dependent paths.",
+          "pages": [
+            33
+          ]
+        },
+        {
+          "name": "METHOD_3",
+          "value": 3,
+          "description": "Method 3: reference motor Z index; use cited diagrams for starting-state-dependent paths.",
+          "pages": [
+            34
+          ]
+        },
+        {
+          "name": "METHOD_4",
+          "value": 4,
+          "description": "Method 4: reference motor Z index; use cited diagrams for starting-state-dependent paths.",
+          "pages": [
+            34,
+            35
+          ]
+        },
+        {
+          "name": "METHOD_5",
+          "value": 5,
+          "description": "Method 5: reference motor Z index; use cited diagrams for starting-state-dependent paths.",
+          "pages": [
+            35,
+            36
+          ]
+        },
+        {
+          "name": "METHOD_6",
+          "value": 6,
+          "description": "Method 6: reference motor Z index; use cited diagrams for starting-state-dependent paths.",
+          "pages": [
+            36,
+            37
+          ]
+        },
+        {
+          "name": "METHOD_7",
+          "value": 7,
+          "description": "Method 7: reference motor Z index; use cited diagrams for starting-state-dependent paths.",
+          "pages": [
+            37,
+            38,
+            39
+          ]
+        },
+        {
+          "name": "METHOD_8",
+          "value": 8,
+          "description": "Method 8: reference motor Z index; use cited diagrams for starting-state-dependent paths.",
+          "pages": [
+            39,
+            40
+          ]
+        },
+        {
+          "name": "METHOD_9",
+          "value": 9,
+          "description": "Method 9: reference motor Z index; use cited diagrams for starting-state-dependent paths.",
+          "pages": [
+            40,
+            41,
+            42
+          ]
+        },
+        {
+          "name": "METHOD_10",
+          "value": 10,
+          "description": "Method 10: reference motor Z index; use cited diagrams for starting-state-dependent paths.",
+          "pages": [
+            42,
+            43
+          ]
+        },
+        {
+          "name": "METHOD_11",
+          "value": 11,
+          "description": "Method 11: reference motor Z index; use cited diagrams for starting-state-dependent paths.",
+          "pages": [
+            44,
+            45
+          ]
+        },
+        {
+          "name": "METHOD_12",
+          "value": 12,
+          "description": "Method 12: reference motor Z index; use cited diagrams for starting-state-dependent paths.",
+          "pages": [
+            45,
+            46,
+            47
+          ]
+        },
+        {
+          "name": "METHOD_13",
+          "value": 13,
+          "description": "Method 13: reference motor Z index; use cited diagrams for starting-state-dependent paths.",
+          "pages": [
+            47,
+            48,
+            49
+          ]
+        },
+        {
+          "name": "METHOD_14",
+          "value": 14,
+          "description": "Method 14: reference motor Z index; use cited diagrams for starting-state-dependent paths.",
+          "pages": [
+            49,
+            50
+          ]
+        },
+        {
+          "name": "METHOD_17",
+          "value": 17,
+          "description": "Method 17: reference negative limit; use cited diagrams for starting-state-dependent paths.",
+          "pages": [
+            50,
+            51
+          ]
+        },
+        {
+          "name": "METHOD_18",
+          "value": 18,
+          "description": "Method 18: reference positive limit; use cited diagrams for starting-state-dependent paths. Figure labels negative limit conflict with positive-limit prose; retain discrepancy.",
+          "pages": [
+            51
+          ]
+        },
+        {
+          "name": "METHOD_19",
+          "value": 19,
+          "description": "Method 19: reference origin input; use cited diagrams for starting-state-dependent paths.",
+          "pages": [
+            52
+          ]
+        },
+        {
+          "name": "METHOD_20",
+          "value": 20,
+          "description": "Method 20: reference origin input; use cited diagrams for starting-state-dependent paths.",
+          "pages": [
+            52,
+            53
+          ]
+        },
+        {
+          "name": "METHOD_21",
+          "value": 21,
+          "description": "Method 21: reference origin input; use cited diagrams for starting-state-dependent paths.",
+          "pages": [
+            53,
+            54
+          ]
+        },
+        {
+          "name": "METHOD_22",
+          "value": 22,
+          "description": "Method 22: reference origin input; use cited diagrams for starting-state-dependent paths.",
+          "pages": [
+            54,
+            55
+          ]
+        },
+        {
+          "name": "METHOD_23",
+          "value": 23,
+          "description": "Method 23: reference origin input; use cited diagrams for starting-state-dependent paths.",
+          "pages": [
+            55,
+            56,
+            57
+          ]
+        },
+        {
+          "name": "METHOD_24",
+          "value": 24,
+          "description": "Method 24: reference origin input; use cited diagrams for starting-state-dependent paths.",
+          "pages": [
+            57,
+            58
+          ]
+        },
+        {
+          "name": "METHOD_25",
+          "value": 25,
+          "description": "Method 25: reference origin input; use cited diagrams for starting-state-dependent paths.",
+          "pages": [
+            58,
+            59,
+            60
+          ]
+        },
+        {
+          "name": "METHOD_26",
+          "value": 26,
+          "description": "Method 26: reference origin input; use cited diagrams for starting-state-dependent paths.",
+          "pages": [
+            60,
+            61
+          ]
+        },
+        {
+          "name": "METHOD_27",
+          "value": 27,
+          "description": "Method 27: reference origin input; use cited diagrams for starting-state-dependent paths.",
+          "pages": [
+            61,
+            62,
+            63
+          ]
+        },
+        {
+          "name": "METHOD_28",
+          "value": 28,
+          "description": "Method 28: reference origin input; use cited diagrams for starting-state-dependent paths.",
+          "pages": [
+            63,
+            64
+          ]
+        },
+        {
+          "name": "METHOD_29",
+          "value": 29,
+          "description": "Method 29: reference origin input; use cited diagrams for starting-state-dependent paths.",
+          "pages": [
+            64,
+            65,
+            66
+          ]
+        },
+        {
+          "name": "METHOD_30",
+          "value": 30,
+          "description": "Method 30: reference origin input; use cited diagrams for starting-state-dependent paths.",
+          "pages": [
+            66,
+            67
+          ]
+        },
+        {
+          "name": "METHOD_33",
+          "value": 33,
+          "description": "Method 33: negative low-speed search for motor Z index; no slowdown input.",
+          "pages": [
+            67
+          ]
+        },
+        {
+          "name": "METHOD_34",
+          "value": 34,
+          "description": "Method 34: positive low-speed search for motor Z index; no slowdown input.",
+          "pages": [
+            67
+          ]
+        },
+        {
+          "name": "METHOD_35",
+          "value": 35,
+          "description": "Method 35: source says set current position as origin; not a sensor-search motion.",
+          "pages": [
+            67
+          ]
+        }
+      ]
+    },
+    {
+      "name": "AlarmCode",
+      "underlying": "uint16_t",
+      "pages": [
+        68
+      ],
+      "notes": "Labels for 1, 2, 3, 5 additionally from hardware manual p12; no label invented for 4. Unknown values must be retained.",
+      "values": [
+        {
+          "name": "NORMAL",
+          "value": 0,
+          "description": "Function manual p68 normal.",
+          "pages": [
+            68
+          ]
+        },
+        {
+          "name": "OVERCURRENT",
+          "value": 1,
+          "description": "Hardware p12 phase overcurrent or short; re-power reset.",
+          "pages": [
+            68
+          ]
+        },
+        {
+          "name": "OVERVOLTAGE",
+          "value": 2,
+          "description": "Hardware p12 supply voltage high; automatic reset.",
+          "pages": [
+            68
+          ]
+        },
+        {
+          "name": "UNDERVOLTAGE",
+          "value": 3,
+          "description": "Hardware p12 supply voltage low; automatic reset.",
+          "pages": [
+            68
+          ]
+        },
+        {
+          "name": "POSITION_TOLERANCE",
+          "value": 5,
+          "description": "Hardware p12 out of tolerance; re-power reset.",
+          "pages": [
+            68
+          ]
+        }
+      ]
+    }
+  ],
+  "issues": {
+    "DEFAULT_CONFLICT": 1,
+    "RANGE_MALFORMED": 2,
+    "SCALE_UNRESOLVED": 4,
+    "SIGNED_ENCODING_UNRESOLVED": 8,
+    "ACCESS_UNSPECIFIED": 16,
+    "DUPLICATE_MAPPING": 32,
+    "MODEL_APPLICABILITY": 64,
+    "WORD_ORDER_UNRESOLVED": 128,
+    "SOURCE_CONFLICT": 256,
+    "UNIT_UNSPECIFIED": 512,
+    "SEMANTICS_UNRESOLVED": 1024
+  },
+  "outside_map_references": [
+    {
+      "addresses": "0x0045-0x0047",
+      "pages": [
+        13,
+        14,
+        17,
+        18,
+        20,
+        22,
+        24,
+        28
+      ],
+      "reason": "Generic input prose extends beyond ESS X0-X3; no ESS descriptors."
+    },
+    {
+      "addresses": "0x004E",
+      "pages": [
+        28
+      ],
+      "reason": "Generic third output beyond ESS Y0-Y1; no ESS descriptor."
+    },
+    {
+      "addresses": "0x2042",
+      "pages": [
+        77,
+        78
+      ],
+      "reason": "Current-percentage prose references outside-map base-current address; no guessed alias."
+    }
+  ],
+  "bitfield_coverage": [
+    {
+      "register": "DIP_STATUS",
+      "named_mask": "0x007F",
+      "reserved_mask": null,
+      "undocumented_mask": "0xFF80",
+      "notes": "Source switch labels unqualified against5-switch hardware."
+    },
+    {
+      "register": "MOTION_STATUS",
+      "named_mask": "0x007F",
+      "reserved_mask": null,
+      "undocumented_mask": "0xFF80"
+    },
+    {
+      "register": "MOTION_COMMAND",
+      "named_mask": "0x031F",
+      "reserved_mask": null,
+      "undocumented_mask": "0xFCE0"
+    },
+    {
+      "register": "INPUT_STATUS",
+      "named_mask": "0x000F",
+      "reserved_mask": "0xFFF0",
+      "undocumented_mask": null
+    },
+    {
+      "register": "INPUT_POLARITY",
+      "named_mask": "0x000F",
+      "reserved_mask": "0xFFF0",
+      "undocumented_mask": null
+    },
+    {
+      "register": "OUTPUT_STATUS",
+      "named_mask": "0x0003",
+      "reserved_mask": "0xFFFC",
+      "undocumented_mask": null
+    },
+    {
+      "register": "OUTPUT_POLARITY",
+      "named_mask": "0x0003",
+      "reserved_mask": "0xFFFC",
+      "undocumented_mask": null
+    },
+    {
+      "register": "CUSTOM_OUTPUT",
+      "named_mask": "0x0003",
+      "reserved_mask": "0xFFFC",
+      "undocumented_mask": null
+    }
+  ],
+  "complete_source_catalogue": {
+    "appendix_pages": [
+      68,
+      69,
+      70,
+      71,
+      72,
+      73,
+      74,
+      75,
+      76,
+      77,
+      78,
+      79
+    ],
+    "logical_descriptors": 221,
+    "register_words": 242,
+    "paired_records": 21,
+    "explicit_reserved_words": 16,
+    "homing_choices": 35,
+    "operational_command_coverage": "not implemented; a name/address is not an accepted setter or motion operation"
+  }
+}

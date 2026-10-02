@@ -1,82 +1,127 @@
-# RS485Motion architecture seed
+# RS485Motion
 
-Framework-independent serial motion library design, with STEPPERONLINE
-ESS23-RS as the first implementation target and Leadshine iEM-RS as the
-contrasting design reference. The repository directory remains `ESS23-RS`;
-`RS485Motion` is the working common library and namespace name.
+A framework-independent serial motion library, starting with STEPPERONLINE
+ESS23-RS10/RS20. The repository directory remains `ESS23-RS`; the common C++
+namespace and package name are `RS485Motion`.
 
-The accepted design has a common axis API, explicit drive profiles with full
-documented native commands, and application-owned transport. Upper firmware
-uses the same motion vocabulary across supported profiles. Arduino, native
-ESP-IDF, other firmware and future FieldCore integration are independent
-consumers of the same core.
+The first implementation supplies **configurable unit conversion and the ESS
+register catalogue**. Frame codecs, motion commands, discovery and the full
+standalone CLI are the next stages. No motor communication or motion has been
+tested yet. Leadshine iEM-RS is a design contrast, not an implemented backend.
 
-This folder contains architecture/API/CLI contracts and development references.
-No motor library, public API, examples, tests, or build configuration has been
-implemented yet.
+The core has no Arduino, ESP-IDF, FieldCore, UART, GPIO, clock, heap, retry or
+health-service dependency. Applications own those responsibilities. Common
+motion vocabulary and complete native profile access remain the accepted
+[architecture](docs/architecture.md).
 
-## Start here
+## Units API
 
-- [Documentation and downloaded files](docs/README.md)
-- [Library architecture and ownership](docs/architecture.md)
-- [Common axis API and units](docs/axis_contract.md)
-- [Drive profiles and full command coverage](docs/profile_contract.md)
-- [Standalone example CLI contract](docs/cli_contract.md)
-- [Drive discovery and non-changing probes](docs/discovery_contract.md)
-- [Feature backlog and open questions](docs/backlog.md)
-- [COM13 motor bench and testing authorization](docs/hardware_bench.md)
-- [Manufacturer research and design evidence](docs/reference/03_multi_vendor_feasibility.md)
-- [RS485 ecosystem review and FieldCore integration gaps](docs/reference/02_ecosystem_review.md)
-- [Source inventory](docs/reference/00_document_inventory.md)
-- [Implementation reference and open questions](docs/reference/01_implementation_reference.md)
-- [AI coder instructions](AGENTS.md)
+Position, velocity and acceleration preferences are independent. Supported
+spatial units are command steps, motor full steps, identified encoder counts,
+turns, degrees, radians and configured millimetres. Time denominators can be
+seconds, minutes or milliseconds, including rpm/s.
 
-The first implementation target is **ESS23-RS20**. The **ESS23-RS10** references are
-included so the eventual library can account for both variants. These are the
-RS485 models; the pulse-controlled ESS23-10/ESS23-20 are separate products.
+```cpp
+#include <RS485Motion/RS485Motion.h>
+#include <RS485Motion/profiles/ess_rs/Defaults.h>
 
-## Current contents and planned layout
+using namespace RS485Motion;
+UnitConfig config = ESS_RS::makeBenchUnitConfig();
+config.settings.position = PositionUnit::DEGREES;
+config.settings.velocity = VelocityUnit(PositionUnit::TURNS, TimeUnit::MINUTE);
+config.settings.acceleration = AccelerationUnit(PositionUnit::RADIANS);
 
-Only documentation and folder seeds exist. Public code will use the neutral
-layout in the architecture; the existing empty `include/ESS23_RS/` directory
-comes from the earlier ESS-only seed and contains no API.
-
-```text
-include/               Future RS485Motion common and per-profile headers
-src/                   Future common units, sequence and profile codecs
-examples/common/       Future example-only transport and board helpers
-test/                  Future native codec tests
-scripts/               Reference download and PDF extraction helper
-docs/reference/        Source inventory and concise implementation notes
-docs/vendor/           Original manufacturer PDFs
-docs/vendor/cad/       RS10 and RS20 STEP models
-docs/vendor/software/  Vendor tuning-software archive
-docs/standards/        Official Modbus specifications
-docs/pdf-extracted-md/ Searchable extracts indexed by physical PDF page
+UnitConversion result;
+Status status = convertAcceleration(
+    6.283185307179586, config.settings.acceleration,
+    AccelerationUnit(PositionUnit::STEPS), config, result);
+// On success: approximately 1000 command steps/s^2 with this bench configuration.
 ```
 
-Follow the existing `../SHZK-PT`, `../VTN4xx`, and `../VibWire-108` stateless
-codec conventions. Add explicit unit conversion and bounded caller-owned
-sequence logic above that boundary. UART, DE/RE, timing, scheduling, retries,
-cached readings and health policy stay in the application or example layer.
+`convertDisplacement`, `convertVelocity` and `convertAcceleration` use explicit
+input/output units and caller-owned rational scales. They check invalid scales,
+missing conversion dependencies, finite values, magnitude and arithmetic error;
+outputs stay unchanged on error. Exact native integer range checks avoid
+floating-point conversion. Origins, wrapped-angle paths, target quantization
+and device-specific ramp encoding follow later.
 
-The public axis design covers absolute/relative positioning in explicit
-steps/counts, turns, degrees, radians and configured linear travel, plus
-velocity, stop, enable/release, homing, fault clear and observations. Profiles
-declare supported operations; conversions require established scales and
-reference state. Native extensions expose family-specific tuning, I/O,
-configuration and other documented commands without forcing them into the
-common subset. No listed operation is implemented or hardware-qualified yet.
+`makeBenchUnitConfig()` assumes 1000 command steps per motor turn, 4000 decoded
+encoder counts per motor turn and direct 1:1 coupling. Both model datasheets
+specify 1.8° full steps, giving 200 full steps per turn. Linear travel has no
+default lead. These settings perform no device writes and are not readback.
+See [encoder evidence and examples](docs/reference/06_encoder_units.md) for
+provenance and the distinction between encoder counts and ESS position feedback.
 
-The standalone console maps to that same public API and owns its transport.
-Native ESP-IDF consumption requires neither Arduino nor FieldCore. Future
-FieldCore integration needs changes to its write framing, request capacity
-and control contracts; those limits do not constrain this library's API.
+## ESS module
 
-## Original product pages
+[Registers.h](include/RS485Motion/profiles/ess_rs/Registers.h) and
+[Types.h](include/RS485Motion/profiles/ess_rs/Types.h) expose register addresses,
+immutable descriptors, native choices and bounded indexed lookups. The
+[catalogue](docs/reference/05_ess_register_catalog.md) covers 221 logical records
+and 242 register words, including I/O, tuning, homing, all sixteen stored
+position/speed segments and explicitly reserved entries.
 
-- [ESS23-RS20](https://www.omc-stepperonline.com/ess-series-2-2nm-311-55oz-in-nema-23-integrated-rs485-closed-loop-stepper-servo-motor-24-48vdc-1000ppr-ess23-rs20)
-- [ESS23-RS10](https://www.omc-stepperonline.com/ess-series-1-2nm-169-93oz-in-nema-23-integrated-rs485-closed-loop-stepper-servo-motor-24-48vdc-1000ppr-ess23-rs10)
+[ess_rs_registers.json](docs/reference/ess_rs_registers.json) is the single
+transcription source; the generator produces the C++ tables and readable
+inventory. Source conflicts, unknown signed encodings, scaling and application
+semantics stay visible. Metadata coverage does not imply command implementation.
+Generic Modbus or another manufacturer's registers are not substituted for ESS.
 
-Downloaded vendor files and standards retain their original owners' rights.
-The tuning archive contains a Windows executable, not library source code.
+## Build and preview
+
+With CMake and a C++11 compiler, build and run the native tests and unit preview:
+
+```sh
+cmake -S . -B build/native -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build build/native
+ctest --test-dir build/native --output-on-failure
+```
+
+Use another available CMake generator if Ninja is absent. An application can
+use `add_subdirectory` and link `RS485Motion::RS485Motion`, or install the CMake
+package and use `find_package(RS485Motion CONFIG REQUIRED)`. The root CMake file
+also supports ESP-IDF `EXTRA_COMPONENT_DIRS`; native ESP-IDF firmware validation
+is still pending. Public headers require no framework headers.
+
+The same [unit preview](examples/units_preview/main.cpp) builds for the E2
+ESP32-S3 bench using the FieldCore N16R8 memory/platform baseline:
+
+```powershell
+.\scripts\pio.cmd run -e e2_s3_units
+```
+
+This preview prints conversions to USB; it does not initialize the motor UART
+or send commands. Board pins are explicitly TX47, RX48, DE21 in
+[BoardPins.h](examples/common/BoardPins.h). See the
+[board audit](docs/reference/04_co2control_platform.md) for the physical-board
+versus current FieldCore product-profile distinction. Builds do not upload to
+COM13. Preserve the existing firmware before a later bench upload.
+
+Generated files are checked with:
+
+```sh
+python scripts/generate_version.py check
+python scripts/generate_ess_registers.py --check
+```
+
+## Repository guide
+
+| Path | Responsibility |
+| --- | --- |
+| `include/RS485Motion/`, `src/` | Public common API and implementation |
+| `include/RS485Motion/profiles/ess_rs/`, `src/profiles/ess_rs/` | ESS-specific data and later codecs/helpers |
+| `examples/common/` | Board/build settings and later platform transport |
+| `examples/units_preview/` | Desktop/Arduino consumer of the current units API |
+| `test/` | Native units and catalogue verification |
+| `scripts/` | Reference preparation and deterministic generators |
+| `docs/reference/` | Register inventory, source evidence and implementation questions |
+| `docs/vendor/`, `docs/standards/`, `docs/pdf-extracted-md/` | Preserved original references and searchable extracts |
+
+Start with [documentation](docs/README.md), [remaining work](docs/backlog.md),
+[bench notes](docs/hardware_bench.md) and [engineering guidance](AGENTS.md).
+The [axis](docs/axis_contract.md), [profiles](docs/profile_contract.md),
+[discovery](docs/discovery_contract.md) and [CLI](docs/cli_contract.md) contracts
+describe the intended complete library beyond this first implementation.
+
+Code is MIT licensed. Vendor PDFs, CAD, software and standards retain their
+owners' rights and are excluded from the distributed source package.

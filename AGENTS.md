@@ -2,13 +2,15 @@
 
 ## Current scope
 
-This is a documentation, architecture and folder seed. Do not implement the
-library or add placeholder APIs/build metadata until implementation is
-requested. The accepted scope is a general framework-independent serial
-motion library: common axis API, drive profiles and application integration.
-Implement ESS first when requested; design against Leadshine iEM-RS without
-claiming it is implemented or qualified. Preserve the original downloaded
-references. The repository directory remains `ESS23-RS`.
+Implementation is authorized in small, tested blocks. The first block is
+configurable unit conversion, the complete documented ESS register catalogue,
+and standalone build/board foundations. Protocol helpers, motion sequences,
+discovery and the full CLI follow in later blocks; do not add placeholder APIs.
+The accepted scope remains a general framework-independent serial motion
+library: common axis API, drive profiles and application integration. Implement
+ESS first; design against Leadshine iEM-RS without claiming it is implemented
+or qualified. Preserve original downloaded references. The repository directory
+remains `ESS23-RS`.
 
 ## Delivery workflow
 
@@ -47,7 +49,10 @@ This is recorded availability, not a claim that communication has been tested.
    `docs/backlog.md` for remaining work, and `docs/hardware_bench.md` before
    live tests.
 3. `docs/reference/00_document_inventory.md` and `sources.json`.
-4. `docs/reference/01_implementation_reference.md`.
+4. `docs/reference/01_implementation_reference.md`,
+   `docs/reference/05_ess_register_catalog.md`, and
+   `docs/reference/06_encoder_units.md`. Read
+   `docs/reference/04_co2control_platform.md` before board/example work.
 5. The original vendor function and hardware manuals in `docs/vendor/`.
 
 The original PDFs are authoritative for documented motor behavior. Searchable
@@ -59,10 +64,9 @@ differences instead of guessing. No hardware behavior has been validated yet.
 
 ## Intended structure and architecture
 
-- Planned common public headers: `include/RS485Motion/`, namespace
+- Common public headers: `include/RS485Motion/`, namespace
   `RS485Motion`; ESS headers: `include/RS485Motion/profiles/ess_rs/`, namespace
-  `RS485Motion::ESS_RS`; implementation: `src/`. The existing empty
-  `include/ESS23_RS/` directory is an earlier seed, not a published API.
+  `RS485Motion::ESS_RS`; implementation: `src/`.
 - Follow the current stateless codec boundary in `../SHZK-PT`, `../VTN4xx`,
   and `../VibWire-108`. Do not copy their device registers or constants.
 - Profile codecs are bounded frame builders, validators, decoders and checked
@@ -80,7 +84,9 @@ differences instead of guessing. No hardware behavior has been validated yet.
 - Steps/counts, turns, degrees, radians and configured linear travel are
   public API concepts, not CLI-only conversions. Distinguish motor steps,
   command subdivisions, encoder counts, motor shaft and load coordinates.
-  Require explicit scale/origin, checked range/rounding and angle path policy.
+  Require explicit scale/origin, checked range/rounding and angle path policy
+  when preparing motion. The current pure conversion API handles signed
+  displacement, velocity and acceleration; it does not establish an origin.
   Unresolved conversion or unsupported capability must fail before writes.
 - Expose the complete documented native command set for each supported
   family/model/protocol/firmware through typed profile extensions. A generic
@@ -134,4 +140,6 @@ extracts PDF text, and records SHA-256 hashes. It refuses to replace an existing
 file whose content differs. Review source changes before updating snapshots.
 The software archive is a commissioning reference; do not execute it as part
 of documentation preparation. Vendor files are not covered by any future
-library license.
+library license. The ESS JSON catalogue is the register transcription source;
+regenerate its C++ tables with `scripts/generate_ess_registers.py` and check
+them with `--check`. Keep firmware uncertainties visible in that source.

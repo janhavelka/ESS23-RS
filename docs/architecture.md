@@ -7,9 +7,11 @@ profiles, while typed profile extensions expose each drive's complete
 documented command set. Arduino, native ESP-IDF, desktop/native consumers and
 FieldCore are separate applications of the same library.
 
-This pass defines architecture and contracts only. No library code, public
-header, build metadata, example firmware or FieldCore adapter exists yet.
-No motor behavior has been qualified on hardware.
+The first implementation block supplies pure unit conversion and an ESS
+register catalogue. Motion preparation, wire codecs, discovery, the CLI and
+FieldCore adapters below remain contracts for later blocks. See the root
+README for current callable APIs and build commands. No motor behavior has
+been qualified on hardware.
 
 The [axis contract](axis_contract.md) defines common operations and units;
 the [profile contract](profile_contract.md) defines native command coverage;
@@ -142,10 +144,10 @@ following files are an implementation layout, not a request to create stubs.
 | `test/` | Native codec, units, sequence and consumer-contract tests when behavior exists |
 | `docs/IDF_PORT.md` | Framework-neutral consumption and native IDF instructions when implemented |
 
-The existing empty `include/ESS23_RS/` directory is an earlier folder seed,
-not a published header path. The planned layout replaces it when actual code
-is requested. Do not create empty profile APIs or a Leadshine implementation
-merely to mirror the design table. Split implementation files only when useful.
+The first implementation uses `include/RS485Motion/` and `src/Units.cpp`,
+with the ESS catalogue under `profiles/ess_rs/`. The old empty ESS-only header
+directory has been removed. Do not create empty profile APIs or a Leadshine
+implementation merely to mirror the design table. Split files only when useful.
 
 Every public header must compile alone and include only public or standard
 headers. Doxygen must state units, input limits, buffer lifetimes, failures,
@@ -436,13 +438,16 @@ work is requested.
 5. Integrate into FieldCore when requested, through its own contract/owner
    changes and tests. Standalone functionality does not depend on this step.
 
-When code exists, use native Unity tests, self-contained-header compilation,
+The initial pure units/catalogue tests use CMake/CTest standalone executables
+with assertions enabled in Release, without a test-framework dependency.
+As behavior grows, add native protocol/sequence tests, self-contained-header compilation,
 framework-boundary checks, example command-contract checks, Arduino S2/S3
 builds, native IDF builds and a clean package consumer. VTN/VibWire provide
 CMake/IDF packaging examples; package claims must match tested consumption.
 Keep downloaded PDFs, software and CAD out of the distributed source package
-and do not relicense them. Use SemVer and a real changelog once code exists;
-do not manufacture release/build files during this architecture stage.
+and do not relicense them. `library.json` is the version authority;
+`scripts/generate_version.py` maintains the public version header. Record
+implemented changes and qualification limits in the changelog.
 
 Tests must establish independent golden frames/CRCs, count/capacity boundaries,
 invalid pointers/arguments, exact normal and exception shapes, wrong slave/FC,

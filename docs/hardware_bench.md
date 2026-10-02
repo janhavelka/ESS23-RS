@@ -6,6 +6,8 @@
 | --- | --- |
 | Host port | COM13 |
 | Current board firmware | CO2control |
+| Physical board | User-confirmed E2, revision 2.0.0 |
+| RS485 pins | User-confirmed DE GPIO21, TX GPIO47, RX GPIO48 |
 | Motor connection | Motor connected to the board's RS485 bus |
 | Indicator | Green light visible on the motor |
 | Settings | User left the motor at its defaults |
@@ -35,10 +37,13 @@ run the future standalone test application. Preserve enough firmware/build
 information to reproduce or restore the bench setup.
 
 The USB console baud rate and the motor RS485 baud rate are separate facts.
-The board model, UART, TX/RX and DE/RE pins, direction polarity, echo behavior,
-wiring/termination, power supply and current DIP positions remain to be
-established. Discover them from available firmware/configuration and bench
-observations when needed; do not invent pin assignments or defaults here.
+The user has identified the E2 revision 2.0.0 board and its DE21/TX47/RX48
+wiring. These match FieldCore's retained HW2.0 TunnelMonitor electrical
+profile. Its currently selected CO2control product board is a different pin
+profile; a product name alone does not select the bench pins. See the
+[board and build audit](reference/04_co2control_platform.md). UART/direction
+defaults from source still need live qualification, along with echo behavior,
+wiring/termination, power supply and current DIP positions.
 
 The ESS manual lists 115200 baud and 8N1 defaults, but address selection and
 actual settings require verification. Treat those values as candidate

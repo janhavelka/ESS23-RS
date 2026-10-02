@@ -1,9 +1,10 @@
 # Features implementation tasks and open questions
 
 This is the working backlog for `RS485Motion`. The three-layer architecture
-is accepted; implementation has not started. Checked design decisions below
-are documentation milestones, not claims of implemented API or hardware
-support. Keep this list current after each completed logical block, and commit
+is accepted; the first implementation block supplies units and register
+metadata. Checked design decisions below remain documentation milestones,
+not claims of complete motion API or hardware support. Keep this list current
+after each completed logical block, and commit
 and sync that block under [the repository guidance](../AGENTS.md).
 
 ## Accepted design
@@ -31,8 +32,9 @@ The authoritative contracts are [architecture](architecture.md),
 
 ## ESS source and profile work
 
-- [ ] Expand the ESS source inventory into the complete per-register/command/
-  bitfield/indexed-record coverage ledger defined by the profile contract.
+- [x] Transcribe the complete ESS appendix, named choices/bitfields and indexed
+  records into a canonical JSON ledger and generated C++ catalogue: 221 logical
+  records / 242 words. Operational and CLI coverage remain unimplemented.
 - [ ] Resolve or explicitly retain every ambiguity in the
   [implementation reference](reference/01_implementation_reference.md), using
   original PDF pages and later exact-model readback.
@@ -50,6 +52,15 @@ The authoritative contracts are [architecture](architecture.md),
   signatures; implementation/hardware qualification remain separate work.
 
 ## Common API and desired modes
+
+- [x] Implement pure displacement, velocity and acceleration conversions with
+  independent unit preferences (including steps/s², degrees/s², radians/s²,
+  rpm/s), caller-owned rational scales and documented bench defaults.
+- [x] Record 1.8° / 200 full-step geometry, default 1000-line / 4000-count
+  encoder evidence, scaled-feedback distinction and unknown encoder part.
+- [x] Check conversion errors without mutating outputs; preserve exact native
+  integers through separate range/narrowing helpers. Full target preparation,
+  origins, rounding and motion-limit reports below still need implementation.
 
 - [ ] Implement capability/configuration inspection and exact native value
   preservation, with structured unsupported/unresolved/unimplemented reasons.
@@ -93,16 +104,19 @@ The authoritative contracts are [architecture](architecture.md),
 
 ## Standalone examples packaging and integration
 
-- [ ] Add real public headers/source, native tests and package/version/build
-  metadata together when implementation is requested; no placeholder APIs.
+- [x] Add real public headers/source, native tests, version/package metadata,
+  CMake builds and an offline desktop/Arduino units preview.
+- [x] Audit FieldCore build settings and record the user-confirmed E2 HW2.0
+  RS485 pins TX47/RX48/DE21 separately from its current CO2control product profile.
 - [ ] Implement common CLI inventory/dispatch and full native command coverage
   through public APIs, cached status/health and retained operation results.
 - [ ] Implement example-owned transport with DE/RE, TX drain, RTU framing,
   local-echo policy, exact reply lengths and bounded recovery.
 - [ ] Build standalone ESP32-S2/S3 Arduino consumers and a first-class native
   ESP-IDF consumer with equivalent command semantics for equivalent features.
-- [ ] Verify framework-free native consumption, self-contained headers and
-  clean packaged consumers; exclude vendor downloads from source packages.
+- [x] Verify framework-free native consumption, self-contained headers and
+  a clean core source package; exclude vendor downloads from that package.
+  Embedded package consumers beyond the compiled Arduino preview remain future work.
 - [ ] Add later FieldCore adapter work in that repository: typed motor control,
   FC06 echo handling, larger TX frames, exception framing, exact integers,
   scheduling and stop priority. Standalone work must not depend on this step.
@@ -135,7 +149,7 @@ possible. This list is not a request for the user to answer everything now.
 | --- | --- |
 | What motor/model/firmware is actually connected? | Read documented identity; compare model markings if identity is insufficient. The project's RS20 target is not a bench measurement. |
 | Is COM13 a console, a usable RS485 bridge, or a board needing test firmware? | Inspect CO2control source/configuration and current interface before sending motor bytes. |
-| What are the board pins, DE/RE polarity, echo topology and bus wiring? | Establish from firmware and bench; record in the hardware note. |
+| What are the board pins, DE/RE polarity, echo topology and bus wiring? | User confirms E2 HW2.0 TX47/RX48/DE21. Matching FieldCore HW200 source uses UART2/active-high DE. Live polarity, echo and wiring qualification remain. |
 | Which address/baud/format is active despite reported defaults? | Reviewed bounded discovery/readback; defaults and console settings remain separate. |
 | Which ESS read is the minimal non-changing probe? | Resolve from the original identity/status access table and qualify with firmware; do not assume Modbus supplies a universal ping. |
 | Can discovery distinguish a manufacturer/model or only a responder? | Record exact reply evidence and retain ambiguous candidates; no guessed selection. |

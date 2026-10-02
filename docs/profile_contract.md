@@ -2,10 +2,12 @@
 
 This is the accepted profile-layer design for `RS485Motion`. It specifies how
 each selected drive exposes its complete documented functionality alongside
-the [common axis API](axis_contract.md). It supplies no implementation,
-register declarations, machine-readable inventory, or qualified hardware
-support. ESS-RS is the first target; Leadshine iEM-RS is a contrasting design
-case whose concrete model and firmware still require selection.
+the [common axis API](axis_contract.md). The first implementation supplies the
+[ESS register catalogue](reference/05_ess_register_catalog.md), generated C++
+descriptors and native enums. Wire codecs, typed command helpers and hardware
+qualification remain future work. ESS-RS is the first target; Leadshine iEM-RS
+is a contrasting design case whose concrete model and firmware still require
+selection.
 
 The [architecture](architecture.md) defines ownership and the three layers.
 The [CLI contract](cli_contract.md) provides console access to these same

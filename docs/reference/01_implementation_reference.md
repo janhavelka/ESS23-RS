@@ -1,6 +1,12 @@
 # Implementation reference
 
-This is a navigation aid for the ESS-RS profile of the future RS485Motion library, not an implemented API or a verified hardware contract. Sources were downloaded on 2026-10-02. All page numbers below are **physical PDF pages, counted from 1**; printed page numbers in both manufacturer manuals are two lower.
+This is a navigation aid for the ESS-RS profile of RS485Motion, not a verified
+hardware contract. Sources were downloaded on 2026-10-02. All page numbers below
+are **physical PDF pages, counted from 1**; printed page numbers in both
+manufacturer manuals are two lower. The complete first source transcription is
+now in the [register catalogue](05_ess_register_catalog.md); pure conversions and
+bench assumptions are in [encoder and units notes](06_encoder_units.md). Wire
+commands and motion preparation are still future work.
 
 ## Source priority
 
@@ -10,7 +16,7 @@ The [extracted function-manual text](../pdf-extracted-md/Modbus-Series-Bus-Produ
 
 ## Function-manual navigation
 
-| Topic | PDF pages | What to extract when implementation begins |
+| Topic | PDF pages | Implementation evidence |
 | --- | --- | --- |
 | Applicability and protocol overview | 3-4 | Model scope and RTU client/server behavior |
 | Physical bus and communication settings | 5-6 | Two-wire RS485; address, baud, serial-format registers |

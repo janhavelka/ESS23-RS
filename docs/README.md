@@ -2,9 +2,14 @@
 
 ## Architecture baseline
 
+The first implementation is pure unit conversion, an ESS register catalogue
+and standalone build foundations. The contracts below describe the larger
+intended library; wire commands, motion workflows, discovery and CLI remain
+future work. See the [root README](../README.md) for current code and builds.
+
 - [Architecture and ownership](architecture.md): intended core layout,
   function names, buffer/status contracts, motor workflows and implementation
-  stages. This is a design, not an implemented library.
+  stages, with current implementation distinguished from planned behavior.
 - [Axis API and units](axis_contract.md): shared motion vocabulary, steps,
   angles, linear travel, checked conversion and caller-owned operation state.
 - [Profile and command coverage](profile_contract.md): full documented native
@@ -22,12 +27,23 @@
 
 ## Work tracking and bench
 
+- [Software verification](verification.md): first implementation checks and
+  explicit limits on what was tested.
+
 - [Features, implementation tasks and open questions](backlog.md): current
   roadmap, with design milestones separated from implementation and testing.
 - [COM13 motor bench](hardware_bench.md): user-reported CO2control/RS485 setup,
   free-shaft mounting, continuing test authorization and unverified settings.
 
 ## Manufacturer reference pack
+
+- [ESS register catalogue](reference/05_ess_register_catalog.md): complete
+  appendix transcription, generated C++ descriptors, choices and unresolved
+  source differences. This is metadata, not operational command coverage.
+- [Encoder and unit conversion](reference/06_encoder_units.md): exact source
+  facts, explicit bench assumptions and use of the current API.
+- [E2 board and FieldCore build audit](reference/04_co2control_platform.md):
+  verified source pins, user-confirmed bench wiring and integration boundaries.
 
 Start with the [inventory](reference/00_document_inventory.md) and the
 [implementation reference](reference/01_implementation_reference.md).
