@@ -35,7 +35,7 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     include(CTest)
     # Distributed source packages contain the core; repository tests stay here.
     if(BUILD_TESTING AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/test/units_test.cpp")
-        foreach(suite units registers codec runner probe_console esp32_uart probe_app capture_service)
+        foreach(suite units registers codec runner bus_owner probe_console esp32_uart probe_app capture_service)
             add_executable(${suite}_test "test/${suite}_test.cpp")
             target_link_libraries(${suite}_test PRIVATE MotorControlRS)
             set_target_properties(${suite}_test PROPERTIES
@@ -49,6 +49,8 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
             add_test(NAME ${suite} COMMAND ${suite}_test)
         endforeach()
         target_sources(runner_test PRIVATE examples/common/RtuRunner.cpp)
+        target_sources(bus_owner_test PRIVATE examples/common/RtuRunner.cpp
+            examples/common/RtuBusOwner.cpp examples/common/EssRtuValidator.cpp)
         target_sources(probe_console_test PRIVATE examples/probe_cli/ProbeConsole.cpp examples/common/RtuRunner.cpp)
         foreach(suite esp32_uart probe_app capture_service)
             target_sources(${suite}_test PRIVATE examples/common/Esp32S3Uart.cpp examples/common/RtuRunner.cpp

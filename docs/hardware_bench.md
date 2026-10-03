@@ -77,6 +77,10 @@ completion and record changes to the setup for the next session.
 
 ## Current status
 
+- Prompt 01 rebuilt the Runner/timer console and passed 10 unloaded, 10 loaded
+  and 3 final read-only probes. The exact retained image and evidence are in
+  [the prompt 01 report](reports/ess_release_01_2026-10-03.md). Workload is disabled;
+  bus-owner integration/absolute-deadline hardware tests remain for prompt 03.
 - Bench access and motion-test authorization: recorded from the user.
 - COM13 inspected on 2026-10-03; original CO2Control-node 1.3.0 flash backed up.
 - Board now runs the MotorControl-RS 0.6.0 timer-capture load/probe console;

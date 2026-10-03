@@ -11,6 +11,12 @@ uses direct polling without installing the IDF driver and supplies conservative
 timing intervals to the extended runner. See its current contract and bench
 report for implemented behavior and outstanding external qualification.
 
+Release prompt 01 has now delivered the [bounded application bus owner](../bus_owner.md).
+Its [handoff](../reports/ess_release_01_2026-10-03.md) records the newer read-only
+FieldCore source review, copied/reserved ownership and intentional deadline/
+parser differences. Later-step guidance below remains historical context;
+fairness/cancellation and console integration are still prompts 02 and 03.
+
 ## Reuse that saves work
 
 | FieldCore source | Useful behavior | MotorControl-RS application |

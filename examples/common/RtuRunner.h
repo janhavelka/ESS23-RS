@@ -13,7 +13,8 @@ enum class Phase : uint8_t { IDLE, WAIT_BUS, SETUP, DRAIN, HOLD, RECEIVE, DONE, 
 enum class Reason : uint8_t {
     NONE, FRAME, NO_RESPONSE, PARTIAL_RESPONSE, LENGTH, GAP, EARLY_REPLY,
     RX_OVERFLOW, RX_ERROR, TX_ERROR, TX_TIMEOUT, BUS_TIMEOUT, DIRECTION_ERROR,
-    ECHO_ERROR, CANCELLED, CLOCK_ERROR, CAPTURE_TIMEOUT, TIMING_UNCERTAIN
+    ECHO_ERROR, CANCELLED, CLOCK_ERROR, CAPTURE_TIMEOUT, TIMING_UNCERTAIN,
+    REQUEST_DEADLINE
 };
 enum class Admission : uint8_t { STARTED, BUSY, RECOVERY_REQUIRED, INVALID };
 enum class Echo : uint8_t { NONE, REQUIRED }; ///< REQUIRED means one qualified local copy.
@@ -102,6 +103,8 @@ struct Request {
     uint32_t responseTimeoutUs = 0; ///< From physical TX end, including final framing gap.
     uint32_t replyGapUs = 0;        ///< Explicit device turnaround; zero uses gap35Us.
     Echo echo = Echo::NONE;
+    uint64_t deadlineUs = 0;        ///< Absolute closure deadline; zero disables it.
+                                  ///< New DE assertion/enqueue requires now < deadline.
 };
 
 /** FRAME means a complete envelope was collected, not a valid CRC or motor action.
@@ -117,6 +120,9 @@ struct Result {
     uint16_t echoBytes = 0;
     bool txComplete = false;
     bool rxTruncated = false;
+    uint64_t closureEarliestUs = 0; ///< Last stop lower bound plus final t3.5.
+    uint64_t closureLatestUs = 0;   ///< Last stop upper bound plus final t3.5.
+    bool closureQualified = false; ///< Watermark/next frame proves the entire idle gap.
 };
 
 enum class Event : uint8_t { START, PHASE, TX, TX_DONE, DIRECTION, RX, ECHO, DISCARD, END, RECOVER, CLOCK_ERROR };
@@ -171,6 +177,13 @@ public:
     Runner& operator=(const Runner&) = delete;
 
     Admission start(const Request& request, uint64_t nowUs) noexcept;
+    bool accepts(const Request& request) const noexcept; ///< Shape/storage check, no I/O.
+    bool checkClock(uint64_t nowUs) noexcept; ///< Observe owner time without I/O; regression interlocks.
+    bool storageOverlaps(const void* data, std::size_t bytes) const noexcept; ///< Storage check, no I/O.
+    const uint8_t* received() const noexcept { return storage_.rx; } ///< Borrowed until next accepted start.
+    /** Checked parser rejected FRAME. Interlock before any subsequent start;
+     * caller must settle possible late/foreign traffic before explicit recover(). */
+    bool rejectFrame() noexcept;
     void poll(uint64_t nowUs) noexcept;
     void cancel(uint64_t nowUs) noexcept; ///< Local cancellation, never a motor stop.
     bool recover(uint64_t nowUs) noexcept;
@@ -196,6 +209,8 @@ private:
     bool onByte(const RxByte& byte, uint64_t nowUs) noexcept;
     void frame(uint64_t nowUs) noexcept;
     void completedFrame(uint64_t latestUs, uint32_t uncertaintyUs) noexcept;
+    void closure(uint64_t latestUs, uint32_t uncertaintyUs, bool qualified) noexcept;
+    bool expired(uint64_t nowUs) const noexcept;
     void releaseFault(uint64_t nowUs) noexcept;
 
     Port port_;
@@ -212,6 +227,7 @@ private:
     uint32_t txUncertaintyUs_ = 0, rxUncertaintyUs_ = 0, releaseUncertaintyUs_ = 0;
     uint64_t now_ = 0, quietSince_ = 0, assertedUs_ = 0, queuedUs_ = 0;
     uint64_t txEndUs_ = 0, releasedUs_ = 0, lastRxEndUs_ = 0, observedUs_ = 0;
+    uint64_t deadlineUs_ = 0;
     bool clockSet_ = false, observed_ = false, haveRx_ = false, de_ = false;
 };
 

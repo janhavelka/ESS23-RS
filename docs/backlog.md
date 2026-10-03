@@ -73,11 +73,18 @@ capture are implemented and have bench evidence in the
 measurements, cache-off qualification and the production CPU budget remain open.
 The [release roadmap](roadmap.md) defines the delivery order and release gates.
 
-The next block adds the small bounded bus owner: pending requests, explicit
-queue limits, retained results, fairness and priority for a pending stop after
-in-flight transport settlement. Reuse the runner, keep this code in the
-application layer, and leave FieldCore read-only. Typed identity/state reads
-and then first motion/stop follow the reviewed transport and drive prerequisites.
+Release prompt 01 is implemented: [BusOwner](bus_owner.md) provides FIFO
+admission, copied frames/expectations, reserved retained results, stable IDs,
+checked parser settlement and absolute closure deadlines through the real Runner.
+Native tests pass; the rebuilt Runner passed read-only bench regression.
+Owner/absolute-deadline hardware checks await console integration in 03.
+See [the prompt 01 handoff](reports/ess_release_01_2026-10-03.md).
+
+The next block is prompt 02: producer fairness, cancellation, urgent reservation
+and recovery queue disposition. Current recovery requires an empty pending
+queue; it never resumes queued writes. Keep this in the application layer and
+FieldCore read-only. Typed identity/state and first motion/stop follow their
+separate transport/drive prerequisites.
 
 ## ESS source and profile work
 
@@ -238,19 +245,25 @@ same core and request/wait/result pattern must also work for other consumers. Se
 - [ ] Independently qualify TX/RX/DE and RX publication/idle assumptions; measure
   cache-off/interrupt starvation behavior and decide the production CPU budget.
   Current 20-us capture is a measured reference, not a blanket timing guarantee.
-- [ ] Build a small standalone bus-owner reference with bounded queue/admission,
-  multiple request producers, retained results, fair scheduling and priority
-  for a pending stop. Settle in-flight transport and recovery explicitly.
-- [ ] Enforce absolute admitted-request deadlines in the runner without losing
-  on-time captured evidence. Define queued/retained work across recovery; old
-  queued writes and sequence continuations must not resume implicitly.
+- [x] Build the bounded cooperative FIFO owner with copied requests, reserved
+  retained results, exact generation IDs and checked parser settlement. Native
+  multi-request/failure tests pass; owner board integration is prompt 03.
+- [ ] Extend that owner with producer fairness, cancellation and urgent/stop
+  reservation in prompt 02; integrate the console and measure hardware in 03.
+- [x] Enforce immutable absolute deadlines through queue/setup/TX/closure without
+  losing qualified on-time captured evidence. Recovery requires an empty pending
+  queue and preserves unread results; native evidence in the prompt 01 report.
+- [ ] Extend recovery/cancellation generation disposition in 02; old queued
+  writes and sequence continuations must never resume implicitly.
 - [ ] Separate observation age from application delivery and recovery-settlement
   time in the probe application. Current `finishedUs` makes delayed delivery look
   newly observed; prompts 03/06 own the correction and regression. See the
   [prompt/source re-audit](reports/2026-10-03_promptset_reaudit.md).
-- [ ] Exercise FC06 echo/ack, all reviewed FC10 request sizes, exception and
-  late-response behavior using fake responders; add physical write qualification
-  only with reviewed typed motor operations and their prerequisites.
+- [x] Exercise FC06 echo/identical acknowledgement, all four reviewed FC10 sizes,
+  checked exceptions, malformed replies and deadline/late-capture behavior with
+  fake responders through the actual owner/Runner (prompt 01).
+- [ ] Add physical write qualification only with reviewed typed motor operations
+  and their prerequisites; fake writes do not qualify the motor.
 - [ ] Qualify longer reviewed non-consuming reads and the supported frame-size
   envelope separately from seven-byte model replies; preserve unavailable
   physical long-frame/write cases as open evidence.

@@ -6,6 +6,9 @@ First implemented in version 0.4.0, extended with timing intervals in 0.5.0, und
 `MotorControlRSExample::Rtu`. The [native tests](../test/runner_test.cpp)
 provide a fake UART with independent wire times. The [ESP32-S3 probe](esp32_probe.md)
 now adds a hardware adapter and read-only console with explicit qualification limits.
+The [bounded bus owner](bus_owner.md) adds FIFO admission, copied requests,
+reserved retained results and synchronous checked-parser settlement around this
+same Runner. Console integration follows in release prompt 03.
 
 ## Boundary and responsibilities
 
@@ -126,6 +129,15 @@ response deadline starts at physical TX completion and includes the final
 framing gap. These are application budgets, not documented ESS guarantees.
 A TX deadline does not guarantee that a stuck transmitter released the bus.
 
+Optional `Request.deadlineUs` adds an immutable absolute request/closure limit.
+New DE assertion/enqueue requires time strictly before that deadline; expiry in
+setup releases DE without TX. Retained on-time TX/release and response closure
+are processed before current task time declares expiry. `Result` exposes
+`closureEarliestUs`, `closureLatestUs` and `closureQualified` without traces.
+The full final idle gap must fit; straddling bounds fail uncertainly.
+`REQUEST_DEADLINE` differs from relative response and capture timeout.
+See [the owner contract](bus_owner.md) for deadline/evidence and lifetime rules.
+
 The raw request must already have passed its profile's builder/validator.
 The runner checks storage and basic unicast/function admission, not device
 register policy or request CRC. Normal response length comes from the
@@ -190,12 +202,12 @@ whole-firmware RAM/flash usage:
 
 | Storage | Native 64-bit | ESP32-S3 |
 | --- | ---: | ---: |
-| Runner object, including copied callbacks/configuration/result/statistics | 320 bytes | 256 bytes |
+| Runner object, including copied callbacks/configuration/result/statistics | 352 bytes | 288 bytes |
 | One trace entry | 32 bytes | 32 bytes |
-| Result alone, already included in Runner | 32 bytes | 32 bytes |
+| Result alone, already included in Runner | 56 bytes | 56 bytes |
 | Example caller TX/RX arrays | 32 + 64 bytes | 32 + 64 bytes |
 | Optional 64-entry trace ring | 2048 bytes | 2048 bytes |
-| Runner plus those arrays/ring | 2464 bytes | 2400 bytes |
+| Runner plus those arrays/ring | 2496 bytes | 2432 bytes |
 
 TX and RX capacities are independently bounded at 256 bytes. Traces are
 optional and caller-sized; the helper does not allocate a default large ring.
@@ -228,5 +240,6 @@ The independent wire fixture and timer load bench now exercise a sleeping
 owner, FIFO batches/overflow, late/foreign replies, missing evidence and
 interrupt masking. See the [capture/load audit](reports/2026-10-03_capture_load.md).
 External TX/RX/DE timing, cache-off operation and motion remain separate
-qualification work. The next implementation block is the bounded bus-owner
-reference in the [roadmap](roadmap.md).
+qualification work. FIFO admission/results are implemented in the
+[bus owner](bus_owner.md); fairness/cancellation follow in prompt 02 and
+console integration in 03 under the [roadmap](roadmap.md).

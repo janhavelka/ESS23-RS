@@ -1,0 +1,299 @@
+{
+  "date": "2026-10-03",
+  "baseline_commit": "415f95d21ced9dfa703fd9c4be1d20033970604e",
+  "delivery_commit": "Git commit containing this evidence manifest and prompt 01 report",
+  "fieldcore_read_only_commit": "ec89f52c037a1f4bd69b296505d6f96533dbca73",
+  "software": {
+    "ctest_suites_passed": 14,
+    "python_generator_cases": 8,
+    "python_bench_cases": 44,
+    "native_compiler": "MinGW GCC 15.1.0",
+    "xtensa_compiler": "GCC 14.2.0",
+    "firmware_environments": [
+      "bench_s3_probe",
+      "bench_s3_load_poll",
+      "bench_s3_load_timer"
+    ]
+  },
+  "hardware": {
+    "port": "COM13",
+    "usb_vid_pid": "303A:1001",
+    "usb_serial": "3C:0F:02:CD:6B:98",
+    "uart": 2,
+    "tx": 47,
+    "rx": 48,
+    "de": 21,
+    "active_high": true,
+    "baud": 115200,
+    "format": "8N1",
+    "address": 1,
+    "raw_model": "0x4EEA",
+    "response_timeout_us": 200000,
+    "reply_gap_us": 304,
+    "gap15_us": 750,
+    "gap35_us": 1750,
+    "timer_period_us": 20,
+    "owner_hardware_test": "NOT RUN: console integration is prompt 03",
+    "absolute_deadline_hardware_test": "NOT RUN: direct probe leaves optional deadline zero",
+    "runner_regression": "PASS",
+    "raw_writes": "NOT APPLICABLE: prohibited in prompt 01",
+    "electrical_timing_qualified": false,
+    "ending_workload": [
+      0,
+      0,
+      0
+    ],
+    "ending_busy": false,
+    "ending_de": false,
+    "ending_recovery_required": false
+  },
+  "firmware": {
+    "path": "build/bench/prompt01_timer_firmware.bin",
+    "bytes": 334976,
+    "sha256": "aec2b3df64f706f5e3ab01ce1ab377df32f85184fb6f0727e884fe429fe0a5f4"
+  },
+  "previous_firmware": {
+    "path": "build/bench/platform_scope_final_firmware.bin",
+    "bytes": 334320,
+    "sha256": "cfbfbdb2fc230312d65ca63b52251ad4ff1ba2bc129418b797c275aa9bbb925b"
+  },
+  "original_backup": {
+    "path": "build/bench/co2control_com13_before.bin",
+    "bytes": 16777216,
+    "sha256": "85c089bc3956b22037af7e6f0d7945f6ed778bb1a0526fb5b2ba3e8fea02d0c1"
+  },
+  "campaigns": [
+    {
+      "path": "build/bench/prompt01_unloaded_20261003.jsonl",
+      "bytes": 61594,
+      "sha256": "b39693eca2716ace1ed1b5cdae43c1931376878c10e89dbe14a2271429235b63",
+      "summary": {
+        "event": "summary",
+        "utc": "2026-10-03T19:52:39.714+00:00",
+        "elapsed_s": 1.282,
+        "mode": "stress",
+        "iterations": 10,
+        "requested_count": 10,
+        "probes_attempted": 10,
+        "probes_passed": 10,
+        "probes_failed": 0,
+        "latency_us": {
+          "min": 5393,
+          "max": 5590,
+          "mean": 5433.6
+        },
+        "load_settings": null,
+        "last_load": null,
+        "last_memory": {
+          "type": "reply",
+          "profile": "ess_rs",
+          "id": 42,
+          "command": "memory",
+          "ok": true,
+          "valid": true,
+          "internal_free": 336848,
+          "internal_min": 331688,
+          "internal_largest": 278516,
+          "psram_free": 8380332,
+          "psram_min": 8380332,
+          "psram_largest": 8257524,
+          "stack_free_bytes": 5748
+        },
+        "ok": true,
+        "error": null
+      }
+    },
+    {
+      "path": "build/bench/prompt01_loaded_20261003.jsonl",
+      "bytes": 102642,
+      "sha256": "d5825f6948e516d332c868544bd63cd85aec2692dfdbd42260b6c07f4f1e2d69",
+      "summary": {
+        "event": "summary",
+        "utc": "2026-10-03T19:52:47.225+00:00",
+        "elapsed_s": 1.282,
+        "mode": "load",
+        "iterations": 10,
+        "requested_count": 10,
+        "probes_attempted": 10,
+        "probes_passed": 10,
+        "probes_failed": 0,
+        "latency_us": {
+          "min": 13898,
+          "max": 17056,
+          "mean": 15602.7
+        },
+        "load_settings": [
+          2000,
+          5000,
+          128
+        ],
+        "last_load": {
+          "type": "reply",
+          "profile": "ess_rs",
+          "id": 53,
+          "command": "load",
+          "ok": true,
+          "result": "done",
+          "ready": true,
+          "capture_mode": "timer",
+          "workload_us": 2000,
+          "owner_delay_us": 5000,
+          "console_bytes": 128,
+          "elapsed_us": 746913,
+          "work_us": 148100,
+          "work_iterations": 74,
+          "console_lines": 73,
+          "console_dropped": 1,
+          "capture_us": 150656,
+          "capture_samples": 37783,
+          "owner_gap_max_us": 8092,
+          "capture_gap_max_us": 51,
+          "work_stack_free_bytes": 2952,
+          "cpu_valid": true,
+          "cpu0_busy_pct": 0,
+          "cpu1_busy_pct": 31
+        },
+        "last_memory": {
+          "type": "reply",
+          "profile": "ess_rs",
+          "id": 52,
+          "command": "memory",
+          "ok": true,
+          "valid": true,
+          "internal_free": 336848,
+          "internal_min": 331688,
+          "internal_largest": 278516,
+          "psram_free": 8380332,
+          "psram_min": 8380332,
+          "psram_largest": 8257524,
+          "stack_free_bytes": 5712
+        },
+        "ok": true,
+        "error": null
+      }
+    },
+    {
+      "path": "build/bench/prompt01_final_20261003.jsonl",
+      "bytes": 21202,
+      "sha256": "f29f1019e623d09fb5c8771956992828f38d0823c32b05e065feac4efc19b898",
+      "summary": {
+        "event": "summary",
+        "utc": "2026-10-03T19:52:56.679+00:00",
+        "elapsed_s": 0.719,
+        "mode": "stress",
+        "iterations": 3,
+        "requested_count": 3,
+        "probes_attempted": 3,
+        "probes_passed": 3,
+        "probes_failed": 0,
+        "latency_us": {
+          "min": 5391,
+          "max": 5448,
+          "mean": 5423.333333333333
+        },
+        "load_settings": null,
+        "last_load": null,
+        "last_memory": {
+          "type": "reply",
+          "profile": "ess_rs",
+          "id": 14,
+          "command": "memory",
+          "ok": true,
+          "valid": true,
+          "internal_free": 336848,
+          "internal_min": 331688,
+          "internal_largest": 278516,
+          "psram_free": 8380332,
+          "psram_min": 8380332,
+          "psram_largest": 8257524,
+          "stack_free_bytes": 5748
+        },
+        "ok": true,
+        "error": null
+      }
+    }
+  ],
+  "snapshots": [
+    {
+      "path": "build/bench/prompt01_before_20261003.jsonl",
+      "bytes": 2318,
+      "sha256": "06f57c14b0c4741b86cafdd536524b565c0c8535068f679d22ef006da56f173d"
+    },
+    {
+      "path": "build/bench/prompt01_after_20261003.jsonl",
+      "bytes": 2314,
+      "sha256": "41a7e07b2362a17f040622ddd0c9901a7c6b0a5eb7790b8ec817f764012d6131"
+    },
+    {
+      "path": "build/bench/prompt01_cleanup_20261003.jsonl",
+      "bytes": 22481,
+      "sha256": "a8055326ddde3238ca6dba0f8a23f9cc54e1bb5a6fdfa4c6514b9bf8ff7f4a49"
+    },
+    {
+      "path": "build/bench/prompt01_ending_20261003.jsonl",
+      "bytes": 2362,
+      "sha256": "bc93c35a67b9911d46c1072a0482a98a1e13814b221711fb3efeb5e3f348fbc4"
+    },
+    {
+      "path": "build/bench/prompt01_ending_repeat_20261003.jsonl",
+      "bytes": 617,
+      "sha256": "744ef7e1a5c16f9d0c9739eb00aec2d81c22efbc45886a1bf79ac4987dcd4355"
+    }
+  ],
+  "sources": [
+    {
+      "path": "examples/common/RtuRunner.h",
+      "bytes": 11702,
+      "sha256": "71d9fbaa213c06aece8dad451c9efb1606a3b5de66d6cb64a8eb8c6b5c2e579d"
+    },
+    {
+      "path": "examples/common/RtuRunner.cpp",
+      "bytes": 27340,
+      "sha256": "be937f5f1e8b942dccf24aa7b55a7d8ad6a3d67c922b0b8184443f27a8e2b526"
+    },
+    {
+      "path": "examples/common/RtuBusOwner.h",
+      "bytes": 6188,
+      "sha256": "ae54f2d39671c975107d539158818218541d32dc4d757b9c789637037450a925"
+    },
+    {
+      "path": "examples/common/RtuBusOwner.cpp",
+      "bytes": 7921,
+      "sha256": "a6c9d1e41f83b9b1bc1c4c46f48c16f5373c0658aff9b2e84f4b863cbb54b071"
+    },
+    {
+      "path": "examples/common/EssRtuValidator.h",
+      "bytes": 409,
+      "sha256": "4e273abe8a52af907cb27f9c37f6c1315b389fc21768bd35cf85ffc02daf6012"
+    },
+    {
+      "path": "examples/common/EssRtuValidator.cpp",
+      "bytes": 2824,
+      "sha256": "be33ef89a20e385b018b2380dd2362e9d7708f18a2ee2c071c223989ef6a8e3f"
+    },
+    {
+      "path": "test/bus_owner_test.cpp",
+      "bytes": 33640,
+      "sha256": "2811033176cb101bd6a9fbd0a3eefed5e9913f9f905e958f71fc00bc19a862cc"
+    }
+  ],
+  "host_snapshot_caveat": "Initial scratch snapshots used pyserial default DTR/RTS. Uptime decreased between sessions; reset cause not instrumented. Corrected ending/repeat snapshots reuse bench_probe.open_port with DTR/RTS false and preserve increasing uptime. No continuous-uptime/soak claim.",
+  "memory_sizes": {
+    "native": {
+      "owner": 88,
+      "pending_slot": 344,
+      "result_slot": 440,
+      "completion": 424,
+      "runner": 352,
+      "result": 56
+    },
+    "esp32s3": {
+      "owner": 44,
+      "pending_slot": 320,
+      "result_slot": 416,
+      "completion": 400,
+      "runner": 288,
+      "result": 56
+    }
+  }
+}

@@ -7,8 +7,8 @@ future version numbers are not commitments.
 
 The [ESS release prompt set](prompts/ess_release/README.md) turns these stages
 into 30 ordered implementation blocks with tests, independent audits and
-evidence handoffs. Start with prompt 01 when implementation is dispatched.
-Preparing the prompts does not complete any milestone.
+evidence handoffs. Prompt 01 is implemented and tested; prompt 02 is next.
+Preparing a prompt does not complete its milestone.
 The historical [source re-audit](reports/2026-10-03_promptset_reaudit.md) adds
 explicit gates for absolute deadlines, queued work across recovery, same-axis
 staging ownership, honest observation age and long-frame evidence. Historical
@@ -46,7 +46,7 @@ this session; integrating there is a separate delivery step.
 | --- | --- | --- | --- |
 | 1. Protocol foundation | Units, complete ESS register ledger, checked FC03/06/10 codecs and non-changing model probe | Native validation, generated-ledger checks, explicit unresolved fields and access limits | Implemented; checked model reads on the bench |
 | 2. Observable transport | Runner, independent capture, read-only CLI, load and failure tools | Delayed servicing/overflow/late-reply tests; measured load, memory and timing; no automatic replay | Implemented in 0.6.0; measured ESP32-S3 bench load envelope; electrical timing qualification remains open |
-| 3. Small bus-owner reference | Bounded request queue, retained results, fairness, deadlines and priority for a pending stop after settling in-flight TX | Multiple simulated clients, full queue, cancellation and starvation tests; read-only hardware regression under load | Next implementation block |
+| 3. Small bus-owner reference | Bounded request queue, retained results, fairness, deadlines and priority for a pending stop after settling in-flight TX | Multiple simulated clients, full queue, cancellation and starvation tests; read-only hardware regression under load | Prompt 01 admission/results/deadline evidence implemented and native-tested; Runner bench regression PASS; fairness/cancellation in 02 and owner integration/hardware in 03 pending |
 | 4. Typed ESS observations | Identity, firmware/configuration, alarms, readiness and position/velocity observations | Original-manual review; exact model readback; validity/freshness independent of communication health | Not implemented beyond model probe |
 | 5. First controlled motion | Explicit enable/release, small relative move and documented stop | Verified units and limits, acknowledgement vs completion, interrupted/lost replies, stop while another operation is active; bench measurements | Not implemented |
 | 6. Complete common motion API | Absolute/relative position, step/angle/travel modes, velocity, acceleration, homing and fault clear where supported | Same public API in firmware and CLI; unsupported operations fail before TX; origin/rounding/path policy tested | Contracts and conversions exist; sequences pending |
@@ -93,6 +93,8 @@ a hardware claim.
   release notes. State exactly what was qualified; do not claim universal motor
   support or industrial certification.
 
-The next concrete deliverable is stage 3's small bus-owner reference. Before
-that block begins, use the [capture/load report](reports/2026-10-03_capture_load.md)
-to carry forward its measured limits and unresolved qualification work.
+The next concrete deliverable is prompt 02's scheduling/cancellation extension
+of [the implemented owner](bus_owner.md). Reuse
+[prompt 01's handoff](reports/ess_release_01_2026-10-03.md) and carry forward the
+[capture/load report](reports/2026-10-03_capture_load.md)'s measured limits and
+unresolved qualification work.

@@ -18,6 +18,14 @@ The [platform-boundary audit](reports/2026-10-03_platform_scope_audit.md)
 updates the example naming, explicit pin configuration and optional drive I/O
 contract. Earlier report names and source revisions remain historical evidence.
 
+Release prompt 01 adds [BusOwner](bus_owner.md), a tested application FIFO with
+copied requests, reserved non-consuming results and checked-parser settlement.
+Runner now supports absolute deadlines and retained closure bounds. Its
+[handoff](reports/ess_release_01_2026-10-03.md) updates the software baseline to
+14 CTest suites and records current FieldCore inspection and Runner regression.
+The console still uses direct Runner admission until prompt 03; scheduling and
+cancellation are prompt 02. Earlier source observations below keep their provenance.
+
 ## 1. Assessment
 
 The current structure is a suitable base for both a standalone motor test

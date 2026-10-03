@@ -124,7 +124,7 @@ void Runner::finish(Reason reason, uint64_t nowUs, bool fault) noexcept {
         if (reason == Reason::CANCELLED) increment(stats_.cancelled);
         if (reason == Reason::NO_RESPONSE || reason == Reason::PARTIAL_RESPONSE ||
             reason == Reason::TX_TIMEOUT || reason == Reason::BUS_TIMEOUT ||
-            reason == Reason::CAPTURE_TIMEOUT) increment(stats_.timeouts);
+            reason == Reason::CAPTURE_TIMEOUT || reason == Reason::REQUEST_DEADLINE) increment(stats_.timeouts);
     }
     phase_ = fault ? Phase::FAULT : Phase::DONE;
     record(Event::END, nowUs, 0, result_.rxLength);
@@ -156,15 +156,39 @@ bool Runner::direction(bool enabled, uint64_t nowUs) noexcept {
     return true;
 }
 
+bool Runner::accepts(const Request& request) const noexcept {
+    return valid() && request.bytes && request.length >= 4 &&
+        request.length <= storage_.txCapacity && request.replyLength >= 5 &&
+        request.replyLength <= storage_.rxCapacity && request.responseTimeoutUs &&
+        request.bytes[0] >= 1 && request.bytes[0] <= 247 &&
+        request.bytes[1] != 0 && request.bytes[1] < 0x80 &&
+        (request.echo == Echo::NONE || request.echo == Echo::REQUIRED);
+}
+
+bool Runner::checkClock(uint64_t nowUs) noexcept {
+    return valid() && clock(nowUs);
+}
+
+bool Runner::storageOverlaps(const void* data, std::size_t bytes) const noexcept {
+    return overlaps(data, bytes, storage_.tx, storage_.txCapacity) ||
+        overlaps(data, bytes, storage_.rx, storage_.rxCapacity) ||
+        overlaps(data, bytes, storage_.trace, storage_.traceCapacity * sizeof(Trace));
+}
+
+bool Runner::rejectFrame() noexcept {
+    if (phase_ != Phase::DONE || result_.reason != Reason::FRAME) return false;
+    phase_ = Phase::FAULT;
+    return true;
+}
+
+bool Runner::expired(uint64_t nowUs) const noexcept {
+    return deadlineUs_ && nowUs >= deadlineUs_;
+}
+
 Admission Runner::start(const Request& request, uint64_t nowUs) noexcept {
     if (needsRecovery()) return Admission::RECOVERY_REQUIRED;
     if (busy()) return Admission::BUSY;
-    if (!valid() || !request.bytes || request.length < 4 ||
-        request.length > storage_.txCapacity || request.replyLength < 5 ||
-        request.replyLength > storage_.rxCapacity || !request.responseTimeoutUs ||
-        request.bytes[0] < 1 || request.bytes[0] > 247 ||
-        request.bytes[1] == 0 || request.bytes[1] >= 0x80 ||
-        (request.echo != Echo::NONE && request.echo != Echo::REQUIRED)) return Admission::INVALID;
+    if (!accepts(request) || (request.deadlineUs && nowUs >= request.deadlineUs)) return Admission::INVALID;
     if (!clock(nowUs)) return Admission::RECOVERY_REQUIRED;
     // Input may be this same TX buffer or a prior RX payload; no pointer retained.
     std::memmove(storage_.tx, request.bytes, request.length);
@@ -173,6 +197,7 @@ Admission Runner::start(const Request& request, uint64_t nowUs) noexcept {
     txLength_ = request.length;
     replyLength_ = request.replyLength;
     responseTimeoutUs_ = request.responseTimeoutUs;
+    deadlineUs_ = request.deadlineUs;
     replyGapUs_ = request.replyGapUs ? request.replyGapUs : timing_.gap35Us;
     echo_ = request.echo;
     pending_ = Reason::NONE;
@@ -197,7 +222,19 @@ void Runner::frame(uint64_t nowUs) noexcept {
            nowUs, result_.rxLength != expected);
 }
 
+void Runner::closure(uint64_t latestUs, uint32_t uncertaintyUs, bool qualified) noexcept {
+    result_.closureLatestUs = latestUs;
+    result_.closureEarliestUs = latestUs - uncertaintyUs;
+    result_.closureQualified = qualified;
+}
+
 void Runner::completedFrame(uint64_t latestUs, uint32_t uncertaintyUs) noexcept {
+    closure(latestUs, uncertaintyUs, true);
+    if (deadlineUs_ && latestUs > deadlineUs_) {
+        finish(latestUs - uncertaintyUs > deadlineUs_ ? Reason::REQUEST_DEADLINE :
+               Reason::TIMING_UNCERTAIN, now_, true);
+        return;
+    }
     // A successful frame must fit even the earliest possible response deadline.
     const uint64_t earliestTx = txEndUs_ - txUncertaintyUs_;
     if (latestUs - earliestTx <= responseTimeoutUs_) frame(latestUs);
@@ -212,6 +249,7 @@ bool Runner::onByte(const RxByte& byte, uint64_t nowUs) noexcept {
     record(Event::RX, byte.endUs, byte.value, result_.rxLength, byte.startUs,
            byte.uncertaintyUs);
     if (byte.startUs >= byte.endUs || byte.endUs > nowUs ||
+        byte.endUs > std::numeric_limits<uint64_t>::max() - timing_.gap35Us ||
         byte.uncertaintyUs > byte.endUs ||
         byte.startUs > std::numeric_limits<uint64_t>::max() - byte.uncertaintyUs) {
         finish(Reason::CLOCK_ERROR, nowUs, true);
@@ -275,6 +313,12 @@ bool Runner::onByte(const RxByte& byte, uint64_t nowUs) noexcept {
         completedFrame(previousEnd + timing_.gap35Us, previousUncertainty);
         return false;
     }
+    if (deadlineUs_ && byte.endUs > deadlineUs_) {
+        closure(byte.endUs + timing_.gap35Us, byte.uncertaintyUs, false);
+        finish(result_.closureEarliestUs > deadlineUs_ ? Reason::REQUEST_DEADLINE :
+               Reason::TIMING_UNCERTAIN, nowUs, true);
+        return false;
+    }
     if (endEarliest > txEndUs_ && endEarliest - txEndUs_ > responseTimeoutUs_) {
         finish(result_.rxLength ? Reason::PARTIAL_RESPONSE : Reason::NO_RESPONSE, nowUs, true);
         return false;
@@ -323,7 +367,10 @@ bool Runner::receive(uint64_t nowUs) noexcept {
             }
             observed_ = true;
             observedUs_ = through;
-            if (nowUs - through > timing_.captureTimeoutUs) {
+            // Qualified historical closure is useful even when task service is late.
+            if (nowUs - through > timing_.captureTimeoutUs &&
+                !(phase_ == Phase::RECEIVE && result_.rxLength &&
+                  elapsed(through, lastRxEndUs_, timing_.gap35Us))) {
                 finish(Reason::CAPTURE_TIMEOUT, nowUs, true);
                 return false;
             }
@@ -360,6 +407,7 @@ void Runner::poll(uint64_t nowUs) noexcept {
     if (!busy()) return;
 
     if (phase_ == Phase::WAIT_BUS) {
+        if (expired(nowUs)) { finish(Reason::REQUEST_DEADLINE, nowUs, false); return; }
         const bool empty = receive(nowUs);
         if (!busy()) return;
         if (elapsed(nowUs, result_.startedUs, timing_.busTimeoutUs)) {
@@ -379,6 +427,11 @@ void Runner::poll(uint64_t nowUs) noexcept {
     }
 
     if (phase_ == Phase::SETUP) {
+        if (expired(nowUs)) {
+            if (!direction(false, nowUs)) return;
+            finish(Reason::REQUEST_DEADLINE, nowUs, false);
+            return;
+        }
         const bool empty = receive(nowUs);
         if (!busy()) { releaseFault(nowUs); return; }
         if (elapsed(nowUs, assertedUs_, timing_.txTimeoutUs)) {
@@ -434,6 +487,17 @@ void Runner::poll(uint64_t nowUs) noexcept {
         } else {
             tx = TxObservation(); // BUSY supplies no completion/release evidence.
         }
+        // Read retained autonomous completion/release before considering task time.
+        // Safe DE release remains permitted after expiry; no new enqueue occurs.
+        if (deadlineUs_ && ((state == TxState::BUSY && expired(nowUs)) ||
+            (state == TxState::IDLE && (tx.released ? tx.releasedUs : nowUs) >= deadlineUs_))) {
+            const uint64_t latest = tx.released ? tx.releasedUs : nowUs;
+            const uint32_t width = tx.released ? tx.releaseUncertaintyUs : 0;
+            finish(latest - width < deadlineUs_ ? Reason::TIMING_UNCERTAIN :
+                   Reason::REQUEST_DEADLINE, nowUs, true);
+            releaseFault(nowUs);
+            return;
+        }
         const Reason deadline = txDeadline(tx, nowUs, assertedUs_, timing_.txTimeoutUs);
         if (deadline != Reason::NONE) {
             finish(deadline, nowUs, true);
@@ -469,12 +533,19 @@ void Runner::poll(uint64_t nowUs) noexcept {
         if (!busy() || !empty) return;
         if (result_.rxLength && elapsed(observedUs_, lastRxEndUs_, timing_.gap35Us)) {
             completedFrame(lastRxEndUs_ + timing_.gap35Us, rxUncertaintyUs_);
+        } else if (deadlineUs_ && observedUs_ >= deadlineUs_) {
+            if (result_.rxLength)
+                closure(lastRxEndUs_ + timing_.gap35Us, rxUncertaintyUs_, false);
+            finish(result_.rxLength && result_.closureEarliestUs <= deadlineUs_ ?
+                   Reason::TIMING_UNCERTAIN : Reason::REQUEST_DEADLINE, nowUs, true);
         } else if (elapsed(observedUs_, txEndUs_, responseTimeoutUs_)) {
             const bool missingEcho = echo_ == Echo::REQUIRED && result_.echoBytes != txLength_;
             if (missingEcho) increment(stats_.timeouts);
             const bool uncertain = result_.rxLength &&
                 lastRxEndUs_ - rxUncertaintyUs_ + timing_.gap35Us >= txEndUs_ &&
                 lastRxEndUs_ - rxUncertaintyUs_ + timing_.gap35Us - txEndUs_ <= responseTimeoutUs_;
+            if (result_.rxLength)
+                closure(lastRxEndUs_ + timing_.gap35Us, rxUncertaintyUs_, false);
             finish(missingEcho ? Reason::ECHO_ERROR : uncertain ? Reason::TIMING_UNCERTAIN :
                    result_.rxLength ? Reason::PARTIAL_RESPONSE : Reason::NO_RESPONSE, nowUs, true);
         }
@@ -529,6 +600,7 @@ const char* reasonName(Reason value) noexcept {
         REASON_NAME(DIRECTION_ERROR); REASON_NAME(ECHO_ERROR); REASON_NAME(CANCELLED); REASON_NAME(CLOCK_ERROR);
         REASON_NAME(CAPTURE_TIMEOUT);
         REASON_NAME(TIMING_UNCERTAIN);
+        REASON_NAME(REQUEST_DEADLINE);
 #undef REASON_NAME
     }
     return "UNKNOWN";

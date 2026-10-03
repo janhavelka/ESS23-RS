@@ -1,7 +1,8 @@
 # ESS release implementation sequence
 
 Prepared 2026-10-03 against MotorControl-RS `4ae0c4d` (0.6.0).
-**None of prompts 01–30 has been executed by preparing this set.**
+Preparing this set executed no numbered prompt. **Prompt 01 is now implemented
+and verified; 02–30 remain prepared and unexecuted.**
 The current core, runner, ESP32-S3 capture and probe/load tools are existing work;
 do not rebuild them from an old prompt as if they were missing.
 
@@ -38,7 +39,7 @@ Never mark all preceding physical work qualified just because code compiles.
 
 | Prompt in execution order | Roadmap stage | Implementation status | Handoff |
 | --- | --- | --- | --- |
-| [01 — Bounded bus admission and retained results](01_bus_admission_and_results.md) | 3 | Prepared | — |
+| [01 — Bounded bus admission and retained results](01_bus_admission_and_results.md) | 3 | Implemented; native PASS; Runner regression PASS, owner hardware NOT RUN | [2026-10-03 handoff](../../reports/ess_release_01_2026-10-03.md) |
 | [02 — Fair scheduling, cancellation and urgent work](02_bus_scheduling_and_cancellation.md) | 3 | Prepared | — |
 | [03 — Connect the bus owner to the standalone console](03_standalone_owner_and_responsive_console.md) | 3 | Prepared | — |
 | [04 — Review capture cost and qualify available timing](04_capture_cost_and_timing_qualification.md) | 2 / 8 | Prepared | — |
