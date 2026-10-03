@@ -196,11 +196,23 @@ DrainResult Runner::discard(uint64_t nowUs) noexcept {
         RxByte byte; uint64_t through = 0;
         const ReadState state = port_.read(port_.context, nowUs, byte, through);
         if (state == ReadState::PENDING) return output;
-        if (state == ReadState::EMPTY && through <= nowUs && through >= output.lastByteUs) {
-            output.state = state; output.throughUs = through; return output;
+        if (state == ReadState::EMPTY && through <= nowUs &&
+            (!observed_ || through >= observedUs_) && (!haveRx_ || through >= lastRxEndUs_)) {
+            observed_ = true;
+            observedUs_ = through;
+            output.state = state;
+            output.throughUs = through;
+            return output;
         }
         if (state == ReadState::BYTE && byte.startUs < byte.endUs && byte.endUs <= nowUs &&
-            byte.uncertaintyUs <= byte.endUs && byte.endUs >= output.lastByteUs) {
+            byte.uncertaintyUs <= byte.endUs &&
+            byte.startUs <= std::numeric_limits<uint64_t>::max() - byte.uncertaintyUs &&
+            (!observed_ || byte.startUs + byte.uncertaintyUs >= observedUs_) &&
+            (!haveRx_ || (byte.startUs + byte.uncertaintyUs >= lastRxEndUs_ - rxUncertaintyUs_ &&
+                         byte.endUs > lastRxEndUs_ - rxUncertaintyUs_))) {
+            haveRx_ = true;
+            lastRxEndUs_ = byte.endUs;
+            rxUncertaintyUs_ = byte.uncertaintyUs;
             output.lastByteUs = byte.endUs;
             increment(stats_.rxBytes); increment(stats_.discarded);
             record(Event::DISCARD, byte.endUs, byte.value);
@@ -268,14 +280,25 @@ bool Runner::requestDeadlineFirst() const noexcept {
                           deadlineUs_ - txEndUs_ <= responseTimeoutUs_);
 }
 
+bool Runner::cancellationFirst() const noexcept {
+    // Compare latest cutoffs without overflowing the TX-relative deadline.
+    // Equality belongs to expiry; an earlier accepted cancellation is immutable.
+    return cancellationUs_ && (!deadlineUs_ || cancellationUs_ < deadlineUs_) &&
+        (cancellationUs_ <= txEndUs_ || cancellationUs_ - txEndUs_ < responseTimeoutUs_);
+}
+
 Reason Runner::closureDeadline(uint64_t latestUs, uint32_t uncertaintyUs) const noexcept {
     const uint64_t earliestUs = latestUs - uncertaintyUs;
+    if (cancellationFirst() && latestUs > cancellationUs_)
+        return earliestUs > cancellationUs_ ? Reason::CANCELLED : Reason::TIMING_UNCERTAIN;
     const bool responseLate = latestUs - (txEndUs_ - txUncertaintyUs_) > responseTimeoutUs_;
     if (deadlineUs_ && latestUs > deadlineUs_ && (requestDeadlineFirst() || !responseLate))
         return earliestUs > deadlineUs_ ? Reason::REQUEST_DEADLINE : Reason::TIMING_UNCERTAIN;
     if (responseLate)
         return earliestUs > txEndUs_ && earliestUs - txEndUs_ > responseTimeoutUs_ ?
             Reason::PARTIAL_RESPONSE : Reason::TIMING_UNCERTAIN;
+    if (cancellationUs_ && latestUs > cancellationUs_)
+        return earliestUs > cancellationUs_ ? Reason::CANCELLED : Reason::TIMING_UNCERTAIN;
     return Reason::NONE;
 }
 
@@ -283,9 +306,6 @@ void Runner::completedFrame(uint64_t latestUs, uint32_t uncertaintyUs) noexcept 
     closure(latestUs, uncertaintyUs, true);
     const Reason deadline = closureDeadline(latestUs, uncertaintyUs);
     if (deadline != Reason::NONE) finish(deadline, now_, true);
-    else if (cancellationUs_ && latestUs > cancellationUs_)
-        finish(latestUs - uncertaintyUs <= cancellationUs_ ? Reason::TIMING_UNCERTAIN :
-               Reason::CANCELLED, now_, true);
     else frame(latestUs);
 }
 
@@ -358,17 +378,13 @@ bool Runner::onByte(const RxByte& byte, uint64_t nowUs) noexcept {
         completedFrame(previousEnd + timing_.gap35Us, previousUncertainty);
         return false;
     }
-    if ((deadlineUs_ && byte.endUs > deadlineUs_) ||
+    if ((cancellationUs_ && byte.endUs > cancellationUs_) ||
+        (deadlineUs_ && byte.endUs > deadlineUs_) ||
         byte.endUs - (txEndUs_ - txUncertaintyUs_) > responseTimeoutUs_) {
         closure(byte.endUs + timing_.gap35Us, byte.uncertaintyUs, false);
         const Reason deadline = closureDeadline(result_.closureLatestUs, byte.uncertaintyUs);
         finish(deadline == Reason::PARTIAL_RESPONSE && !result_.rxLength ?
                Reason::NO_RESPONSE : deadline, nowUs, true);
-        return false;
-    }
-    if (cancellationUs_ && byte.endUs > cancellationUs_) {
-        closure(byte.endUs + timing_.gap35Us, byte.uncertaintyUs, false);
-        finish(Reason::CANCELLED, nowUs, true);
         return false;
     }
     if (result_.rxLength && startLatest - previousEarliest > timing_.gap15Us) {
@@ -579,7 +595,7 @@ void Runner::poll(uint64_t nowUs) noexcept {
         const bool responseExpired = elapsed(observedUs_, txEndUs_, responseTimeoutUs_);
         if (result_.rxLength && elapsed(observedUs_, lastRxEndUs_, timing_.gap35Us)) {
             completedFrame(lastRxEndUs_ + timing_.gap35Us, rxUncertaintyUs_);
-        } else if (cancellationUs_ && observedUs_ >= cancellationUs_ && !requestExpired && !responseExpired) {
+        } else if (cancellationFirst() && observedUs_ >= cancellationUs_) {
             if (result_.rxLength) closure(lastRxEndUs_ + timing_.gap35Us, rxUncertaintyUs_, false);
             finish(Reason::CANCELLED, nowUs, true);
         } else if (requestExpired || responseExpired) {

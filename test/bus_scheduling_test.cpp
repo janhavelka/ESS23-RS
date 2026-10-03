@@ -30,6 +30,7 @@ std::vector<uint8_t> reply(uint8_t address = 1, uint8_t function = 3) {
 // This fixture supplies transport evidence, never scheduling or cancellation.
 struct Fake {
     uint64_t now = 0, txEnd = 0;
+    uint64_t through = std::numeric_limits<uint64_t>::max();
     unsigned assertions = 0, releases = 0, reads = 0;
     bool de = false, automaticRelease = true, automaticReply = false;
     bool busy = false, pending = false, readError = false, releaseError = false;
@@ -64,11 +65,11 @@ struct Fake {
         Fake& f = *static_cast<Fake*>(context); ++f.reads;
         if (f.readError) return ReadState::ERROR;
         if (f.pending) return ReadState::PENDING;
-        through = at;
+        through = std::min(at, f.through);
         if (f.next < f.input.size()) {
             const RxByte& candidate = f.input[f.next];
-            if (candidate.endUs <= at) { byte = candidate; ++f.next; return ReadState::BYTE; }
-            through = std::min(at, candidate.startUs);
+            if (candidate.endUs <= through) { byte = candidate; ++f.next; return ReadState::BYTE; }
+            through = std::min(through, candidate.startUs);
         }
         return ReadState::EMPTY;
     }
@@ -350,6 +351,101 @@ void testLateCancelOverReadBudget() {
         assert(r.executionUnknown == (scenario.outcome != Outcome::SUCCESS) && rig.fake.sent.size() == 1);
     }
 }
+void testCancellationPrecedesLaterExpiry() {
+    // Capture may legitimately remain PENDING at cancellation. Delayed service
+    // must compare the immutable cutoff with deadlines, rather than today's time.
+    struct Case {
+        uint64_t deadline, cancelAt, serviceAt;
+        uint32_t responseTimeout;
+        Reason reason;
+    };
+    const Case silence[] = {
+        {3500, 3000, 4000, 10000, Reason::CANCELLED},
+        {100000, 3000, 4000, 1000, Reason::CANCELLED},
+        {3500, 4000, 4500, 10000, Reason::REQUEST_DEADLINE},
+        {100000, 3000, 4000, 700, Reason::NO_RESPONSE},
+        {3500, 3500, 4000, 10000, Reason::REQUEST_DEADLINE},
+        {100000, 3160, 4000, 1000, Reason::NO_RESPONSE}
+    };
+    for (const Case& scenario : silence) {
+        Rig rig; uint8_t bytes[32]; BusRequest b = request(bytes, 0, scenario.deadline);
+        b.wire.responseTimeoutUs = scenario.responseTimeout;
+        RequestId id = admit(rig, b); rig.send(); rig.service(2180);
+        rig.fake.pending = true; rig.fake.now = scenario.cancelAt;
+        assert(rig.owner.cancel(id, scenario.cancelAt) == Cancel::CANCELLED);
+        assert(!rig.owner.result(id) && rig.owner.active());
+        rig.fake.pending = false; rig.service(scenario.serviceAt);
+        const Completion& r = done(rig, id);
+        assert(r.transport.reason == scenario.reason);
+        assert(r.outcome == (scenario.reason == Reason::CANCELLED ? Outcome::CANCELLED : Outcome::TRANSPORT));
+        assert(r.cancellation == Cancellation::REQUEST && r.executionUnknown);
+        assert(r.deadlineUs == scenario.deadline && r.responseTimeoutUs == scenario.responseTimeout);
+        assert(r.transport.rxLength == 0 && !r.transport.closureQualified && rig.fake.sent.size() == 1);
+        const Completion retained = r;
+        assert(rig.owner.cancel(id, scenario.serviceAt) == Cancel::ALREADY_TERMINAL);
+        rig.service(scenario.serviceAt + 1000);
+        assert(done(rig, id).transport.reason == retained.transport.reason &&
+               done(rig, id).transport.endedUs == retained.transport.endedUs && rig.fake.sent.size() == 1);
+    }
+    // A complete response ending at3210 closes at3560. All bytes precede the
+    // cancellation cutoff; the completed-frame path must select the earliest
+    // limit, including uncertain closure and historical success.
+    struct FrameCase {
+        uint64_t deadline, cancelAt;
+        uint32_t responseTimeout, width;
+        Reason reason;
+    };
+    const FrameCase frames[] = {
+        {3520, 3500, 10000, 0, Reason::CANCELLED},
+        {100000, 3500, 1360, 0, Reason::CANCELLED},
+        {3520, 3540, 10000, 0, Reason::REQUEST_DEADLINE},
+        {100000, 3540, 1360, 0, Reason::PARTIAL_RESPONSE},
+        {3600, 3550, 10000, 20, Reason::TIMING_UNCERTAIN},
+        {100000, 3550, 1440, 20, Reason::TIMING_UNCERTAIN},
+        {3600, 3570, 10000, 0, Reason::FRAME}
+    };
+    for (const FrameCase& scenario : frames) {
+        Rig rig; uint8_t bytes[32]; BusRequest b = request(bytes, 0, scenario.deadline);
+        b.wire.responseTimeoutUs = scenario.responseTimeout;
+        RequestId id = admit(rig, b); rig.send(); rig.service(2180);
+        const std::vector<uint8_t> response = reply(); rig.fake.bytes(response, 2510);
+        rig.fake.input.back().uncertaintyUs = scenario.width;
+        rig.fake.pending = true; rig.fake.now = scenario.cancelAt;
+        assert(rig.owner.cancel(id, scenario.cancelAt) == Cancel::CANCELLED);
+        assert(!rig.owner.result(id));
+        rig.fake.pending = false; rig.service(5000);
+        const Completion& r = done(rig, id);
+        assert(r.transport.reason == scenario.reason && r.cancellation == Cancellation::REQUEST);
+        assert(r.transport.closureQualified && r.transport.closureLatestUs == 3560 &&
+               r.transport.closureEarliestUs == 3560 - scenario.width);
+        assert(r.transport.rxLength == response.size() && std::memcmp(r.raw, response.data(), response.size()) == 0);
+        assert(r.outcome == (scenario.reason == Reason::FRAME ? Outcome::SUCCESS :
+                            scenario.reason == Reason::CANCELLED ? Outcome::CANCELLED : Outcome::TRANSPORT));
+        assert(r.executionUnknown == (scenario.reason != Reason::FRAME) && rig.fake.sent.size() == 1);
+    }
+    // The first late byte crosses both limits. It cannot replace a prior cancel
+    // with the later absolute/relative expiry, nor mask a deadline that was first.
+    const Case lateBytes[] = {
+        {3500, 3000, 5000, 10000, Reason::CANCELLED},
+        {100000, 3000, 5000, 1340, Reason::CANCELLED},
+        {3500, 4000, 5000, 10000, Reason::REQUEST_DEADLINE},
+        {100000, 4000, 5000, 1340, Reason::NO_RESPONSE}
+    };
+    for (const Case& scenario : lateBytes) {
+        Rig rig; uint8_t bytes[32]; BusRequest b = request(bytes, 0, scenario.deadline);
+        b.wire.responseTimeoutUs = scenario.responseTimeout;
+        RequestId id = admit(rig, b); rig.send(); rig.service(2180);
+        rig.fake.bytes(reply(), 3500);
+        rig.fake.pending = true; rig.fake.now = scenario.cancelAt;
+        assert(rig.owner.cancel(id, scenario.cancelAt) == Cancel::CANCELLED);
+        rig.fake.pending = false; rig.service(scenario.serviceAt);
+        const Completion& r = done(rig, id);
+        assert(r.transport.reason == scenario.reason && r.cancellation == Cancellation::REQUEST);
+        assert(r.transport.rxLength == 0 && !r.transport.closureQualified);
+        assert(r.transport.closureEarliestUs == 3950 && r.transport.closureLatestUs == 3950);
+        assert(r.executionUnknown && rig.fake.sent.size() == 1 && rig.owner.needsRecovery());
+    }
+}
 void testFairnessAndIsolation() {
     Rig rig; rig.fake.automaticReply = true; uint8_t bytes[32]; std::vector<RequestId> ids;
     for (unsigned n = 0; n < 3; ++n) ids.push_back(admit(rig, request(bytes, 0)));
@@ -583,6 +679,71 @@ void testRecoveryFailuresAndExpiry() {
         assert(rig.owner.recoveryResult(id)->outcome == RecoveryOutcome::RECOVERED && rig.fake.next == READ_BUDGET + 1);
     }
 }
+void testRecoveryRejectsContradictoryDrainEvidence() {
+    for (bool regressedByte : {false, true}) {
+        Rig rig;
+        // A read-budget boundary must not reset the last accepted wire time.
+        for (unsigned i = 0; i < READ_BUDGET; ++i) {
+            RxByte byte; byte.startUs = 500 + i * 2; byte.endUs = byte.startUs + 1;
+            byte.value = 0xA5; rig.fake.input.push_back(byte);
+        }
+        if (regressedByte) {
+            RxByte byte; byte.startUs = 1; byte.endUs = 2; byte.value = 0xEE;
+            rig.fake.input.push_back(byte);
+        }
+        uint64_t id = 0;
+        assert(rig.owner.recover(1000, 10000, id) == RecoveryAdmission::ACCEPTED);
+        const unsigned before = rig.fake.reads; rig.service(1000);
+        assert(rig.fake.reads - before == READ_BUDGET && !rig.owner.recoveryResult(id));
+        if (!regressedByte) rig.fake.through = 626; // Last accepted byte ended at627.
+        const unsigned second = rig.fake.reads; rig.service(1350);
+        const RecoveryResult* r = rig.owner.recoveryResult(id); assert(r);
+        assert(r->outcome == RecoveryOutcome::READ_ERROR && r->reason == Reason::CLOCK_ERROR);
+        assert(rig.fake.reads - second <= READ_BUDGET && rig.owner.needsRecovery() && rig.fake.sent.empty());
+        const RecoveryResult retained = *r;
+        rig.fake.through = std::numeric_limits<uint64_t>::max(); rig.service(2000);
+        assert(rig.owner.recoveryResult(id)->outcome == retained.outcome &&
+               rig.owner.recoveryResult(id)->finishedUs == retained.finishedUs && rig.owner.needsRecovery());
+    }
+    {
+        Rig rig; uint64_t id = 0;
+        assert(rig.owner.recover(1000, 10000, id) == RecoveryAdmission::ACCEPTED);
+        rig.fake.through = 1200; rig.service(1200);
+        assert(!rig.owner.recoveryResult(id)); // Recovery quiet guard has not elapsed.
+        rig.fake.through = 1100; rig.service(1250); // Contradicts the prior EMPTY watermark.
+        const RecoveryResult* r = rig.owner.recoveryResult(id); assert(r);
+        assert(r->outcome == RecoveryOutcome::READ_ERROR && r->reason == Reason::CLOCK_ERROR);
+        assert(rig.owner.needsRecovery() && rig.fake.sent.empty());
+    }
+}
+void testRequestCancellationSurvivesRecoveryExpiry() {
+    for (bool releaseResult : {false, true}) {
+        Rig rig; uint8_t bytes[32]; RequestId active = admit(rig, request(bytes)); rig.send();
+        rig.fake.busy = true; rig.fake.now = 1400;
+        assert(rig.owner.cancel(active, 1400) == Cancel::CANCELLED);
+        assert(!rig.owner.result(active) && rig.runner.transmitEnabled());
+        uint64_t recovery = 0;
+        assert(rig.owner.recover(1500, 1600, recovery) == RecoveryAdmission::ACCEPTED);
+        rig.service(1600);
+        const RecoveryResult* r = rig.owner.recoveryResult(recovery); assert(r);
+        assert(r->outcome == RecoveryOutcome::EXPIRED && r->interrupted.generation == active.generation);
+        assert(rig.owner.needsRecovery() && rig.runner.transmitEnabled() && !rig.owner.result(active));
+        const RecoveryResult retained = *r;
+        if (releaseResult) assert(rig.owner.releaseRecovery(recovery));
+        RequestId urgent = admit(rig, request(bytes, 2), 1600, true);
+        rig.fake.busy = false; rig.service(2180);
+        const Completion& completed = done(rig, active);
+        assert(completed.outcome == Outcome::CANCELLED && completed.transport.reason == Reason::CANCELLED);
+        assert(completed.cancellation == Cancellation::REQUEST && completed.executionUnknown);
+        assert(completed.deadlineUs == 100000 && completed.transport.txAccepted == 8);
+        assert(rig.owner.needsRecovery() && !rig.runner.transmitEnabled() && !rig.owner.result(urgent));
+        assert(rig.owner.cancel(active, 3000) == Cancel::ALREADY_TERMINAL); rig.service(3000);
+        assert(done(rig, active).cancellation == Cancellation::REQUEST && done(rig, active).executionUnknown);
+        assert(rig.fake.sent.size() == 1 && !rig.owner.result(urgent));
+        if (!releaseResult) assert(rig.owner.recoveryResult(recovery)->outcome == retained.outcome &&
+                                  rig.owner.recoveryResult(recovery)->finishedUs == retained.finishedUs);
+    }
+}
 void testUrgentCannotBypassRecovery() {
     Rig rig; uint8_t bytes[32]; RequestId expired = admit(rig, request(bytes, 0, 2000)); rig.send();
     RequestId urgent = admit(rig, request(bytes, 2), 1360, true);
@@ -662,9 +823,11 @@ void testLateIdenticalReplyLimitation() {
 }
 } // namespace
 int main() {
-    testScheduleBounds(); testCancellationPhases(); testDeadlineCancellation(); testLateCancelOverReadBudget(); testFairnessAndIsolation();
+    testScheduleBounds(); testCancellationPhases(); testDeadlineCancellation(); testLateCancelOverReadBudget();
+    testCancellationPrecedesLaterExpiry(); testFairnessAndIsolation();
     testUrgentReservationAndOrdering(); testStopShapedUrgentScheduling(); testDeferredAndDispatchExpiry(); testSequenceInvalidation();
-    testRecoveryPressureAndSettlement(); testRecoveryFailuresAndExpiry(); testUrgentCannotBypassRecovery();
+    testRecoveryPressureAndSettlement(); testRecoveryFailuresAndExpiry();
+    testRecoveryRejectsContradictoryDrainEvidence(); testRequestCancellationSurvivesRecoveryExpiry(); testUrgentCannotBypassRecovery();
     testExpiredRecoveryCannotReopenThroughHistoricalSuccess(); testRecoveryDoesNotDoubleReadBudgetAfterCompletion();
     testLateIdenticalReplyLimitation();
     return 0;

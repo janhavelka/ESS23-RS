@@ -181,6 +181,9 @@ while examining retained history across read budgets. Qualified closure before
 that cutoff can succeed; later closure cannot, and straddling bounds fail with
 `TIMING_UNCERTAIN`. Direct `cancel()` retains its immediate RECEIVE semantics.
 Neither method truncates physical TX or renews the absolute request deadline.
+Cancellation, request expiry and response expiry use their retained cutoff order
+for closure, late bytes and EMPTY evidence. Delayed servicing cannot replace an
+earlier accepted cancellation with a later timeout; earlier expiry still wins.
 
 `requireRecovery()` interlocks only a settled Runner, preserves its terminal
 evidence and performs no I/O. `discard(nowUs)` is available only while faulted
@@ -188,6 +191,8 @@ with DE released. It removes at most 64 timestamped RX items, returns qualified
 EMPTY/watermark or pending/error evidence, and preserves Result/raw data.
 Budget exhaustion is not a silence proof. BusOwner uses it before explicit
 recovery and stores the recovery outcome separately from interrupted requests.
+Discard uses the same retained byte/watermark bounds as reception across passes
+and recovery retries, rejecting regressions without changing Result/raw bytes.
 
 `recover(nowUs)` checks physical idle and hold time, then establishes receive
 mode. Failed recovery keeps admission blocked. Recovery retains the prior

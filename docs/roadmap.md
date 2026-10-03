@@ -8,6 +8,9 @@ future version numbers are not commitments.
 The [ESS release prompt set](prompts/ess_release/README.md) turns these stages
 into 30 ordered implementation blocks with tests, independent audits and
 evidence handoffs. Prompts 01–02 are implemented and tested; prompt 03 is next.
+The [fresh prompt 02 audit](reports/ess_release_02_audit_2026-10-03.md) corrects
+cancellation cutoff precedence and recovery evidence continuity; hardware owner
+integration remains in 03.
 The [fresh prompt 01 audit](reports/ess_release_01_audit_2026-10-03.md) corrects
 two timeout-reporting defects with native and current-image regression evidence.
 Preparing a prompt does not complete its milestone.

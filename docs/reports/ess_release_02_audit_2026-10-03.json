@@ -1,0 +1,95 @@
+{
+  "date": "2026-10-03",
+  "prompt": 2,
+  "kind": "fresh independent audit",
+  "baseline_commit": "0bfb161ed2c4afd6dcb9f3a1b0b80cb1626dfa54",
+  "final_commit": "Commit introducing this manifest; resolve git log -1 --format=%H -- docs/reports/ess_release_02_audit_2026-10-03.json",
+  "fieldcore_reference_head": "b954b0245b74a94d44d8cce775747a573bb17187",
+  "fieldcore_access": "read-only",
+  "source_sha256_lf": {
+    "examples/common/RtuRunner.cpp": "91d6a9209a9c51ab422c00381e0cce20a4cc4e1b802f6c923cb2bc2f12d2c115",
+    "examples/common/RtuRunner.h": "fce950f707a20a2434f4ffc224f6f038da31f5444117b84da40f777e5a1812cf",
+    "examples/common/RtuBusOwner.cpp": "43aa1969322c3699bec6f1ad80baac722f9267387b5c24313845dd5d8e1a338b",
+    "examples/common/RtuBusOwner.h": "b0cd93ea34593c8d6dc6ece95ab9b4df9341573481d65cc5b16b345c7d7c7695",
+    "test/bus_scheduling_test.cpp": "d4cd885940b029c1bfde9aed25554e55098682bda23d9c163b50dc6139245f6a",
+    "test/bus_owner_test.cpp": "e87cf639d34272a0a3e1c12deaa283b684e5208b3c2741286059a5b9793d3d59"
+  },
+  "source_hash_encoding": "UTF-8 file bytes with CRLF normalized to LF",
+  "findings_fixed": [
+    "Earlier accepted RECEIVE cancellation replaced by later expiry",
+    "Recovery accepted contradictory timing evidence between drain calls"
+  ],
+  "verification": {
+    "ctest_suites": 15,
+    "ctest": "PASS",
+    "scheduling_groups": 18,
+    "generator_python_tests": 8,
+    "probe_python_tests": 44,
+    "version": "PASS",
+    "ess_catalogue": "221 descriptors,242 words PASS",
+    "serial_references": "5 PASS",
+    "firmware_builds": "3 PASS",
+    "strict_xtensa_cpp11": "Owner/Runner/ESS validator PASS",
+    "hardware": "NOT RUN: owner integration remains03"
+  },
+  "ctest_log": "build/bench/prompt02_audit_ctest_full.log",
+  "baseline_reproduction": "build/native/audit02_uncertainty.exe",
+  "fixed_reproduction": "build/native/audit02_uncertainty_fixed.exe",
+  "baseline_reproduction_output": {
+    "cancel_3000_empty_13000": "NO_RESPONSE unknown=true TXcount1",
+    "cancel_3000_absolute_3500_empty_4000": "REQUEST_DEADLINE unknown=true TXcount1",
+    "retrograde_65th_byte": "RECOVERED NONE fault=false"
+  },
+  "fixed_reproduction_output": {
+    "cancel_3000_empty_13000": "CANCELLED unknown=true TXcount1",
+    "cancel_3000_absolute_3500_empty_4000": "CANCELLED unknown=true TXcount1",
+    "retrograde_65th_byte": "READ_ERROR CLOCK_ERROR fault=true"
+  },
+  "sizeof_bytes": {
+    "native": {
+      "Runner": 360,
+      "Owner": 216,
+      "PendingSlot": 392,
+      "ResultSlot": 488,
+      "ProducerSlot": 24
+    },
+    "xtensa": {
+      "Runner": 296,
+      "Owner": 144,
+      "PendingSlot": 360,
+      "ResultSlot": 456,
+      "ProducerSlot": 24
+    }
+  },
+  "xtensa_runner_static_stack_bytes": {
+    "discard": 96,
+    "cancellationFirst": 32,
+    "closureDeadline": 64,
+    "poll": 96
+  },
+  "xtensa_stack_artifact": "build/prompt02_audit_runner_xtensa.su",
+  "firmware_builds": {
+    "bench_s3_probe": {
+      "path": "build/bench/prompt02_audit_bench_s3_probe_firmware.bin",
+      "bytes": 329616,
+      "sha256": "3bcf98744471e554652522812ab7507a26a5d3c372cf43f89bf268a567ce477a",
+      "uploaded": false
+    },
+    "bench_s3_load_poll": {
+      "path": "build/bench/prompt02_audit_bench_s3_load_poll_firmware.bin",
+      "bytes": 331824,
+      "sha256": "18d6de7bc31f0cb570090880405a4d8b1561712301f47d5beaf3d43185293b0d",
+      "uploaded": false
+    },
+    "bench_s3_load_timer": {
+      "path": "build/bench/prompt02_audit_bench_s3_load_timer_firmware.bin",
+      "bytes": 335248,
+      "sha256": "ed1c2a45fc7ec905de37dc9a0bf5b5d8cbfe56434df9854c2c5d77d9b36e5e9c",
+      "uploaded": false
+    }
+  },
+  "hardware_commands": [],
+  "runtime_measurements": null,
+  "historical_bench_report": "docs/reports/ess_release_01_audit_2026-10-03.md",
+  "new_bench_image_uploaded": false
+}

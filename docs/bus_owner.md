@@ -128,9 +128,12 @@ return `INVALID`.
 Captured qualified closure before the cancellation cutoff can win even across
 read-budget passes. Runner's `cancelCaptured` retains that RECEIVE cutoff;
 later closure cannot succeed and straddling closure is `TIMING_UNCERTAIN`.
-At/past the request deadline, Runner examines original deadline evidence instead
-of replacing it with cancellation. Results retain original context, first
-cancellation cause and execution uncertainty.
+A cancellation accepted before the request and response cutoffs remains the
+controlling cutoff even when evidence is serviced after those later limits.
+An earlier request/response expiry still wins when cancellation arrives later.
+At/past the request deadline no fresh cancellation cutoff replaces its evidence;
+an already accepted earlier cancellation is retained. Results preserve original
+context, first cancellation cause and execution uncertainty.
 
 `recover(nowUs, absoluteRecoveryDeadline, uint64_t& id)` reserves one distinct
 control-result slot inside the caller-owned owner, cancels queued ordinary/urgent
@@ -153,6 +156,9 @@ without changing the retained recovery outcome.
 
 Sticky adapter faults may require explicit adapter cleanup after TX/DE settle
 before a fresh attempt; read errors are surfaced, never silently cleared.
+Discarding preserves valid byte-order and watermark bounds across service calls
+and recovery retries. Contradictory adapter evidence produces `READ_ERROR` with
+`CLOCK_ERROR` and keeps the bus interlocked; cleanup retains the clock epoch.
 Modbus RTU has no wire request ID. A bit-identical delayed reply after recovery
 may remain indistinguishable from a fresh checked reply. No finite idle guard,
 host generation or priority removes that limitation or clears an uncertain
@@ -254,3 +260,5 @@ The [prompt 02 report](reports/ess_release_02_2026-10-03.md) and
 [scheduling tests](../test/bus_scheduling_test.cpp) hand these actual APIs and
 lifetime/deadline/parser contracts to prompt 03. The console exposes owner
 commands only after prompt 03.
+The [fresh prompt 02 audit](reports/ess_release_02_audit_2026-10-03.md) corrects
+delayed cancellation cutoff precedence and recovery evidence across drain passes.

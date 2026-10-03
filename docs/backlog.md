@@ -89,6 +89,9 @@ explicit recovery that cancels old queued work. Its separate recovery result
 survives full ordinary/urgent result pressure; old writes never resume.
 See [the prompt 02 handoff](reports/ess_release_02_2026-10-03.md). Owner hardware
 remains NOT RUN until prompt 03 connects the actual console path and measures it.
+Its [fresh independent audit](reports/ess_release_02_audit_2026-10-03.md) fixes
+delayed cancellation versus later expiry and retains recovery timing evidence
+across drain passes; native regressions and firmware builds pass.
 FieldCore remains read-only; typed identity/state and motion/stop retain their gates.
 
 ## ESS source and profile work
