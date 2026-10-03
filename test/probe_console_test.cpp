@@ -511,6 +511,25 @@ void testRecoveryTerminalAndOptionalOwnerHooks() {
     assert(fake.lines.back().find("\"cancel\"") == std::string::npos);
     assert(fake.lines.back().find("\"release\"") == std::string::npos);
 }
+void testCaptureReadOptionalHookAndDiagnostics() {
+    Fake fake; Probe::Console unavailable(fake.host());
+    send(unavailable, "capture-read\n"); fake.contains("unavailable");
+    assert(fake.probes == 0);
+    send(unavailable, "help\n"); assert(fake.lines.back().find("capture-read") == std::string::npos);
+    auto host = fake.host(); host.startCaptureRead = Fake::probe;
+    Probe::Console console(host);
+    send(console, "@1 help capture-read\n"); fake.contains("read_0x0130_16_words");
+    send(console, "@2 capture-read 247\n"); fake.contains("accepted"); assert(fake.address == 247);
+    Probe::ProbeResult result; result.captureRead = true;
+    result.transport.reason = Rtu::Reason::FRAME; result.codecChecked = true;
+    result.rawModel = 123; result.transport.txAccepted = 8; result.transport.rxLength = 37;
+    assert(console.reportProbe(2, 247, 100, result));
+    fake.contains("\"type\":\"capture_read\""); fake.contains("\"command\":\"capture-read\"");
+    fake.contains("\"raw_model\":null"); fake.contains("\"identity\":\"not_requested\"");
+    fake.data.sampleGapLimitUs = 85; fake.data.sampleGapExceeded = true;
+    send(console, "config\n"); fake.contains("\"cache_off_supported\":false"); fake.contains("\"sample_gap_limit_us\":85");
+    send(console, "stats\n"); fake.contains("\"sample_gap_exceeded\":true");
+}
 
 } // namespace
 
@@ -530,4 +549,5 @@ int main() {
     testOutputBackpressureOwnership();
     testOwnerControlsAndRetainedInspections();
     testRecoveryTerminalAndOptionalOwnerHooks();
+    testCaptureReadOptionalHookAndDiagnostics();
 }

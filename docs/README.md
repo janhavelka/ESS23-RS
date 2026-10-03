@@ -2,9 +2,10 @@
 
 ## Architecture baseline
 
-Release prompts 01–03 deliver the application owner and responsive console;
-[the current handoff](reports/ess_release_03_2026-10-03.md) records native/build,
-read-only timer bench evidence and explicit service/qualification limits.
+Release prompts 01–04 deliver the application owner, responsive console and
+[capture review](reports/ess_release_04_2026-10-04.md): native/build checks and
+7/37-byte read-only bench evidence pass. Capture costs about 20–21% of one
+core; independent electrical timing remains NOT RUN.
 
 Implemented blocks are pure unit conversion, an ESS register catalogue,
 checked wire codecs with a minimal probe and standalone build foundations.

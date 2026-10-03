@@ -262,6 +262,84 @@ void testCaptureTimerLifecycle() {
         assert(uart.startCapture()); // A failed start does not leak the timer allocation.
     }
 }
+void testTimerIdleStarvationIsSticky() {
+    resetHardware();
+    Esp32S3Uart uart;
+    assert(uart.begin(PINS));
+    advanceHardware(hardware.time + 5000); // Setup before capture is outside its epoch.
+    assert(uart.startCapture());
+    advanceHardware(hardware.time + 1000);
+    auto stats = uart.stats();
+    assert(!stats.failed && !stats.sampleGapExceeded && stats.sampleGapLimitUs == 85);
+    assert(stats.timerCallbacks == hardware.timerCallbacks && stats.timerCallbacks > 40);
+    const uint64_t timerSamples = stats.timerCallbacks;
+    uart.sample();
+    stats = uart.stats();
+    assert(stats.samples > stats.timerCallbacks && stats.timerCallbacks >= timerSamples);
+    fakeEnterCritical();
+    advanceHardware(hardware.time + 1000); // Empty FIFO cannot prove uninterrupted capture.
+    fakeExitCritical();
+    stats = uart.stats();
+    assert(stats.failed && stats.sampleGapExceeded && stats.faults == 1);
+    assert(stats.maxGapUs >= stats.sampleGapLimitUs && hardware.rx.empty());
+    Rtu::Port port = uart.port();
+    const uint8_t bytes[] = {1, 3, 0, 0};
+    assert(!port.setTransmit(port.context, true));
+    assert(port.write(port.context, bytes, sizeof(bytes)).error && hardware.writes == 0);
+    uart.resetStats();
+    stats = uart.stats();
+    assert(stats.failed && stats.sampleGapExceeded && stats.faults == 0);
+    assert(!port.setTransmit(port.context, true) && hardware.writes == 0);
+    assert(uart.clear()); // Only explicit host recovery can clear the restriction failure.
+    stats = uart.stats();
+    assert(!stats.failed && !stats.sampleGapExceeded);
+    advanceHardware(hardware.time + 100);
+    assert(!uart.needsRecovery());
+    assert(port.setTransmit(port.context, true));
+    assert(port.setTransmit(port.context, false));
+    assert(uart.stopCapture());
+    advanceHardware(hardware.time + 5000);
+    assert(uart.startCapture()); // Stopped intervals cannot poison the next capture epoch.
+    advanceHardware(hardware.time + 100);
+    assert(!uart.needsRecovery() && !uart.stats().sampleGapExceeded);
+}
+void testPollIdleHasNoTimerGapRestriction() {
+    resetHardware();
+    Esp32S3Uart uart;
+    assert(uart.begin(PINS));
+    advanceHardware(hardware.time + 5000);
+    uart.sample();
+    const auto stats = uart.stats();
+    assert(!stats.timer && !stats.failed && !stats.sampleGapExceeded);
+    assert(stats.timerCallbacks == 0 && stats.maxGapUs > stats.sampleGapLimitUs);
+    Rtu::Port port = uart.port();
+    assert(port.setTransmit(port.context, true));
+    assert(port.setTransmit(port.context, false));
+}
+void testTimerSamplingGapBoundary() {
+    for (const uint32_t gap : {84U, 85U}) {
+        resetHardware();
+        // Hold clock reads at the current wire time so the requested gap is
+        // exactly the callback's before-to-before interval, not gap + fake work.
+        hardware.clockStep = 0;
+        Esp32S3Uart uart;
+        assert(uart.begin(PINS) && uart.startCapture());
+        const uint64_t epoch = hardware.time;
+        fakeEnterCritical();
+        advanceHardware(epoch + gap);
+        fakeExitCritical(); // The first overdue callback observes this exact gap.
+        const auto stats = uart.stats();
+        const bool rejected = gap == 85;
+        assert(stats.timerCallbacks == 1 && stats.samples == 1);
+        assert(stats.maxGapUs == gap && stats.sampleGapLimitUs == 85);
+        assert(stats.failed == rejected && stats.sampleGapExceeded == rejected);
+        assert(stats.faults == (rejected ? 1U : 0U));
+        Rtu::Port port = uart.port();
+        assert(port.setTransmit(port.context, true) == !rejected);
+        assert(port.setTransmit(port.context, false));
+        assert(hardware.writes == 0);
+    }
+}
 void testCaptureTimerStopsOnlyWhenIdle() {
     resetHardware();
     hardware.txCharacterUs = 87;
@@ -432,6 +510,8 @@ int main() {
     testIdleSnapshotRace(); testSlowSnapshotFails();
     testCaptureFaultsAndRecovery(); testPendingCapacity();
     testCaptureTimerLifecycle(); testCaptureTimerStopsOnlyWhenIdle();
+    testTimerIdleStarvationIsSticky(); testPollIdleHasNoTimerGapRestriction();
+    testTimerSamplingGapBoundary();
     testPartialTimerCleanupCanResume(); testStartupCleanupFailureKeepsOwnership();
     testTimerStopChecksCurrentReceiveState(); testUnrepresentableTimingFails();
     testTimerTxObservationWaitsForRelease();

@@ -76,6 +76,10 @@ Probe::Action Esp32Load::configure(const Probe::LoadSettings* requested,
     out.ownerGapMaxUs = ownerGap_;
     const auto capture = uart.stats();
     out.captureUs = capture.busyUs; out.captureSamples = capture.samples;
+    out.timerCallbacks = capture.timerCallbacks;
+    out.sampleGapLimitUs = capture.timer ? capture.sampleGapLimitUs : 0;
+    out.sampleGapExceeded = capture.sampleGapExceeded;
+    out.captureHighWater = capture.highWater;
     out.captureGapMaxUs = capture.maxGapUs; out.timer = capture.timer;
     out.workStackFreeBytes = uxTaskGetStackHighWaterMark(worker_);
     out.ready = capture.ready;

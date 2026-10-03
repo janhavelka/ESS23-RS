@@ -1,8 +1,8 @@
 # ESP32-S3 read-only probe bench
 
 This example connects the ESS codecs, application BusOwner, standalone runner and a dedicated
-ESP32-S3 UART adapter. Its only motor command is the documented non-changing
-model-register read. It provides a small console and finite Python campaigns
+ESP32-S3 UART adapter. Its motor commands are the documented non-changing
+model-register read and a fixed sixteen-word capture qualification read. It provides a small console and finite Python campaigns
 for developing and checking that path before adding motion.
 
 The adapter records bounded timing observations. It does not claim exact UART
@@ -71,10 +71,34 @@ can be charged to the interrupted task, including idle. `capture_us` measures
 the capture section separately, excluding driver dispatch/return overhead;
 these measurements must not be added as if they were disjoint CPU categories.
 
-The [capture/load audit](reports/2026-10-03_capture_load.md) records the actual
-tested envelope. The pinned SDK does not enable GPTimer cache-safe interrupts;
-flash writes/cache-off operation remain unqualified. ISR state and stacks stay
-internal; the existing owner buffers, trace and console remain in PSRAM.
+The [current capture review](reports/ess_release_04_2026-10-04.md) retains the
+20-us sampler at about 20–21% of one core inside capture. `timer_callbacks`
+counts timer alarms separately from aggregate `capture_samples`; neither
+measures SDK interrupt dispatch cost. `capture_high_water` reports ring occupancy.
+
+Cache-off operation while capture runs is unsupported: the pinned SDK does not
+enable GPTimer cache-safe interrupts, and the callback call graph is not wholly
+IRAM-resident. `config` exposes `cache_off_supported:false` and the conservative
+85-us sampling gap limit at 115200 baud. Timer-mode gaps reaching that limit
+latch a capture fault even with empty FIFO; `sample_gap_exceeded` survives
+statistics reset and clears only through explicit idle recovery. Before runtime
+flash/OTA/NVS/cache-off or sleep operations, quiesce admission, settle TX/DE
+and idle recovery, then stop capture. Restart after normal operation returns.
+The standalone has no such runtime service. ISR state/stacks stay internal;
+owner buffers, trace and console remain in PSRAM. Electrical timing and physical
+cache-off/starvation measurements remain NOT RUN.
+
+The fixed long read uses the same admission, asynchronous result and explicit
+release workflow as `probe`. Terminal `type` is `capture_read`; results identify
+`capture_read`, `register_start:304`, `register_count:16`, raw TX/RX and
+`raw_model:null`. It occupies ordinary read capacity and does not refresh model
+cache age. The window is reviewed in function-manual PDF p77 (printed p75).
+It is a timing fixture through the existing codec, not typed settings coverage.
+
+```powershell
+python scripts/bench_probe.py --port COM13 --log build/bench/long_read.jsonl capture-read
+python scripts/bench_probe.py --port COM13 --log build/bench/long_load.jsonl load --capture-read --count 20 --work-us 2000 --owner-delay-us 5000 --console-bytes 128
+```
 
 ## Build and board
 
@@ -230,6 +254,7 @@ There are no raw writes, motion operations or automatic scans in this build.
 | `probe [address]` / `ping [address]` | Read ESS model register `0x0000`, one word: eight-byte FC03 request, seven-byte normal reply or five-byte exception. |
 | `status` | Show cached transport/codec result, raw exception detail, DE state, model word and age. |
 | `health` | Assess cached communication freshness. Drive readiness, alarms and motion state remain unknown. |
+| `capture-read [address]` | Fixed non-consuming FC03 read of `0x0130/16` settings words; eight-byte request, 37-byte normal reply or five-byte exception. Timing fixture only; no model-cache update or interpreted speed values. |
 | `stats` | Show local runner and capture counters, including maximum observed poll gap. |
 | `reset` / `stats reset` | Clear local counters only. Preserve the result and recovery interlock. |
 | `recover` | Explicit host-only RX/error recovery after the configured guard; no motor command. |
@@ -345,14 +370,14 @@ implementation block.
 The example allocates its `App` once in PSRAM during startup. It contains the
 32-byte TX buffer, 64-byte RX buffer, 128-entry trace, runner, owner, five pending
 slots, nine result slots, eight correlation records, console buffers and eight
-1537-byte output lines. It uses 27128 bytes on ESP32-S3 (27936 native), including
-all that storage. Driver capture state (1696 bytes), load fixture (4816 bytes,
+1537-byte output lines. It uses 27136 bytes on ESP32-S3 (27944 native), including
+all that storage. Driver capture state (1704 bytes), load fixture (4816 bytes,
 including its 4096-byte stack), SDK buffers and owner stack remain internal.
 Failure to allocate PSRAM reports a boot error;
 there is no silent large internal-RAM fallback. No per-command application
 allocation is added by the runner, codecs or console.
 
-The UART sampler and 64-entry capture working set remain internal (1696 bytes
+The UART sampler and 64-entry capture working set remain internal (1704 bytes
 for the Esp32S3Uart object on ESP32-S3, including the 1536-byte ring).
 FIFO submission copies at most 64 bytes to an internal stack array before its
 short critical section. Larger PSRAM storage is never read from that section.

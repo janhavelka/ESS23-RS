@@ -260,7 +260,10 @@ actual adapter source. Bench probes establish a working communication path;
 The independent wire fixture and timer load bench now exercise a sleeping
 owner, FIFO batches/overflow, late/foreign replies, missing evidence and
 interrupt masking. See the [capture/load audit](reports/2026-10-03_capture_load.md).
-External TX/RX/DE timing, cache-off operation and motion remain separate
-qualification work. Admission/results and fairness/cancellation are implemented
+The [current capture review](reports/ess_release_04_2026-10-04.md) adds
+37-byte delayed-owner/masked-interrupt cases and a timer sampling-gap interlock.
+Cache-off operation during capture is unsupported; consumers must quiesce the
+owner and stop capture first. External TX/RX/DE timing and motion remain
+separate qualification work. Admission/results and fairness/cancellation are implemented
 in the [bus owner](bus_owner.md); prompt 03 connects the actual standalone
 console under the [roadmap](roadmap.md).

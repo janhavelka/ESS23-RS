@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Bounded, read-only tests of the standalone MotorControl-RS JSONL console.
 
-Only ``probe`` creates motor-bus traffic. Status, health and memory are cached
+Only ``probe`` and fixed-window ``capture-read`` create motor-bus traffic. Status, health and memory are cached
 host reports. A lost or malformed reply stops the run; nothing is replayed and
 host recovery is never automatic. Python 3.10+; pyserial is needed only for a
 real port. See ``--help`` for finite probe, stress, watch and load runs. Load
@@ -26,11 +26,12 @@ import time
 
 MAX_LINE = 4096
 MAX_INPUT = 32768
-COMMANDS = frozenset({"version", "probe", "status", "health", "memory", "stats", "load",
+COMMANDS = frozenset({"version", "config", "probe", "capture-read", "status", "health", "memory", "stats", "load",
                       "drv", "result", "release", "cancel", "recover", "reset"})
 MAX_COMMANDS = 10  # Eight probes, one recovery and one interleaved local report.
 MAX_OPERATIONS = 9  # Firmware retains eight ordinary results plus one recovery.
 MAX_PROBES = 8
+READ_COMMANDS = ("probe", "capture-read")
 LOAD_FIELDS = ("workload_us", "owner_delay_us", "console_bytes")
 LOAD_LIMITS = (5000, 20000, 256)
 LOAD_COUNTERS = (
@@ -102,6 +103,16 @@ def unique_object(pairs: list[tuple[str, object]]) -> dict:
 
 def invalid_constant(value: str) -> None:
     raise ValueError(f"invalid JSON number: {value}")
+
+
+def wire_crc(data: bytes) -> int:
+    """Check retained read-only fixture bytes independently of firmware parsing."""
+    crc = 0xFFFF
+    for byte in data:
+        crc ^= byte
+        for _ in range(8):
+            crc = (crc >> 1) ^ (0xA001 if crc & 1 else 0)
+    return crc
 
 
 class Evidence:
@@ -254,18 +265,25 @@ class Console:
 
     @staticmethod
     def _check_probe(item: dict, address: int | None) -> None:
+        if item.get("capture_read", False) is not False or item.get("recovery", False) is not False:
+            raise BenchError("probe result kind is inconsistent")
+        model = item.get("raw_model")
+        if item["ok"] and (type(model) is not int or not 0 <= model <= 65535):
+            raise BenchError("successful probe lacks consistent result evidence")
+        Console._check_read_evidence(item, address, 7)
+
+    @staticmethod
+    def _check_read_evidence(item: dict, address: int | None, reply_size: int) -> None:
         actual = item.get("address")
         if (type(actual) is not int or not 1 <= actual <= 247
                 or (address is not None and actual != address)):
             raise BenchError("probe terminal address does not match acceptance")
         if not item["ok"]:
             return
-        model = item.get("raw_model")
         if (item.get("transport") != "FRAME" or item.get("codec") != "OK"
                 or item.get("outcome") != "success" or item.get("execution_unknown") is not False
-                or type(model) is not int or not 0 <= model <= 65535
                 or type(item.get("tx_bytes")) is not int or item["tx_bytes"] != 8
-                or type(item.get("rx_bytes")) is not int or item["rx_bytes"] != 7
+                or type(item.get("rx_bytes")) is not int or item["rx_bytes"] != reply_size
                 or type(item.get("duration_us")) is not int
                 or not 0 <= item["duration_us"] <= 0xFFFFFFFFFFFFFFFF
                 or item.get("timing_valid") is not True
@@ -276,9 +294,38 @@ class Console:
             raise BenchError("probe observation and delivery bounds are inconsistent")
 
     @staticmethod
+    def _check_capture_read(item: dict, address: int | None) -> None:
+        if (item.get("capture_read") is not True
+                or item.get("recovery", False) is not False
+                or type(item.get("register_start")) is not int or item["register_start"] != 0x0130
+                or type(item.get("register_count")) is not int or item["register_count"] != 16
+                or "raw_model" not in item or item["raw_model"] is not None
+                or item.get("identity") != "not_requested"):
+            raise BenchError("capture-read result kind/window is inconsistent")
+        Console._check_read_evidence(item, address, 37)
+        if not item["ok"]:
+            return
+        try:
+            raw = []
+            for name, size in (("tx_hex", 8), ("rx_hex", 37)):
+                value = item.get(name)
+                if not isinstance(value, str) or re.fullmatch(r"[0-9A-Fa-f]{%d}" % (2 * size), value) is None:
+                    raise ValueError("invalid raw frame")
+                frame = bytes.fromhex(value)
+                if wire_crc(frame) != 0:
+                    raise ValueError("invalid CRC")
+                raw.append(frame)
+            tx, rx = raw
+            if tx[:6] != bytes((item["address"], 3, 1, 0x30, 0, 16)) or rx[:3] != bytes((item["address"], 3, 32)):
+                raise ValueError("wrong request/reply shape")
+        except ValueError as exc:
+            raise BenchError("capture-read raw frame evidence is inconsistent") from exc
+
+    @staticmethod
     def _check_recovery(item: dict) -> None:
         outcome = item.get("outcome")
         if (item.get("recovery") is not True
+                or item.get("capture_read", False) is not False
                 or outcome not in ("recovered", "expired", "read_error", "transport_error")
                 or item["ok"] != (outcome == "recovered")
                 or not isinstance(item.get("transport"), str)
@@ -329,7 +376,7 @@ class Console:
         if self.clock() >= handle.deadline:
             raise BenchError("command response deadline expired; command was not replayed")
         self.emit("reply", response=item)
-        asynchronous = handle.command in ("probe", "recover")
+        asynchronous = handle.command in (*READ_COMMANDS, "recover")
         if asynchronous:
             if item.get("type") == "reply" and not handle.accepted:
                 if not item["ok"]:
@@ -337,7 +384,7 @@ class Console:
                     return
                 if item.get("result") != "accepted":
                     raise BenchError(f"{handle.command} acceptance is not explicit")
-                if handle.command == "probe":
+                if handle.command in READ_COMMANDS:
                     address = item.get("address")
                     if (type(address) is not int or not 1 <= address <= 247
                             or (handle.address is not None and address != handle.address)):
@@ -348,15 +395,16 @@ class Console:
                     raise BenchError("accepted operation ID is missing, reused or not monotonic")
                 if len(self.operations) == MAX_OPERATIONS:
                     raise BenchError("accepted operation exceeds retained result limit")
-                same_kind = sum(original.command == handle.command for original in self.operations.values())
-                if same_kind >= (MAX_PROBES if handle.command == "probe" else 1):
+                same_kind = sum((original.command in READ_COMMANDS) == (handle.command in READ_COMMANDS)
+                                for original in self.operations.values())
+                if same_kind >= (MAX_PROBES if handle.command in READ_COMMANDS else 1):
                     raise BenchError("accepted operation exceeds its retained result quota")
                 handle.operation_id = operation_id
                 handle.accepted = True
                 self.operations[operation_id] = handle
                 self.last_operation_id = operation_id
                 return
-            expected_type = "probe" if handle.command == "probe" else "recovery"
+            expected_type = {"probe": "probe", "capture-read": "capture_read", "recover": "recovery"}[handle.command]
             if item.get("type") != expected_type or not handle.accepted:
                 raise BenchError(f"{handle.command} response sequence is invalid")
             if (not self._operation_id(item.get("operation_id"))
@@ -365,6 +413,8 @@ class Console:
                 raise BenchError("terminal operation ID or original command ID does not match acceptance")
             if handle.command == "probe":
                 self._check_probe(item, handle.address)
+            elif handle.command == "capture-read":
+                self._check_capture_read(item, handle.address)
             else:
                 self._check_recovery(item)
         else:
@@ -382,8 +432,11 @@ class Console:
                             or (original is not None and original_id != original.id)):
                         raise BenchError("result original command ID does not match retained operation")
                     recovery = item.get("recovery", False)
+                    capture_read = item.get("capture_read", False)
                     if (type(recovery) is not bool or
-                            (original is not None and recovery != (original.command == "recover"))):
+                            type(capture_read) is not bool or (recovery and capture_read) or
+                            (original is not None and (recovery != (original.command == "recover") or
+                             capture_read != (original.command == "capture-read")))):
                         raise BenchError("result kind does not match retained operation")
                     if item.get("result") == "pending":
                         if item["ok"] is not True or type(item.get("recovery")) is not bool:
@@ -392,6 +445,8 @@ class Console:
                             raise BenchError("completed retained operation regressed to pending")
                     elif recovery:
                         self._check_recovery(item)
+                    elif capture_read:
+                        self._check_capture_read(item, original.address if original else None)
                     else:
                         self._check_probe(item, original.address if original else None)
                     if original is not None and original.terminal is not None:
@@ -445,7 +500,7 @@ class Console:
         positive(timeout_s, "command timeout")
         if command not in COMMANDS:
             raise ValueError("command is not in the read-only/host-control harness inventory")
-        if address is not None and (command != "probe" or type(address) is not int
+        if address is not None and (command not in READ_COMMANDS or type(address) is not int
                                     or not 1 <= address <= 247):
             raise ValueError("an ESS probe address must be an integer within 1..247")
         if load is not None:
@@ -570,6 +625,7 @@ def campaign(
     timeout_s: float,
     address: int = 1,
     load: tuple[int, int, int] | None = None,
+    read_command: str = "probe",
     sleeper: Callable[[float], None] = time.sleep,
 ) -> None:
     """Finite work, no recovery and no replay. Watch never issues a probe.
@@ -579,9 +635,13 @@ def campaign(
     stays explicitly configured, including after a failure or interruption;
     the harness never sends cleanup or recovery commands behind the operator.
     """
-    if mode not in {"probe", "stress", "watch", "load"}:
+    if mode not in {"probe", "capture-read", "stress", "watch", "load"}:
         raise ValueError("unknown campaign mode")
-    if type(count) is not int or not 1 <= count <= 1_000_000 or (mode == "probe" and count != 1):
+    if mode == "capture-read":
+        read_command = "capture-read"
+    if read_command not in READ_COMMANDS or (read_command != "probe" and mode not in ("capture-read", "load")):
+        raise ValueError("capture-read requires its named campaign or load mode")
+    if type(count) is not int or not 1 <= count <= 1_000_000 or (mode in READ_COMMANDS and count != 1):
         raise ValueError("invalid campaign count")
     if not math.isfinite(interval_s) or not 0 <= interval_s <= 60:
         raise ValueError("interval must be finite and within 0..60 seconds")
@@ -607,7 +667,7 @@ def campaign(
             probe = None
             if mode != "watch":
                 attempted += 1
-                probe = console.command("probe", timeout_s=timeout_s, address=address)
+                probe = console.command(read_command, timeout_s=timeout_s, address=address)
                 if probe["ok"]:
                     passed += 1
                     latency = probe["duration_us"]
@@ -639,7 +699,7 @@ def campaign(
         failure = str(exc)
         raise
     finally:
-        console.emit("summary", mode=mode, iterations=completed, requested_count=count,
+        console.emit("summary", mode=mode, read_command=read_command, iterations=completed, requested_count=count,
                      probes_attempted=attempted, probes_passed=passed,
                      probes_failed=attempted - passed,
                      latency_us={"min": latency_min, "max": latency_max,
@@ -676,6 +736,7 @@ def arguments(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument("--startup", type=float, default=0.5, help="bounded boot-log collection in seconds")
     sub = parser.add_subparsers(dest="mode", required=True)
     sub.add_parser("probe", help="one model-register read and cached observations")
+    sub.add_parser("capture-read", help="one fixed 0x0130/16-word timing-fixture read")
     for mode, default_count, default_interval, description in (
         ("stress", 100, 0.1, "explicit repeated probes"),
         ("watch", 60, 1.0, "cached status/health/memory only; no motor traffic"),
@@ -685,6 +746,8 @@ def arguments(argv: list[str] | None) -> argparse.Namespace:
         child.add_argument("--count", type=int, default=default_count)
         child.add_argument("--interval", type=float, default=default_interval)
         if mode == "load":
+            child.add_argument("--capture-read", action="store_true",
+                               help="use fixed 37-byte read replies instead of model probes")
             child.add_argument("--work-us", type=int, default=0,
                                help="competing task work per 10 ms period, 0..5000 us")
             child.add_argument("--owner-delay-us", type=int, default=0,
@@ -731,7 +794,8 @@ def main(argv: list[str] | None = None) -> int:
                 console.drain_startup(args.startup)
                 console.identify(timeout_s=args.timeout)
                 campaign(console, args.mode, count=args.count, interval_s=args.interval,
-                         timeout_s=args.timeout, address=args.address, load=args.load)
+                         timeout_s=args.timeout, address=args.address, load=args.load,
+                         read_command="capture-read" if getattr(args, "capture_read", False) else "probe")
             except (Exception, KeyboardInterrupt) as exc:
                 evidence("failure", error=str(exc) or "interrupted", ok=False)
                 raise

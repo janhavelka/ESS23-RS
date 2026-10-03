@@ -10,6 +10,11 @@ Finite admission/retention/output limits and measured evidence are in the
 [probe guide](esp32_probe.md) and [prompt 03 report](reports/ess_release_03_2026-10-03.md).
 The [fresh audit](reports/ess_release_03_audit_2026-10-04.md) verifies retained
 value/attempt attribution, deadline-gated recovery and immutable result inspection.
+The fixed `capture-read [address]` timing fixture reads reviewed settings window
+0x0130/16 through the existing public codec and bus owner. It preserves model
+cache evidence and returns raw frames; it does not implement typed settings
+operations or the planned general command surface. See
+[prompt 04](reports/ess_release_04_2026-10-04.md).
 Checkout naming is independent of the CLI. The [architecture](architecture.md),
 [axis contract](axis_contract.md) and [profile contract](profile_contract.md)
 define the public operations that the console exposes.

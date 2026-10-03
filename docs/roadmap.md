@@ -7,7 +7,8 @@ future version numbers are not commitments.
 
 The [ESS release prompt set](prompts/ess_release/README.md) turns these stages
 into 30 ordered implementation blocks with tests, independent audits and
-evidence handoffs. Prompts 01–03 are implemented and tested; prompt 04 is next.
+evidence handoffs. Prompts 01–04 have implementation and available verification
+dispositions; prompt 05 is next. Independent electrical timing remains open.
 The [fresh prompt 02 audit](reports/ess_release_02_audit_2026-10-03.md) corrects
 cancellation cutoff precedence and recovery evidence continuity; hardware owner
 integration now has [prompt 03 evidence](reports/ess_release_03_2026-10-03.md).
@@ -100,7 +101,10 @@ a hardware claim.
   release notes. State exactly what was qualified; do not claim universal motor
   support or industrial certification.
 
-The next concrete deliverable is prompt 04's capture-cost review and available
-timing qualification. Reuse [prompt 03's handoff](reports/ess_release_03_2026-10-03.md):
-the actual owner/console paths, measured service limits, explicit upper-delay
-failure, memory/stack evidence and remaining electrical/cache-off gates.
+Prompt 04 is disposed in [the capture review](reports/ess_release_04_2026-10-04.md):
+retain 20-us capture at measured 20–21% core cost, enforce starvation failure,
+and extend checked read-only evidence to the fixed 37-byte reply. Independent
+electrical timing remains NOT RUN; cache-off capture is unsupported. The next
+concrete deliverable is prompt 05's typed identity/configuration work when
+dispatched. Independent 05–07 work may proceed; dependent physical actions
+retain their timing, settings, units and stop prerequisites.

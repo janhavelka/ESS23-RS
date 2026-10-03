@@ -9,7 +9,7 @@
 namespace MotorControlRSExample { namespace Probe {
 namespace {
 
-enum class Command : uint8_t { HELP, VERSION, CONFIG, STATUS, HEALTH, STATS, PROBE, RECOVER, RESET, MEMORY, LOAD, DRV, RESULT, CANCEL, RELEASE };
+enum class Command : uint8_t { HELP, VERSION, CONFIG, STATUS, HEALTH, STATS, PROBE, CAPTURE_READ, RECOVER, RESET, MEMORY, LOAD, DRV, RESULT, CANCEL, RELEASE };
 struct Entry { const char* name; Command command; const char* syntax; const char* effect; bool bus; };
 const Entry COMMANDS[] = {
     {"help", Command::HELP, "help [command]", "show_callable_commands", false},
@@ -22,6 +22,7 @@ const Entry COMMANDS[] = {
     {"stats", Command::STATS, "stats [reset]", "show_or_clear_host_counters", false},
     {"probe", Command::PROBE, "probe [address]", "read_model_word_only", true},
     {"ping", Command::PROBE, "ping [address]", "read_model_word_only", true},
+    {"capture-read", Command::CAPTURE_READ, "capture-read [address]", "read_0x0130_16_words_for_capture_qualification", true},
     {"recover", Command::RECOVER, "recover", "recover_host_transport_only", false},
     {"reset", Command::RESET, "reset", "clear_host_counters_only", false},
     {"memory", Command::MEMORY, "memory", "show_cached_memory", false},
@@ -139,7 +140,7 @@ void Console::action(uint32_t id, const char* command, Action result, uint8_t ad
     std::snprintf(output_, sizeof(output_),
         "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"%s\",\"ok\":%s,\"result\":\"%s\",\"address\":%u,\"operation_id\":%lu}",
         static_cast<unsigned long>(id), command, boolean(result == Action::OK),
-        result == Action::OK && (std::strcmp(command, "probe") != 0 && std::strcmp(command, "recover") != 0) ? "done" : actionName(result), address,
+        result == Action::OK && (std::strcmp(command, "probe") != 0 && std::strcmp(command, "capture-read") != 0 && std::strcmp(command, "recover") != 0) ? "done" : actionName(result), address,
         static_cast<unsigned long>(operationId));
     emit();
 }
@@ -194,8 +195,9 @@ void Console::dispatch() noexcept {
     const std::size_t args = count - first - 1;
     const char* arg = args ? tokens[first + 1] : nullptr;
     const bool loadCommand = entry->command == Command::LOAD;
+    const bool readCommand = entry->command == Command::PROBE || entry->command == Command::CAPTURE_READ;
     const bool optionalArg = entry->command == Command::HELP ||
-        entry->command == Command::STATS || entry->command == Command::PROBE ||
+        entry->command == Command::STATS || readCommand ||
         entry->command == Command::RESULT || entry->command == Command::CANCEL;
     const bool validArgs = loadCommand ? (args == 0 || args == 3) :
         entry->command == Command::RELEASE ? args == 1 : args <= (optionalArg ? 1U : 0U);
@@ -213,7 +215,7 @@ void Console::dispatch() noexcept {
         arg && (!number(arg, operationId) || !operationId)) {
         error(id, entry->name, "invalid_operation_id"); return;
     }
-    if (entry->command == Command::PROBE && arg &&
+    if (readCommand && arg &&
         (!number(arg, address) || address < 1 || address > 247)) {
         error(id, entry->name, "invalid_address"); return;
     }
@@ -237,6 +239,7 @@ void Console::dispatch() noexcept {
     const auto callable = [this](Command c) {
         switch (c) {
         case Command::LOAD: return host_.load != nullptr;
+        case Command::CAPTURE_READ: return host_.startCaptureRead != nullptr;
         case Command::RESULT: return host_.result != nullptr;
         case Command::CANCEL: return host_.cancel != nullptr;
         case Command::RELEASE: return host_.release != nullptr;
@@ -296,9 +299,9 @@ void Console::dispatch() noexcept {
         if (!host_.result(host_.context, operationId, view)) { error(id, entry->name, "unavailable"); return; }
         if (view.pending) {
             std::snprintf(output_, sizeof(output_),
-                "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"result\",\"command_id\":%lu,\"operation_id\":%lu,\"ok\":true,\"result\":\"pending\",\"recovery\":%s}",
+                "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"result\",\"command_id\":%lu,\"operation_id\":%lu,\"ok\":true,\"result\":\"pending\",\"recovery\":%s,\"capture_read\":%s}",
                 static_cast<unsigned long>(id), static_cast<unsigned long>(view.commandId),
-                static_cast<unsigned long>(view.operationId), boolean(view.recovery));
+                static_cast<unsigned long>(view.operationId), boolean(view.recovery), boolean(view.captureRead));
             emit();
         } else if (view.recovery) formatRecovery(id, view.commandId, view.operationId, view.recoveryResult, true);
         else formatProbe(id, view.commandId, view.address, view.operationId, view.probe, true);
@@ -315,13 +318,15 @@ void Console::dispatch() noexcept {
             std::snprintf(cpu1, sizeof(cpu1), "%u", static_cast<unsigned>(data.cpu1BusyPct));
         }
         const int written = std::snprintf(output_, sizeof(output_),
-            "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"load\",\"ok\":true,\"result\":\"done\",\"ready\":%s,\"capture_mode\":\"%s\",\"workload_us\":%lu,\"owner_delay_us\":%lu,\"console_bytes\":%lu,\"elapsed_us\":%llu,\"work_us\":%llu,\"work_iterations\":%llu,\"console_lines\":%llu,\"console_dropped\":%llu,\"capture_us\":%llu,\"capture_samples\":%llu,\"owner_gap_max_us\":%llu,\"capture_gap_max_us\":%llu,\"work_stack_free_bytes\":%lu,\"cpu_valid\":%s,\"cpu0_busy_pct\":%s,\"cpu1_busy_pct\":%s}",
+            "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"load\",\"ok\":true,\"result\":\"done\",\"ready\":%s,\"capture_mode\":\"%s\",\"workload_us\":%lu,\"owner_delay_us\":%lu,\"console_bytes\":%lu,\"elapsed_us\":%llu,\"work_us\":%llu,\"work_iterations\":%llu,\"console_lines\":%llu,\"console_dropped\":%llu,\"capture_us\":%llu,\"capture_samples\":%llu,\"timer_callbacks\":%llu,\"sample_gap_limit_us\":%lu,\"sample_gap_exceeded\":%s,\"capture_high_water\":%lu,\"owner_gap_max_us\":%llu,\"capture_gap_max_us\":%llu,\"work_stack_free_bytes\":%lu,\"cpu_valid\":%s,\"cpu0_busy_pct\":%s,\"cpu1_busy_pct\":%s}",
             static_cast<unsigned long>(id), boolean(data.ready), data.timer ? "timer" : "poll",
             static_cast<unsigned long>(data.settings.workUs), static_cast<unsigned long>(data.settings.ownerDelayUs),
             static_cast<unsigned long>(data.settings.consoleBytes), static_cast<unsigned long long>(data.elapsedUs),
             static_cast<unsigned long long>(data.workUs), static_cast<unsigned long long>(data.workIterations),
             static_cast<unsigned long long>(data.consoleLines), static_cast<unsigned long long>(data.consoleDropped),
             static_cast<unsigned long long>(data.captureUs), static_cast<unsigned long long>(data.captureSamples),
+            static_cast<unsigned long long>(data.timerCallbacks), static_cast<unsigned long>(data.sampleGapLimitUs),
+            boolean(data.sampleGapExceeded), static_cast<unsigned long>(data.captureHighWater),
             static_cast<unsigned long long>(data.ownerGapMaxUs), static_cast<unsigned long long>(data.captureGapMaxUs),
             static_cast<unsigned long>(data.workStackFreeBytes), boolean(cpuValid), cpu0, cpu1);
         if (written < 0 || static_cast<std::size_t>(written) >= sizeof(output_)) {
@@ -332,12 +337,13 @@ void Console::dispatch() noexcept {
 
     Snapshot data;
     host_.snapshot(host_.context, data);
-    if (entry->command == Command::PROBE) {
+    if (readCommand) {
         if (!arg) address = data.address;
         if (address < 1 || address > 247) { error(id, entry->name, "invalid_address"); return; }
         std::size_t occupied = 0; for (const auto& item : outstanding_) occupied += item.commandId != 0;
         if (occupied == OUTSTANDING_CAPACITY) { action(id, entry->name, Action::BUSY); return; }
-        const Action result = host_.startProbe(host_.context, id, static_cast<uint8_t>(address), operationId);
+        const auto start = entry->command == Command::CAPTURE_READ ? host_.startCaptureRead : host_.startProbe;
+        const Action result = start(host_.context, id, static_cast<uint8_t>(address), operationId);
         if (result == Action::OK) track(id, operationId);
         action(id, entry->name, result, static_cast<uint8_t>(address), result == Action::OK ? operationId : 0);
         return;
@@ -372,11 +378,12 @@ void Console::dispatch() noexcept {
     }
     case Command::CONFIG:
         std::snprintf(output_, sizeof(output_),
-            "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"%s\",\"ok\":true,\"address\":%u,\"baud\":%lu,\"format\":\"8N1\",\"response_timeout_us\":%lu,\"reply_gap_us\":%lu,\"gap15_us\":%lu,\"gap35_us\":%lu,\"stale_after_ms\":%lu,\"ready\":%s,\"timing_qualified\":%s,\"device_settings\":\"unknown\"}",
+            "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"%s\",\"ok\":true,\"address\":%u,\"baud\":%lu,\"format\":\"8N1\",\"response_timeout_us\":%lu,\"reply_gap_us\":%lu,\"gap15_us\":%lu,\"gap35_us\":%lu,\"stale_after_ms\":%lu,\"ready\":%s,\"timing_qualified\":%s,\"device_settings\":\"unknown\",\"cache_off_supported\":%s,\"sample_gap_limit_us\":%lu}",
             static_cast<unsigned long>(id), entry->name, data.address, static_cast<unsigned long>(data.baud),
             static_cast<unsigned long>(data.responseTimeoutUs), static_cast<unsigned long>(data.replyGapUs),
             static_cast<unsigned long>(data.gap15Us), static_cast<unsigned long>(data.gap35Us),
-            static_cast<unsigned long>(data.staleAfterMs), boolean(data.ready), boolean(data.timingQualified));
+            static_cast<unsigned long>(data.staleAfterMs), boolean(data.ready), boolean(data.timingQualified),
+            boolean(data.cacheOffSupported), static_cast<unsigned long>(data.sampleGapLimitUs));
         break;
     case Command::STATUS:
         std::snprintf(output_, sizeof(output_),
@@ -399,11 +406,11 @@ void Console::dispatch() noexcept {
     }
     case Command::STATS:
         std::snprintf(output_, sizeof(output_),
-            "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"stats\",\"ok\":true,\"started\":%lu,\"frames\":%lu,\"failed\":%lu,\"timeouts\":%lu,\"cancelled\":%lu,\"rx_bytes\":%lu,\"discarded\":%lu,\"echo_bytes\":%lu,\"trace_overwritten\":%lu,\"max_poll_gap_us\":%llu,\"capture_faults\":%lu,\"rx_errors\":%lu}",
+            "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"stats\",\"ok\":true,\"started\":%lu,\"frames\":%lu,\"failed\":%lu,\"timeouts\":%lu,\"cancelled\":%lu,\"rx_bytes\":%lu,\"discarded\":%lu,\"echo_bytes\":%lu,\"trace_overwritten\":%lu,\"max_poll_gap_us\":%llu,\"capture_faults\":%lu,\"rx_errors\":%lu,\"sample_gap_exceeded\":%s}",
             static_cast<unsigned long>(id), static_cast<unsigned long>(data.stats.started), static_cast<unsigned long>(data.stats.frames),
             static_cast<unsigned long>(data.stats.failed), static_cast<unsigned long>(data.stats.timeouts), static_cast<unsigned long>(data.stats.cancelled),
             static_cast<unsigned long>(data.stats.rxBytes), static_cast<unsigned long>(data.stats.discarded), static_cast<unsigned long>(data.stats.echoBytes), static_cast<unsigned long>(data.stats.traceOverwritten),
-            static_cast<unsigned long long>(data.maxPollGapUs), static_cast<unsigned long>(data.captureFaults), static_cast<unsigned long>(data.rxErrors));
+            static_cast<unsigned long long>(data.maxPollGapUs), static_cast<unsigned long>(data.captureFaults), static_cast<unsigned long>(data.rxErrors), boolean(data.sampleGapExceeded));
         break;
     case Command::MEMORY:
         std::snprintf(output_, sizeof(output_),
@@ -436,22 +443,25 @@ bool Console::formatProbe(uint32_t id, uint32_t commandId, uint8_t address, uint
     hex(result.rx, result.rxLength, rxHex, sizeof(rxHex));
     const bool truncated = result.transport.rxTruncated || result.txLength > PROBE_TX_CAPACITY || result.rxLength > PROBE_RX_CAPACITY ||
         (!result.tx && result.txLength) || (!result.rx && result.rxLength);
-    if (ok) std::snprintf(model, sizeof(model), "%u", result.rawModel);
+    if (ok && !result.captureRead) std::snprintf(model, sizeof(model), "%u", result.rawModel);
+    const char* command = result.captureRead ? "capture-read" : "probe";
     const int written = std::snprintf(output_, sizeof(output_),
-        "{\"type\":\"%s\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"%s\",\"command_id\":%lu,\"operation_id\":%lu,\"ok\":%s,\"address\":%u,\"outcome\":\"%s\",\"execution_unknown\":%s,\"cancellation\":\"%s\",\"transport\":\"%s\",\"codec\":\"%s\",\"detail\":%ld,\"frame_error\":%u,\"raw_model\":%s,\"duration_us\":%llu,\"tx_bytes\":%u,\"rx_bytes\":%u,\"identity\":\"%s\",\"tx_hex\":\"%s\",\"rx_hex\":\"%s\",\"raw_truncated\":%s,\"timing_valid\":%s,\"tx_uncertainty_us\":%lu,\"max_rx_uncertainty_us\":%lu,\"tx_end_us\":%llu,\"first_rx_start_us\":%llu,\"observed_earliest_us\":%llu,\"observed_latest_us\":%llu,\"delivered_us\":%llu}",
-        inspection ? "reply" : "probe", static_cast<unsigned long>(id), inspection ? "result" : "probe",
+        "{\"type\":\"%s\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"%s\",\"command_id\":%lu,\"operation_id\":%lu,\"ok\":%s,\"address\":%u,\"outcome\":\"%s\",\"execution_unknown\":%s,\"cancellation\":\"%s\",\"transport\":\"%s\",\"codec\":\"%s\",\"detail\":%ld,\"frame_error\":%u,\"raw_model\":%s,\"capture_read\":%s,\"register_start\":%u,\"register_count\":%u,\"duration_us\":%llu,\"tx_bytes\":%u,\"rx_bytes\":%u,\"identity\":\"%s\",\"tx_hex\":\"%s\",\"rx_hex\":\"%s\",\"raw_truncated\":%s,\"timing_valid\":%s,\"tx_uncertainty_us\":%lu,\"max_rx_uncertainty_us\":%lu,\"tx_end_us\":%llu,\"first_rx_start_us\":%llu,\"observed_earliest_us\":%llu,\"observed_latest_us\":%llu,\"delivered_us\":%llu}",
+        inspection ? "reply" : result.captureRead ? "capture_read" : "probe", static_cast<unsigned long>(id), inspection ? "result" : command,
         static_cast<unsigned long>(commandId), static_cast<unsigned long>(operationId), boolean(ok), address,
         outcomeName(result.outcome), boolean(result.executionUnknown), cancellationName(result.cancellation),
         Rtu::reasonName(result.transport.reason), result.codecChecked ? MotorControlRS::errToString(result.codec.code) : "NOT_CHECKED",
         result.codecChecked ? static_cast<long>(result.codec.detail) : 0L,
-        result.codecChecked ? static_cast<unsigned>(result.frameError) : 0U, model, static_cast<unsigned long long>(duration),
-        result.transport.txAccepted, result.transport.rxLength, ok ? "responder_only" : "unknown", txHex, rxHex, boolean(truncated), boolean(result.timingValid),
+        result.codecChecked ? static_cast<unsigned>(result.frameError) : 0U, model, boolean(result.captureRead),
+        result.captureRead ? CAPTURE_FIRST : 0U, result.captureRead ? CAPTURE_WORDS : 1U,
+        static_cast<unsigned long long>(duration),
+        result.transport.txAccepted, result.transport.rxLength, result.captureRead ? "not_requested" : ok ? "responder_only" : "unknown", txHex, rxHex, boolean(truncated), boolean(result.timingValid),
         static_cast<unsigned long>(result.txUncertaintyUs), static_cast<unsigned long>(result.maxRxUncertaintyUs),
         static_cast<unsigned long long>(result.txEndUs), static_cast<unsigned long long>(result.firstRxStartUs),
         static_cast<unsigned long long>(result.observedEarliestUs), static_cast<unsigned long long>(result.observedLatestUs),
         static_cast<unsigned long long>(result.deliveredUs));
     if (written < 0 || static_cast<std::size_t>(written) >= sizeof(output_)) {
-        error(id, inspection ? "result" : "probe", "output_full");
+        error(id, inspection ? "result" : command, "output_full");
         if (!inspection) { if (outputPending_) pendingTerminalOperation_ = operationId; else untrack(operationId); }
         return true;
     }

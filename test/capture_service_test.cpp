@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 // Wire events progress independently of capture sampling and runner servicing.
-// This tests the actual polling adapter's limits, not an invented UART backend.
+// Exercises the actual adapter's polling/timer limits against simulated wire events.
 #include "../examples/common/Esp32S3Uart.h"
 #include <MotorControlRS/profiles/ess_rs/Codec.h>
 #include "fakes/esp32_uart/Hardware.h"
@@ -35,13 +35,14 @@ struct Fixture {
         value.rx = rx; value.rxCapacity = sizeof(rx);
         return value;
     }
-    Fixture() : runner(uart.port(), storage(), timing()) {
+    explicit Fixture(uint16_t words = 1) : runner(uart.port(), storage(), timing()) {
         resetHardware();
         hardware.txCharacterUs = 87;
         assert(uart.begin(PINS));
         request.bytes = bytes;
-        request.length = Ess::buildProbe(1, bytes, sizeof(bytes));
-        request.replyLength = REPLY.size();
+        request.length = words == 1 ? Ess::buildProbe(1, bytes, sizeof(bytes)) :
+            Ess::buildReadRegisters(1, 0x0130, words, bytes, sizeof(bytes));
+        request.replyLength = Ess::expectedReadRegistersLen(words);
         request.responseTimeoutUs = 10000;
         assert(runner.start(request, hardware.time) == Rtu::Admission::STARTED);
     }
@@ -216,6 +217,79 @@ void testMaskedCaptureCannotReconstructBatch() {
     assert(test.uart.captureFaults() == 1 && test.uart.rxErrors() == 0);
     test.retainedFailure(Rtu::Reason::RX_ERROR);
 }
+
+std::vector<uint8_t> longReply() {
+    std::vector<uint8_t> bytes = {1, 3, 32};
+    for (uint16_t word = 0; word < 16; ++word) {
+        bytes.push_back(static_cast<uint8_t>(word));
+        bytes.push_back(static_cast<uint8_t>(255 - word));
+    }
+    const uint16_t crc = Ess::calcCrc16(bytes.data(), bytes.size());
+    bytes.push_back(static_cast<uint8_t>(crc));
+    bytes.push_back(static_cast<uint8_t>(crc >> 8));
+    assert(bytes.size() == 37);
+    return bytes;
+}
+
+void testLongestReplyWhileOwnerSleeps() {
+    Fixture test(16);
+    assert(test.uart.startCapture());
+    test.receive();
+    scheduleReply(hardware.time + 2000, longReply());
+    // A complete 37-byte reply and its final silence arrive with no task sample
+    // or runner service. Only the independent timer owns capture in this gap.
+    const unsigned callbacks = hardware.timerCallbacks;
+    advanceHardware(hardware.time + 8000);
+    assert(hardware.timerCallbacks > callbacks + 300);
+    assert(hardware.events.empty() && hardware.rx.empty() && hardware.droppedBytes == 0);
+    assert(test.uart.stats().highWater == 37 && test.uart.captureFaults() == 0);
+    test.finish();
+    assert(test.runner.result().reason == Rtu::Reason::FRAME);
+    assert(test.runner.result().rxLength == 37 && hardware.writes == 1 && hardware.de == 0);
+    uint16_t words[16] = {};
+    std::size_t count = 0;
+    assert(Ess::parseRegisters(test.rx, 37, 1, 16, words, 16, count));
+    assert(count == 16);
+    for (uint16_t index = 0; index < 16; ++index)
+        assert(words[index] == static_cast<uint16_t>((index << 8) | (255 - index)));
+}
+
+void testLongestReplyDuringMaskedCapture() {
+    Fixture test(16);
+    assert(test.uart.startCapture());
+    test.receive();
+    scheduleReply(hardware.time + 2000, longReply());
+    fakeEnterCritical();
+    advanceHardware(hardware.time + 8000);
+    assert(hardware.rx.size() == 37 && hardware.droppedBytes == 0);
+    fakeExitCritical();
+    test.service();
+    // FIFO capacity was sufficient, but arrival evidence was lost. A valid CRC
+    // cannot turn a batch accumulated during starvation into a timed frame.
+    assert(test.uart.captureFaults() == 1 && test.uart.rxErrors() == 0);
+    test.retainedFailure(Rtu::Reason::RX_ERROR);
+}
+
+void testShortExceptionToLongestRead() {
+    Fixture test(16);
+    assert(test.uart.startCapture());
+    test.receive();
+    std::vector<uint8_t> exception = {1, 0x83, 2};
+    const uint16_t crc = Ess::calcCrc16(exception.data(), exception.size());
+    exception.push_back(static_cast<uint8_t>(crc));
+    exception.push_back(static_cast<uint8_t>(crc >> 8));
+    scheduleReply(hardware.time + 2000, exception);
+    advanceHardware(hardware.time + 5000);
+    test.finish();
+    assert(test.runner.result().reason == Rtu::Reason::FRAME);
+    assert(test.runner.result().rxLength == 5 && hardware.writes == 1);
+    uint16_t words[16] = {};
+    words[0] = 0xA55A;
+    std::size_t count = 16;
+    const auto status = Ess::parseRegisters(test.rx, 5, 1, 16, words, 16, count);
+    assert(status.code == MotorControlRS::Err::EXCEPTION && status.detail == 2);
+    assert(count == 0 && words[0] == 0xA55A && test.uart.captureFaults() == 0);
+}
 }
 int main() {
     testScheduledSuccess(); testOwnerDelayAfterCapture(); testDelayedCaptureSeesBatch();
@@ -223,4 +297,6 @@ int main() {
     testAmbiguousSingleByte();
     testLateReplyCannotClearTimeout(); testForeignFrameNeedsCheckedParser();
     testBackgroundCaptureWhileOwnerSleeps(); testMaskedCaptureCannotReconstructBatch();
+    testLongestReplyWhileOwnerSleeps(); testLongestReplyDuringMaskedCapture();
+    testShortExceptionToLongestRead();
 }

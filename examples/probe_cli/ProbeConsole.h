@@ -11,6 +11,8 @@ constexpr std::size_t OUTPUT_CAPACITY = 1536;
 constexpr std::size_t OUTSTANDING_CAPACITY = 9;
 constexpr std::size_t PROBE_TX_CAPACITY = 8;
 constexpr std::size_t PROBE_RX_CAPACITY = 64;
+// Fixed non-consuming FC03 timing fixture; function manual physical p77.
+constexpr uint16_t CAPTURE_FIRST = 0x0130, CAPTURE_WORDS = 16;
 
 /** Host action result; admitted probe and recovery complete asynchronously. */
 enum class Action : uint8_t { OK, BUSY, RECOVERY_REQUIRED, UNAVAILABLE, FAILED,
@@ -28,9 +30,11 @@ struct LoadSnapshot {
     LoadSettings settings;
     uint64_t elapsedUs = 0, workUs = 0, workIterations = 0;
     uint64_t consoleLines = 0, consoleDropped = 0;
-    uint64_t captureUs = 0, captureSamples = 0;
+    uint64_t captureUs = 0, captureSamples = 0, timerCallbacks = 0;
     uint64_t ownerGapMaxUs = 0, captureGapMaxUs = 0;
     uint32_t workStackFreeBytes = 0;
+    uint32_t sampleGapLimitUs = 0, captureHighWater = 0;
+    bool sampleGapExceeded = false;
     bool timer = false, ready = false;
     bool cpuValid = false;
     uint8_t cpu0BusyPct = 0, cpu1BusyPct = 0; ///< Optional scheduler-derived estimate.
@@ -66,6 +70,8 @@ struct Snapshot {
     uint64_t recoveryGuardUntilUs = 0;
     uint64_t deadlineUs = 0; ///< Earliest outstanding request/recovery absolute deadline.
     bool timerCapture = false;
+    bool cacheOffSupported = false, sampleGapExceeded = false;
+    uint32_t sampleGapLimitUs = 0;
     uint32_t readBudget = Rtu::READ_BUDGET;
     uint32_t operationId = 0;
     std::size_t pending = 0, retained = 0, reserved = 0;
@@ -81,6 +87,7 @@ struct Snapshot {
 };
 
 struct ProbeResult {
+    bool captureRead = false; ///< Fixed timing read, never a model/presence observation.
     Rtu::Result transport;
     bool codecChecked = false;
     MotorControlRS::Status codec;
@@ -105,7 +112,7 @@ struct ProbeResult {
 struct ResultView {
     uint32_t commandId = 0, operationId = 0;
     uint8_t address = 0;
-    bool pending = false, recovery = false;
+    bool pending = false, recovery = false, captureRead = false;
     ProbeResult probe;
     Rtu::RecoveryResult recoveryResult;
 };
@@ -133,6 +140,9 @@ struct Host {
     bool (*emitLine)(void*, const char*, std::size_t) = nullptr;
     void (*snapshot)(void*, Snapshot&) = nullptr;
     Action (*startProbe)(void*, uint32_t commandId, uint8_t address, uint32_t& operationId) = nullptr;
+    /** Optional fixed CAPTURE_FIRST/CAPTURE_WORDS timing read. Same retained
+     * lifetime as startProbe; reports captureRead=true, never refreshes model. */
+    Action (*startCaptureRead)(void*, uint32_t commandId, uint8_t address, uint32_t& operationId) = nullptr;
     Action (*recover)(void*, uint32_t commandId, uint32_t& operationId) = nullptr;
     void (*resetStats)(void*) = nullptr;
     Action (*load)(void*, const LoadSettings* requested, LoadSnapshot&) = nullptr;

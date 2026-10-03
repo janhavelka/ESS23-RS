@@ -58,7 +58,7 @@ struct App {
         Rtu::RequestId requestId;
         uint64_t deliveredUs = 0;
         uint64_t deadlineUs = 0;
-        bool observed = false, delivered = false;
+        bool observed = false, delivered = false, captureRead = false;
     } records[REQUEST_CAPACITY];
     struct Recovery {
         uint32_t operationId = 0, commandId = 0;
@@ -131,6 +131,9 @@ void snapshot(void* context, Probe::Snapshot& s) {
     if (a.owner.recovering() && (!s.deadlineUs || a.recovery.deadlineUs < s.deadlineUs))
         s.deadlineUs = a.recovery.deadlineUs;
     const auto capture = uart.stats(); s.maxPollGapUs = capture.maxGapUs; s.captureFaults = capture.faults; s.rxErrors = capture.rxErrors;
+    s.cacheOffSupported = Esp32S3Uart::CACHE_OFF_SUPPORTED;
+    s.sampleGapLimitUs = capture.timer ? capture.sampleGapLimitUs : 0;
+    s.sampleGapExceeded = capture.sampleGapExceeded;
     s.memoryValid = true;
     s.internalFree = heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
     s.internalMin = heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
@@ -143,7 +146,7 @@ void snapshot(void* context, Probe::Snapshot& s) {
 MotorControlRS::Status checkProbe(const Rtu::Expectation& e, const uint8_t* bytes, std::size_t size) {
     uint16_t model = 0; return MotorControlRS::ESS_RS::parseProbe(bytes, size, e.address, model);
 }
-Probe::Action probe(void* context, uint32_t commandId, uint8_t address, uint32_t& operationId) {
+Probe::Action startRead(void* context, uint32_t commandId, uint8_t address, uint32_t& operationId, bool captureRead) {
     App& a = *static_cast<App*>(context);
     if (!platformReady) return Probe::Action::UNAVAILABLE;
     const uint64_t sampled = uart.sample();
@@ -153,13 +156,19 @@ Probe::Action probe(void* context, uint32_t commandId, uint8_t address, uint32_t
     for (auto& slot : a.records) if (!slot.operationId) { record = &slot; break; }
     if (!record) return Probe::Action::RESULTS_FULL;
     uint8_t bytes[8]; Rtu::BusRequest request;
-    request.wire.bytes = bytes; request.wire.length = MotorControlRS::ESS_RS::buildProbe(address, bytes, sizeof(bytes));
-    request.wire.replyLength = 7; request.wire.responseTimeoutUs = RESPONSE_US;
+    const uint16_t first = captureRead ? Probe::CAPTURE_FIRST : 0;
+    const uint16_t count = captureRead ? Probe::CAPTURE_WORDS : 1;
+    request.wire.bytes = bytes;
+    request.wire.length = captureRead ? MotorControlRS::ESS_RS::buildReadRegisters(address, first, count, bytes, sizeof(bytes)) :
+        MotorControlRS::ESS_RS::buildProbe(address, bytes, sizeof(bytes));
+    request.wire.replyLength = MotorControlRS::ESS_RS::expectedReadRegistersLen(count);
+    request.wire.responseTimeoutUs = RESPONSE_US;
     request.wire.replyGapUs = REPLY_GAP_US; // Bench turnaround exception; final t3.5 is still 1750 us.
     request.wire.deadlineUs = sampled + REQUEST_US;
-    request.expected.address = address; request.expected.function = 3; request.expected.count = 1;
+    request.expected.address = address; request.expected.function = 3; request.expected.first = first; request.expected.count = count;
     request.expected.target = address; request.expected.targetGeneration = 1;
-    request.validator = Rtu::essValidator(); request.validator.checkReply = checkProbe;
+    request.validator = Rtu::essValidator();
+    if (!captureRead) request.validator.checkReply = checkProbe;
     Rtu::RequestId id;
     switch (a.owner.admit(request, sampled, id)) {
     case Rtu::BusAdmission::ACCEPTED: break;
@@ -171,7 +180,14 @@ Probe::Action probe(void* context, uint32_t commandId, uint8_t address, uint32_t
     record->operationId = a.nextOperationId++; record->commandId = commandId; record->address = address;
     record->requestId = id; operationId = a.latestOperationId = record->operationId;
     record->deadlineUs = request.wire.deadlineUs;
+    record->captureRead = captureRead;
     return Probe::Action::OK;
+}
+Probe::Action probe(void* context, uint32_t commandId, uint8_t address, uint32_t& operationId) {
+    return startRead(context, commandId, address, operationId, false);
+}
+Probe::Action captureRead(void* context, uint32_t commandId, uint8_t address, uint32_t& operationId) {
+    return startRead(context, commandId, address, operationId, true);
 }
 Probe::Action recover(void* context, uint32_t commandId, uint32_t& operationId) {
     App& a = *static_cast<App*>(context);
@@ -196,13 +212,23 @@ bool lookup(void* context, uint32_t operationId, Probe::ResultView& out) {
     const auto* record = findRecord(a, operationId); if (!record) return false;
     out = Probe::ResultView();
     out.commandId = record->commandId; out.operationId = operationId; out.address = record->address;
+    out.captureRead = record->captureRead;
     const auto* result = a.owner.result(record->requestId); out.pending = !result; if (!result) return true;
     Probe::ProbeResult& p = out.probe;
+    p.captureRead = record->captureRead;
     p.transport = result->transport; p.outcome = result->outcome; p.executionUnknown = result->executionUnknown;
     p.cancellation = result->cancellation; p.codecChecked = p.transport.reason == Rtu::Reason::FRAME;
     p.codec = result->validation; p.rx = result->raw; p.rxLength = p.transport.rxLength;
-    p.txLength = MotorControlRS::ESS_RS::buildProbe(record->address, a.viewTx, sizeof(a.viewTx)); p.tx = a.viewTx;
-    if (p.codecChecked) MotorControlRS::ESS_RS::parseProbe(p.rx, p.rxLength, record->address, p.rawModel, &p.frameError);
+    p.txLength = record->captureRead ? MotorControlRS::ESS_RS::buildReadRegisters(record->address,
+        Probe::CAPTURE_FIRST, Probe::CAPTURE_WORDS, a.viewTx, sizeof(a.viewTx)) :
+        MotorControlRS::ESS_RS::buildProbe(record->address, a.viewTx, sizeof(a.viewTx)); p.tx = a.viewTx;
+    if (p.codecChecked) {
+        if (record->captureRead) {
+            uint16_t words[Probe::CAPTURE_WORDS]; std::size_t count = 0;
+            MotorControlRS::ESS_RS::parseRegisters(p.rx, p.rxLength, record->address,
+                Probe::CAPTURE_WORDS, words, Probe::CAPTURE_WORDS, count, &p.frameError);
+        } else MotorControlRS::ESS_RS::parseProbe(p.rx, p.rxLength, record->address, p.rawModel, &p.frameError);
+    }
     p.timingValid = p.transport.closureQualified;
     p.txEndUs = p.transport.txEndUs; p.txUncertaintyUs = p.transport.txUncertaintyUs;
     p.firstRxStartUs = p.transport.firstRxStartUs; p.maxRxUncertaintyUs = p.transport.maxRxUncertaintyUs;
@@ -246,7 +272,7 @@ Probe::Action load(void* context, const Probe::LoadSettings* requested, Probe::L
 #endif
 Probe::Host host(App* a) {
     Probe::Host h; h.context = a; h.emitLine = emit; h.snapshot = snapshot;
-    h.startProbe = probe; h.recover = recover; h.resetStats = reset;
+    h.startProbe = probe; h.startCaptureRead = captureRead; h.recover = recover; h.resetStats = reset;
     h.result = lookup; h.cancel = cancel; h.release = release;
 #if MOTORCONTROLRS_LOAD_FIXTURE
     h.load = load;
@@ -257,7 +283,7 @@ void deliver(App& a) {
     for (auto& record : a.records) {
         if (!record.operationId || record.delivered) continue;
         Probe::ResultView view; if (!lookup(&a, record.operationId, view) || view.pending) continue;
-        if (!record.observed) {
+        if (!record.observed && !record.captureRead) {
             record.observed = true;
             if (view.probe.transport.txAccepted && record.operationId > a.cacheOperationId) {
                 a.cacheOperationId = record.operationId; a.known = true; a.address = record.address;

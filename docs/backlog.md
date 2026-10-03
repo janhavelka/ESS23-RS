@@ -70,7 +70,12 @@ see the [rename steps](repository_rename.md). This does not change the API.
 The independent native wire fixture, ESP32-S3 load fixture and optional GPTimer
 capture are implemented and have bench evidence in the
 [capture/load audit](reports/2026-10-03_capture_load.md). External TX/RX/DE
-measurements, cache-off qualification and the production CPU budget remain open.
+measurements and the production CPU budget remain open.
+[Prompt 04](reports/ess_release_04_2026-10-04.md) retains the measured 20-us
+capture, enforces timer starvation failure and extends available read-only
+bench evidence to fixed 37-byte replies. Cache-off capture is explicitly
+unsupported. Prompt 05 is next when dispatched; independent 05–07 progress
+is not blocked by missing analyzer evidence.
 The [release roadmap](roadmap.md) defines the delivery order and release gates.
 
 Release prompt 01 is implemented: [BusOwner](bus_owner.md) provides FIFO
@@ -251,9 +256,15 @@ same core and request/wait/result pattern must also work for other consumers. Se
 - [x] Add an ESP32-S3 task/USB/load fixture and measure service gaps, CPU cost, errors,
   transaction latency and memory. Implement GPTimer capture and physical DE
   release while the owner sleeps; retain atomic completion/release observations.
-- [ ] Independently qualify TX/RX/DE and RX publication/idle assumptions; measure
-  cache-off/interrupt starvation behavior and decide the production CPU budget.
-  Current 20-us capture is a measured reference, not a blanket timing guarantee.
+- [x] Review capture cost and retain the single 20-us sampler; expose timer/sample
+  work separately and enforce starvation faults. Fixed non-consuming 0x0130/16
+  read has native and physical 37-byte reply evidence in
+  [prompt 04](reports/ess_release_04_2026-10-04.md).
+- [ ] Independently qualify TX/RX/DE, final stop-bit publication, idle and echo
+  assumptions; characterize physical interrupt starvation and decide the
+  production CPU budget. Analyzer evidence is NOT RUN; cache-off operation
+  during capture is unsupported. FC06/FC10 physical frames remain gated by
+  typed operations and relevant timing prerequisites.
 - [x] Build the bounded cooperative FIFO owner with copied requests, reserved
   retained results, exact generation IDs and checked parser settlement. Native
   multi-request/failure tests pass; owner board integration is delivered by prompt 03.

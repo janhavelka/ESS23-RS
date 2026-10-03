@@ -19,10 +19,10 @@ def encoded(item):
 
 
 def reply(request_id, command, **fields):
-    if command in {"probe", "recover"} and (fields.get("result") == "accepted"
-                                           or fields.get("type") in {"probe", "recovery"}):
+    if command in {"probe", "capture-read", "recover"} and (fields.get("result") == "accepted"
+                                           or fields.get("type") in {"probe", "capture_read", "recovery"}):
         fields.setdefault("operation_id", request_id + 100)
-        if fields.get("type") in {"probe", "recovery"}:
+        if fields.get("type") in {"probe", "capture_read", "recovery"}:
             fields.setdefault("command_id", request_id)
     return {"type": "reply", "id": request_id, "command": command,
             "profile": "ess_rs", "ok": True, **fields}
@@ -72,6 +72,20 @@ class Serial:
                                     observed_earliest_us=13300, observed_latest_us=13345,
                                     delivered_us=16000,
                                     identity="responder_only")))
+        if command == "capture-read":
+            address = int(args[0]) if args else 1
+            assert address == 1  # This fixed independent raw-frame fixture is node 1.
+            return (encoded(reply(request_id, command, result="accepted", address=address))
+                    + encoded(reply(request_id, command, type="capture_read", address=address,
+                                    transport="FRAME", codec="OK", detail=0, raw_model=None,
+                                    outcome="success", execution_unknown=False,
+                                    duration_us=12345, tx_bytes=8, rx_bytes=37,
+                                    capture_read=True, register_start=304, register_count=16,
+                                    timing_valid=True, raw_truncated=False,
+                                    observed_earliest_us=13300, observed_latest_us=13345,
+                                    delivered_us=16000, identity="not_requested",
+                                    tx_hex="01030130001045F5",
+                                    rx_hex="010320" + "00" * 32 + "927A")))
         if command in {"release", "cancel"}:
             return encoded(reply(request_id, command, operation_id=int(args[0]), result="done"))
         if command == "recover":
@@ -155,6 +169,104 @@ class Framing(unittest.TestCase):
         accepts = [entry for entry in self.events if entry["event"] == "reply"
                    and entry["response"].get("result") == "accepted"]
         self.assertEqual(len(accepts), 1)
+
+    def test_capture_read_fragmented_retained_and_released(self):
+        console = self.session(fragment=1)
+        handle = console.begin("capture-read", address=1, timeout_s=0.1)
+        terminal = console.wait(handle)
+        self.assertEqual(terminal["rx_bytes"], 37)
+        self.assertIsNone(terminal["raw_model"])
+        self.port.handler = lambda i, cmd, args: encoded({
+            **terminal, "type": "reply", "id": i, "command": cmd, "recovery": False})
+        inspected = console.command("result", operation_id=handle.operation_id, timeout_s=0.1)
+        self.assertEqual(inspected["rx_hex"], terminal["rx_hex"])
+        self.port.handler = Serial.normal
+        console.command("release", operation_id=handle.operation_id, timeout_s=0.1)
+        self.assertTrue(handle.released)
+        self.assertEqual(sum(b"capture-read" in value for value in self.port.writes), 1)
+
+    def test_capture_read_rejects_invalid_window_raw_frames_and_kind(self):
+        for change in ({"register_start": 0}, {"register_count": 15}, {"register_count": True},
+                       {"capture_read": False}, {"recovery": True}, {"raw_model": 60}, {"identity": "responder_only"},
+                       {"rx_bytes": 7}, {"tx_bytes": 7}, {"tx_hex": "01030130001045F4"},
+                       {"tx_hex": "010300000001840A"}, {"rx_hex": "010302003CB855"},
+                       {"rx_hex": "010320" + "00" * 32 + "927B"}, {"tx_hex": "01 030130001045F5"},
+                       {"type": "probe"}):
+            with self.subTest(change=change):
+                console = self.session()
+                def handler(i, cmd, args):
+                    accepted, terminal = map(json.loads, Serial.normal(i, cmd, args).splitlines())
+                    return encoded(accepted) + encoded({**terminal, **change})
+                self.port.handler = handler
+                self.failed(lambda: console.command("capture-read", timeout_s=0.1),
+                            "inconsistent|result evidence|sequence is invalid")
+
+    def test_capture_read_pending_inspection_cannot_change_kind(self):
+        for command in ("probe", "capture-read"):
+            with self.subTest(command=command):
+                def handler(i, cmd, args):
+                    if cmd == command:
+                        return Serial.normal(i, cmd, args).splitlines()[0] + b"\n"
+                    return encoded(reply(i, cmd, command_id=2, operation_id=102,
+                                         result="pending", recovery=False,
+                                         capture_read=command != "capture-read"))
+                console = self.session()
+                self.port.handler = handler
+                handle = console.begin(command, timeout_s=0.1)
+                self.failed(lambda: console.command("result", operation_id=handle.operation_id,
+                                                    timeout_s=0.1), "kind does not match")
+
+    def test_capture_read_and_probe_share_retained_quota(self):
+        console = self.session()
+        handles = []
+        for index in range(bench.MAX_PROBES):
+            handle = console.begin("probe" if index % 2 else "capture-read", timeout_s=0.1)
+            console.wait(handle)
+            handles.append(handle)
+        console.command("release", operation_id=handles[0].operation_id, timeout_s=0.1)
+        replacement = console.begin("capture-read", timeout_s=0.1)
+        console.wait(replacement)
+        self.assertEqual(len(console.operations), 8)
+        self.failed(lambda: console.begin("capture-read", timeout_s=0.1), "retained result quota")
+
+    def test_capture_read_campaign_and_loaded_campaign_are_finite(self):
+        console = self.load_session()
+        bench.campaign(console, "capture-read", count=1, interval_s=0, timeout_s=0.1)
+        bench.campaign(console, "load", count=3, interval_s=0, timeout_s=0.1,
+                       load=(2000, 5000, 128), read_command="capture-read")
+        commands = [value.split()[1] for value in self.port.writes]
+        self.assertEqual(commands.count(b"capture-read"), 4)
+        self.assertEqual(commands.count(b"release"), 4)
+        self.assertNotIn(b"probe", commands)
+        self.assertEqual(self.events[-1]["read_command"], "capture-read")
+
+    def test_capture_read_failure_stops_without_retry_or_recovery(self):
+        console = self.session()
+        def handler(i, cmd, args):
+            if cmd != "capture-read":
+                return Serial.normal(i, cmd, args)
+            accepted, terminal = map(json.loads, Serial.normal(i, cmd, args).splitlines())
+            terminal.update(ok=False, outcome="transport_error", transport="RX_ERROR", codec="NOT_CHECKED")
+            return encoded(accepted) + encoded(terminal)
+        self.port.handler = handler
+        with self.assertRaisesRegex(bench.BenchError, "probe failed"):
+            bench.campaign(console, "capture-read", count=1, interval_s=0, timeout_s=0.1)
+        commands = [value.split()[1] for value in self.port.writes]
+        self.assertEqual(commands, [b"version", b"stats", b"capture-read", b"release"])
+
+    def test_capture_read_arguments_and_cached_config(self):
+        prefix = ["--port", "unused", "--log", "unused.jsonl"]
+        self.assertEqual(bench.arguments(prefix + ["capture-read"]).count, 1)
+        loaded = bench.arguments(prefix + ["load", "--capture-read", "--count", "3"])
+        self.assertTrue(loaded.capture_read)
+        self.assertEqual(loaded.count, 3)
+        console = self.session()
+        self.assertTrue(console.command("config", timeout_s=0.1)["ok"])
+        self.assertEqual(self.port.writes[-1], b"@2 config\n")
+
+    def test_wire_crc_matches_preserved_vendor_example(self):
+        self.assertEqual(bench.wire_crc(bytes.fromhex("010300230001")), 0xC075)
+        self.assertEqual(bench.wire_crc(bytes.fromhex("010302003CB855")), 0)
 
     def test_startup_requires_complete_bounded_lines(self):
         console = self.session(identify=False)

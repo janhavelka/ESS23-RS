@@ -388,6 +388,47 @@ void checkFailedProbeKeepsValidModelAndAge(const std::vector<uint8_t>& failedRep
     command("@3 status\n"); contains("\"probe_address\":2"); contains("\"model_address\":1");
     contains("\"raw_model\":60");
 }
+void testCaptureReadUsesOwnerAndPreservesModel() {
+    fresh(); timerCapture();
+    const uint32_t modelId = admit(); reply(modelId, 0);
+    const auto observed = app->observedEarliestUs;
+    const auto delivered = app->deliveredUs;
+    command("@2 capture-read 1\n"); contains("\"result\":\"accepted\"");
+    const uint32_t operation = view(0).operationId;
+    assert(view(operation).captureRead && view(operation).pending);
+    std::vector<uint8_t> bytes(37, 0); bytes[0] = 1; bytes[1] = 3; bytes[2] = 32;
+    for (unsigned i = 0; i < 16; ++i) { bytes[3 + i * 2] = 0x12; bytes[4 + i * 2] = static_cast<uint8_t>(i); }
+    const uint16_t crc = MotorControlRS::ESS_RS::calcCrc16(bytes.data(), 35);
+    bytes[35] = static_cast<uint8_t>(crc); bytes[36] = static_cast<uint8_t>(crc >> 8);
+    reply(operation, 1, bytes);
+    assert(hardware.tx[2] == 1 && hardware.tx[3] == 0x30 && hardware.tx[4] == 0 && hardware.tx[5] == 16);
+    assert(view(operation).probe.outcome == Rtu::Outcome::SUCCESS && view(operation).probe.rxLength == 37);
+    contains("\"type\":\"capture_read\""); contains("\"raw_model\":null");
+    contains("\"register_start\":304"); contains("\"register_count\":16");
+    assert(app->model == 60 && app->modelOperationId == modelId && app->cacheOperationId == modelId);
+    assert(app->observedEarliestUs == observed && app->deliveredUs == delivered && app->ok);
+    const auto ended = view(operation).probe.transport.endedUs;
+    command(("@3 result " + std::to_string(operation) + "\n").c_str());
+    contains("\"capture_read\":true"); contains("\"raw_model\":null");
+    assert(view(operation).probe.transport.endedUs == ended && hardware.writes == 2);
+    command(("@4 release " + std::to_string(operation) + "\n").c_str());
+    Probe::ResultView gone; assert(!lookup(app, operation, gone));
+}
+void testCaptureReadRejectsMalformedRepliesAndArguments() {
+    for (const bool exception : {false, true}) {
+        fresh(); timerCapture(); command("@1 capture-read 0\n"); contains("invalid_address");
+        command("@2 capture-read 1 16\n"); contains("invalid_arguments");
+        assert(hardware.writes == 0 && app->owner.pending() == 0);
+        command("@3 capture-read\n"); const uint32_t operation = view(0).operationId;
+        reply(operation, 0, exception ? std::vector<uint8_t>{1, 0x83, 2, 0xC0, 0xF1} : REPLY);
+        assert(!app->modelKnown && !app->known);
+        assert(view(operation).captureRead && view(operation).probe.outcome != Rtu::Outcome::SUCCESS);
+        assert(app->owner.needsRecovery() == !exception);
+        if (exception) assert(view(operation).probe.outcome == Rtu::Outcome::DEVICE_REJECTED);
+        command(("@4 result " + std::to_string(operation) + "\n").c_str());
+        contains("\"capture_read\":true"); contains("\"raw_model\":null");
+    }
+}
 void testCheckedExceptionKeepsValidModelAndAge() {
     std::vector<uint8_t> exception = {2, 0x83, 2};
     const uint16_t crc = MotorControlRS::ESS_RS::calcCrc16(exception.data(), exception.size());
@@ -473,6 +514,7 @@ void testLoadDelayExhaustsSetupTxBudgetWithoutTransmission() {
 }
 int main() {
     testSuccessfulProbeAndReset(); testCheckedExceptionAndParserRejection();
+    testCaptureReadUsesOwnerAndPreservesModel(); testCaptureReadRejectsMalformedRepliesAndArguments();
     testActiveConsoleAndBoundedInputOutput(); testQueuePressureAndQueuedCancellation();
     testOutputBackpressureKeepsTransportAndTerminal(); testFullRetainedResultsAndIndependentRecovery();
     testSaturatedUsbDoesNotBlockCancellation();

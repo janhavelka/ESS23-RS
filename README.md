@@ -15,6 +15,9 @@ An [application-owned bus owner](docs/bus_owner.md) adds fair scheduling, urgent
 reservations, cancellation, absolute deadlines and retained results. The console
 now uses that owner, serves bounded input during transactions and retains
 correlated results with explicit release; [prompt 03 evidence](docs/reports/ess_release_03_2026-10-03.md).
+The [capture review](docs/reports/ess_release_04_2026-10-04.md) retains the
+20-us sampler, enforces starvation faults and adds a fixed checked 37-byte
+read fixture. Independent electrical timing remains unqualified.
 The [release roadmap](docs/roadmap.md) records the delivery order and completion gates.
 The [numbered implementation prompts](docs/prompts/ess_release/README.md)
 split the remaining work into reviewed, independently dispatched blocks. Model-register

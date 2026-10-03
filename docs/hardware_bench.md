@@ -77,6 +77,12 @@ completion and record changes to the setup for the next session.
 
 ## Current status
 
+- Latest: [prompt 04](reports/ess_release_04_2026-10-04.md), 2026-10-04,
+  uploaded the recorded final timer image to inspected COM13. 140 read-only
+  transactions passed (64 fixed 37-byte replies); the expected 20-ms pre-TX
+  failure and explicit recovery passed. Ending load0/0/0, DE released, no
+  pending/retained work or recovery requirement. Original backup unchanged.
+  No independent analyzer was available; electrical timing remains NOT RUN.
 - The [fresh prompt 03 audit](reports/ess_release_03_audit_2026-10-04.md)
   uploaded the corrected timer console and passed 37 checked read-only probes
   plus the expected zero-TX 20-ms-delay failure and explicit recovery.

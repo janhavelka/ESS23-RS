@@ -33,10 +33,6 @@ struct Guard {
     Guard() { portENTER_CRITICAL_SAFE(&mux); }
     ~Guard() { portEXIT_CRITICAL_SAFE(&mux); }
 };
-bool capture(gptimer_handle_t, const gptimer_alarm_event_data_t*, void* context) {
-    static_cast<Esp32S3Uart*>(context)->sample();
-    return false;
-}
 }
 
 Esp32S3Uart::~Esp32S3Uart() {
@@ -60,7 +56,10 @@ bool Esp32S3Uart::startCapture(uint32_t periodUs, uint32_t holdUs) noexcept {
     if (gptimer_new_timer(&config, &timer) != ESP_OK) return false;
     timer_ = timer; // Preserve ownership even when an initialization cleanup fails.
     gptimer_event_callbacks_t callbacks = {};
-    callbacks.on_alarm = capture;
+    callbacks.on_alarm = [](gptimer_handle_t, const gptimer_alarm_event_data_t*, void* context) {
+        static_cast<Esp32S3Uart*>(context)->captureSample(true);
+        return false;
+    };
     gptimer_alarm_config_t alarm = {};
     alarm.alarm_count = periodUs;
     alarm.flags.auto_reload_on_alarm = true;
@@ -73,6 +72,9 @@ bool Esp32S3Uart::startCapture(uint32_t periodUs, uint32_t holdUs) noexcept {
     {
         Guard guard;
         holdUs_ = holdUs;
+        // Timer allocation/setup and an earlier stopped interval do not belong
+        // to this sampling epoch. Do not manufacture a fresh RX idle watermark.
+        sampled_ = now();
         timerRunning_ = true; // Publish capture policy before its first interrupt.
     }
     if (gptimer_start(timer) == ESP_OK) return true;
@@ -153,10 +155,15 @@ void Esp32S3Uart::fault(bool uartError) noexcept {
 }
 
 uint64_t Esp32S3Uart::sample() noexcept {
+    return captureSample(false);
+}
+
+uint64_t Esp32S3Uart::captureSample(bool timerCallback) noexcept {
     Guard guard;
     if (!ready_) return now();
     uint8_t value = 0;
     const uint64_t before = now();
+    if (timerCallback) ++timerCallbacks_;
     const uint32_t errors = hw->int_raw.val & ((1U << 2) | (1U << 3) | (1U << 4) | (1U << 7));
     const bool idleRxBefore = hw->fsm_status.st_urx_out == 0 && hw->status.rxd;
     const unsigned available = uart_ll_get_rxfifo_len(hw);
@@ -166,9 +173,16 @@ uint64_t Esp32S3Uart::sample() noexcept {
     const bool empty = uart_ll_get_rxfifo_len(hw) == 0;
     const bool idleRx = hw->fsm_status.st_urx_out == 0 && hw->status.rxd;
     const uint64_t after = now();
-    maxPollGap_ = maximum(maxPollGap_, bounded(before - sampled_));
+    const uint64_t gap = before - sampled_;
+    maxPollGap_ = maximum(maxPollGap_, bounded(gap));
     sampled_ = before;
     if (errors) fault(true);
+    if (timerRunning_ && gap >= charMin_) {
+        // A masked interrupt or cache-off interval is outside the operating
+        // envelope even if the FIFO happens to be empty when capture resumes.
+        sampleGapExceeded_ = true;
+        fault(false);
+    }
     if (after - before >= charMin_) fault(false); // A whole byte could cross this snapshot unseen.
     if (available > 1) fault(false); // Batch contains unknowable inter-byte gaps.
     if (available == 1 && !failed_) {
@@ -313,6 +327,7 @@ bool Esp32S3Uart::clear() noexcept {
     hw->int_clr.val = UINT32_MAX;
     head_ = count_ = 0;
     failed_ = false;
+    sampleGapExceeded_ = false;
     rxIdle_ = false; // Recovery is not fresh silence evidence; sample again first.
     emptySince_ = idleThrough_ = sampled_ = now();
     return true;
@@ -320,16 +335,17 @@ bool Esp32S3Uart::clear() noexcept {
 void Esp32S3Uart::resetStats() noexcept {
     Guard guard;
     captureFaults_ = rxErrors_ = maxPollGap_ = maxRxWidth_ = 0;
-    samples_ = busyUs_ = 0;
+    samples_ = timerCallbacks_ = busyUs_ = 0;
     highWater_ = count_;
 }
 Esp32S3Uart::CaptureStats Esp32S3Uart::stats() const noexcept {
     Guard guard;
     CaptureStats s;
-    s.samples = samples_; s.busyUs = busyUs_; s.txEndUs = txEnd_;
+    s.samples = samples_; s.timerCallbacks = timerCallbacks_; s.busyUs = busyUs_; s.txEndUs = txEnd_;
     s.maxGapUs = maxPollGap_; s.faults = captureFaults_; s.rxErrors = rxErrors_;
     s.txWidthUs = txWidth_; s.maxRxWidthUs = maxRxWidth_; s.highWater = highWater_;
     s.ready = ready_; s.failed = failed_; s.timer = timerRunning_;
+    s.sampleGapLimitUs = charMin_; s.sampleGapExceeded = sampleGapExceeded_;
     return s;
 }
 Rtu::Port Esp32S3Uart::port() noexcept {
