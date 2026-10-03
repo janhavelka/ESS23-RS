@@ -28,9 +28,9 @@ discovery orchestration, the full CLI and FieldCore adapters remain contracts
 for later blocks. See the root
 README for current callable APIs and build commands. No motor behavior has
 been qualified beyond the recorded model-register probes.
-The [application bus reference](bus_owner.md) adds tested FIFO admission,
-immutable deadlines and reserved retained results. Fair scheduling/cancellation
-and console integration remain release prompts 02 and 03.
+The [application bus reference](bus_owner.md) adds copied admission, per-producer
+FIFO/cyclic fairness, immutable deadlines, reserved urgent/results storage,
+cancellation and explicit recovery. Console integration remains release prompt 03.
 The [current architecture report](architecture_report.md) maps existing files
 and dependencies, walks through a transaction and records the latest source
 review of standalone and FieldCore integration. The planned layout below is

@@ -6,7 +6,7 @@ First implemented in version 0.4.0, extended with timing intervals in 0.5.0, und
 `MotorControlRSExample::Rtu`. The [native tests](../test/runner_test.cpp)
 provide a fake UART with independent wire times. The [ESP32-S3 probe](esp32_probe.md)
 now adds a hardware adapter and read-only console with explicit qualification limits.
-The [bounded bus owner](bus_owner.md) adds FIFO admission, copied requests,
+The [bounded bus owner](bus_owner.md) adds fair admission, copied requests,
 reserved retained results and synchronous checked-parser settlement around this
 same Runner. Console integration follows in release prompt 03.
 
@@ -176,6 +176,19 @@ cancellation, not a motor stop, and requires explicit recovery before reuse.
 UART errors and DE failures also remain interlocked. A failed DE operation
 leaves `transmitEnabled()` true as a conservative indication of uncertainty.
 
+The owner's `cancelCaptured(nowUs)` uses an immutable RECEIVE cancellation cutoff
+while examining retained history across read budgets. Qualified closure before
+that cutoff can succeed; later closure cannot, and straddling bounds fail with
+`TIMING_UNCERTAIN`. Direct `cancel()` retains its immediate RECEIVE semantics.
+Neither method truncates physical TX or renews the absolute request deadline.
+
+`requireRecovery()` interlocks only a settled Runner, preserves its terminal
+evidence and performs no I/O. `discard(nowUs)` is available only while faulted
+with DE released. It removes at most 64 timestamped RX items, returns qualified
+EMPTY/watermark or pending/error evidence, and preserves Result/raw data.
+Budget exhaustion is not a silence proof. BusOwner uses it before explicit
+recovery and stores the recovery outcome separately from interrupted requests.
+
 `recover(nowUs)` checks physical idle and hold time, then establishes receive
 mode. Failed recovery keeps admission blocked. Recovery retains the prior
 result; a later `start()` drains old data and establishes a fresh idle
@@ -205,12 +218,12 @@ whole-firmware RAM/flash usage:
 
 | Storage | Native 64-bit | ESP32-S3 |
 | --- | ---: | ---: |
-| Runner object, including copied callbacks/configuration/result/statistics | 352 bytes | 288 bytes |
+| Runner object, including copied callbacks/configuration/result/statistics | 360 bytes | 296 bytes |
 | One trace entry | 32 bytes | 32 bytes |
 | Result alone, already included in Runner | 56 bytes | 56 bytes |
 | Example caller TX/RX arrays | 32 + 64 bytes | 32 + 64 bytes |
 | Optional 64-entry trace ring | 2048 bytes | 2048 bytes |
-| Runner plus those arrays/ring | 2496 bytes | 2432 bytes |
+| Runner plus those arrays/ring | 2504 bytes | 2440 bytes |
 
 TX and RX capacities are independently bounded at 256 bytes. Traces are
 optional and caller-sized; the helper does not allocate a default large ring.
@@ -243,6 +256,6 @@ The independent wire fixture and timer load bench now exercise a sleeping
 owner, FIFO batches/overflow, late/foreign replies, missing evidence and
 interrupt masking. See the [capture/load audit](reports/2026-10-03_capture_load.md).
 External TX/RX/DE timing, cache-off operation and motion remain separate
-qualification work. FIFO admission/results are implemented in the
-[bus owner](bus_owner.md); fairness/cancellation follow in prompt 02 and
-console integration in 03 under the [roadmap](roadmap.md).
+qualification work. Admission/results and fairness/cancellation are implemented
+in the [bus owner](bus_owner.md); standalone console integration follows in
+prompt 03 under the [roadmap](roadmap.md).

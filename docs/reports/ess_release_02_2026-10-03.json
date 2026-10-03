@@ -1,0 +1,104 @@
+{
+  "date": "2026-10-03",
+  "prompt": 2,
+  "baseline_commit": "58cdc1030e8b2cb20806f63185f8d3da81471364",
+  "final_commit": "Commit introducing this manifest; resolve with git log -1 --format=%H -- docs/reports/ess_release_02_2026-10-03.json",
+  "fieldcore_reference_head": "b954b0245b74a94d44d8cce775747a573bb17187",
+  "fieldcore_access": "read-only",
+  "source_sha256": {
+    "CMakeLists.txt": "72fe0a4617363d12a98b9a086577ac0a58b804a79b17cf48b5296e0f876c0754",
+    "examples/common/RtuBusOwner.h": "b0cd93ea34593c8d6dc6ece95ab9b4df9341573481d65cc5b16b345c7d7c7695",
+    "examples/common/RtuBusOwner.cpp": "8a977a14d1c93dfe96aaaac5c7d64534e72b1136e3dca712b426b2dfa41e8e92",
+    "examples/common/RtuRunner.h": "d153c7e26dc775cf859e90b6542733bacc193733aefaf1a31443a506f1a2491c",
+    "examples/common/RtuRunner.cpp": "274252ac1be4d0302aee54ae7f069eb1c1118dbc9eca04ec9458b5659c537b42",
+    "examples/common/EssRtuValidator.cpp": "be33ef89a20e385b018b2380dd2362e9d7708f18a2ee2c071c223989ef6a8e3f",
+    "test/bus_owner_test.cpp": "f0c514a6b3c74316886354d085871d0789d8a6b08ef2d93ee7205b409f4f79b5",
+    "test/bus_scheduling_test.cpp": "6f43ff3d781ac4e94249eb304ddc38e1c8b50649e59552ee61a7fbe8b4c4dd50"
+  },
+  "verification": {
+    "ctest_suites": 15,
+    "ctest_result": "PASS",
+    "scheduling_test_groups": 15,
+    "generator_python_tests": 8,
+    "probe_python_tests": 44,
+    "version": "PASS",
+    "ess_catalogue": "PASS",
+    "serial_references": "5 PASS",
+    "xtensa_cpp11_owner_runner_validator": "PASS",
+    "hardware": "NOT RUN: owner integration is prompt03"
+  },
+  "toolchains": {
+    "native": "MinGW GCC15.1.0 C++11 Release -Werror assertions enabled",
+    "xtensa": "GCC14.2.0 C++11 -Os -Wall -Wextra -Werror",
+    "pioarduino": "55.03.311",
+    "arduino": "3.3.11",
+    "idf_libraries": "5.5.5"
+  },
+  "sizeof_bytes": {
+    "native": {
+      "Runner": 360,
+      "Result": 56,
+      "BusOwner": 216,
+      "PendingSlot": 392,
+      "Completion": 472,
+      "ResultSlot": 488,
+      "BusRequest": 128,
+      "ProducerSlot": 24,
+      "SequenceId": 24,
+      "RecoveryResult": 64
+    },
+    "xtensa": {
+      "Runner": 296,
+      "Result": 56,
+      "BusOwner": 144,
+      "PendingSlot": 360,
+      "Completion": 440,
+      "ResultSlot": 456,
+      "BusRequest": 96,
+      "ProducerSlot": 24,
+      "SequenceId": 16,
+      "RecoveryResult": 56
+    }
+  },
+  "xtensa_static_stack_bytes": {
+    "constructor": 544,
+    "admission": 512,
+    "service": 64,
+    "cancelGroup": 64,
+    "recovery": 128,
+    "collect": 32
+  },
+  "firmware_builds": {
+    "bench_s3_probe": {
+      "path": "build/bench/prompt02_bench_s3_probe_firmware.bin",
+      "bytes": 329504,
+      "sha256": "7db48510751ecdf73c133802dd33931c5410cf5013be5fe2a75daad87f9915d6",
+      "uploaded": false
+    },
+    "bench_s3_load_poll": {
+      "path": "build/bench/prompt02_bench_s3_load_poll_firmware.bin",
+      "bytes": 331712,
+      "sha256": "27b78e15c0794e5be27c2f3615beb9a431f39d4746fd17ac6c9a15ab7a65a649",
+      "uploaded": false
+    },
+    "bench_s3_load_timer": {
+      "path": "build/bench/prompt02_bench_s3_load_timer_firmware.bin",
+      "bytes": 335136,
+      "sha256": "6e412588d5c51fe40bb16ca5023ce31da4332f96c9d03253bfd646c1d02df33f",
+      "uploaded": false
+    }
+  },
+  "hardware_commands": [],
+  "new_runtime_measurements": null,
+  "historical_bench_image": {
+    "path": "build/bench/prompt01_audit_timer_firmware.bin",
+    "sha256": "808585c604cf245fef8430a92bf0063617575eaacaea63de9ce7ac9d6042740f",
+    "evidence": "docs/reports/ess_release_01_audit_2026-10-03.json",
+    "historical": true
+  },
+  "native_size_source": "build/prompt02_sizes.cpp",
+  "xtensa_size_object": "build/prompt02_sizes_xtensa.o",
+  "xtensa_stack_artifact": "build/prompt02_owner_xtensa.su",
+  "ctest_log": "build/bench/prompt02_ctest_full.log",
+  "source_hash_encoding": "Workspace file bytes at verification; Git checkout newline conversion can change raw byte hashes."
+}

@@ -23,8 +23,11 @@ copied requests, reserved non-consuming results and checked-parser settlement.
 Runner now supports absolute deadlines and retained closure bounds. Its
 [handoff](reports/ess_release_01_2026-10-03.md) updates the software baseline to
 14 CTest suites and records current FieldCore inspection and Runner regression.
-The console still uses direct Runner admission until prompt 03; scheduling and
-cancellation are prompt 02. Earlier source observations below keep their provenance.
+Prompt 02 adds per-producer FIFO/cyclic fairness, reserved urgent admission,
+cancellation, sequence invalidation and a separate retained recovery outcome;
+15 CTest suites pass. Its [handoff](reports/ess_release_02_2026-10-03.md) records
+mixed-validator tests and conditional latency bounds. The console still uses
+direct Runner admission until prompt 03. Earlier observations retain their provenance.
 
 ## 1. Assessment
 

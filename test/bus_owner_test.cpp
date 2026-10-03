@@ -78,18 +78,19 @@ Timing timing() {
 Storage runnerStorage(uint8_t* tx, uint8_t* rx, std::size_t txCapacity, std::size_t rxCapacity) {
     Storage s; s.tx = tx; s.rx = rx; s.txCapacity = txCapacity; s.rxCapacity = rxCapacity; return s;
 }
-BusStorage busStorage(PendingSlot* p, ResultSlot* r, std::size_t pn, std::size_t rn) {
-    BusStorage s; s.pending = p; s.results = r; s.pendingCapacity = pn; s.resultCapacity = rn; return s;
+BusStorage busStorage(PendingSlot* p, ResultSlot* r, std::size_t pn, std::size_t rn, ProducerSlot* producers) {
+    BusStorage s; s.pending = p; s.results = r; s.pendingCapacity = pn; s.resultCapacity = rn;
+    s.producers = producers; s.producerCapacity = 1; return s;
 }
 struct Rig {
     Fake fake;
     uint8_t tx[MAX_FRAME] = {}, rx[MAX_FRAME] = {};
-    PendingSlot pendingSlots[4]; ResultSlot resultSlots[6];
+    PendingSlot pendingSlots[4]; ResultSlot resultSlots[6]; ProducerSlot producers[1];
     Runner runner; BusOwner owner;
     Rig(std::size_t pendingCapacity = 4, std::size_t resultCapacity = 6,
         std::size_t txCapacity = MAX_FRAME, std::size_t rxCapacity = MAX_FRAME)
         : runner(port(fake), runnerStorage(tx, rx, txCapacity, rxCapacity), timing()),
-          owner(runner, busStorage(pendingSlots, resultSlots, pendingCapacity, resultCapacity)) {}
+          owner(runner, busStorage(pendingSlots, resultSlots, pendingCapacity, resultCapacity, producers)) {}
     void service(uint64_t at, unsigned count = 1) {
         fake.now = at;
         for (unsigned i = 0; i < count; ++i) owner.service(at);
@@ -129,6 +130,13 @@ RequestId admit(Rig& rig, const BusRequest& request, uint64_t at = 1000) {
 }
 const Completion& done(Rig& rig, const RequestId& id) {
     const Completion* completion = rig.owner.result(id); assert(completion); return *completion;
+}
+void recover(Rig& rig, uint64_t at) {
+    uint64_t id = 0;
+    assert(rig.owner.recover(at, at + 10000, id) == RecoveryAdmission::ACCEPTED);
+    rig.service(at + 350);
+    assert(rig.owner.recoveryResult(id) && rig.owner.recoveryResult(id)->outcome == RecoveryOutcome::RECOVERED);
+    assert(rig.owner.releaseRecovery(id));
 }
 void complete(Rig& rig, uint64_t start = 1000, unsigned count = 1, uint8_t address = 1) {
     rig.send(start);
@@ -288,13 +296,13 @@ void testInvalidRequestsAndStorage() {
     Rig sixteen(1, 1, 8, 36); RequestId denied;
     assert(sixteen.owner.admit(request(bytes, 20000, 16), 1000, denied) == BusAdmission::INVALID);
     Rig backing;
-    BusStorage invalid = busStorage(backing.pendingSlots, backing.resultSlots, 65536, 1);
+    BusStorage invalid = busStorage(backing.pendingSlots, backing.resultSlots, 65536, 1, backing.producers);
     BusOwner huge(backing.runner, invalid); assert(!huge.valid());
-    invalid = busStorage(nullptr, backing.resultSlots, 1, 1);
+    invalid = busStorage(nullptr, backing.resultSlots, 1, 1, backing.producers);
     BusOwner null(backing.runner, invalid); assert(!null.valid());
-    invalid = busStorage(backing.pendingSlots, reinterpret_cast<ResultSlot*>(backing.pendingSlots), 1, 1);
+    invalid = busStorage(backing.pendingSlots, reinterpret_cast<ResultSlot*>(backing.pendingSlots), 1, 1, backing.producers);
     BusOwner overlap(backing.runner, invalid); assert(!overlap.valid());
-    invalid = busStorage(reinterpret_cast<PendingSlot*>(backing.tx), backing.resultSlots, 1, 1);
+    invalid = busStorage(reinterpret_cast<PendingSlot*>(backing.tx), backing.resultSlots, 1, 1, backing.producers);
     BusOwner wireOverlap(backing.runner, invalid); assert(!wireOverlap.valid());
     // Mutating caller slots is prohibited; this fixture reaches generation exhaustion without 2^64 admissions.
     Rig exhausted(1, 1); exhausted.resultSlots[0].generation = std::numeric_limits<uint64_t>::max();
@@ -317,10 +325,10 @@ void testClassificationAndRecovery() {
             assert(result.validation.code == (failure == 1 ? MotorControlRS::Err::CRC_ERROR : MotorControlRS::Err::FRAME_ERROR));
             assert(rig.owner.needsRecovery() && !rig.owner.active() && rig.owner.pending() == 1);
             rig.service(5000, 4); assert(rig.fake.writes == 1 && !rig.owner.result(queued));
-            rig.fake.now = 5000; assert(!rig.owner.recover(5000));
+
             rig.service(20000);
             assert(done(rig, queued).outcome == Outcome::QUEUE_EXPIRED);
-            rig.fake.now = 20000; assert(rig.owner.recover(20000));
+            recover(rig, 20000);
             assert(!rig.owner.active() && !rig.owner.pending());
         } else {
             assert(result.outcome == Outcome::DEVICE_REJECTED && !result.executionUnknown);
@@ -448,9 +456,9 @@ void testClockRegression() {
         assert(rig.owner.admit(request(bytes), 90, rejected) == BusAdmission::INVALID);
         assert(rig.owner.needsRecovery());
         rig.service(100); assert(rig.fake.writes == 0 && !rig.owner.active());
-        assert(!rig.owner.recover(100)); // The queued request must expire first.
+
         rig.service(20000); assert(done(rig, id).outcome == Outcome::QUEUE_EXPIRED);
-        rig.fake.now = 20000; assert(rig.owner.recover(20000));
+        recover(rig, 20000);
     }
     {
         Rig rig; RequestId id = admit(rig, request(bytes), 100);
@@ -463,7 +471,7 @@ void testClockRegression() {
         rig.service(20000);
         assert(done(rig, id).transport.reason == Reason::CLOCK_ERROR);
         assert(done(rig, pending).outcome == Outcome::QUEUE_EXPIRED);
-        rig.fake.now = 20000; assert(rig.owner.recover(20000));
+        recover(rig, 20000);
         assert(done(rig, id).transport.reason == Reason::CLOCK_ERROR);
     }
 }

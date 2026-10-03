@@ -11,8 +11,8 @@ The implementation supplies **configurable units, the ESS register catalogue
 and checked ESS Modbus RTU codecs**. A [standalone transaction runner](docs/runner.md)
 has native fake-transport tests. The [ESP32-S3 read-only probe](docs/esp32_probe.md) adds
 polling and timer UART capture, a JSONL console and Python load/bench tools.
-An [application-owned bus owner](docs/bus_owner.md) adds tested FIFO admission,
-absolute deadlines and retained results; scheduling and console integration follow.
+An [application-owned bus owner](docs/bus_owner.md) adds fair scheduling, urgent
+reservations, cancellation, absolute deadlines and retained results; console integration follows.
 The [release roadmap](docs/roadmap.md) records the delivery order and completion gates.
 The [numbered implementation prompts](docs/prompts/ess_release/README.md)
 split the remaining work into reviewed, independently dispatched blocks. Model-register

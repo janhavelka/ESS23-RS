@@ -177,8 +177,41 @@ bool Runner::storageOverlaps(const void* data, std::size_t bytes) const noexcept
 
 bool Runner::rejectFrame() noexcept {
     if (phase_ != Phase::DONE || result_.reason != Reason::FRAME) return false;
+    return requireRecovery();
+}
+
+bool Runner::requireRecovery() noexcept {
+    if (busy()) return false;
     phase_ = Phase::FAULT;
     return true;
+}
+
+DrainResult Runner::discard(uint64_t nowUs) noexcept {
+    DrainResult output;
+    if (!valid() || !clock(nowUs)) {
+        output.state = ReadState::ERROR; output.reason = Reason::CLOCK_ERROR; return output;
+    }
+    if (!needsRecovery() || de_) return output;
+    for (unsigned i = 0; i < READ_BUDGET; ++i) {
+        RxByte byte; uint64_t through = 0;
+        const ReadState state = port_.read(port_.context, nowUs, byte, through);
+        if (state == ReadState::PENDING) return output;
+        if (state == ReadState::EMPTY && through <= nowUs && through >= output.lastByteUs) {
+            output.state = state; output.throughUs = through; return output;
+        }
+        if (state == ReadState::BYTE && byte.startUs < byte.endUs && byte.endUs <= nowUs &&
+            byte.uncertaintyUs <= byte.endUs && byte.endUs >= output.lastByteUs) {
+            output.lastByteUs = byte.endUs;
+            increment(stats_.rxBytes); increment(stats_.discarded);
+            record(Event::DISCARD, byte.endUs, byte.value);
+            continue;
+        }
+        output.state = ReadState::ERROR;
+        output.reason = state == ReadState::EMPTY || state == ReadState::BYTE ?
+            Reason::CLOCK_ERROR : Reason::RX_ERROR;
+        return output;
+    }
+    return output; // Budget exhaustion is not EMPTY evidence.
 }
 
 bool Runner::expired(uint64_t nowUs) const noexcept {
@@ -198,6 +231,7 @@ Admission Runner::start(const Request& request, uint64_t nowUs) noexcept {
     replyLength_ = request.replyLength;
     responseTimeoutUs_ = request.responseTimeoutUs;
     deadlineUs_ = request.deadlineUs;
+    cancellationUs_ = 0;
     replyGapUs_ = request.replyGapUs ? request.replyGapUs : timing_.gap35Us;
     echo_ = request.echo;
     pending_ = Reason::NONE;
@@ -248,8 +282,11 @@ Reason Runner::closureDeadline(uint64_t latestUs, uint32_t uncertaintyUs) const 
 void Runner::completedFrame(uint64_t latestUs, uint32_t uncertaintyUs) noexcept {
     closure(latestUs, uncertaintyUs, true);
     const Reason deadline = closureDeadline(latestUs, uncertaintyUs);
-    if (deadline == Reason::NONE) frame(latestUs);
-    else finish(deadline, now_, true);
+    if (deadline != Reason::NONE) finish(deadline, now_, true);
+    else if (cancellationUs_ && latestUs > cancellationUs_)
+        finish(latestUs - uncertaintyUs <= cancellationUs_ ? Reason::TIMING_UNCERTAIN :
+               Reason::CANCELLED, now_, true);
+    else frame(latestUs);
 }
 
 bool Runner::onByte(const RxByte& byte, uint64_t nowUs) noexcept {
@@ -327,6 +364,11 @@ bool Runner::onByte(const RxByte& byte, uint64_t nowUs) noexcept {
         const Reason deadline = closureDeadline(result_.closureLatestUs, byte.uncertaintyUs);
         finish(deadline == Reason::PARTIAL_RESPONSE && !result_.rxLength ?
                Reason::NO_RESPONSE : deadline, nowUs, true);
+        return false;
+    }
+    if (cancellationUs_ && byte.endUs > cancellationUs_) {
+        closure(byte.endUs + timing_.gap35Us, byte.uncertaintyUs, false);
+        finish(Reason::CANCELLED, nowUs, true);
         return false;
     }
     if (result_.rxLength && startLatest - previousEarliest > timing_.gap15Us) {
@@ -537,6 +579,9 @@ void Runner::poll(uint64_t nowUs) noexcept {
         const bool responseExpired = elapsed(observedUs_, txEndUs_, responseTimeoutUs_);
         if (result_.rxLength && elapsed(observedUs_, lastRxEndUs_, timing_.gap35Us)) {
             completedFrame(lastRxEndUs_ + timing_.gap35Us, rxUncertaintyUs_);
+        } else if (cancellationUs_ && observedUs_ >= cancellationUs_ && !requestExpired && !responseExpired) {
+            if (result_.rxLength) closure(lastRxEndUs_ + timing_.gap35Us, rxUncertaintyUs_, false);
+            finish(Reason::CANCELLED, nowUs, true);
         } else if (requestExpired || responseExpired) {
             if (result_.rxLength) {
                 closure(lastRxEndUs_ + timing_.gap35Us, rxUncertaintyUs_, false);
@@ -563,6 +608,16 @@ void Runner::cancel(uint64_t nowUs) noexcept {
         if (pending_ == Reason::NONE) pending_ = Reason::CANCELLED;
         // Drain safely; never truncate an active UART frame or erase an earlier error.
     } else finish(Reason::CANCELLED, nowUs, true);
+}
+
+void Runner::cancelCaptured(uint64_t nowUs) noexcept {
+    if (!valid() || !clock(nowUs) || !busy()) return;
+    if (phase_ != Phase::RECEIVE) { cancel(nowUs); return; }
+    if (!cancellationUs_) cancellationUs_ = nowUs;
+    if (observed_ && observedUs_ >= cancellationUs_) {
+        if (result_.rxLength) closure(lastRxEndUs_ + timing_.gap35Us, rxUncertaintyUs_, false);
+        finish(Reason::CANCELLED, nowUs, true);
+    }
 }
 
 bool Runner::recover(uint64_t nowUs) noexcept {

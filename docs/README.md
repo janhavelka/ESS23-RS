@@ -12,8 +12,8 @@ for current code and builds.
 
 - [Standalone RTU runner](runner.md): current callback/timing contract, state
   machine, fake tests, diagnostics, memory sizes and explicit recovery.
-- [Bounded RTU bus owner](bus_owner.md): FIFO admission, copied expectations,
-  reserved retained results, parser settlement and absolute closure deadlines.
+- [Bounded RTU bus owner](bus_owner.md): fair scheduling, reserved urgent/results
+  storage, cancellation, recovery, parser settlement and absolute closure deadlines.
 - [ESP32-S3 probe guide](esp32_probe.md): adapter, read-only console, PSRAM and Python tools.
 - [0.5.1 implementation audit](reports/2026-10-03_audit.md): defects, fixes,
   regression tests and remaining qualification gaps.

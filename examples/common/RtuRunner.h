@@ -143,6 +143,12 @@ struct Stats {
     uint32_t rxBytes = 0, discarded = 0, echoBytes = 0, traceOverwritten = 0;
 };
 
+struct DrainResult {
+    ReadState state = ReadState::PENDING;
+    Reason reason = Reason::NONE;
+    uint64_t throughUs = 0, lastByteUs = 0;
+};
+
 /** Caller-owned storage, alive and exclusive for the runner lifetime. TX/RX must
  * not overlap each other or trace storage. 1..256 bytes each; actual request/reply
  * bounds are checked at start. A larger RX buffer can retain overlong-frame evidence.
@@ -184,8 +190,15 @@ public:
     /** Checked parser rejected FRAME. Interlock before any subsequent start;
      * caller must settle possible late/foreign traffic before explicit recover(). */
     bool rejectFrame() noexcept;
+    bool requireRecovery() noexcept; ///< Idle-only interlock; preserve terminal evidence, no I/O.
+    DrainResult discard(uint64_t nowUs) noexcept; ///< Fault/DE-released only, <=64 reads; preserves Result.
+    uint32_t idleGapUs() const noexcept { return timing_.gap35Us; }
     void poll(uint64_t nowUs) noexcept;
     void cancel(uint64_t nowUs) noexcept; ///< Local cancellation, never a motor stop.
+    /** Cancel RECEIVE after examining retained evidence through this immutable
+     * cutoff. A qualified closure at/before the cutoff wins, even across read
+     * budgets; later replies cannot succeed. Other phases use cancel(). No reads. */
+    void cancelCaptured(uint64_t nowUs) noexcept;
     bool recover(uint64_t nowUs) noexcept;
     bool busy() const noexcept;
     bool needsRecovery() const noexcept { return phase_ == Phase::FAULT; }
@@ -229,7 +242,7 @@ private:
     uint32_t txUncertaintyUs_ = 0, rxUncertaintyUs_ = 0, releaseUncertaintyUs_ = 0;
     uint64_t now_ = 0, quietSince_ = 0, assertedUs_ = 0, queuedUs_ = 0;
     uint64_t txEndUs_ = 0, releasedUs_ = 0, lastRxEndUs_ = 0, observedUs_ = 0;
-    uint64_t deadlineUs_ = 0;
+    uint64_t deadlineUs_ = 0, cancellationUs_ = 0;
     bool clockSet_ = false, observed_ = false, haveRx_ = false, de_ = false;
 };
 
