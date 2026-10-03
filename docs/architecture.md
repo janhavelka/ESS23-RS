@@ -1,4 +1,4 @@
-# RS485Motion architecture
+# MotorControl-RS architecture
 
 This is the accepted design baseline for a general, framework-independent
 serial motion library. ESS23-RS is its first implementation target. A common
@@ -28,11 +28,11 @@ questions remain in the [implementation reference](reference/01_implementation_r
 
 ## Scope and compatibility
 
-Use `RS485Motion` as the working common namespace and library identity, with
-an eventual `RS485Motion/RS485Motion.h` entry header. The repository folder
-remains `ESS23-RS`; no repository rename or registry-name availability is
-implied. The ESS family lives under `RS485Motion::ESS_RS`. There is no released
-API requiring compatibility aliases for the previous ESS-only design.
+Use `MotorControl-RS` as the package name, `MotorControlRS` as the namespace
+and CMake identity, and `MotorControlRS/MotorControlRS.h` as the entry header.
+The repository folder and GitHub URL remain `ESS23-RS`; the user will rename
+the remote later. The ESS family lives under `MotorControlRS::ESS_RS`.
+Consumers must update old includes/names; no legacy alias layer is supplied.
 
 The accepted CANopen direction is a separate future library, initially for the
 verified Lichuan CL86-C subset. Both libraries follow the documented axis
@@ -40,7 +40,7 @@ semantics, while retaining independent protocol engines, native APIs and
 application-owned transports. Extract shared units/types when the second
 implementation demonstrates reuse; do not add a universal transport engine
 or CANopen dependency here. See the [decision and evidence](reference/07_canopen_feasibility.md).
-The current name remains provisional until a replacement is selected.
+The serial-library name is accepted independently of the future CANopen package.
 
 Implement ESS23-RS20 first and account for ESS23-RS10 using their shared
 hardware manual. Design the common contracts against Leadshine iEM-RS as the
@@ -135,18 +135,18 @@ create stubs. See the root README for the current callable surface.
 
 | Current or planned path | Responsibility |
 | --- | --- |
-| `include/RS485Motion/RS485Motion.h` | Common public entry point, without forcing all profile headers into every consumer |
-| `include/RS485Motion/Axis.h` | Common command intent, capabilities and observations |
-| `include/RS485Motion/Units.h` | Explicit quantities, coordinate configuration and checked conversion |
-| `include/RS485Motion/Profiles.h` | Profile identity and finite dispatch contracts |
-| `include/RS485Motion/Sequence.h` | Bounded caller-owned operation state, supplied events and yielded work |
-| `include/RS485Motion/Status.h` | Shared validation result and parser error categories |
-| `include/RS485Motion/profiles/ess_rs/Codec.h` | Implemented bounded builders, validators, checked parsers, probe and word conversion |
+| `include/MotorControlRS/MotorControlRS.h` | Common public entry point, without forcing all profile headers into every consumer |
+| `include/MotorControlRS/Axis.h` | Common command intent, capabilities and observations |
+| `include/MotorControlRS/Units.h` | Explicit quantities, coordinate configuration and checked conversion |
+| `include/MotorControlRS/Profiles.h` | Profile identity and finite dispatch contracts |
+| `include/MotorControlRS/Sequence.h` | Bounded caller-owned operation state, supplied events and yielded work |
+| `include/MotorControlRS/Status.h` | Shared validation result and parser error categories |
+| `include/MotorControlRS/profiles/ess_rs/Codec.h` | Implemented bounded builders, validators, checked parsers, probe and word conversion |
 | `src/rtu/Frame.h` | Private byte packing, CRC and frame helpers without device policy |
-| `include/RS485Motion/profiles/ess_rs/Commands.h` | Full typed ESS command surface and sequence descriptions |
-| `include/RS485Motion/profiles/ess_rs/Registers.h` | Verified ESS register definitions and value enums |
-| `include/RS485Motion/profiles/ess_rs/Types.h` | Exact ESS values, raw flags, alarms and word order |
-| `include/RS485Motion/Version.h` | Generated from package metadata when real code exists |
+| `include/MotorControlRS/profiles/ess_rs/Commands.h` | Full typed ESS command surface and sequence descriptions |
+| `include/MotorControlRS/profiles/ess_rs/Registers.h` | Verified ESS register definitions and value enums |
+| `include/MotorControlRS/profiles/ess_rs/Types.h` | Exact ESS values, raw flags, alarms and word order |
+| `include/MotorControlRS/Version.h` | Generated from package metadata when real code exists |
 | `src/axis/`, `src/units/`, `src/protocol/` | Common validation, conversion and proven reusable framing helpers |
 | `src/profiles/ess_rs/` | ESS codec, native command mapping and bounded sequencing |
 | `examples/01_basic_bringup_cli/` | Arduino entry point, example transport and board integration |
@@ -155,7 +155,7 @@ create stubs. See the root README for the current callable surface.
 | `test/` | Native codec, units, sequence and consumer-contract tests when behavior exists |
 | `docs/IDF_PORT.md` | Framework-neutral consumption and native IDF instructions when implemented |
 
-The first implementation uses `include/RS485Motion/` and `src/Units.cpp`,
+The first implementation uses `include/MotorControlRS/` and `src/Units.cpp`,
 with the ESS catalogue under `profiles/ess_rs/`. The old empty ESS-only header
 directory has been removed. Do not create empty profile APIs or a Leadshine
 implementation merely to mirror the design table. Split files only when useful.
@@ -278,12 +278,23 @@ acknowledgements are 8 bytes; an exception reply is 5 bytes. FC10 requests
 need `9 + 2 * count` bytes, including 13 bytes for the documented two-register
 example (p8). These frame sizes do not establish a device FC10 count limit.
 
-The general ESS write limit is unresolved. The implementation admits only the
-explicit FC10 example's 0x0024/two-word window; this is a supported window,
-not a device maximum. Other FC10 windows await evidence. FC06 rejects paired
+The general ESS write limit is unresolved. The implementation admits four
+documented FC10 start/count windows: 0x0024/2 (p8), 0x0021/5 (p16), 0x001D/3
+(p18) and 0x0031/6 (p20). These are supported windows, not a device maximum.
+Other windows await evidence. FC06 rejects paired
 halves as a library policy; the manual does not explicitly prohibit them. Do not
 split a 32-bit target into unrelated FC06 writes as a capacity workaround.
 Do not assume a multi-register write is internally atomic without evidence.
+
+Access checks use a compact private table generated from the same JSON ledger
+as the descriptive catalogue. Basic codec use does not require the catalogue's
+strings. The generator accounts for all documented words and explicit gaps;
+missing documentation does not authorize probing arbitrary register holes.
+
+The [timing audit](reference/09_timing_and_gap_audit.md) distinguishes vendor
+facts, RTU standard timing and calculated wire times. The application owns
+those timers. ESS supplies no documented maximum response or save-completion
+time; do not turn host defaults into device guarantees.
 
 Use explicit unicast addresses 1-247 for the initial supported surface.
 Broadcast motion and extended vendor address values are deferred. Never
@@ -450,7 +461,7 @@ work is requested.
 1. Completed foundation: pure units, the ESS register catalogue, native tests,
    package/build metadata and the offline E2 preview. Metadata coverage is
    distinct from operational command coverage and hardware qualification.
-2. Completed codec block: bounded ESS FC03/FC06 and the reviewed FC10 pair,
+2. Completed codec block: bounded ESS FC03/FC06 and four reviewed FC10 windows,
    checked responses, raw exceptions, word helpers, minimal probe and native
    tests. General FC10 limits and typed field/motion ambiguities remain open.
    Wire support does not establish permission to write every register.

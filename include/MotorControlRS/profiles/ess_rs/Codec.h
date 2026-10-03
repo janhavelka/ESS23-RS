@@ -7,10 +7,10 @@
 
 #include <cstddef>
 #include <stdint.h>
-#include "RS485Motion/Status.h"
-#include "RS485Motion/profiles/ess_rs/Types.h"
+#include "MotorControlRS/Status.h"
+#include "MotorControlRS/profiles/ess_rs/Types.h"
 
-namespace RS485Motion { namespace ESS_RS {
+namespace MotorControlRS { namespace ESS_RS {
 
 constexpr uint16_t MAX_READ_REGISTERS = 16; ///< Vendor function manual p7.
 constexpr std::size_t READ_REQUEST_LEN = 8;
@@ -37,7 +37,8 @@ Status validateReadRegistersRequest(uint8_t address, uint16_t start, uint16_t co
  * prerequisites and side effects are the caller's responsibility in this codec.
  */
 Status validateWriteSingleRegisterRequest(uint8_t address, uint16_t reg, uint16_t value) noexcept;
-/** @brief Validate the initially reviewed FC10 window: 0x0024, exactly two words.
+/** @brief Validate reviewed FC10 windows (start/count): 0x0024/2, 0x0021/5,
+ * 0x001D/3 and 0x0031/6 (function PDF physical pages 8, 16, 18, 20).
  * words must point to count readable uint16_t values. Other windows/counts are
  * UNSUPPORTED, not an assertion that the drive rejects them. No device-wide
  * FC10 maximum or atomic-write guarantee has been established. Values are raw.
@@ -49,7 +50,7 @@ Status validateWriteMultipleRegistersRequest(uint8_t address, uint16_t start,
 std::size_t expectedReadRegistersLen(uint16_t count) noexcept;
 /** @brief FC06 request AND normal reply bytes: 8. */
 std::size_t expectedWriteSingleRegisterLen() noexcept;
-/** @brief FC10 REQUEST bytes: 13 for the supported count of two, otherwise zero.
+/** @brief FC10 REQUEST bytes: 9+2*count for counts 2/3/5/6, otherwise zero.
  * This checks count only; the request validator also checks the reviewed window.
  * A normal FC10 reply is always WRITE_RESPONSE_LEN; an exception is five bytes.
  */
@@ -143,4 +144,4 @@ Status encodeInt32(int32_t value, WordOrder order, uint16_t* output, std::size_t
 Status decodeInt32(const uint16_t* words, std::size_t count, WordOrder order, int32_t& output) noexcept;
 /** @} */
 
-}} // namespace RS485Motion::ESS_RS
+}} // namespace MotorControlRS::ESS_RS

@@ -39,8 +39,8 @@ profile question.
 
 ## Explicit free-shaft bench configuration
 
-[Defaults.h](../../include/RS485Motion/profiles/ess_rs/Defaults.h) supplies
-`RS485Motion::ESS_RS::makeBenchUnitConfig()`:
+[Defaults.h](../../include/MotorControlRS/profiles/ess_rs/Defaults.h) supplies
+`MotorControlRS::ESS_RS::makeBenchUnitConfig()`:
 
 | Setting | Initial value | Retained source |
 | --- | --- | --- |
@@ -62,7 +62,7 @@ the motor was left at defaults but is not configuration-readback evidence.
 
 ## Implemented API and dimensional rules
 
-[Units.h](../../include/RS485Motion/Units.h) exposes:
+[Units.h](../../include/MotorControlRS/Units.h) exposes:
 
 - `validateUnitConfig` for mathematical/configuration validation.
 - `convertDisplacement` for signed spatial quantities with no origin or angle
@@ -108,7 +108,7 @@ Position, velocity and acceleration preferences are independently editable.
 They are explicit inputs to calls, not a hidden mode or automatic drive setup:
 
 ```cpp
-using namespace RS485Motion;
+using namespace MotorControlRS;
 UnitConfig config = ESS_RS::makeBenchUnitConfig();
 config.settings.position = PositionUnit::DEGREES;
 config.settings.velocity = VelocityUnit(PositionUnit::TURNS, TimeUnit::MINUTE);
@@ -144,6 +144,15 @@ precision. Nonfinite values, overflow/precision excess and arithmetic
 underflow are rejected. Exact same-unit passthrough performs no arithmetic and
 reports zero arithmetic error. Missing scales reject only calculations that
 depend on them; for example, degrees-to-turns needs no motor subdivision.
+Motor steps-to-full-steps or motor-encoder conversion also needs no load
+gearing. A linear encoder's counts-to-millimetres conversion needs its own
+scale but no screw lead. Gear ratio and lead are required only when crossing
+the corresponding coordinate bases.
+
+Bounded spatial and time factors are combined before multiplying the input
+value. This avoids an intermediate subnormal rounding error for very small
+inputs when the final result is representable. Regression checks also use a
+compiler mode where `long double` has binary64 precision.
 
 Keep raw native signed 64-bit positions as integers. Do not pass them through
 the engineering `double` API to narrow them; use `validateNativePosition` and

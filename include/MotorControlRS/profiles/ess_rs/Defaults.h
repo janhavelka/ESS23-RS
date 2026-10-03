@@ -4,9 +4,9 @@
  */
 #pragma once
 
-#include "RS485Motion/Units.h"
+#include "MotorControlRS/Units.h"
 
-namespace RS485Motion {
+namespace MotorControlRS {
 namespace ESS_RS {
 
 /** Documented ESS values, not readback of the connected motor. See reference/06. */
@@ -36,4 +36,4 @@ inline UnitConfig makeBenchUnitConfig() {
 }
 
 } // namespace ESS_RS
-} // namespace RS485Motion
+} // namespace MotorControlRS

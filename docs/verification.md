@@ -1,5 +1,31 @@
 # Software verification
 
+## Rename and full audit, version 0.3.0
+
+Checks on 2026-10-03:
+
+| Check | Result |
+| --- | --- |
+| CMake Release build and CTest | Passed, 7/7: units, catalogue, codec, preview, two generated-file checks and gap-ledger rejection tests |
+| Unit regressions | Motor-side conversions without gearing; linear encoder conversion without lead; missing crossed scales; both polarities and directions; small-value scale/time conversion |
+| Binary64 arithmetic | Units pass strict C++11 builds with normal MinGW `long double` and `-mlong-double-64`, exercising the intermediate-underflow fix |
+| FC10 windows | Independent position, speed and homing request/echo fixtures added alongside the original pair; output capacities and rejected neighbouring/subset windows checked |
+| Manual defect | P16's extra-byte request has a valid CRC but invalid payload length; corrected five-word request has its own literal fixture |
+| Register access | All 65536 addresses checked against descriptors; every start/count read window through 0x013F cross-checked against the compact access map |
+| Gap ledger | Complete 242-word map plus 78 undocumented words across 15 gaps; negative tests reject missing/overlapping gaps and incorrect reserved/access categories |
+| Public headers | All 8 renamed headers compile independently with C++11, `-Wall -Wextra -Wpedantic -Werror` |
+| Source package and installed consumer | MotorControl-RS archive contains both private headers, excludes references and old include paths; standalone build/install and `find_package(MotorControlRS)` consumer pass |
+| Codec footprint boundary | Installed codec consumer links the compact access map; symbol inspection confirms descriptive catalogue and lookup are absent. This is not a target-MCU size measurement |
+| E2 ESP32-S3 preview | Renamed 0.3.0 Arduino build passes; 325980 flash bytes and 22800 static RAM bytes for this offline units/catalogue preview |
+| Source integrity | All 9 original reference hashes and all 5 contrasting manufacturer hashes match their manifests; local documentation links checked |
+| Independent review | Final codec, access-map and generator review found no further correctness defect; original FC10 page images and complete appendix audited |
+
+The [timing audit](reference/09_timing_and_gap_audit.md) records document facts
+and calculated times separately from missing firmware guarantees. No numeric
+response/save/startup bound or undocumented register meaning was invented.
+COM13 was not opened or flashed. This block does not qualify hardware behavior,
+native ESP-IDF firmware, ESP32-S2 firmware or motion workflows.
+
 ## ESS codec block, version 0.2.0
 
 Checks on 2026-10-03:

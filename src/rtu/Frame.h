@@ -6,7 +6,7 @@
 
 // Private RTU mechanics only. Device addresses, functions, limits and register
 // policies belong to the profile. No buffers, clocks or transport are owned here.
-namespace RS485Motion { namespace Rtu {
+namespace MotorControlRS { namespace Rtu {
 
 constexpr std::size_t MAX_FRAME_LEN = 256;
 
@@ -63,4 +63,4 @@ inline bool overlaps(const void* left, std::size_t leftSize,
     return a <= b ? b - a < leftSize : a - b < rightSize;
 }
 
-}} // namespace RS485Motion::Rtu
+}} // namespace MotorControlRS::Rtu

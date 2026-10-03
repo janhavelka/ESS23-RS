@@ -1,8 +1,9 @@
-# RS485Motion
+# MotorControl-RS
 
 A framework-independent serial motion library, starting with STEPPERONLINE
-ESS23-RS10/RS20. The repository directory remains `ESS23-RS`; the common C++
-namespace and package name are `RS485Motion`.
+ESS23-RS10/RS20. The package is `MotorControl-RS`; the C++ namespace, include
+directory and CMake package/target are `MotorControlRS`. The checkout directory
+and GitHub URL remain `ESS23-RS` until the user renames the remote repository.
 
 The implementation supplies **configurable units, the ESS register catalogue
 and checked ESS Modbus RTU codecs**. Transport, motion commands, discovery
@@ -19,7 +20,7 @@ CANopen is planned as a separate future library, initially for the Lichuan
 CL86-C's verified capabilities. Both libraries will follow the same documented
 motion contract; shared units/types will be extracted only when the second
 implementation needs them. This repository continues with ESS and selected
-serial drive profiles. `RS485Motion` is the working name pending a replacement.
+serial drive profiles.
 
 ## Units API
 
@@ -29,10 +30,10 @@ turns, degrees, radians and configured millimetres. Time denominators can be
 seconds, minutes or milliseconds, including rpm/s.
 
 ```cpp
-#include <RS485Motion/RS485Motion.h>
-#include <RS485Motion/profiles/ess_rs/Defaults.h>
+#include <MotorControlRS/MotorControlRS.h>
+#include <MotorControlRS/profiles/ess_rs/Defaults.h>
 
-using namespace RS485Motion;
+using namespace MotorControlRS;
 UnitConfig config = ESS_RS::makeBenchUnitConfig();
 config.settings.position = PositionUnit::DEGREES;
 config.settings.velocity = VelocityUnit(PositionUnit::TURNS, TimeUnit::MINUTE);
@@ -52,6 +53,10 @@ outputs stay unchanged on error. Exact native integer range checks avoid
 floating-point conversion. Origins, wrapped-angle paths, target quantization
 and device-specific ramp encoding follow later.
 
+Gearing and linear lead are required only when crossing the corresponding
+motor/load/travel boundaries. Motor steps-to-full-steps conversion needs no
+load gearing; linear encoder counts-to-millimetres needs no screw lead.
+
 `makeBenchUnitConfig()` assumes 1000 command steps per motor turn, 4000 decoded
 encoder counts per motor turn and direct 1:1 coupling. Both model datasheets
 specify 1.8° full steps, giving 200 full steps per turn. Linear travel has no
@@ -61,8 +66,8 @@ provenance and the distinction between encoder counts and ESS position feedback.
 
 ## ESS module
 
-[Registers.h](include/RS485Motion/profiles/ess_rs/Registers.h) and
-[Types.h](include/RS485Motion/profiles/ess_rs/Types.h) expose register addresses,
+[Registers.h](include/MotorControlRS/profiles/ess_rs/Registers.h) and
+[Types.h](include/MotorControlRS/profiles/ess_rs/Types.h) expose register addresses,
 immutable descriptors, native choices and bounded indexed lookups. The
 [catalogue](docs/reference/05_ess_register_catalog.md) covers 221 logical records
 and 242 register words, including I/O, tuning, homing, all sixteen stored
@@ -76,30 +81,32 @@ Generic Modbus or another manufacturer's registers are not substituted for ESS.
 
 ## ESS wire API
 
-[Codec.h](include/RS485Motion/profiles/ess_rs/Codec.h) builds FC03/FC06/FC10
+[Codec.h](include/MotorControlRS/profiles/ess_rs/Codec.h) builds FC03/FC06/FC10
 requests into caller-owned byte buffers and checks complete replies against
 the expected slave, function, length, count, CRC and write echo. Errors leave
 payload outputs unchanged; the parsed word count resets to zero. `Status`
 preserves raw device exceptions separately from malformed frames and CRC errors.
 
 ```cpp
-#include <RS485Motion/profiles/ess_rs/Codec.h>
+#include <MotorControlRS/profiles/ess_rs/Codec.h>
 
 uint8_t request[8];
-const std::size_t length = RS485Motion::ESS_RS::buildProbe(1, request, sizeof(request));
+const std::size_t length = MotorControlRS::ESS_RS::buildProbe(1, request, sizeof(request));
 // length == 8; request is 01 03 00 00 00 01 84 0A. Nothing is transmitted.
 
 // A synthetic complete reply for an offline parsing example:
 const uint8_t reply[] = {1, 3, 2, 3, 5, 0x78, 0xB7};
 uint16_t model = 0;
-RS485Motion::Status result = RS485Motion::ESS_RS::parseProbe(reply, sizeof(reply), 1, model);
+MotorControlRS::Status result = MotorControlRS::ESS_RS::parseProbe(reply, sizeof(reply), 1, model);
 // Success publishes raw model 0x0305; it does not confirm a connected motor's identity.
 ```
 
 FC03 accepts up to 16 documented readable words, excluding gaps/reserved/unknown
 access. FC06 accepts documented writable single words; split writes to paired
-fields are rejected. FC10 initially accepts only the manual's `0x0024`, two-word
-window. This is an implementation restriction, not a discovered device maximum.
+fields are rejected. FC10 accepts four documented start/count windows:
+`0x0024/2`, `0x0021/5`, `0x001D/3` and `0x0031/6`. These supported windows do
+not establish a device-wide maximum. The malformed position example on manual
+p16 is corrected in the builder and covered by an independent frame fixture.
 Builders validate raw access/framing, not register-value meaning, motion limits,
 readiness or persistence; typed command helpers remain future work.
 
@@ -110,9 +117,15 @@ that an unresolved ESS field uses it. See [codec evidence and limits](docs/refer
 
 Small private RTU helpers handle byte packing and CRC. Profile policy stays in
 ESS, informed by [five contrasting manufacturers](docs/reference/08_serial_protocol_review.md).
+Access checks use a generated 320-byte table; basic codec use does not link
+the descriptive catalogue. The same source ledger accounts for all 78
+undocumented words in 15 gaps through `0x013F` and prevents reading across them.
 Applications still own transport and response correlation: local FC06 echo and
 a drive acknowledgement have identical bytes, and write acknowledgement does
 not establish motion completion. No codec retries, clocks or I/O are hidden.
+The [timing audit](docs/reference/09_timing_and_gap_audit.md) records actual
+8N1 character length, RTU gaps, stop-ramp behavior and the response/persistence
+deadlines that the manuals leave unspecified.
 
 ## Build and preview
 
@@ -125,8 +138,8 @@ ctest --test-dir build/native --output-on-failure
 ```
 
 Use another available CMake generator if Ninja is absent. An application can
-use `add_subdirectory` and link `RS485Motion::RS485Motion`, or install the CMake
-package and use `find_package(RS485Motion CONFIG REQUIRED)`. The root CMake file
+use `add_subdirectory` and link `MotorControlRS::MotorControlRS`, or install the CMake
+package and use `find_package(MotorControlRS CONFIG REQUIRED)`. The root CMake file
 also supports ESP-IDF `EXTRA_COMPONENT_DIRS`; native ESP-IDF firmware validation
 is still pending. Public headers require no framework headers.
 
@@ -155,8 +168,8 @@ python scripts/generate_ess_registers.py --check
 
 | Path | Responsibility |
 | --- | --- |
-| `include/RS485Motion/`, `src/` | Public common API and implementation |
-| `include/RS485Motion/profiles/ess_rs/`, `src/profiles/ess_rs/` | ESS catalogue, raw codecs, probe and word conversion |
+| `include/MotorControlRS/`, `src/` | Public common API and implementation |
+| `include/MotorControlRS/profiles/ess_rs/`, `src/profiles/ess_rs/` | ESS catalogue, raw codecs, probe and word conversion |
 | `src/rtu/` | Small private byte/CRC/frame helpers, without device policy |
 | `examples/common/` | Board/build settings and later platform transport |
 | `examples/units_preview/` | Desktop/Arduino consumer of the current units API |

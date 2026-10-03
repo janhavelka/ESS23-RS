@@ -11,7 +11,7 @@
 
 #pragma once
 
-namespace RS485MotionExample {
+namespace MotorControlRSExample {
 
 /** @brief ESP32-S3 E2 board revision 2.0.0 used for this example bench. */
 struct E2S3Hw200Board {
@@ -30,4 +30,4 @@ struct E2S3Hw200Board {
 /// @brief Explicit example bench selection; not part of the reusable library.
 using Board = E2S3Hw200Board;
 
-}  // namespace RS485MotionExample
+}  // namespace MotorControlRSExample

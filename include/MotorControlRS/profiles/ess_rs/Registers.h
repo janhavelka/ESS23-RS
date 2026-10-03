@@ -3,9 +3,9 @@
 
 #include <cstddef>
 #include <stdint.h>
-#include "RS485Motion/profiles/ess_rs/Types.h"
+#include "MotorControlRS/profiles/ess_rs/Types.h"
 
-namespace RS485Motion { namespace ESS_RS {
+namespace MotorControlRS { namespace ESS_RS {
 
 /** Source addresses. HIGH/LOW suffixes are the manual's default-order labels.
  * Select the active word order before decoding paired fields. No I/O or setters. */
@@ -330,4 +330,4 @@ std::size_t homingMethodCount() noexcept;
 /** Listed choice or nullptr; lookup is not approval to encode or execute it. */
 const HomingMethodDescriptor* findHomingMethod(int16_t method) noexcept;
 
-}} // namespace RS485Motion::ESS_RS
+}} // namespace MotorControlRS::ESS_RS

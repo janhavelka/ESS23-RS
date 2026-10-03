@@ -163,7 +163,8 @@
       "address": "0x0003",
       "name": "DIP_STATUS",
       "pages": [
-        68
+        68,
+        18
       ],
       "source_access": "RO",
       "unit": "bitfield",
@@ -173,9 +174,10 @@
       "signedness": "BITFIELD",
       "word_order": "SINGLE_REGISTER",
       "issues": [
-        "MODEL_APPLICABILITY"
+        "MODEL_APPLICABILITY",
+        "SOURCE_CONFLICT"
       ],
-      "notes": "Source describes SW1-SW7 in bits 0-6; ESS23 hardware has SW1-SW5. Preserve raw bits; mapping unqualified.",
+      "notes": "Source describes SW1-SW7 in bits 0-6; ESS23 hardware has SW1-SW5. Hardware pp8,11 assign SW1 to termination and SW2-SW5 to address; the generic speed example p18 instead assigns address 1 using SW1. Preserve raw bits; mapping unqualified.",
       "choices": "DipStatusBit"
     },
     {
@@ -342,7 +344,7 @@
       "issues": [
         "MODEL_APPLICABILITY"
       ],
-      "notes": "Effective when address DIP switches are OFF. Hardware reserves 0; library unicast policy 1-247 is separate from source range.",
+      "notes": "Effective when address DIP switches are OFF. Hardware p11 identifies SW2-SW5 as address switches, requires custom addresses to be set and saved, and reserves all-ON for factory restore, not address 15. Activation timing of a saved custom node is unspecified. Library unicast policy 1-247 is separate from source range 0-255.",
       "choices": null
     },
     {
@@ -457,9 +459,10 @@
         "RANGE_MALFORMED",
         "DEFAULT_CONFLICT",
         "SIGNED_ENCODING_UNRESOLVED",
-        "SCALE_UNRESOLVED"
+        "SCALE_UNRESOLVED",
+        "SOURCE_CONFLICT"
       ],
-      "notes": "Serial speed mode uses this signed speed. External JOG+/JOG- force direction independently of sign. No refresh watchdog specified.",
+      "notes": "Serial speed mode uses this signed speed. External JOG+/JOG- force direction independently of sign. The p18 example writes positive 0x003C for 60 r/min although its introduction says reverse and 500 r/min; it is not evidence for negative encoding. No refresh watchdog specified.",
       "choices": null
     },
     {
@@ -488,7 +491,8 @@
       "name": "JOG_DECELERATION_TIME",
       "pages": [
         70,
-        17
+        17,
+        25
       ],
       "source_access": "RW",
       "unit": "ms (documented)",
@@ -501,14 +505,15 @@
         "DEFAULT_CONFLICT",
         "SCALE_UNRESOLVED"
       ],
-      "notes": "Conflicting default annotation retained; no factor-of-two scaling inferred.",
+      "notes": "Conflicting default annotation retained; no factor-of-two scaling inferred. Normal stop uses the deceleration time configured before motion starts; changing it during motion does not change that stop ramp (p25).",
       "choices": null
     },
     {
       "address": "0x0020",
       "name": "POSITION_START_SPEED",
       "pages": [
-        70
+        70,
+        16
       ],
       "source_access": "RW",
       "unit": "r/min (documented)",
@@ -521,7 +526,7 @@
         "DEFAULT_CONFLICT",
         "SCALE_UNRESOLVED"
       ],
-      "notes": "",
+      "notes": "The p16 motion example mentions initial speed 10 r/min but starts its parameter write at 0x0021, leaving this register unchanged. Do not treat that example as a complete start-speed configuration.",
       "choices": null
     },
     {
@@ -550,7 +555,8 @@
       "name": "POSITION_DECELERATION_TIME",
       "pages": [
         70,
-        15
+        15,
+        25
       ],
       "source_access": "RW",
       "unit": "ms (documented)",
@@ -563,7 +569,7 @@
         "DEFAULT_CONFLICT",
         "SCALE_UNRESOLVED"
       ],
-      "notes": "Conflicting default annotation retained; no factor-of-two scaling inferred.",
+      "notes": "Conflicting default annotation retained; no factor-of-two scaling inferred. Normal stop uses the deceleration time configured before motion starts; changing it during motion does not change that stop ramp (p25).",
       "choices": null
     },
     {
@@ -632,7 +638,7 @@
         "SEMANTICS_UNRESOLVED",
         "SOURCE_CONFLICT"
       ],
-      "notes": "Only named bits are catalogued, no arbitrary combinations validated. Bit 3 interrupt applies only positioning per p16. p25 stop table text contradicts labels/examples; stop examples confirm bits 8/9.",
+      "notes": "Only named bits are catalogued, no arbitrary combinations validated. Bit 3 interrupt applies only positioning per p16. p25 stop table text contradicts labels/examples; stop examples confirm bits 8/9. Normal stop decelerates using the pre-motion ramp; emergency stop is described as direct stop without deceleration, not motor release. No command queue depth, watchdog deadline or stop-completion latency is specified.",
       "choices": "MotionCommandBit"
     },
     {
@@ -1214,7 +1220,7 @@
       "signedness": "UNSIGNED",
       "word_order": "SINGLE_REGISTER",
       "issues": [],
-      "notes": "",
+      "notes": "Delay after movement stops before the motor enters the lock state, in ms. It is not a communication timeout or a guaranteed motion-completion delay.",
       "choices": null
     },
     {
@@ -1231,7 +1237,7 @@
       "signedness": "UNSIGNED",
       "word_order": "SINGLE_REGISTER",
       "issues": [],
-      "notes": "",
+      "notes": "Terminal filter coefficient only; the source supplies no time unit or coefficient-to-delay formula.",
       "choices": null
     },
     {
@@ -1248,7 +1254,7 @@
       "signedness": "UNSIGNED",
       "word_order": "SINGLE_REGISTER",
       "issues": [],
-      "notes": "",
+      "notes": "Pulse-command low-pass filter coefficient; a smaller value gives a stronger filtering effect. No coefficient-to-time formula is stated.",
       "choices": null
     },
     {
@@ -1267,7 +1273,7 @@
       "issues": [
         "UNIT_UNSPECIFIED"
       ],
-      "notes": "",
+      "notes": "The source names a position-deviation threshold but supplies no count basis. Do not assume raw encoder counts or command subdivisions.",
       "choices": null
     },
     {
@@ -1286,7 +1292,7 @@
       "issues": [
         "UNIT_UNSPECIFIED"
       ],
-      "notes": "",
+      "notes": "The source names a positioning-error range but supplies no count basis. It is not sufficient by itself to establish motion completion.",
       "choices": null
     },
     {
@@ -1305,7 +1311,7 @@
       "issues": [
         "UNIT_UNSPECIFIED"
       ],
-      "notes": "",
+      "notes": "The source names an arrival/end time but supplies no unit or timing rule. Do not infer milliseconds from neighboring registers.",
       "choices": null
     },
     {
@@ -1322,7 +1328,7 @@
       "signedness": "UNSIGNED",
       "word_order": "SINGLE_REGISTER",
       "issues": [],
-      "notes": "",
+      "notes": "Mean filter coefficient; a larger value gives a stronger filtering effect. No coefficient-to-time formula is stated.",
       "choices": null
     },
     {
@@ -3798,6 +3804,163 @@
     "paired_records": 21,
     "explicit_reserved_words": 16,
     "homing_choices": 35,
-    "operational_command_coverage": "not implemented; a name/address is not an accepted setter or motion operation"
+    "operational_command_coverage": "not implemented; a name/address is not an accepted setter or motion operation",
+    "undocumented_words_in_span": 78,
+    "undocumented_intervals_in_span": 15
+  },
+  "address_coverage": {
+    "first": "0x0000",
+    "last": "0x013F",
+    "documented_words": 242,
+    "gap_words": 78,
+    "notes": "Every word in the inclusive appendix span is either in a register descriptor or one of these gaps. A gap means undocumented for ESS, not reserved and not safe to probe. The 16 explicitly reserved position-segment words are already descriptors and are not gaps. Two collision registers 0x003B and 0x003C are documented but lack an access marker. Addresses outside this span are not thereby assigned any meaning.",
+    "gaps": [
+      {
+        "first": "0x0004",
+        "last": "0x0005",
+        "pages": [
+          68
+        ],
+        "notes": "The read-only table skips these addresses between DIP status and error code."
+      },
+      {
+        "first": "0x000D",
+        "last": "0x000F",
+        "pages": [
+          69
+        ],
+        "notes": "No entries between current speed and the basic-control group."
+      },
+      {
+        "first": "0x0012",
+        "last": "0x0012",
+        "pages": [
+          69
+        ],
+        "notes": "No entry between subdivision and custom node."
+      },
+      {
+        "first": "0x0016",
+        "last": "0x0016",
+        "pages": [
+          69,
+          70
+        ],
+        "notes": "No entry between serial format and over-limit stop."
+      },
+      {
+        "first": "0x001A",
+        "last": "0x001C",
+        "pages": [
+          70
+        ],
+        "notes": "No entries between word order and jog speed."
+      },
+      {
+        "first": "0x0026",
+        "last": "0x0026",
+        "pages": [
+          70
+        ],
+        "notes": "No entry between the position pulse pair and motion command."
+      },
+      {
+        "first": "0x0028",
+        "last": "0x002C",
+        "pages": [
+          70,
+          71
+        ],
+        "notes": "No entries between motion command and auxiliary command."
+      },
+      {
+        "first": "0x002E",
+        "last": "0x002F",
+        "pages": [
+          71,
+          72
+        ],
+        "notes": "No entries between auxiliary command and homing auxiliary setting."
+      },
+      {
+        "first": "0x003D",
+        "last": "0x003F",
+        "pages": [
+          73
+        ],
+        "notes": "No entries between collision current and input polarity."
+      },
+      {
+        "first": "0x0045",
+        "last": "0x004A",
+        "pages": [
+          74
+        ],
+        "notes": "Generic prose mentions input functions 0x0045-0x0047, but the ESS appendix and hardware expose only X0-X3. None of this interval has an ESS descriptor."
+      },
+      {
+        "first": "0x004E",
+        "last": "0x004E",
+        "pages": [
+          74
+        ],
+        "notes": "Generic prose mentions a third output function, but the ESS appendix and hardware expose only Y0-Y1."
+      },
+      {
+        "first": "0x0052",
+        "last": "0x005F",
+        "pages": [
+          75
+        ],
+        "notes": "No entries between PV trigger mode and the first position segment."
+      },
+      {
+        "first": "0x00F0",
+        "last": "0x00FF",
+        "pages": [
+          77
+        ],
+        "notes": "No entries between the last speed segment and the performance group."
+      },
+      {
+        "first": "0x011A",
+        "last": "0x0121",
+        "pages": [
+          79
+        ],
+        "notes": "No entries between LA position Ki and the second collision-threshold row."
+      },
+      {
+        "first": "0x0124",
+        "last": "0x012F",
+        "pages": [
+          77,
+          79
+        ],
+        "notes": "No entries between the second collision-current row and segment starting speeds."
+      }
+    ],
+    "explicit_reserved": [
+      "0x0065",
+      "0x006B",
+      "0x0071",
+      "0x0077",
+      "0x007D",
+      "0x0083",
+      "0x0089",
+      "0x008F",
+      "0x0095",
+      "0x009B",
+      "0x00A1",
+      "0x00A7",
+      "0x00AD",
+      "0x00B3",
+      "0x00B9",
+      "0x00BF"
+    ],
+    "access_unspecified": [
+      "0x003B",
+      "0x003C"
+    ]
   }
 }

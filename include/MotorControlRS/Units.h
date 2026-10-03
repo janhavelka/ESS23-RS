@@ -5,9 +5,9 @@
 #pragma once
 
 #include <stdint.h>
-#include "RS485Motion/Status.h"
+#include "MotorControlRS/Status.h"
 
-namespace RS485Motion {
+namespace MotorControlRS {
 
 /** Spatial unit. Angles and travel refer to the configured load axis. */
 enum class PositionUnit : uint8_t {
@@ -134,4 +134,4 @@ Status validateNativePosition(int64_t value, int64_t minimum, int64_t maximum);
 /** Narrow an exact native position to a signed 32-bit field, without floating point. */
 Status narrowNativePosition(int64_t value, int32_t& output);
 
-} // namespace RS485Motion
+} // namespace MotorControlRS

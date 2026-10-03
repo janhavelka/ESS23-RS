@@ -1,11 +1,12 @@
-#include "RS485Motion/profiles/ess_rs/Registers.h"
+#include "MotorControlRS/profiles/ess_rs/Registers.h"
+#include "MotorControlRS/profiles/ess_rs/Codec.h"
 
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
 
-using namespace RS485Motion::ESS_RS;
+using namespace MotorControlRS::ESS_RS;
 
 // These intervals are independently transcribed from ESS appendix pages 68-79.
 // Adjacent pairs count as words, not two independently writable quantities.
@@ -82,6 +83,32 @@ static void testAccessAndUncertainty() {
     assert(findRegister(0x2042) == nullptr); // Misplaced current-base reference is not an alias.
 }
 
+static void testCodecAccessMap() {
+    // The compact codec policy must match catalogue access/width throughout the
+    // address space, without treating undefined holes as reserved/readable words.
+    for (uint32_t address = 0; address <= 0xFFFF; ++address) {
+        const uint16_t word = static_cast<uint16_t>(address);
+        const RegisterDescriptor* entry = findRegister(word);
+        const bool readable = entry && (entry->access == RegisterAccess::READ_ONLY ||
+                                        entry->access == RegisterAccess::READ_WRITE);
+        const bool singleWrite = entry && entry->wordCount == 1 &&
+            (entry->access == RegisterAccess::WRITE_ONLY || entry->access == RegisterAccess::READ_WRITE);
+        assert(isReadRangeValid(word, 1) == readable);
+        assert(validateWriteSingleRegisterRequest(1, word, 0).isOk() == singleWrite);
+    }
+    for (uint16_t start = 0; start <= 0x013F; ++start) {
+        for (uint16_t count = 1; count <= 16; ++count) {
+            bool readable = true;
+            for (uint16_t offset = 0; offset < count; ++offset) {
+                const RegisterDescriptor* entry = findRegister(start + offset);
+                readable = readable && entry && (entry->access == RegisterAccess::READ_ONLY ||
+                                                  entry->access == RegisterAccess::READ_WRITE);
+            }
+            assert(isReadRangeValid(start, count) == readable);
+        }
+    }
+}
+
 static void testIndexedFields() {
     assert(positionSegmentRegister(1, PositionSegmentField::PULSES)->address == 0x0060);
     assert(positionSegmentRegister(16, PositionSegmentField::PULSES)->address == 0x00BA);
@@ -153,6 +180,7 @@ static void testNamedChoices() {
 int main() {
     testCoverageAndLookup();
     testAccessAndUncertainty();
+    testCodecAccessMap();
     testIndexedFields();
     testNamedChoices();
     return 0;

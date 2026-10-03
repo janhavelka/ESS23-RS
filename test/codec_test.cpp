@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-#include "RS485Motion/profiles/ess_rs/Codec.h"
+#include "MotorControlRS/profiles/ess_rs/Codec.h"
 
 #include <cassert>
 #include <cstddef>
@@ -7,9 +7,9 @@
 #include <cstring>
 #include <limits>
 
-using RS485Motion::Err;
-using RS485Motion::Status;
-using namespace RS485Motion::ESS_RS;
+using MotorControlRS::Err;
+using MotorControlRS::Status;
+using namespace MotorControlRS::ESS_RS;
 
 namespace {
 
@@ -88,7 +88,11 @@ void testCrcAndSizes() {
     assert(expectedWriteMultipleRegistersLen(0) == 0);
     assert(expectedWriteMultipleRegistersLen(1) == 0);
     assert(expectedWriteMultipleRegistersLen(2) == 13);
-    assert(expectedWriteMultipleRegistersLen(3) == 0);
+    assert(expectedWriteMultipleRegistersLen(3) == 15);
+    assert(expectedWriteMultipleRegistersLen(4) == 0);
+    assert(expectedWriteMultipleRegistersLen(5) == 19);
+    assert(expectedWriteMultipleRegistersLen(6) == 21);
+    assert(expectedWriteMultipleRegistersLen(7) == 0);
     assert(expectedWriteMultipleRegistersLen(0xFFFF) == 0);
 }
 
@@ -417,6 +421,68 @@ void testWriteResponses() {
     assert(error == FrameError::LENGTH);
 }
 
+void testBulkWindows() {
+    // Function manual physical16/18/20. The position request below corrects
+    // an extra payload byte in p16; its CRC is independently verified.
+    const uint8_t position[] = {1, 0x10, 0, 0x21, 0, 5, 10,
+        0, 100, 0, 100, 0, 60, 0, 0, 3, 0xE8, 0xCF, 0x66};
+    const uint8_t speed[] = {1, 0x10, 0, 0x1D, 0, 3, 6,
+        0, 60, 0, 100, 0, 100, 0x66, 0xDE};
+    const uint8_t homing[] = {1, 0x10, 0, 0x31, 0, 6, 12,
+        0, 24, 0, 60, 0, 30, 0, 100, 0, 0, 0, 0, 0x2F, 0x3B};
+    const uint16_t positionWords[] = {100, 100, 60, 0, 1000};
+    const uint16_t speedWords[] = {60, 100, 100};
+    const uint16_t homingWords[] = {24, 60, 30, 100, 0, 0};
+    const uint8_t positionAck[] = {1, 0x10, 0, 0x21, 0, 5, 0x50, 0};
+    const uint8_t speedAck[] = {1, 0x10, 0, 0x1D, 0, 3, 0x10, 0x0E};
+    const uint8_t homingAck[] = {1, 0x10, 0, 0x31, 0, 6, 0x11, 0xC4};
+    struct Example {
+        uint16_t start, count;
+        const uint16_t* words;
+        const uint8_t* request;
+        std::size_t length;
+        const uint8_t* ack;
+    };
+    const Example examples[] = {
+        {0x0021, 5, positionWords, position, sizeof(position), positionAck},
+        {0x001D, 3, speedWords, speed, sizeof(speed), speedAck},
+        {0x0031, 6, homingWords, homing, sizeof(homing), homingAck}
+    };
+    for (const Example& example : examples) {
+        assert(fixtureCrc(example.request, example.length) == 0);
+        assert(fixtureCrc(example.ack, 8) == 0);
+        uint8_t output[22];
+        std::memset(output, 0xA5, sizeof(output));
+        for (std::size_t capacity = 0; capacity < example.length; ++capacity) {
+            assert(buildWriteMultipleRegisters(1, example.start, example.words,
+                                               example.count, output, capacity) == 0);
+            filled(output, uint8_t(0xA5));
+        }
+        assert(buildWriteMultipleRegisters(1, example.start, example.words,
+                                           example.count, output, example.length) == example.length);
+        assert(std::memcmp(output, example.request, example.length) == 0);
+        assert(output[example.length] == 0xA5);
+        assert(parseWriteMultipleRegisters(example.ack, 8, 1, example.start, example.count));
+        uint8_t wrongEcho[8];
+        std::memcpy(wrongEcho, example.ack, 8);
+        wrongEcho[5] ^= 1;
+        seal(wrongEcho, 8);
+        FrameError error;
+        assert(!parseWriteMultipleRegisters(wrongEcho, 8, 1, example.start, example.count, &error));
+        assert(error == FrameError::ECHO);
+        // Neighbouring windows and arbitrary subsets were not demonstrated.
+        assert(!validateWriteMultipleRegistersRequest(1, example.start + 1, example.words, example.count));
+        assert(!validateWriteMultipleRegistersRequest(1, example.start, example.words, example.count - 1));
+    }
+    // p16 has a valid CRC over an invalid FC10 shape: 11 data bytes, count says10.
+    const uint8_t malformed[] = {1, 0x10, 0, 0x21, 0, 5, 10,
+        0, 100, 0, 100, 0, 60, 0, 0, 0, 3, 0xE8, 0x98, 0xEA};
+    assert(fixtureCrc(malformed, sizeof(malformed)) == 0);
+    assert(sizeof(malformed) != expectedWriteMultipleRegistersLen(5));
+    assert(sizeof(malformed) != static_cast<std::size_t>(9 + malformed[6]));
+    assert(!parseWriteMultipleRegisters(malformed, sizeof(malformed), 1, 0x0021, 5));
+}
+
 void testProbe() {
     uint8_t frame[] = {1, 3, 2, 0xBE, 0xEF, 0, 0};
     seal(frame, sizeof(frame));
@@ -488,6 +554,7 @@ int main() {
     testReadResponses();
     testExceptionsAndPrecedence();
     testWriteResponses();
+    testBulkWindows();
     testProbe();
     testWordConversion();
     return 0;

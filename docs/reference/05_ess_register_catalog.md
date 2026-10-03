@@ -60,7 +60,7 @@ RW/S is the vendor notation, with persistence/application unresolved.
 | `0x0000` | `DRIVER_MODEL` | 1 | RO | model code | unspecified | 0x0305 | 68 | none recorded |
 | `0x0001` | `DRIVER_VERSION` | 1 | RO | version code | unspecified | 0x0100 | 68 | none recorded |
 | `0x0002` | `ACTIVE_NODE` | 1 | RO | slave address | unspecified | unspecified | 68 | none recorded |
-| `0x0003` | `DIP_STATUS` | 1 | RO | bitfield | unspecified | unspecified | 68 | MODEL_APPLICABILITY |
+| `0x0003` | `DIP_STATUS` | 1 | RO | bitfield | unspecified | unspecified | 68, 18 | MODEL_APPLICABILITY, SOURCE_CONFLICT |
 | `0x0006` | `ERROR_CODE` | 1 | RO | alarm code | 0: normal; 1-5: error | unspecified | 68 | MODEL_APPLICABILITY |
 | `0x0007` | `MOTION_STATUS` | 1 | RO | bitfield | unspecified | unspecified | 68 | none recorded |
 | `0x0008` | `INPUT_STATUS` | 1 | RO | bitfield | unspecified | unspecified | 68, 69 | none recorded |
@@ -75,12 +75,12 @@ RW/S is the vendor notation, with persistence/application unresolved.
 | `0x0017` | `OVER_LIMIT_STOP` | 1 | RW | unspecified | 0-1 | 0 | 70 | SEMANTICS_UNRESOLVED |
 | `0x0018` | `SOFT_LIMIT_ENABLE` | 1 | RW | unspecified | 0-1 | 0 | 70, 28, 29 | SOURCE_CONFLICT |
 | `0x0019` | `WORD_ORDER` | 1 | RW | unspecified | 0-1 | 0 | 70, 30 | none recorded |
-| `0x001D` | `JOG_SPEED` | 1 | RW | r/min (documented) | -3000 -3000 r/min (as printed) | 120 (5 r/min) | 70, 17, 18, 19 | RANGE_MALFORMED, DEFAULT_CONFLICT, SIGNED_ENCODING_UNRESOLVED, SCALE_UNRESOLVED |
+| `0x001D` | `JOG_SPEED` | 1 | RW | r/min (documented) | -3000 -3000 r/min (as printed) | 120 (5 r/min) | 70, 17, 18, 19 | RANGE_MALFORMED, DEFAULT_CONFLICT, SIGNED_ENCODING_UNRESOLVED, SCALE_UNRESOLVED, SOURCE_CONFLICT |
 | `0x001E` | `JOG_ACCELERATION_TIME` | 1 | RW | ms (documented) | 0-2000 ms | 50 (100 ms) | 70, 17 | DEFAULT_CONFLICT, SCALE_UNRESOLVED |
-| `0x001F` | `JOG_DECELERATION_TIME` | 1 | RW | ms (documented) | 0-2000 ms | 50 (100 ms) | 70, 17 | DEFAULT_CONFLICT, SCALE_UNRESOLVED |
-| `0x0020` | `POSITION_START_SPEED` | 1 | RW | r/min (documented) | 0-3000 r/min | 30 (60 r/min) | 70 | DEFAULT_CONFLICT, SCALE_UNRESOLVED |
+| `0x001F` | `JOG_DECELERATION_TIME` | 1 | RW | ms (documented) | 0-2000 ms | 50 (100 ms) | 70, 17, 25 | DEFAULT_CONFLICT, SCALE_UNRESOLVED |
+| `0x0020` | `POSITION_START_SPEED` | 1 | RW | r/min (documented) | 0-3000 r/min | 30 (60 r/min) | 70, 16 | DEFAULT_CONFLICT, SCALE_UNRESOLVED |
 | `0x0021` | `POSITION_ACCELERATION_TIME` | 1 | RW | ms (documented) | 0-2000 ms | 50 (100 ms) | 70, 15 | DEFAULT_CONFLICT, SCALE_UNRESOLVED |
-| `0x0022` | `POSITION_DECELERATION_TIME` | 1 | RW | ms (documented) | 0-2000 ms | 50 (100 ms) | 70, 15 | DEFAULT_CONFLICT, SCALE_UNRESOLVED |
+| `0x0022` | `POSITION_DECELERATION_TIME` | 1 | RW | ms (documented) | 0-2000 ms | 50 (100 ms) | 70, 15, 25 | DEFAULT_CONFLICT, SCALE_UNRESOLVED |
 | `0x0023` | `POSITION_SPEED` | 1 | RW | r/min (documented) | 0-3000 r/min | 60 (60 r/min) | 70, 15 | none recorded |
 | `0x0024` | `POSITION_PULSES` | 2 | RW | pulse | -0xFFFFFFF to 0xFFFFFFFF (as printed) | 5000 (combined pair) | 70, 14, 16, 30 | RANGE_MALFORMED, SIGNED_ENCODING_UNRESOLVED, SCALE_UNRESOLVED |
 | `0x0027` | `MOTION_COMMAND` | 1 | WO | bitfield | 0-65535 | - | 70, 71, 13, 14, 16, 18, 19, 25 | SEMANTICS_UNRESOLVED, SOURCE_CONFLICT |
@@ -284,21 +284,31 @@ RW/S is the vendor notation, with persistence/application unresolved.
 Within the appendix span 0x0000-0x013F, the following holes have no ESS
 entry. They are not declared readable, writable or reserved by inference.
 
-- `0x0004` through `0x0005`
-- `0x000D` through `0x000F`
-- `0x0012`
-- `0x0016`
-- `0x001A` through `0x001C`
-- `0x0026`
-- `0x0028` through `0x002C`
-- `0x002E` through `0x002F`
-- `0x003D` through `0x003F`
-- `0x0045` through `0x004A`
-- `0x004E`
-- `0x0052` through `0x005F`
-- `0x00F0` through `0x00FF`
-- `0x011A` through `0x0121`
-- `0x0124` through `0x012F`
+78 undocumented words in 15 intervals, separately audited against the
+appendix. These are distinct from 16 explicitly reserved words and
+the documented 0x003B/0x003C entries with unspecified access.
+
+| First | Last | PDF pages | Evidence |
+| --- | --- | --- | --- |
+| `0x0004` | `0x0005` | 68 | The read-only table skips these addresses between DIP status and error code. |
+| `0x000D` | `0x000F` | 69 | No entries between current speed and the basic-control group. |
+| `0x0012` | `0x0012` | 69 | No entry between subdivision and custom node. |
+| `0x0016` | `0x0016` | 69, 70 | No entry between serial format and over-limit stop. |
+| `0x001A` | `0x001C` | 70 | No entries between word order and jog speed. |
+| `0x0026` | `0x0026` | 70 | No entry between the position pulse pair and motion command. |
+| `0x0028` | `0x002C` | 70, 71 | No entries between motion command and auxiliary command. |
+| `0x002E` | `0x002F` | 71, 72 | No entries between auxiliary command and homing auxiliary setting. |
+| `0x003D` | `0x003F` | 73 | No entries between collision current and input polarity. |
+| `0x0045` | `0x004A` | 74 | Generic prose mentions input functions 0x0045-0x0047, but the ESS appendix and hardware expose only X0-X3. None of this interval has an ESS descriptor. |
+| `0x004E` | `0x004E` | 74 | Generic prose mentions a third output function, but the ESS appendix and hardware expose only Y0-Y1. |
+| `0x0052` | `0x005F` | 75 | No entries between PV trigger mode and the first position segment. |
+| `0x00F0` | `0x00FF` | 77 | No entries between the last speed segment and the performance group. |
+| `0x011A` | `0x0121` | 79 | No entries between LA position Ki and the second collision-threshold row. |
+| `0x0124` | `0x012F` | 77, 79 | No entries between the second collision-current row and segment starting speeds. |
+
+The generator requires documented words and audited gaps to cover the
+entire 0x0000-0x013F span without overlap. Its private 320-byte access
+map lets the codec reject gaps without linking catalogue descriptions.
 
 Generic references outside the ESS map:
 

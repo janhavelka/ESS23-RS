@@ -3,7 +3,7 @@
 
 #include <stdint.h>
 
-namespace RS485Motion { namespace ESS_RS {
+namespace MotorControlRS { namespace ESS_RS {
 
 /** Source access only; it is not authorization to perform a transaction. */
 enum class RegisterAccess : uint8_t { READ_ONLY, WRITE_ONLY, READ_WRITE, UNSPECIFIED, RESERVED };
@@ -382,4 +382,4 @@ enum class PositionSegmentField : uint8_t { PULSES = 0, SPEED = 2, ACCELERATION_
 /** Offsets within one documented speed segment; index is 1 through 16. */
 enum class SpeedSegmentField : uint8_t { SPEED = 0, ACCELERATION_TIME = 1, DECELERATION_TIME = 2 };
 
-}} // namespace RS485Motion::ESS_RS
+}} // namespace MotorControlRS::ESS_RS

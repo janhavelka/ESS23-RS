@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 // The same pure-library preview runs on a desktop and on the E2 USB console.
-#include <RS485Motion/RS485Motion.h>
-#include <RS485Motion/profiles/ess_rs/Defaults.h>
-#include <RS485Motion/profiles/ess_rs/Registers.h>
+#include <MotorControlRS/MotorControlRS.h>
+#include <MotorControlRS/profiles/ess_rs/Defaults.h>
+#include <MotorControlRS/profiles/ess_rs/Registers.h>
 
 #ifdef ARDUINO
 #include <Arduino.h>
@@ -15,7 +15,7 @@
 #endif
 
 static int runPreview() {
-    using namespace RS485Motion;
+    using namespace MotorControlRS;
     UnitConfig config = ESS_RS::makeBenchUnitConfig();
     config.settings.position = PositionUnit::DEGREES;
     config.settings.velocity = VelocityUnit(PositionUnit::TURNS, TimeUnit::MINUTE);
@@ -34,7 +34,7 @@ static int runPreview() {
                        errToString(p.code), errToString(v.code), errToString(a.code));
         return 1;
     }
-    PREVIEW_PRINTF("RS485Motion %s: unit preview; no motor communication\n", VERSION);
+    PREVIEW_PRINTF("MotorControl-RS %s: unit preview; no motor communication\n", VERSION);
     PREVIEW_PRINTF("Assumptions: 1000 command steps/motor turn, direct coupling\n");
     PREVIEW_PRINTF("90 degrees = %.6f command steps\n", position.value);
     PREVIEW_PRINTF("6 rpm = %.6f command steps/s\n", speed.value);
@@ -50,14 +50,14 @@ static int runPreview() {
 
 #ifdef ARDUINO
 void setup() {
-    Serial.begin(RS485MotionExample::kConsoleBaud);
+    Serial.begin(MotorControlRSExample::kConsoleBaud);
     // Bound console attachment waiting; do not wait forever without a host.
     const uint32_t started = millis();
     while (!Serial && millis() - started < 2000) delay(10);
     PREVIEW_PRINTF("E2 HW2.0 pins: TX%d RX%d DE%d (not initialized)\n",
-                   RS485MotionExample::Board::kRs485TxPin,
-                   RS485MotionExample::Board::kRs485RxPin,
-                   RS485MotionExample::Board::kRs485DeRePin);
+                   MotorControlRSExample::Board::kRs485TxPin,
+                   MotorControlRSExample::Board::kRs485RxPin,
+                   MotorControlRSExample::Board::kRs485DeRePin);
     runPreview();
 }
 void loop() { delay(1000); }

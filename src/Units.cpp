@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT
-#include "RS485Motion/Units.h"
+#include "MotorControlRS/Units.h"
 
 #include <cmath>
 #include <limits>
 
-namespace RS485Motion {
+namespace MotorControlRS {
 namespace {
 
 const double kMaxEngineeringMagnitude = 9007199254740992.0; // 2^53
@@ -41,42 +41,59 @@ Status requireScale(const UnitScale& scale, long double& value) {
     return Ok();
 }
 
-// Spatial factors use load turns as the common basis. No origins are applied.
-Status turnsPerUnit(PositionUnit unit, const UnitConfig& config, long double& factor) {
+// Keep the natural basis until both units are known. Motor-to-motor conversions
+// need no gearing, and a linear encoder needs no lead to report millimetres.
+Status unitFactor(PositionUnit unit, const UnitConfig& config,
+                  EncoderBasis& basis, long double& factor) {
     long double scale = 1;
-    long double gear = 1;
     Status status;
+    basis = EncoderBasis::LOAD_TURN;
     switch (unit) {
     case PositionUnit::TURNS: factor = 1; return Ok();
     case PositionUnit::DEGREES: factor = 1.0L / 360; return Ok();
     case PositionUnit::RADIANS: factor = 1.0L / kTau; return Ok();
     case PositionUnit::MILLIMETRES:
-        status = requireScale(config.millimetresPerLoadTurn, scale);
-        if (!status) return status;
-        factor = 1 / scale;
+        basis = EncoderBasis::MILLIMETRE;
+        factor = 1;
         return Ok();
     case PositionUnit::STEPS:
     case PositionUnit::FULL_STEPS:
         status = requireScale(unit == PositionUnit::STEPS ? config.commandStepsPerMotorTurn
                                                         : config.fullStepsPerMotorTurn, scale);
         if (!status) return status;
-        status = requireScale(config.motorTurnsPerLoadTurn, gear);
-        if (!status) return status;
-        factor = (unit == PositionUnit::STEPS ? config.commandPolarity : 1) / (scale * gear);
+        basis = EncoderBasis::MOTOR_TURN;
+        factor = (unit == PositionUnit::STEPS ? config.commandPolarity : 1) / scale;
         return Ok();
     case PositionUnit::ENCODER_COUNTS:
         status = requireScale(config.encoder.countsPerUnit, scale);
         if (!status) return status;
-        if (config.encoder.basis == EncoderBasis::MOTOR_TURN) {
-            status = requireScale(config.motorTurnsPerLoadTurn, gear);
-        } else if (config.encoder.basis == EncoderBasis::MILLIMETRE) {
-            status = requireScale(config.millimetresPerLoadTurn, gear);
-        }
-        if (!status) return status;
-        factor = config.encoder.polarity / (scale * gear);
+        basis = config.encoder.basis;
+        factor = config.encoder.polarity / scale;
         return Ok();
     }
     return fail(Err::ILLEGAL_VALUE, UnitError::INVALID_UNIT, "invalid spatial unit");
+}
+
+// Bridge distinct bases through load turns, requiring only the crossed scales.
+Status basisFactor(EncoderBasis from, EncoderBasis to, const UnitConfig& config,
+                   long double& factor) {
+    factor = 1;
+    if (from == to) return Ok();
+    long double scale = 1;
+    Status status;
+    if (from != EncoderBasis::LOAD_TURN) {
+        status = requireScale(from == EncoderBasis::MOTOR_TURN
+            ? config.motorTurnsPerLoadTurn : config.millimetresPerLoadTurn, scale);
+        if (!status) return status;
+        factor /= scale;
+    }
+    if (to != EncoderBasis::LOAD_TURN) {
+        status = requireScale(to == EncoderBasis::MOTOR_TURN
+            ? config.motorTurnsPerLoadTurn : config.millimetresPerLoadTurn, scale);
+        if (!status) return status;
+        factor *= scale;
+    }
+    return Ok();
 }
 
 long double secondsPerUnit(TimeUnit unit) {
@@ -112,13 +129,22 @@ Status convert(double value, PositionUnit from, PositionUnit to, long double tim
 
     long double fromFactor = 1;
     long double toFactor = 1;
+    long double bridge = 1;
     if (from != to) {
-        status = turnsPerUnit(from, config, fromFactor);
+        EncoderBasis fromBasis = EncoderBasis::LOAD_TURN;
+        EncoderBasis toBasis = EncoderBasis::LOAD_TURN;
+        status = unitFactor(from, config, fromBasis, fromFactor);
         if (!status) return status;
-        status = turnsPerUnit(to, config, toFactor);
+        status = unitFactor(to, config, toBasis, toFactor);
+        if (!status) return status;
+        status = basisFactor(fromBasis, toBasis, config, bridge);
         if (!status) return status;
     }
-    const long double result = static_cast<long double>(value) * (fromFactor / toFactor) * timeFactor;
+    // Combine the bounded scale factors first. Multiplying a tiny input before
+    // a later scale-up could underflow an intermediate on binary64 targets even
+    // when the final value is normal, invalidating the arithmetic error bound.
+    const long double factor = (fromFactor / toFactor) * bridge * timeFactor;
+    const long double result = static_cast<long double>(value) * factor;
     if (!std::isfinite(result) || std::fabs(result) > kMaxEngineeringMagnitude) {
         return fail(Err::ILLEGAL_VALUE, UnitError::PRECISION_LIMIT, "engineering output exceeds precision limit");
     }
@@ -216,4 +242,4 @@ Status narrowNativePosition(int64_t value, int32_t& output) {
     return Ok();
 }
 
-} // namespace RS485Motion
+} // namespace MotorControlRS

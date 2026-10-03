@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: MIT
-#include "RS485Motion/profiles/ess_rs/Codec.h"
-#include "RS485Motion/profiles/ess_rs/Registers.h"
+#include "MotorControlRS/profiles/ess_rs/Codec.h"
+#include "MotorControlRS/profiles/ess_rs/Registers.h"
+#include "Access.h"
 #include "../../rtu/Frame.h"
 
 #include <limits>
 
-namespace RS485Motion { namespace ESS_RS {
+namespace MotorControlRS { namespace ESS_RS {
 namespace {
 
 constexpr uint8_t READ = 0x03;
@@ -35,21 +36,15 @@ Status argumentError(Status status, FrameError* error) noexcept {
     return status;
 }
 
-bool readable(RegisterAccess access) noexcept {
-    return access == RegisterAccess::READ_ONLY || access == RegisterAccess::READ_WRITE;
-}
-
-bool writable(RegisterAccess access) noexcept {
-    return access == RegisterAccess::WRITE_ONLY || access == RegisterAccess::READ_WRITE;
-}
-
 Status writeWindow(uint8_t address, uint16_t start, uint16_t count) noexcept {
     if (!isValidAddress(address)) return invalid(address, "expected unicast address 1..247");
-    // This is a reviewed window, not a guessed device-wide FC10 maximum.
-    if (start != Registers::POSITION_PULSES || count != 2) {
-        return unsupported(start, "FC10 currently supports only 0x0024 with two words");
-    }
-    return Ok();
+    // Exact manual examples: physical pages 8, 16, 18, 20. No device-wide
+    // maximum is inferred, and arbitrary subsets are not silently admitted.
+    if ((start == Registers::POSITION_PULSES && count == 2) ||
+        (start == Registers::POSITION_ACCELERATION_TIME && count == 5) ||
+        (start == Registers::JOG_SPEED && count == 3) ||
+        (start == Registers::HOMING_METHOD && count == 6)) return Ok();
+    return unsupported(start, "unreviewed FC10 register window");
 }
 
 Status checkReply(const uint8_t* frame, std::size_t length, uint8_t address,
@@ -108,8 +103,7 @@ bool isReadRangeValid(uint16_t start, uint16_t count) noexcept {
     if (count == 0 || count > MAX_READ_REGISTERS ||
         static_cast<uint32_t>(start) + count > 0x10000u) return false;
     for (uint16_t offset = 0; offset < count; ++offset) {
-        const RegisterDescriptor* entry = findRegister(static_cast<uint16_t>(start + offset));
-        if (!entry || !readable(entry->access)) return false;
+        if (!Detail::canRead(static_cast<uint16_t>(start + offset))) return false;
     }
     return true;
 }
@@ -124,9 +118,7 @@ Status validateReadRegistersRequest(uint8_t address, uint16_t start, uint16_t co
 Status validateWriteSingleRegisterRequest(uint8_t address, uint16_t reg, uint16_t value) noexcept {
     (void)value; // Raw bits; typed register-value and workflow checks are a separate layer.
     if (!isValidAddress(address)) return invalid(address, "expected unicast address 1..247");
-    const RegisterDescriptor* entry = findRegister(reg);
-    if (!entry || !writable(entry->access)) return unsupported(reg, "unreviewed or unwritable register");
-    if (entry->wordCount != 1) return unsupported(reg, "paired values require a reviewed multi-word write");
+    if (!Detail::canWriteSingle(reg)) return unsupported(reg, "not a reviewed single-word write");
     return Ok();
 }
 
@@ -145,7 +137,7 @@ std::size_t expectedReadRegistersLen(uint16_t count) noexcept {
 std::size_t expectedWriteSingleRegisterLen() noexcept { return 8; }
 
 std::size_t expectedWriteMultipleRegistersLen(uint16_t count) noexcept {
-    return count == 2 ? 13 : 0;
+    return count == 2 || count == 3 || count == 5 || count == 6 ? 9u + 2u * count : 0;
 }
 
 uint16_t calcCrc16(const uint8_t* data, std::size_t length) noexcept {
@@ -280,4 +272,4 @@ Status decodeInt32(const uint16_t* words, std::size_t count, WordOrder order, in
     return Ok();
 }
 
-}} // namespace RS485Motion::ESS_RS
+}} // namespace MotorControlRS::ESS_RS

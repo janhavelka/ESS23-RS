@@ -1,4 +1,4 @@
-# RS485Motion engineering guidance
+# MotorControl-RS engineering guidance
 
 ## Current scope
 
@@ -18,8 +18,9 @@ verified CL86-C subset. Keep one documented motion vocabulary and behavioral
 contract across the libraries, with independent protocol implementations and
 application bus owners. Extract shared units/types only after the second
 implementation demonstrates concrete reuse; do not add a universal transport
-engine or a speculative common framework here. `RS485Motion` remains the
-working name until the user selects its replacement.
+engine or a speculative common framework here. The accepted package name is
+`MotorControl-RS`; C++ namespace, include directory and CMake identity are
+`MotorControlRS`. The user will rename GitHub later; preserve the current URL.
 
 ## Delivery workflow
 
@@ -61,6 +62,9 @@ This is recorded availability, not a claim that communication has been tested.
 4. `docs/reference/01_implementation_reference.md`,
    `docs/reference/05_ess_register_catalog.md`, and
    `docs/reference/06_encoder_units.md`. Read
+   `docs/reference/09_timing_and_gap_audit.md` for framing and unresolved
+   response, configuration and motion timing before transport/workflow work.
+   Read
    `docs/reference/04_co2control_platform.md` before board/example work.
    Read `docs/reference/08_serial_protocol_review.md` before extending codecs
    to another manufacturer; contrasting manuals are preserved under
@@ -76,9 +80,9 @@ differences instead of guessing. No hardware behavior has been validated yet.
 
 ## Intended structure and architecture
 
-- Common public headers: `include/RS485Motion/`, namespace
-  `RS485Motion`; ESS headers: `include/RS485Motion/profiles/ess_rs/`, namespace
-  `RS485Motion::ESS_RS`; implementation: `src/`.
+- Common public headers: `include/MotorControlRS/`, namespace
+  `MotorControlRS`; ESS headers: `include/MotorControlRS/profiles/ess_rs/`, namespace
+  `MotorControlRS::ESS_RS`; implementation: `src/`.
 - Follow the current stateless codec boundary in `../SHZK-PT`, `../VTN4xx`,
   and `../VibWire-108`. Do not copy their device registers or constants.
 - Profile codecs are bounded frame builders, validators, decoders and checked
@@ -142,8 +146,11 @@ differences instead of guessing. No hardware behavior has been validated yet.
 - Establish supported register widths, signedness, scaling, word order,
   request limits, and exception behavior from the relevant vendor pages.
 - ESS FC03 permits at most 16 reviewed readable words; FC06 excludes paired
-  halves. FC10 initially admits only the documented 0x0024/two-word window,
-  not a claimed device-wide maximum. Probe reads model register 0x0000/one word.
+  halves. FC10 admits the four documented start/count windows: 0x0024/2,
+  0x0021/5, 0x001D/3 and 0x0031/6, not a claimed device-wide maximum.
+  Probe reads model register 0x0000/one word. Generate compact codec access
+  policy from the same register ledger; basic codec use must not require
+  linking the descriptive catalogue strings.
   Raw codecs validate wire shape/access, not value meaning, motion readiness
   or persistence. Keep generic RTU mechanics private and profile policy explicit.
 - Keep board pins and platform adapters under `examples/common/`.
@@ -161,6 +168,8 @@ of documentation preparation. Vendor files are not covered by any future
 library license. The ESS JSON catalogue is the register transcription source;
 regenerate its C++ tables with `scripts/generate_ess_registers.py` and check
 them with `--check`. Keep firmware uncertainties visible in that source.
+Its gap ledger accounts for every word through 0x013F. Undocumented gaps are
+not registers to invent or include in read/write windows.
 
 `scripts/prepare_serial_contrasts.py` preserves the additional manufacturer
 manuals and verifies `serial_contrasts_sources.json` offline with `--check`.

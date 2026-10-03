@@ -1,6 +1,6 @@
 # Common axis API contract
 
-This is the accepted design for the common axis layer of `RS485Motion`.
+This is the accepted design for the common axis layer of `MotorControlRS`.
 It defines the intended callable library behavior for applications and consoles.
 `Units.h` currently implements pure displacement, velocity and acceleration
 conversion with independent unit preferences; origins, target quantization,
@@ -10,7 +10,7 @@ The [architecture](architecture.md) defines the three layers and ownership,
 the [profile contract](profile_contract.md) defines complete family access,
 and the [CLI contract](cli_contract.md) maps commands to these same operations.
 
-ESS-RS is the first implementation target, under `RS485Motion::ESS_RS`.
+ESS-RS is the first implementation target, under `MotorControlRS::ESS_RS`.
 Leadshine iEM-RS supplies a documented contrasting design case, not a second
 supported backend. See the [feasibility review](reference/03_multi_vendor_feasibility.md)
 for evidence and limitations. Common operations must never imply that every

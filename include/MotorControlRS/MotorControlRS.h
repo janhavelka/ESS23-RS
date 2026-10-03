@@ -1,5 +1,5 @@
 /**
- * @file RS485Motion.h
+ * @file MotorControlRS.h
  * @brief Framework-independent units API. Include drive profiles explicitly.
  * SPDX-License-Identifier: MIT
  */

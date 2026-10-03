@@ -339,7 +339,7 @@ motor; communication-loss behavior must be qualified per profile.
 Implementation order under the adopted broader scope:
 
 1. Keep ESS-RS as the concrete first backend and finish its unresolved register
-   contract. The architecture uses `RS485Motion` as its working common identity.
+   contract. The package is now `MotorControl-RS`, with namespace `MotorControlRS`.
 2. Design against the contrasting Leadshine iEM-RS profile, and obtain
    hardware before claiming its support. Oriental AZ remains another candidate.
 3. Test the small common command/state/capability contract using both profiles;

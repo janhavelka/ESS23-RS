@@ -1,6 +1,6 @@
 {
-  "name": "RS485Motion",
-  "version": "0.2.0",
+  "name": "MotorControl-RS",
+  "version": "0.3.0",
   "description": "Framework-independent motion units, ESS-RS register catalogue and checked Modbus RTU codecs. Application-owned transport; no motion sequencing yet.",
   "keywords": ["rs485", "modbus", "stepper", "servo", "ess23", "motion"],
   "authors": [{"name": "Jan Havelka", "maintainer": true}],
@@ -8,7 +8,7 @@
   "license": "MIT",
   "frameworks": "*",
   "platforms": "*",
-  "headers": ["RS485Motion/RS485Motion.h"],
+  "headers": ["MotorControlRS/MotorControlRS.h"],
   "build": {"includeDir": "include", "srcDir": "src"},
   "export": {
     "include": ["include/", "src/", "CMakeLists.txt", "library.json", "LICENSE", "README.md", "CHANGELOG.md"]

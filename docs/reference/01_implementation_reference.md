@@ -1,6 +1,6 @@
 # Implementation reference
 
-This is a navigation aid for the ESS-RS profile of RS485Motion, not a verified
+This is a navigation aid for the ESS-RS profile of MotorControlRS, not a verified
 hardware contract. Sources were downloaded on 2026-10-02. All page numbers below
 are **physical PDF pages, counted from 1**; printed page numbers in both
 manufacturer manuals are two lower. The complete first source transcription is
@@ -8,6 +8,8 @@ now in the [register catalogue](05_ess_register_catalog.md); pure conversions an
 bench assumptions are in [encoder and units notes](06_encoder_units.md).
 Checked raw wire codecs and a minimal probe are implemented; typed commands,
 motion preparation and hardware qualification remain future work.
+The [timing and gap audit](09_timing_and_gap_audit.md) records the subsequent
+full appendix review, RTU timing rules and unresolved device deadlines.
 
 ## Source priority
 
@@ -68,25 +70,33 @@ The [extracted function-manual text](../pdf-extracted-md/Modbus-Series-Bus-Produ
 - Stop table p25 contains start/position descriptions beside stop bits; its examples write 0x0100 for stop and 0x0200 for emergency stop. Cross-check p13-14 and the ESS-RS appendix before implementing.
 - ESS-RS default column p70 contains conflicting pairs such as acceleration `50 (100ms)` and starting speed `30 (60r/min)`. Its pulse-count range is also malformed. Do not infer scaling or signed limits from those entries alone; verify with readback and hardware.
 - Function p8 prints two different CRCs for the same FC10 request: the diagram ends in `B9 56`, while the prose example ends in `FD 12`. Inspection of the original page and independent Modbus CRC calculation for `01 10 00 24 00 02 04 00 00 13 88` confirm `FD 12`. Do not copy printed example bytes into tests without checking them.
+- Function p16's position request declares five words / ten payload bytes but prints eleven payload bytes. Its `98 EA` CRC is valid for that malformed frame. The corrected request for acceleration 100, deceleration 100, speed 60 and target 1000 is `01 10 00 21 00 05 0A 00 64 00 64 00 3C 00 00 03 E8 CF 66`. CRC validity alone does not establish a valid Modbus frame.
 - Function p68 describes the DIP-status register as SW1-SW7, while the ESS23-RS hardware manual defines five switches (p8, p11). Preserve raw DIP status and confirm the actual firmware mapping before assigning model-specific switch labels.
 
 ## Implemented codec scope
 
-The original function-PDF pages 6-12, 29-30 and 68-70, plus hardware pages 8
-and 11, were re-inspected as rendered pages on 2026-10-03. The following decisions
-are implemented in [Codec.h](../../include/RS485Motion/profiles/ess_rs/Codec.h):
+The original function-PDF pages 6-12, 16, 18, 20, 29-30 and the full ESS appendix
+68-79, plus hardware pages 8 and 11, were re-inspected as rendered pages on
+2026-10-03. The following decisions
+are implemented in [Codec.h](../../include/MotorControlRS/profiles/ess_rs/Codec.h):
 
 | Concern | Implemented behavior and evidence |
 | --- | --- |
 | Address | Unicast 1-247 only, an explicit standard-compatible library policy despite the vendor's 0-255 parameter range. |
 | FC03 | 1-16 words (p7/p12), all mapped and readable; no undefined, reserved, write-only or unspecified-access words. Raw pair halves may be read. |
 | FC06 | Documented writable single words only. Rejecting paired halves is a library policy against unqualified split updates, not a claimed vendor prohibition. |
-| FC10 | Only 0x0024/count2, the explicit p8 example. Other counts/windows return unsupported. General device maximum, other-pair acceptance and atomic application remain unresolved. |
+| FC10 | Four documented start/count windows: 0x0024/2 (p8), 0x0021/5 (p16), 0x001D/3 (p18) and 0x0031/6 (p20). Other windows return unsupported, including unproven subsets. General device maximum, other-pair acceptance and atomic application remain unresolved. |
 | Raw values | Words are exactly 16 bits. Codecs do not validate typed ranges, motion preconditions, persistent effects or signed field semantics. |
 | Word helpers | Explicit high/low word order; bytes inside each word are big-endian on the wire. Pure signed helpers use two's complement by contract, without resolving unknown ESS field encodings. |
 | Homing offset | 0x0035/36 is omitted from the p30 configurable-order list. Its existing catalogue uncertainty remains; no typed offset encoder is supplied. |
 | Replies | Exact slave/function/length/count/CRC and applicable write echo, including exact five-byte exceptions. Unknown exception bytes are preserved. |
 | Outputs | No payload mutation on error; parsed word count resets to zero. Accessed input/output overlap is rejected. Diagnostic/count outputs must be separate storage. |
+
+The complete appendix audit accounts for 242 documented words and 78
+undocumented words in 15 gaps through 0x013F. Sixteen documented words are
+explicitly reserved; 0x003B/0x003C have unspecified access. No missing named
+register was found. The generated private access table derives from this
+same ledger; unknown/reserved words remain unavailable to raw codecs.
 
 **Minimal probe:** FC03 at read-only Driver Model register 0x0000, count1 (p68).
 No consuming side effect is documented for this identity field. The eight-byte

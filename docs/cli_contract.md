@@ -1,7 +1,7 @@
-﻿# RS485Motion standalone CLI contract
+# MotorControl-RS standalone CLI contract
 
-This defines the planned standalone console for the general `RS485Motion`
-library and its family profiles, beginning with `RS485Motion::ESS_RS`. No
+This defines the planned standalone console for the general `MotorControlRS`
+library and its family profiles, beginning with `MotorControlRS::ESS_RS`. No
 commands, APIs or firmware are implemented by this document. The checkout
 remains `ESS23-RS`. The [architecture](architecture.md),
 [axis contract](axis_contract.md) and [profile contract](profile_contract.md)
@@ -236,7 +236,7 @@ uncertainty.
 The common surface is not the ceiling of supported family functionality.
 Every implemented public profile device operation must be reachable through
 a typed `profile <family> ...` command. For example, `profile ess-rs ...` routes to
-`RS485Motion::ESS_RS`. The explicit family must match the selected profile;
+`MotorControlRS::ESS_RS`. The explicit family must match the selected profile;
 it does not silently rebind a motor or infer a protocol from a command.
 Pure codec helpers such as CRC calculation do not require individual commands.
 

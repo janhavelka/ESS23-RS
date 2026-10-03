@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: MIT
-#include "RS485Motion/Units.h"
-#include "RS485Motion/profiles/ess_rs/Defaults.h"
+#include "MotorControlRS/Units.h"
+#include "MotorControlRS/profiles/ess_rs/Defaults.h"
 
 #include <cassert>
 #include <cmath>
 #include <limits>
 
-using namespace RS485Motion;
+using namespace MotorControlRS;
 
 static void near(double actual, double expected) {
     assert(std::fabs(actual - expected) <= 1e-9 * (1 + std::fabs(expected)));
@@ -16,7 +16,128 @@ static void assertPreserved(const UnitConversion& output) {
     assert(output.value == 123 && output.absoluteErrorBound == 456);
 }
 
+static void testScaleDependencies() {
+    UnitConfig motor;
+    motor.commandStepsPerMotorTurn = UnitScale(1000, 1, ScaleSource::ASSUMED);
+    motor.fullStepsPerMotorTurn = UnitScale(200, 1, ScaleSource::DOCUMENTED);
+    motor.encoder.countsPerUnit = UnitScale(4000, 1, ScaleSource::ASSUMED);
+    motor.encoder.sourceId = 1;
+    UnitConversion output;
+
+    // Both sides describe motor rotation: gearing and linear lead are unknown.
+    assert(convertDisplacement(1000, PositionUnit::STEPS, PositionUnit::FULL_STEPS, motor, output));
+    near(output.value, 200);
+    assert(convertDisplacement(200, PositionUnit::FULL_STEPS, PositionUnit::STEPS, motor, output));
+    near(output.value, 1000);
+    assert(convertDisplacement(4000, PositionUnit::ENCODER_COUNTS, PositionUnit::STEPS, motor, output));
+    near(output.value, 1000);
+    assert(convertDisplacement(1000, PositionUnit::STEPS, PositionUnit::ENCODER_COUNTS, motor, output));
+    near(output.value, 4000);
+    assert(convertDisplacement(200, PositionUnit::FULL_STEPS, PositionUnit::ENCODER_COUNTS, motor, output));
+    near(output.value, 4000);
+
+    motor.commandPolarity = -1;
+    motor.encoder.polarity = -1;
+    assert(convertDisplacement(1000, PositionUnit::STEPS, PositionUnit::FULL_STEPS, motor, output));
+    near(output.value, -200);
+    assert(convertDisplacement(1000, PositionUnit::STEPS, PositionUnit::ENCODER_COUNTS, motor, output));
+    near(output.value, 4000); // Both raw count directions are reversed.
+    assert(convertVelocity(1, VelocityUnit(PositionUnit::STEPS, TimeUnit::MILLISECOND),
+                           VelocityUnit(PositionUnit::FULL_STEPS), motor, output));
+    near(output.value, -200);
+    assert(convertAcceleration(200, AccelerationUnit(PositionUnit::FULL_STEPS),
+                               AccelerationUnit(PositionUnit::ENCODER_COUNTS), motor, output));
+    near(output.value, -4000);
+
+    // Crossing to load angles still requires the gear, in either direction.
+    output = UnitConversion(123, 456);
+    Status status = convertDisplacement(1000, PositionUnit::STEPS, PositionUnit::DEGREES, motor, output);
+    assert(status.code == Err::INVALID_CONFIG && status.detail == static_cast<int32_t>(UnitError::MISSING_SCALE));
+    assertPreserved(output);
+    assert(!convertDisplacement(360, PositionUnit::DEGREES, PositionUnit::STEPS, motor, output));
+    assertPreserved(output);
+    motor.motorTurnsPerLoadTurn = UnitScale(5, 2, ScaleSource::ASSUMED);
+    assert(convertDisplacement(1000, PositionUnit::STEPS, PositionUnit::DEGREES, motor, output));
+    near(output.value, -144);
+    output = UnitConversion(123, 456);
+    assert(!convertDisplacement(1000, PositionUnit::STEPS, PositionUnit::MILLIMETRES, motor, output));
+    assertPreserved(output); // Known gearing cannot replace a missing lead.
+    motor.millimetresPerLoadTurn = UnitScale(8, 1, ScaleSource::ASSUMED);
+    assert(convertDisplacement(1000, PositionUnit::STEPS, PositionUnit::MILLIMETRES, motor, output));
+    near(output.value, -3.2);
+    assert(convertDisplacement(3.2, PositionUnit::MILLIMETRES, PositionUnit::STEPS, motor, output));
+    near(output.value, -1000);
+    motor.motorTurnsPerLoadTurn = UnitScale();
+    output = UnitConversion(123, 456);
+    assert(!convertDisplacement(1000, PositionUnit::STEPS, PositionUnit::MILLIMETRES, motor, output));
+    assertPreserved(output); // Known lead cannot replace a missing gear.
+
+    UnitConfig linear;
+    linear.encoder.countsPerUnit = UnitScale(100, 1, ScaleSource::ASSUMED);
+    linear.encoder.basis = EncoderBasis::MILLIMETRE;
+    linear.encoder.sourceId = 2;
+    // A linear encoder directly reports travel, without a rotary mechanism.
+    assert(convertDisplacement(1000, PositionUnit::ENCODER_COUNTS, PositionUnit::MILLIMETRES, linear, output));
+    near(output.value, 10);
+    assert(convertDisplacement(10, PositionUnit::MILLIMETRES, PositionUnit::ENCODER_COUNTS, linear, output));
+    near(output.value, 1000);
+    linear.encoder.polarity = -1;
+    assert(convertVelocity(6000, VelocityUnit(PositionUnit::ENCODER_COUNTS, TimeUnit::MINUTE),
+                           VelocityUnit(PositionUnit::MILLIMETRES), linear, output));
+    near(output.value, -1);
+    assert(convertAcceleration(6000, AccelerationUnit(PositionUnit::ENCODER_COUNTS, TimeUnit::MINUTE),
+                               AccelerationUnit(PositionUnit::MILLIMETRES), linear, output));
+    near(output.value, -1);
+    output = UnitConversion(123, 456);
+    assert(!convertDisplacement(100, PositionUnit::ENCODER_COUNTS, PositionUnit::DEGREES, linear, output));
+    assertPreserved(output);
+    linear.millimetresPerLoadTurn = UnitScale(8, 1, ScaleSource::ASSUMED);
+    assert(convertDisplacement(800, PositionUnit::ENCODER_COUNTS, PositionUnit::TURNS, linear, output));
+    near(output.value, -1);
+
+    UnitConfig load;
+    load.encoder.countsPerUnit = UnitScale(4000, 1, ScaleSource::ASSUMED);
+    load.encoder.basis = EncoderBasis::LOAD_TURN;
+    load.encoder.sourceId = 3;
+    assert(convertDisplacement(4000, PositionUnit::ENCODER_COUNTS, PositionUnit::DEGREES, load, output));
+    near(output.value, 360); // A load encoder needs neither gearing nor lead.
+    assert(convertDisplacement(360, PositionUnit::DEGREES, PositionUnit::ENCODER_COUNTS, load, output));
+    near(output.value, 4000);
+
+    // Unused unknown scales are legal; malformed known scales still invalidate
+    // the configuration, as they did before dependency-aware conversion.
+    motor.motorTurnsPerLoadTurn.denominator = 0;
+    output = UnitConversion(123, 456);
+    assert(!convertDisplacement(1000, PositionUnit::STEPS, PositionUnit::FULL_STEPS, motor, output));
+    assertPreserved(output);
+    motor.motorTurnsPerLoadTurn = UnitScale();
+    motor.fullStepsPerMotorTurn = UnitScale();
+    assert(!convertDisplacement(1000, PositionUnit::STEPS, PositionUnit::FULL_STEPS, motor, output));
+    assertPreserved(output); // Required full-step geometry is not optional.
+}
+
+static void testSmallResultPrecision() {
+    UnitConfig config;
+    config.commandStepsPerMotorTurn = UnitScale(1073741824u, 1, ScaleSource::ASSUMED);
+    config.motorTurnsPerLoadTurn = UnitScale(1, 1, ScaleSource::ASSUMED);
+    const double inputs[] = {1.1e-301, -1.1e-301};
+    for (unsigned i = 0; i < 2; ++i) {
+        UnitConversion output;
+        assert(convertVelocity(inputs[i], VelocityUnit(PositionUnit::STEPS, TimeUnit::MILLISECOND),
+                               VelocityUnit(PositionUnit::TURNS), config, output));
+        // 1000 / 2^30 is exactly representable. Applying it in one multiplication
+        // avoids the subnormal intermediate of (input / 2^30) * 1000 on targets
+        // where long double has binary64 precision, such as the ESP toolchain.
+        const double expected = inputs[i] * (1000.0 / 1073741824.0);
+        assert(std::fpclassify(output.value) == FP_NORMAL);
+        assert(output.absoluteErrorBound > 0);
+        assert(std::fabs(output.value - expected) <= output.absoluteErrorBound);
+    }
+}
+
 int main() {
+    testScaleDependencies();
+    testSmallResultPrecision();
     UnitConfig config = ESS_RS::makeBenchUnitConfig();
     assert(validateUnitConfig(config));
     assert(config.commandStepsPerMotorTurn.source == ScaleSource::ASSUMED);

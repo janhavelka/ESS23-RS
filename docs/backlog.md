@@ -1,6 +1,6 @@
 # Features implementation tasks and open questions
 
-This is the working backlog for `RS485Motion`. The three-layer architecture
+This is the working backlog for `MotorControl-RS`. The three-layer architecture
 is accepted; implemented blocks supply units, register metadata and checked
 ESS codecs with a minimal probe. Checked design decisions below remain documentation milestones,
 not claims of complete motion API or hardware support. Keep this list current
@@ -35,7 +35,7 @@ The authoritative contracts are [architecture](architecture.md),
 
 ## Implementation blocks
 
-1. **Completed ESS protocol core:** FC03/FC06 and the reviewed FC10 pair,
+1. **Completed ESS protocol core:** FC03/FC06 and four reviewed FC10 windows,
    checked replies, independent CRC/frame tests and raw word conversions.
    Probe reads model register 0x0000/one word. General FC10 limits and typed
    field meanings remain unresolved where documented; no hardware I/O occurred.
@@ -51,9 +51,8 @@ The authoritative contracts are [architecture](architecture.md),
    discovery scans and CLI parity; standalone Arduino/ESP-IDF qualification,
    then FieldCore integration in its own repository.
 
-The name is open; retain `RS485Motion` until a replacement is selected, then
-update package, namespace, includes, builds, examples and docs together.
-`MotorControl-RS` is the latest candidate; no rename has been performed.
+The package is `MotorControl-RS`; namespace/includes/CMake use `MotorControlRS`.
+The checkout and GitHub URL remain `ESS23-RS` pending the user's remote rename.
 
 ## ESS source and profile work
 
@@ -62,6 +61,17 @@ update package, namespace, includes, builds, examples and docs together.
   records / 242 words. Complete typed operational and CLI coverage remain unimplemented.
 - [x] Implement checked raw ESS codecs and their reviewed access/window policy.
   Raw FC06 words are not typed value validation or complete native command coverage.
+- [x] Audit every appendix address: 78 undocumented words in 15 intervals,
+  16 explicitly reserved words and two words with unspecified access are
+  recorded and checked by the generator. No missing named register was found.
+- [x] Extend FC10 to the position, speed and homing examples on pp16/18/20;
+  correct p16's CRC-valid but malformed request in independent fixtures.
+- [x] Audit RTU framing and motion/configuration timing in the
+  [timing reference](reference/09_timing_and_gap_audit.md). Keep unspecified
+  response, save and startup deadlines for later hardware qualification.
+- [x] Fix unit conversions to require gearing/lead only across relevant
+  bases, and combine bounded scale/time factors before the input value to
+  avoid intermediate underflow on binary64 `long double` platforms.
 - [x] Re-audit original ESS wire/probe pages and document retained ambiguities;
   download/audit five contrasting serial manufacturers in the
   [protocol review](reference/08_serial_protocol_review.md).
@@ -179,7 +189,7 @@ possible. This list is not a request for the user to answer everything now.
 
 | Question | Evidence or next action |
 | --- | --- |
-| What replaces the working name `RS485Motion`? | User selection pending; coordinate the package/namespace rename before more public APIs accumulate. |
+| When does the GitHub repository URL change? | The user will rename the remote; update metadata then. Local package/API rename is complete. |
 | What motor/model/firmware is actually connected? | Read documented identity; compare model markings if identity is insufficient. The project's RS20 target is not a bench measurement. |
 | Is COM13 a console, a usable RS485 bridge, or a board needing test firmware? | Inspect CO2control source/configuration and current interface before sending motor bytes. |
 | What are the board pins, DE/RE polarity, echo topology and bus wiring? | User confirms E2 HW2.0 TX47/RX48/DE21. Matching FieldCore HW200 source uses UART2/active-high DE. Live polarity, echo and wiring qualification remain. |

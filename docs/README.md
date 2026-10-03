@@ -1,4 +1,4 @@
-# RS485Motion documentation
+# MotorControl-RS documentation
 
 ## Architecture baseline
 
@@ -31,6 +31,9 @@ for current code and builds.
 - [Serial protocol comparison](reference/08_serial_protocol_review.md): five
   downloaded manufacturer manuals, contrasting framing/limits/read effects,
   probe candidates and consequences for the ESS codec boundary.
+- [ESS timing and gap audit](reference/09_timing_and_gap_audit.md): framing,
+  response deadlines, stop/configuration timing, register gaps and remaining
+  firmware qualification work.
 
 ## Work tracking and bench
 

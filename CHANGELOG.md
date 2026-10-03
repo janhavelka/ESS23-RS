@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.3.0
+
+- Rename the package to MotorControl-RS and namespace/include/CMake identity to
+  MotorControlRS. Update consumers to the new includes and target names; the
+  repository URL remains unchanged pending the user's GitHub rename.
+- Support the four documented ESS FC10 windows, adding the position, speed
+  and homing examples. Correct the malformed p16 example in independent tests.
+- Fix unnecessary gearing/lead requirements in same-basis unit conversions
+  and an intermediate-underflow error on binary64 `long double` platforms.
+- Generate compact codec access policy separately from descriptive catalogue
+  strings. Record and validate every undocumented appendix interval: 78 words
+  in 15 gaps, plus the documented reserved/unspecified-access entries.
+- Record RTU framing, motion/configuration timing and source conflicts from
+  the original manuals. Unspecified firmware deadlines remain unqualified.
+
+No transport or motion workflow is added; COM13 remains untested.
+
 ## 0.2.0
 
 - Add bounded ESS FC03/FC06/FC10 request builders and checked response parsers,

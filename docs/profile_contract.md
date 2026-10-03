@@ -1,6 +1,6 @@
 # Drive profile and complete native API contract
 
-This is the accepted profile-layer design for `RS485Motion`. It specifies how
+This is the accepted profile-layer design for `MotorControlRS`. It specifies how
 each selected drive exposes its complete documented functionality alongside
 the [common axis API](axis_contract.md). The first implementation supplies the
 [ESS register catalogue](reference/05_ess_register_catalog.md), generated C++
@@ -103,16 +103,16 @@ returns an unsupported result before yielding a transaction.
 
 ## Typed native surface
 
-The planned ESS family namespace is `RS485Motion::ESS_RS`. These paths
+The planned ESS family namespace is `MotorControlRS::ESS_RS`. These paths
 describe future real files; they are not placeholder headers to create now.
 
 | Planned path | Responsibility |
 | --- | --- |
-| `include/RS485Motion/Profiles.h` | Profile identity, capability and coverage metadata shared by applications |
-| `include/RS485Motion/profiles/ess_rs/Codec.h` | Stateless bounded frame builders, validators, decoders and checked response parsers |
-| `include/RS485Motion/profiles/ess_rs/Registers.h` | Resolved register identities and typed descriptors, including access and widths |
-| `include/RS485Motion/profiles/ess_rs/Types.h` | Family enums, native quantities, observations and command/configuration types |
-| `include/RS485Motion/profiles/ess_rs/Commands.h` | Native operation preparation, command constraints and family sequence definitions |
+| `include/MotorControlRS/Profiles.h` | Profile identity, capability and coverage metadata shared by applications |
+| `include/MotorControlRS/profiles/ess_rs/Codec.h` | Stateless bounded frame builders, validators, decoders and checked response parsers |
+| `include/MotorControlRS/profiles/ess_rs/Registers.h` | Resolved register identities and typed descriptors, including access and widths |
+| `include/MotorControlRS/profiles/ess_rs/Types.h` | Family enums, native quantities, observations and command/configuration types |
+| `include/MotorControlRS/profiles/ess_rs/Commands.h` | Native operation preparation, command constraints and family sequence definitions |
 | `src/profiles/ess_rs/` | Corresponding implementation when requested |
 
 Expose named read preparations, typed configuration preparations and explicit

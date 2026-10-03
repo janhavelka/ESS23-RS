@@ -7,7 +7,7 @@
 
 #include <stdint.h>
 
-namespace RS485Motion {
+namespace MotorControlRS {
 
 /** @brief Pure-call errors; separate from drive alarms and application health. */
 enum class Err : uint8_t {
@@ -54,4 +54,4 @@ inline const char* errToString(Err code) {
   return "UNKNOWN";
 }
 
-}  // namespace RS485Motion
+}  // namespace MotorControlRS

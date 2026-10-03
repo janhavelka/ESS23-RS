@@ -25,15 +25,15 @@ def main():
         raise SystemExit("Version components exceed the numeric version encoding")
     output = (
         "/** @file Version.h Generated from library.json; do not edit. */\n"
-        "#pragma once\n\n#include <stdint.h>\n\nnamespace RS485Motion {\n"
+        "#pragma once\n\n#include <stdint.h>\n\nnamespace MotorControlRS {\n"
         f"static constexpr uint16_t VERSION_MAJOR = {major};\n"
         f"static constexpr uint16_t VERSION_MINOR = {minor};\n"
         f"static constexpr uint16_t VERSION_PATCH = {patch};\n"
         f"static constexpr uint32_t VERSION_CODE = {major * 10000 + minor * 100 + patch};\n"
         f'static constexpr const char* VERSION = "{version}";\n'
-        "}  // namespace RS485Motion\n"
+        "}  // namespace MotorControlRS\n"
     )
-    target = ROOT / "include/RS485Motion/Version.h"
+    target = ROOT / "include/MotorControlRS/Version.h"
     current = target.read_text(encoding="utf-8") if target.exists() else None
     if current == output:
         print("Version.h is current")

@@ -28,7 +28,7 @@ they do not identify the currently installed firmware from its product name.
 | MCU/memory build baseline | ESP32-S3-N16R8, 16 MB flash, 8 MB OPI PSRAM | Matching FieldCore HW200 board and its PlatformIO board manifest; not queried from COM13 |
 
 [`BoardPins.h`](../../examples/common/BoardPins.h) contains only this named
-example selection, under `RS485MotionExample`. It performs no hardware
+example selection, under `MotorControlRSExample`. It performs no hardware
 initialization and exposes no pins through the reusable library.
 [`BuildConfig.h`](../../examples/common/BuildConfig.h) contains the console
 rate. Motor address, actual serial framing, subdivision and word order remain
