@@ -6,8 +6,9 @@ directory and CMake package/target are `MotorControlRS`. The checkout directory
 and GitHub URL remain `ESS23-RS` until the user renames the remote repository.
 
 The implementation supplies **configurable units, the ESS register catalogue
-and checked ESS Modbus RTU codecs**. Transport, motion commands, discovery
-orchestration and the full standalone CLI are the next stages. No motor
+and checked ESS Modbus RTU codecs**. A [standalone transaction runner](docs/runner.md)
+now has native fake-transport tests. The production UART adapter, motion commands,
+discovery orchestration and full standalone CLI are the next stages. No motor
 communication or motion has been tested. Other reviewed drives, including
 Leadshine iEM-RS, are design contrasts rather than implemented profiles.
 
@@ -129,6 +130,12 @@ deadlines that the manuals leave unspecified.
 
 ## Build and preview
 
+The example-owned [RTU runner](examples/common/RtuRunner.h) exchanges frames
+through bounded callbacks with supplied wire timing. It owns no allocations
+and accepts caller-provided TX/RX and optional trace storage. Tests use a fake
+adapter; the offline preview below still does not run a UART. See the
+[runner guide](docs/runner.md) for deadlines, echo/recovery rules and memory sizes.
+
 With CMake and a C++11 compiler, build and run the native tests and unit preview:
 
 ```sh
@@ -171,7 +178,7 @@ python scripts/generate_ess_registers.py --check
 | `include/MotorControlRS/`, `src/` | Public common API and implementation |
 | `include/MotorControlRS/profiles/ess_rs/`, `src/profiles/ess_rs/` | ESS catalogue, raw codecs, probe and word conversion |
 | `src/rtu/` | Small private byte/CRC/frame helpers, without device policy |
-| `examples/common/` | Board/build settings and later platform transport |
+| `examples/common/` | Board/build settings and native-tested RTU runner; hardware adapter pending |
 | `examples/units_preview/` | Desktop/Arduino consumer of the current units API |
 | `test/` | Native units, catalogue and independent protocol verification |
 | `scripts/` | Reference preparation and deterministic generators |

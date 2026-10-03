@@ -1,5 +1,32 @@
 # Software verification
 
+## Native standalone runner, version 0.4.0
+
+Checks on 2026-10-03:
+
+| Check | Result |
+| --- | --- |
+| CMake Release and CTest | Passed, 8/8 including the new runner suite and all existing core/generated-file checks |
+| Runner scenarios | 17 test groups covering fake wire timing, exceptions, codec handoff, fragmentation, overflow, drain, cancellation, echo, faults, recovery, storage and diagnostics |
+| Repeated use | 1000 deterministic transactions on the same runner/buffers; normal/exception mix, varied gaps and polling, clock above UINT32_MAX, exact counters, trace overwrite and no replay |
+| Deadline/framing regressions | Physical TX timestamp distinct from service time; final t3.5 included in response budget; lagging capture cannot become a drive timeout; busy wire blocks TX admission/enqueue |
+| Fault regressions | Short enqueue is never resumed; cancellation drains accepted bytes; failed recovery remains interlocked; TX hold respects physical idle despite deadline failure; a later clock error preserves the completed transaction |
+| Bounded service | Tests enforce at most 64 read callbacks in one poll, including DRAIN-to-HOLD transitions with buffered echo |
+| Native warnings | Runner/tests compile and run with C++11, `-Wall -Wextra -Wpedantic -Werror` |
+| ESP32-S3 compile | Runner translation unit compiles with installed Xtensa GCC, C++11, `-Os -fno-exceptions -fno-rtti` and strict warnings; this is not a UART adapter or full firmware test |
+| Memory | Runner object: 304 bytes native, 240 bytes ESP32-S3; trace entry: 24 bytes on both. Caller buffers/rings measured separately in the runner guide |
+
+The runner and test adapter perform no hardware I/O. COM13 was not opened or
+flashed. Actual UART error/timing capture, DE polarity/latency, PSRAM placement
+and motion behavior remain unqualified. The existing offline Arduino preview
+does not run the new helper. No new package/API is imposed on FieldCore or
+the core library; this implementation lives in the repository's example layer.
+
+See [the runner guide](runner.md) for callback obligations, retained evidence,
+recovery preconditions and the memory budget. The
+[platform review](reference/10_runner_platform_review.md) records FieldCore
+reuse and the future ESP32/Python work.
+
 ## Rename and full audit, version 0.3.0
 
 Checks on 2026-10-03:

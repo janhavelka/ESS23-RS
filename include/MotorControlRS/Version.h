@@ -5,8 +5,8 @@
 
 namespace MotorControlRS {
 static constexpr uint16_t VERSION_MAJOR = 0;
-static constexpr uint16_t VERSION_MINOR = 3;
+static constexpr uint16_t VERSION_MINOR = 4;
 static constexpr uint16_t VERSION_PATCH = 0;
-static constexpr uint32_t VERSION_CODE = 300;
-static constexpr const char* VERSION = "0.3.0";
+static constexpr uint32_t VERSION_CODE = 400;
+static constexpr const char* VERSION = "0.4.0";
 }  // namespace MotorControlRS

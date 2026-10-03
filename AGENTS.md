@@ -5,8 +5,9 @@
 Implementation is authorized in small, tested blocks. Implemented foundations
 are configurable units, the complete documented ESS register catalogue,
 standalone build/board settings and checked ESS wire codecs with a minimal
-probe. Transport, motion sequences, discovery orchestration and the full CLI
-follow in later blocks; do not add placeholder APIs.
+probe. The standalone runner under `examples/common/` now has native fake
+tests. Its production platform adapter, motion sequences, discovery
+orchestration and the full CLI follow in later blocks; do not add placeholder APIs.
 The accepted scope remains a general framework-independent serial motion
 library: common axis API, drive profiles and application integration. Implement
 ESS first; design against Leadshine iEM-RS without claiming it is implemented
@@ -64,6 +65,8 @@ This is recorded availability, not a claim that communication has been tested.
    `docs/reference/06_encoder_units.md`. Read
    `docs/reference/09_timing_and_gap_audit.md` for framing and unresolved
    response, configuration and motion timing before transport/workflow work.
+   Read `docs/runner.md` and `docs/reference/10_runner_platform_review.md`
+   before runner, ESP32 adapter or automated bench work.
    Read
    `docs/reference/04_co2control_platform.md` before board/example work.
    Read `docs/reference/08_serial_protocol_review.md` before extending codecs
@@ -154,6 +157,15 @@ differences instead of guessing. No hardware behavior has been validated yet.
   Raw codecs validate wire shape/access, not value meaning, motion readiness
   or persistence. Keep generic RTU mechanics private and profile policy explicit.
 - Keep board pins and platform adapters under `examples/common/`.
+- Preserve the runner's actual TX completion and RX timestamp/watermark
+  contracts. Polling time is not wire timing. No automatic retries or silent
+  late-response recovery; FRAME still requires the checked profile parser.
+- Keep fixed storage caller-owned. Prefer PSRAM for larger task-context
+  traces, retained frames and caches in the future ESP32 adapter; keep
+  ISR/cache-disabled/driver-required storage and stacks internal as required
+  by the actual platform contract. Measure sizes and memory watermarks.
+- Add Python probe/stress/health/state automation when a machine-readable
+  standalone console exists; adapt reviewed FieldCore harness patterns.
 - Add native protocol tests and build/package metadata when real code exists.
   Match sibling conventions for Doxygen API comments, ESP32-S2/S3 examples,
   and framework-neutral consumption. Do not claim unperformed hardware tests.

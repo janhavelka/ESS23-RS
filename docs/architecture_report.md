@@ -6,6 +6,11 @@ next boundaries to establish. The [architecture contract](architecture.md)
 remains the detailed design baseline; names marked **planned** below are not
 callable APIs yet.
 
+Update after this snapshot: the [standalone runner](runner.md) is implemented
+in version 0.4.0 with native fake tests. Its hardware adapter is still pending.
+The inventory and "next work" findings below describe the reviewed 0.3.0
+snapshot; consult the runner guide and backlog for current transport progress.
+
 ## 1. Assessment
 
 The current structure is a suitable base for both a standalone motor test

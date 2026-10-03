@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.4.0
+
+- Add an application-owned RTU runner under `examples/common/`, tested with
+  a native fake adapter. Physical TX drain, timestamped receive framing,
+  explicit echo policy, deadlines, cancellation and recovery are separate
+  from the existing checked ESS codecs.
+- Retain transaction results and raw buffers, with optional caller-owned
+  trace storage and saturating counters. No allocation, hidden retries or
+  platform code enter the runner or reusable core.
+- Document FieldCore reuse, ESP32 adapter timing requirements, PSRAM placement
+  and future Python bench automation. Measure runner storage on native and
+  ESP32-S3 compilers.
+
+The production UART adapter, standalone motor CLI and motion workflows remain
+future work. Native tests and target compilation do not qualify hardware;
+COM13 was not opened or flashed. The runner is example code in the repository,
+not an added transport dependency in the distributed core package.
+
 ## 0.3.0
 
 - Rename the package to MotorControl-RS and namespace/include/CMake identity to

@@ -8,8 +8,9 @@ documented command set. Arduino, native ESP-IDF, desktop/native consumers and
 FieldCore are separate applications of the same library.
 
 Implemented blocks supply pure units, an ESS register catalogue and checked
-wire codecs with a minimal model-register probe. Motion preparation,
-transport, discovery orchestration, CLI and FieldCore adapters remain contracts
+wire codecs with a minimal model-register probe. An example-owned RTU runner
+is implemented and tested with a native fake adapter; see [runner.md](runner.md).
+Motion preparation, production UART adapters, discovery orchestration, CLI and FieldCore adapters remain contracts
 for later blocks. See the root
 README for current callable APIs and build commands. No motor behavior has
 been qualified on hardware.
@@ -147,6 +148,7 @@ create stubs. See the root README for the current callable surface.
 | `include/MotorControlRS/Status.h` | Shared validation result and parser error categories |
 | `include/MotorControlRS/profiles/ess_rs/Codec.h` | Implemented bounded builders, validators, checked parsers, probe and word conversion |
 | `src/rtu/Frame.h` | Private byte packing, CRC and frame helpers without device policy |
+| `examples/common/RtuRunner.h`, `RtuRunner.cpp` | Implemented bounded application transaction runner with caller-owned buffers/traces and native fake tests |
 | `include/MotorControlRS/profiles/ess_rs/Commands.h` | Full typed ESS command surface and sequence descriptions |
 | `include/MotorControlRS/profiles/ess_rs/Registers.h` | Verified ESS register definitions and value enums |
 | `include/MotorControlRS/profiles/ess_rs/Types.h` | Exact ESS values, raw flags, alarms and word order |
@@ -469,7 +471,8 @@ work is requested.
    checked responses, raw exceptions, word helpers, minimal probe and native
    tests. General FC10 limits and typed field/motion ambiguities remain open.
    Wire support does not establish permission to write every register.
-3. Add example-owned RS485 transport and a small read-only CLI slice on the E2
+3. The example-owned runner and fake tests exist. Add its qualified ESP32
+   adapter and a small read-only CLI slice on the E2
    bench. Inspect/preserve the existing firmware before a test-firmware upload;
    record actual identity, settings, raw frames, timing and echo behavior.
 4. Implement checked target preparation, ESS motion/stop sequencing and the

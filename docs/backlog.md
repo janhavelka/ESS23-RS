@@ -39,7 +39,8 @@ The authoritative contracts are [architecture](architecture.md),
    checked replies, independent CRC/frame tests and raw word conversions.
    Probe reads model register 0x0000/one word. General FC10 limits and typed
    field meanings remain unresolved where documented; no hardware I/O occurred.
-2. **Read-only E2 bring-up:** example-owned UART/DE/RE and RTU framing, then a
+2. **Read-only E2 bring-up:** the application RTU runner and native fake tests
+   are complete. Implement/qualify its UART/DE/RE and receive-timing adapter, then a
    small CLI for probe, available identity/configuration/state reads and cached
    diagnostics. Inspect COM13 and preserve current firmware before any test
    upload. Record actual settings and distinguish identity from mere response.
@@ -155,8 +156,19 @@ The checkout and GitHub URL remain `ESS23-RS` pending the user's remote rename.
   RS485 pins TX47/RX48/DE21 separately from its current CO2control product profile.
 - [ ] Implement common CLI inventory/dispatch and full native command coverage
   through public APIs, cached status/health and retained operation results.
-- [ ] Implement example-owned transport with DE/RE, TX drain, RTU framing,
-  local-echo policy, exact reply lengths and bounded recovery.
+- [x] Implement example-owned RTU runner with fake callback tests: physical
+  TX drain, wire-timed receive framing, explicit echo, exception length,
+  cancellation, retained diagnostics and recovery admission.
+- [ ] Implement/qualify the ESP32 adapter, including actual TX-end evidence,
+  receive timestamps/observation watermark and UART error reporting. A
+  `Serial.available()` poll timestamp does not satisfy this contract.
+- [ ] Allocate larger task-context trace/frame/cache storage in PSRAM in the
+  adapter; document fallback, retain driver-required internal storage, and
+  record free/minimum/largest-block memory and stack measurements.
+- [ ] Add Python automation for bounded probe/latency/health/state watching,
+  stress and fault evidence once the machine-readable standalone console
+  exists. Reuse reviewed FieldCore serial framing and evidence patterns;
+  cached health queries must not add unintended bus traffic or replay motion.
 - [ ] Build standalone ESP32-S2/S3 Arduino consumers and a first-class native
   ESP-IDF consumer with equivalent command semantics for equivalent features.
 - [x] Verify framework-free native consumption, self-contained headers and

@@ -4,10 +4,13 @@
 
 Implemented blocks are pure unit conversion, an ESS register catalogue,
 checked wire codecs with a minimal probe and standalone build foundations.
-The contracts below also describe future transport, typed commands, motion
-workflows, discovery orchestration and CLI. See the [root README](../README.md)
+The standalone RTU runner is tested with a native fake adapter. Its hardware
+adapter, typed commands, motion workflows, discovery orchestration and CLI
+remain future work. See the [root README](../README.md)
 for current code and builds.
 
+- [Standalone RTU runner](runner.md): current callback/timing contract, state
+  machine, fake tests, diagnostics, memory sizes and explicit recovery.
 - [Current architecture report](architecture_report.md): source-based review
   of what exists, file and dependency map, transaction flow, standalone and
   FieldCore ownership, debugging and remaining integration work.
@@ -37,6 +40,8 @@ for current code and builds.
 - [ESS timing and gap audit](reference/09_timing_and_gap_audit.md): framing,
   response deadlines, stop/configuration timing, register gaps and remaining
   firmware qualification work.
+- [Runner platform review](reference/10_runner_platform_review.md): inspected
+  FieldCore/ESP32 mechanisms, PSRAM placement and future Python bench automation.
 
 ## Work tracking and bench
 
