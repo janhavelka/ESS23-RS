@@ -108,3 +108,5 @@ electrical timing remains NOT RUN; cache-off capture is unsupported. The next
 concrete deliverable is prompt 05's typed identity/configuration work when
 dispatched. Independent 05–07 work may proceed; dependent physical actions
 retain their timing, settings, units and stop prerequisites.
+Its [fresh audit](reports/ess_release_04_audit_2026-10-04.md) closes a host
+diagnostic-validation gap; the unchanged image passes repeated read-only tests.

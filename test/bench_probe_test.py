@@ -33,6 +33,8 @@ def load_reply(request_id, settings=(0, 0, 0), **fields):
                  ready=True, capture_mode="timer", elapsed_us=20000,
                  work_us=4000, work_iterations=2, console_lines=2,
                  console_dropped=0, capture_us=800, capture_samples=200,
+                 timer_callbacks=180, sample_gap_limit_us=85,
+                 sample_gap_exceeded=False, capture_high_water=7,
                  owner_gap_max_us=5001, capture_gap_max_us=10,
                  work_stack_free_bytes=2500, **fields)
 
@@ -526,6 +528,75 @@ class Framing(unittest.TestCase):
         self.assertEqual(summary["load_settings"], (2000, 5000, 128))
         self.assertEqual(summary["last_load"]["owner_delay_us"], 5000)
         self.assertIn("TIMING_UNCERTAIN", summary["error"])
+
+    def test_load_requires_complete_capture_diagnostics(self):
+        for field in ("timer_callbacks", "sample_gap_limit_us", "capture_high_water", "sample_gap_exceeded"):
+            invalid = (None, -1, True, 1.5, "1", 1 << 64) if field != "sample_gap_exceeded" else (None, 0, 1, "false")
+            for value in invalid:
+                with self.subTest(field=field, value=value):
+                    console = self.load_session()
+                    normal = self.port.handler
+
+                    def malformed(i, command, args):
+                        response = normal(i, command, args)
+                        if command == "load":
+                            item = json.loads(response)
+                            if value is None:
+                                del item[field]
+                            else:
+                                item[field] = value
+                            response = encoded(item)
+                        return response
+
+                    self.port.handler = malformed
+                    self.failed(lambda: console.command("load", timeout_s=0.1), field)
+
+    def test_load_capture_diagnostics_require_consistent_counts_and_mode(self):
+        for changed, error in (({"timer_callbacks": 201}, "callbacks exceed"),
+                               ({"sample_gap_limit_us": 0}, "limit does not match"),
+                               ({"capture_mode": "poll"}, "limit does not match")):
+            with self.subTest(changed=changed):
+                response = {**load_reply(1), **changed}
+                with self.assertRaisesRegex(bench.BenchError, error):
+                    bench.check_load_reply(response, (0, 0, 0))
+        # Stopping timer capture need not erase its historical callback count.
+        bench.check_load_reply({**load_reply(1), "capture_mode": "poll", "sample_gap_limit_us": 0}, None)
+
+    def test_load_capture_gap_stops_campaign_but_keeps_diagnostics_inspectable(self):
+        for read_command in ("probe", "capture-read"):
+            for failed_snapshot in (1, 2):
+                with self.subTest(read_command=read_command, failed_snapshot=failed_snapshot):
+                    console = self.load_session()
+                    normal = self.port.handler
+                    snapshots = 0
+
+                    def faulted(i, command, args):
+                        nonlocal snapshots
+                        response = normal(i, command, args)
+                        if command == "load":
+                            snapshots += 1
+                            response = encoded({**json.loads(response),
+                                                "sample_gap_exceeded": snapshots >= failed_snapshot})
+                        return response
+
+                    self.port.handler = faulted
+                    with self.assertRaisesRegex(bench.BenchError, "capture sample gap exceeded"):
+                        bench.campaign(console, "load", count=3, interval_s=0, timeout_s=0.1,
+                                       load=(2000, 5000, 128), read_command=read_command)
+                    summary = self.events[-1]
+                    self.assertFalse(summary["ok"])
+                    self.assertTrue(summary["last_load"]["sample_gap_exceeded"])
+                    self.assertEqual(summary["probes_attempted"], failed_snapshot - 1)
+                    commands = [line.split()[1] for line in self.port.writes]
+                    self.assertEqual(commands.count(read_command.encode()), failed_snapshot - 1)
+                    self.assertEqual(commands.count(b"load"), failed_snapshot)
+                    self.assertNotIn(b"recover", commands)
+                    self.assertNotIn(b"reset", commands)
+                    self.assertTrue(console.synchronized)
+                    self.assertTrue(console.command("load", timeout_s=0.1)["sample_gap_exceeded"])
+                    self.assertTrue(console.command("stats", timeout_s=0.1)["ok"])
+                    # Recovery remains a separate explicit operator action.
+                    self.assertTrue(console.command("recover", timeout_s=0.1)["ok"])
 
     def test_load_cannot_pass_without_exercising_requested_work(self):
         for counters, error in (({"console_lines": 0, "console_dropped": 2}, "no complete lines"),

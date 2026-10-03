@@ -36,8 +36,8 @@ LOAD_FIELDS = ("workload_us", "owner_delay_us", "console_bytes")
 LOAD_LIMITS = (5000, 20000, 256)
 LOAD_COUNTERS = (
     "elapsed_us", "work_us", "work_iterations", "console_lines", "console_dropped",
-    "capture_us", "capture_samples", "owner_gap_max_us", "capture_gap_max_us",
-    "work_stack_free_bytes",
+    "capture_us", "capture_samples", "timer_callbacks", "sample_gap_limit_us",
+    "capture_high_water", "owner_gap_max_us", "capture_gap_max_us", "work_stack_free_bytes",
 )
 MEMORY_FIELDS = (
     "internal_free", "internal_min", "internal_largest", "psram_free", "psram_min",
@@ -82,6 +82,12 @@ def check_load_reply(response: dict, settings: tuple[int, int, int] | None) -> N
             or response.get("capture_mode") not in ("poll", "timer")):
         raise BenchError("load fixture is not ready or capture mode is unknown")
     check_counts(response, LOAD_COUNTERS, "load")
+    if type(response.get("sample_gap_exceeded")) is not bool:
+        raise BenchError("load reply lacks a valid sample_gap_exceeded")
+    if response["timer_callbacks"] > response["capture_samples"]:
+        raise BenchError("load timer callbacks exceed capture samples")
+    if (response["sample_gap_limit_us"] > 0) != (response["capture_mode"] == "timer"):
+        raise BenchError("load sample gap limit does not match capture mode")
 
 
 def check_counts(response: dict, names: tuple[str, ...], command: str) -> None:
@@ -662,6 +668,8 @@ def campaign(
         if mode == "load":
             latest_load = successful(console, "load", timeout_s, load=load)
         successful(console, "stats", timeout_s)
+        if latest_load is not None and latest_load["sample_gap_exceeded"]:
+            raise BenchError("capture sample gap exceeded; load qualification failed")
         for iteration in range(count):
             console.emit("iteration", number=iteration + 1, mode=mode)
             probe = None
@@ -683,6 +691,9 @@ def campaign(
             if mode == "load":
                 latest_load = successful(console, "load", timeout_s)
                 check_load_reply(latest_load, load)
+                if latest_load["sample_gap_exceeded"]:
+                    successful(console, "stats", timeout_s)
+                    raise BenchError("capture sample gap exceeded; load qualification failed")
                 if probe is not None and not probe["ok"]:
                     successful(console, "stats", timeout_s)
                     raise BenchError(f"probe failed: {probe.get('result', probe.get('transport'))}")

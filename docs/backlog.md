@@ -260,6 +260,9 @@ same core and request/wait/result pattern must also work for other consumers. Se
   work separately and enforce starvation faults. Fixed non-consuming 0x0130/16
   read has native and physical 37-byte reply evidence in
   [prompt 04](reports/ess_release_04_2026-10-04.md).
+  Its [fresh audit](reports/ess_release_04_audit_2026-10-04.md) requires complete
+  capture diagnostics and rejects sticky sampling-gap violations in the host
+  qualification campaign; repeated read-only hardware tests pass.
 - [ ] Independently qualify TX/RX/DE, final stop-bit publication, idle and echo
   assumptions; characterize physical interrupt starvation and decide the
   production CPU budget. Analyzer evidence is NOT RUN; cache-off operation

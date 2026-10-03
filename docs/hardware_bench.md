@@ -77,7 +77,11 @@ completion and record changes to the setup for the next session.
 
 ## Current status
 
-- Latest: [prompt 04](reports/ess_release_04_2026-10-04.md), 2026-10-04,
+- Latest verification: [prompt 04 fresh audit](reports/ess_release_04_audit_2026-10-04.md),
+  2026-10-04, repeats 140 successful reads plus expected pre-TX timeout/recovery
+  with the stricter host harness on the unchanged image. Workload is off, DE
+  released and no pending/retained work or recovery requirement remains.
+- [Prompt 04](reports/ess_release_04_2026-10-04.md), 2026-10-04,
   uploaded the recorded final timer image to inspected COM13. 140 read-only
   transactions passed (64 fixed 37-byte replies); the expected 20-ms pre-TX
   failure and explicit recovery passed. Ending load0/0/0, DE released, no

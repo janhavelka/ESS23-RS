@@ -57,6 +57,10 @@ not confirmed host receipt; `console_dropped` counts occupied ingress slots. A l
 must check these counters before claiming it exercised console traffic.
 The Python campaign fails if requested work had no competing task iterations
 or requested console output produced no complete lines.
+It also requires the capture counters, gap limit and boolean gap diagnostic.
+Missing or inconsistent evidence stops the harness. A valid sticky sampling-gap
+report fails load qualification before the next bus read while leaving
+diagnostic inspection available. Recovery remains an explicit operator action.
 The Python load campaign sets the requested settings once, repeats probes and
 cached diagnostics, and stops nonzero on the first failed probe. It gathers
 cached failure evidence when framing is intact. It does not recover, retry,
@@ -398,8 +402,10 @@ Remaining qualification includes an independent TX/RX/DE trace; physical final
 stop-bit and FIFO-publication bounds; RX state-machine/idle behavior near start
 and stop edges; direction setup/hold; echo behavior; responses near framing and
 timeout boundaries; and capture behavior under scheduler/USB/interrupt load.
-The current single-read bench path does not establish shared-bus, long-frame,
-motion, stop, persistence or FieldCore integration qualification.
+The current bench has checked seven-byte model and 37-byte fixed-window replies
+under the recorded load scenarios. Other frame sizes/windows, independent
+electrical timing, shared-bus, motion, stop, persistence and FieldCore integration
+qualification remain open.
 
 The [2026-10-03 bench report](reports/2026-10-03_e2_probe.md) records actual
 probes, raw model, timing exception, fault checks, memory and firmware backup.

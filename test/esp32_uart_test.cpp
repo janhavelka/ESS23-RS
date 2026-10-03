@@ -357,6 +357,58 @@ void testCaptureTimerStopsOnlyWhenIdle() {
     hardware.timerFailCalls.clear();
     assert(uart.stopCapture());
 }
+void testTimerStarvationStillSettlesPhysicalTx() {
+    resetHardware();
+    hardware.clockStep = 0;
+    hardware.txCharacterUs = 87;
+    constexpr uint32_t holdUs = 20;
+    Esp32S3Uart uart;
+    assert(uart.begin(PINS) && uart.startCapture(20, holdUs));
+    Rtu::Port port = uart.port();
+    const uint8_t frame[] = {1, 3, 0, 0, 0, 1, 0x84, 0x0A};
+    assert(port.setTransmit(port.context, true));
+    assert(!port.write(port.context, frame, sizeof(frame)).error);
+    const uint64_t physicalEnd = hardware.writeStarted + sizeof(frame) * hardware.txCharacterUs;
+
+    fakeEnterCritical();
+    advanceHardware(hardware.time + 200); // Starve capture while the shifter still sends.
+    fakeExitCritical();
+    assert(uart.needsRecovery() && uart.stats().sampleGapExceeded && uart.captureFaults() == 1);
+    assert(hardware.de == 1 && fakeUart.fsm_status.st_utx_out != 0);
+    Rtu::TxObservation tx;
+    assert(port.txState(port.context, hardware.time, tx) == Rtu::TxState::BUSY);
+    assert(!port.setTransmit(port.context, false) && !uart.clear() && !uart.stopCapture());
+
+    advanceHardware(physicalEnd - 1);
+    assert(fakeUart.status.txfifo_cnt == 0 && fakeUart.fsm_status.st_utx_out != 0);
+    assert(hardware.de == 1); // An empty FIFO must not release an unfinished stop bit.
+    advanceHardware(physicalEnd + holdUs - 1);
+    assert(hardware.de == 1);
+    advanceHardware(physicalEnd + holdUs + 40);
+    assert(port.txState(port.context, hardware.time, tx) == Rtu::TxState::IDLE);
+    assert(tx.released && hardware.de == 0 && tx.endedUs >= physicalEnd);
+    assert(tx.releasedUs - tx.releaseUncertaintyUs >= tx.endedUs + holdUs);
+    assert(hardware.deReleasedAt >= physicalEnd + holdUs && hardware.writes == 1);
+
+    // Physical cleanup is not successful receive evidence, even if a valid
+    // reply subsequently arrives with normal timer service.
+    const std::vector<uint8_t> reply = {1, 3, 2, 0, 0x3C, 0xB8, 0x55};
+    scheduleReply(hardware.time + 2000, reply);
+    advanceHardware(hardware.time + 3000);
+    Rtu::RxByte byte;
+    byte.value = 0xA5;
+    uint64_t through = 123;
+    assert(read(port, hardware.time, byte, through) == Rtu::ReadState::ERROR);
+    assert(byte.value == 0xA5 && through == 123 && uart.captureFaults() == 1);
+    assert(!port.setTransmit(port.context, true));
+    assert(port.write(port.context, frame, sizeof(frame)).error && hardware.writes == 1);
+    assert(uart.clear());
+    assert(!uart.needsRecovery() && !uart.stats().sampleGapExceeded);
+    assert(read(port, hardware.time, byte, through) == Rtu::ReadState::PENDING);
+    advanceHardware(hardware.time + 100);
+    assert(port.setTransmit(port.context, true) && port.setTransmit(port.context, false));
+    assert(hardware.writes == 1 && uart.stopCapture()); // Recovery never replays the request.
+}
 void testPartialTimerCleanupCanResume() {
     for (unsigned stage : {2U, 3U}) {
         resetHardware();
@@ -510,6 +562,7 @@ int main() {
     testIdleSnapshotRace(); testSlowSnapshotFails();
     testCaptureFaultsAndRecovery(); testPendingCapacity();
     testCaptureTimerLifecycle(); testCaptureTimerStopsOnlyWhenIdle();
+    testTimerStarvationStillSettlesPhysicalTx();
     testTimerIdleStarvationIsSticky(); testPollIdleHasNoTimerGapRestriction();
     testTimerSamplingGapBoundary();
     testPartialTimerCleanupCanResume(); testStartupCleanupFailureKeepsOwnership();
