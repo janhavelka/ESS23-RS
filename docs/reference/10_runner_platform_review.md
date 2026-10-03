@@ -207,6 +207,12 @@ FieldCore's worker. At 115200 baud an 8N1 character lasts about 87 microseconds;
 byte waiting in the hardware FIFO. Increasing the buffer or calling the same
 polling code from a slower task cannot reconstruct the missing wire timing.
 The four captured-byte slots are not an interrupt-fed receive buffer.
+FieldCore's existing UART driver does buffer bytes independently of its worker;
+a 5 ms worker interval does not itself establish byte loss. Its current backend
+does not expose the timing/framing evidence required by our runner. Reliable
+frame-level hardware evidence may be a suitable alternative to per-byte timing;
+select that boundary from evidence, rather than requiring one interrupt per byte
+or shortening every application task's polling interval.
 
 Start with a load and fault test fixture around the existing adapter/runner:
 
@@ -244,3 +250,52 @@ The result should be working code, reproducible tests and a short mapping to
 FieldCore's ownership contract. It can remove much of the protocol debugging
 from integration. It cannot establish FieldCore thread safety, product timing,
 shared-device behavior or memory use without subsequent tests in that firmware.
+
+## Expected size of the FieldCore change
+
+The user confirmed the small reference approach: reuse this repository's runner
+and tests, with no copy of the FieldCore task. The following is an engineering
+assessment from inspected source, not a completed implementation or a time quote.
+
+For the full motion contract, budget a medium-to-large change within the RS485
+and device-command subsystem. The existing FieldCore architecture can remain:
+one bus owner, device modules, bounded queues, retained results and diagnostics.
+Adding read-only motor observations is a smaller step than adding dependable
+movement, interruption and uncertain execution handling.
+
+| Area | Inspected behavior and required change | Relative scope |
+| --- | --- | --- |
+| Request storage | Eight-byte TX limit must accommodate reviewed ESS requests up to 21 bytes. Check every containing queue/structure's memory use. | Small, with regression checks |
+| Response handling | Request-identical prefixes are stripped, which can discard a genuine single-register write acknowledgement. Add explicit echo policy and normal/exception framing while preserving existing sensor framing modes. | Moderate |
+| UART/backend contract | Current reads return untimed batches; DE changes return no success/failure result. Add usable capture/error evidence, physical TX drain and confirmed or explicitly uncertain direction state. Validate under actual task/interrupt load. | Substantial; hardware evidence determines the final design |
+| Commands and results | Current requests are Probe/Measure/ReadLast and readings use float. Add typed motion intent, exact native integer values and separate accepted/acknowledged/completed/unknown outcomes. Carry these through ingress, binding and result delivery without changing sensor meanings. | Substantial contract work across several files |
+| Cancellation and scheduling | Current cancellation clears active transport after requesting DE release. Motor operations need transport settlement, distinct local cancellation versus drive stop, pending-stop priority and explicit queued-motion disposition. | Moderate to substantial |
+| Retry and recovery policy | The inspected SHZK module owns its retries; the bus owner is not a universal automatic retry engine. Preserve that separation. A motor module must handle lost write acknowledgements without automatically repeating a possibly executed command. | Focused motor policy plus bus-recovery integration |
+| Product integration | Add the motor device module, configuration, composition and cached health/state presentation. Test compatibility with existing devices and the complete workload. | Moderate, after transport behavior is proven |
+
+The main behavioral difference is what a request means. A sensor transaction
+usually obtains an observation. A motor write may start an action that continues
+after the acknowledgement. If the reply to a relative move is lost, repeating
+the command can cause a second move. Cancelling the host's wait does not cancel
+the drive's movement. Those facts require different operation state and explicit
+recovery decisions, even when the wire protocol is still Modbus RTU.
+
+The ESP32 is not being asked to generate the motor's step pulses or close the
+drive's internal servo loop. It must deliver commands reliably, retain what is
+known about their execution, observe completion/faults and schedule stop within
+a defined bus-service budget. A functioning bus is still required for a serial
+stop command to reach the drive.
+
+The remaining work here has two separate parts: reliable capture while other
+tasks run, and a small bus owner that decides which request may use the wire
+next. Existing codecs and the one-transaction runner are reusable foundations
+for both. Then typed drive operations add their own sequencing and state rules.
+These are real implementation blocks; the current read-only probe does not
+already supply them.
+
+Developing those blocks here can turn later FieldCore work into adaptation of
+tested mechanisms with known limits. It cannot make integration a header-only
+addition or remove tests for concurrency, old sensors, memory and product load.
+No reliable line count, effort percentage or completion date follows from this
+source review alone. Start with capture/load evidence, then add the bounded owner
+and reuse the same scenarios when integration is separately authorized.
