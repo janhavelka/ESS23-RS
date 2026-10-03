@@ -224,7 +224,7 @@ service gaps, failures and resources. GPTimer sampling and asynchronous DE
 release allow the owner to sleep; atomic TX/release bounds replace separate
 completion observations. No per-byte times are reconstructed from a FIFO batch.
 
-The measured 20-us sampler costs about 19?21% of one core inside the capture
+The measured 20-us sampler costs about 19 to 21% of one core inside the capture
 section alone. This is a reference choice that needs a production CPU-budget
 review. External TX/RX/DE, cache-off behavior and the full FieldCore workload
 remain separate qualification work; native tests and successful probes do not

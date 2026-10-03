@@ -5,6 +5,11 @@ The [backlog](backlog.md) holds individual features, register questions and
 verification tasks. Update both when evidence changes the plan; dates and
 future version numbers are not commitments.
 
+The [ESS release prompt set](prompts/ess_release/README.md) turns these stages
+into 30 ordered implementation blocks with tests, independent audits and
+evidence handoffs. Start with prompt 01 when implementation is dispatched.
+Preparing the prompts does not complete any milestone.
+
 ## Release scope
 
 The first supported release targets the identified ESS-RS bench model and

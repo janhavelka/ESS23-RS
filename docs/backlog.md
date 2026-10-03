@@ -263,7 +263,7 @@ possible. This list is not a request for the user to answer everything now.
 | --- | --- |
 | When does the GitHub repository URL change? | The user will rename the remote; update metadata then. Local package/API rename is complete. |
 | What motor/model/firmware is actually connected? | Read documented identity; compare model markings if identity is insufficient. The project's RS20 target is not a bench measurement. |
-| What firmware/host path is active on COM13? | Resolved for the recorded bench: MotorControl-RS 0.5.1 JSONL probe console, with original CO2control backup retained. Recheck identity at each new hardware session; it is not a raw RTU bridge. |
+| What firmware/host path is active on COM13? | Latest recorded bench: MotorControl-RS 0.6.0 JSONL probe/load console with timer capture, with original CO2control backup retained. Recheck identity at each new hardware session; it is not a raw RTU bridge. |
 | What are the board pins, DE/RE polarity, echo topology and bus wiring? | User confirms E2 HW2.0 TX47/RX48/DE21. Matching FieldCore HW200 source uses UART2/active-high DE. Live polarity, echo and wiring qualification remain. |
 | Which address/baud/format is active despite reported defaults? | Replies are observed at node 1, 115200 8N1. Device configuration/DIP readback and bounded discovery remain pending. |
 | Is the selected ESS probe qualified on the connected firmware? | Repeated checked FC03 0x0000/one-word replies have bench evidence. Exact model/firmware, external timing and communication-watchdog interaction remain unqualified. |

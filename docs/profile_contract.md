@@ -5,8 +5,9 @@ each selected drive exposes its complete documented functionality alongside
 the [common axis API](axis_contract.md). The first implementation supplies the
 [ESS register catalogue](reference/05_ess_register_catalog.md), generated C++
 descriptors and native enums. Checked raw ESS codecs and a minimal probe are
-also implemented; typed commands, sequencing and hardware qualification remain
-future work. ESS-RS is the first target; Leadshine iEM-RS
+also implemented, with limited read-only bench evidence. Typed commands,
+sequencing and broader hardware qualification remain future work.
+ESS-RS is the first target; Leadshine iEM-RS
 is a contrasting design case whose concrete model and firmware still require
 selection.
 
@@ -57,9 +58,10 @@ for diagnostics but cannot substitute for documented native API coverage.
 
 ## Coverage ledger
 
-When implementation begins, maintain one reviewable, machine-readable
-coverage ledger per profile and generate documentation from it where useful.
-This pass defines its contract only. Expand every applicable vendor register,
+Extend the existing ESS register ledger with linked, reviewable operational
+coverage as typed implementation proceeds. Keep register transcription in one
+source and generate documentation from it where useful. The operational fields
+below are requirements, not completed coverage. Expand every applicable vendor register,
 object, command value, meaningful bitfield and indexed record, including
 reserved entries needed to account for the source map. Link command prose,
 appendix rows and diagrams that describe the same feature. Record differing
@@ -103,17 +105,17 @@ returns an unsupported result before yielding a transaction.
 
 ## Typed native surface
 
-The planned ESS family namespace is `MotorControlRS::ESS_RS`. These paths
-describe future real files; they are not placeholder headers to create now.
+The ESS family namespace is `MotorControlRS::ESS_RS`. The table distinguishes
+existing files from planned operations; do not create placeholder headers.
 
-| Planned path | Responsibility |
+| Path / implementation state | Responsibility |
 | --- | --- |
-| `include/MotorControlRS/Profiles.h` | Profile identity, capability and coverage metadata shared by applications |
+| `include/MotorControlRS/Profiles.h` (planned) | Profile identity, capability and coverage metadata shared by applications |
 | `include/MotorControlRS/profiles/ess_rs/Codec.h` | Stateless bounded frame builders, validators, decoders and checked response parsers |
 | `include/MotorControlRS/profiles/ess_rs/Registers.h` | Resolved register identities and typed descriptors, including access and widths |
-| `include/MotorControlRS/profiles/ess_rs/Types.h` | Family enums, native quantities, observations and command/configuration types |
-| `include/MotorControlRS/profiles/ess_rs/Commands.h` | Native operation preparation, command constraints and family sequence definitions |
-| `src/profiles/ess_rs/` | Corresponding implementation when requested |
+| `include/MotorControlRS/profiles/ess_rs/Types.h` | Existing generated family enums; future handwritten observations and operation types belong in separately owned headers |
+| `include/MotorControlRS/profiles/ess_rs/Commands.h` (planned) | Native operation preparation, command constraints and family sequence definitions |
+| `src/profiles/ess_rs/` | Existing codec/catalogue implementation; typed operations follow here when implemented |
 
 Expose named read preparations, typed configuration preparations and explicit
 actions. Native operations can use the `prepare...` vocabulary and the same
@@ -148,8 +150,10 @@ numbers below are physical PDF pages, counted from one. The DM-PR appendix
 on pages 80-90 is a different family and is excluded from this profile.
 Consult the [implementation reference](reference/01_implementation_reference.md)
 and [hardware manual](vendor/ESS23-RS1020_Series_Bus_Integrated_Motor_Hardware_Manual.pdf)
-for conflicts and applicability limits. No row below is implemented or
-hardware qualified.
+for conflicts and applicability limits. This table defines required coverage.
+The raw codecs and minimal model probe already implement part of it, with
+limited read-only bench evidence; complete typed coverage remains pending.
+Track implementation and hardware qualification separately for each operation.
 
 | Native group | Required serial API coverage and distinctions | Evidence |
 | --- | --- | --- |

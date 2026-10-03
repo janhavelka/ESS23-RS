@@ -53,6 +53,11 @@ for current code and builds.
 
 - [Release roadmap](roadmap.md): delivery order, release scope, completion gates
   and the hardware regression required as each implemented feature reaches E2.
+- [ESS release prompt set](prompts/ess_release/README.md): 30 numbered blocks
+  from bus ownership through motion, native ESS coverage and release evidence;
+  shared audit/testing rules and a requirement-to-prompt coverage map.
+- [Prompt preparation and source audit](reports/2026-10-03_promptset_audit.md):
+  actual FieldCore conventions, scope differences and corrected dependencies.
 - [Capture and load audit](reports/2026-10-03_capture_load.md): independent wire
   fixtures, timer capture, measured load and remaining timing qualification.
 

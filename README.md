@@ -9,7 +9,9 @@ The implementation supplies **configurable units, the ESS register catalogue
 and checked ESS Modbus RTU codecs**. A [standalone transaction runner](docs/runner.md)
 has native fake-transport tests. The [E2 read-only probe](docs/e2_probe.md) adds
 polling and timer UART capture, a JSONL console and Python load/bench tools.
-The [release roadmap](docs/roadmap.md) records the delivery order and completion gates. Model-register
+The [release roadmap](docs/roadmap.md) records the delivery order and completion gates.
+The [numbered implementation prompts](docs/prompts/ess_release/README.md)
+split the remaining work into reviewed, independently dispatched blocks. Model-register
 communication has bench evidence; external timing qualification, motion commands,
 discovery orchestration and the full CLI remain future work. Other reviewed drives, including
 Leadshine iEM-RS, are design contrasts rather than implemented profiles.

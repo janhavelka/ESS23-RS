@@ -1,9 +1,10 @@
 # MotorControl-RS standalone CLI contract
 
 This defines the planned standalone console for the general `MotorControlRS`
-library and its family profiles, beginning with `MotorControlRS::ESS_RS`. No
-commands, APIs or firmware are implemented by this document. The checkout
-remains `ESS23-RS`. The [architecture](architecture.md),
+library and its family profiles, beginning with `MotorControlRS::ESS_RS`.
+The [probe/load console](e2_probe.md) implements the current read-only subset;
+the full command surface below remains a contract for later implementation.
+The checkout remains `ESS23-RS`. The [architecture](architecture.md),
 [axis contract](axis_contract.md) and [profile contract](profile_contract.md)
 define the public operations that the console exposes.
 
