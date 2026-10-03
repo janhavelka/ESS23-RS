@@ -6,6 +6,11 @@ local changes. This is source review and guidance for the later E2 adapter;
 no firmware was flashed and COM13 was not opened. The native transaction
 runner belongs under `examples/common/`. FieldCore continues to own its bus.
 
+This is the version 0.4.0 review. The later [E2 implementation](../e2_probe.md)
+uses direct polling without installing the IDF driver and supplies conservative
+timing intervals to the extended runner. See its current contract and bench
+report for implemented behavior and outstanding external qualification.
+
 ## Reuse that saves work
 
 | FieldCore source | Useful behavior | MotorControl-RS application |
@@ -75,8 +80,9 @@ The ESP32-S3 UART driver exposes parity/framing/overflow events and receive
 timeout configuration. These are useful building blocks, but dequeuing an
 event later does not create a precise byte-arrival timestamp. The eventual
 adapter needs a reviewed framing strategy and measured timing uncertainty.
-The implemented runner requires actual TX stop-bit and RX start/stop times,
-plus a receive observation watermark; see [the callback contract](../runner.md#adapter-timing-contract).
+The runner requires usable bounds on TX stop-bit and RX start/stop times,
+plus a receive observation watermark; version 0.5.0 added explicit uncertainty
+intervals. See [the callback contract](../runner.md#adapter-timing-contract).
 `uart_wait_tx_done()` establishes current idle but does not by itself supply
 that actual completion timestamp. Reusing the call does not complete the
 adapter's timing work.

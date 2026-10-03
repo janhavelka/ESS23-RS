@@ -1,17 +1,17 @@
 # MotorControl-RS architecture review
 
-Reviewed on 2026-10-03 against library version 0.3.0, commit `2c9970c`.
+Updated on 2026-10-03 for version 0.5.1. The original core review used version
+0.3.0, commit `2c9970c`; the application audit started at commit `d2d9a3a`.
 This report describes the code that exists, how its parts connect, and the
 next boundaries to establish. The [architecture contract](architecture.md)
 remains the detailed design baseline; names marked **planned** below are not
 callable APIs yet.
 
-Update after this snapshot: the [standalone runner](runner.md) is implemented
-in version 0.4.0 with native fake tests.
-Version 0.5.0 adds the [E2 adapter and probe CLI](e2_probe.md), Python bench
-tools and recorded read-only communication; external timing and motion
-qualification remain open. The inventory and "next work" findings below describe the reviewed 0.3.0
-snapshot; consult the runner guide and backlog for current transport progress.
+The [standalone runner](runner.md), [E2 adapter and probe CLI](e2_probe.md), and
+Python bench tools now have native tests and recorded read-only communication.
+The [0.5.1 audit](reports/2026-10-03_audit.md) covers capture races, fault
+reporting and harness validation. External timing and motion qualification
+remain open.
 
 ## 1. Assessment
 
@@ -27,9 +27,9 @@ ESP-IDF or FieldCore dependency. It does not allocate heap memory, create tasks,
 read clocks, log messages or retain transaction buffers. This makes the
 existing behavior practical to test on a desktop and reuse in firmware.
 
-This is still an early foundation. The standalone program is an offline
-preview; motion preparation, typed commands, sequencing and actual bus
-integration remain to be built. The present tests do not establish an
+This is still an early foundation. There are separate offline and read-only
+standalone programs; motion preparation, typed commands, sequencing and
+FieldCore bus integration remain to be built. The present tests do not establish an
 industrial qualification or guaranteed motor stopping behavior. The main
 work ahead is making those boundaries observable and testable, then
 qualifying the exact hardware and firmware.
@@ -53,15 +53,18 @@ and GitHub repository are still named `ESS23-RS`.
 | [ESS Access.h](../src/profiles/ess_rs/Access.h) | Private generated 320-byte table for readable/single-word-writable addresses. Keeps codec use independent of descriptive catalogue strings. |
 | [rtu/Frame.h](../src/rtu/Frame.h) | Private byte packing, CRC and buffer-overlap helpers. Contains no UART or device register policy. |
 | [examples/units_preview/main.cpp](../examples/units_preview/main.cpp) | One offline program for desktop or Arduino USB console. Prints conversions and catalogue information. |
-| [examples/common/](../examples/common/) | Current board pins, console setting and flash partition file. Future example adapters belong here. |
+| [examples/common/RtuRunner.h](../examples/common/RtuRunner.h), [RtuRunner.cpp](../examples/common/RtuRunner.cpp) | Bounded application transaction state, caller-owned buffers/traces, callback timing, framing, deadlines and recovery. |
+| [examples/common/E2Uart.h](../examples/common/E2Uart.h), [E2Uart.cpp](../examples/common/E2Uart.cpp) | Exclusive UART2/DE ownership and conservative polling capture on ESP32-S3. External timing qualification remains open. |
+| [examples/probe_cli/](../examples/probe_cli/) | Platform-neutral bounded JSONL console and the Arduino application that owns its buffers, runner, cached results and policy. |
+| [examples/common/](../examples/common/) | Also contains board pins, console setting and flash partition file. |
 | [boards/e2_s3_n16r8.json](../boards/e2_s3_n16r8.json), [platformio.ini](../platformio.ini) | E2 ESP32-S3 Arduino build selection and pinned toolchain/platform settings. |
 | [CMakeLists.txt](../CMakeLists.txt), [library.json](../library.json) | Native build/test/install, ESP-IDF component registration and PlatformIO packaging. |
-| [test/](../test/) | Native unit, catalogue and codec tests; Python checks for register-gap metadata. |
-| [scripts/](../scripts/README.md) | Deterministic generators and reference download/hash verification. Development tools, not firmware dependencies. |
+| [test/](../test/) | Native units/catalogue/codec/runner/console tests; actual adapter and application loop built against shared SDK fakes; Python harness and register-gap checks. |
+| [scripts/](../scripts/README.md) | Generators, reference preservation and finite probe/stress/cached-watch campaigns. Development tools, not firmware dependencies. |
 | [docs/reference/](reference/) | Source ledger, register evidence, audits and unresolved questions. |
 | [docs/vendor/](vendor/), [docs/standards/](standards/), [docs/pdf-extracted-md/](pdf-extracted-md/) | Preserved originals and searchable extracts. Excluded from the distributed library package. |
 
-`Axis.h`, `Profiles.h`, `Sequence.h`, ESS `Commands.h`, a motor CLI and an
+`Axis.h`, `Profiles.h`, `Sequence.h`, ESS `Commands.h`, the full motor CLI and an
 ESP-IDF example are **planned**. No placeholder files are needed. The current
 `src/Units.cpp` and `src/rtu/Frame.h` should stay where they are until an actual
 implementation gives a reason to split them.
@@ -162,18 +165,20 @@ count storage must not alias frame or payload storage.
 | Retry and recovery | No automatic attempt | Applies explicit policy; preserves uncertain write outcomes |
 | Console, logging and storage | No services | Parses commands, records evidence and persists selected settings |
 
-For a model-word probe, the intended path is:
+For a model-word probe, the implemented standalone path is:
 
 1. The application selects an explicit target address and host serial format.
 2. `ESS_RS::buildProbe()` fills its caller's eight-byte request buffer.
 3. The bus owner waits for admission, transmits it and releases DE after the
    last stop bit. It collects a complete reply or records a transport failure.
 4. `ESS_RS::parseProbe()` checks address, function, exact length, count and CRC.
-5. On success, the application stores the raw model word and observation time.
-   On failure, it retains the previous valid observation and records the attempt.
+5. The application retains the attempt's transport/codec result and time. On
+   success it also publishes the raw model word. On failure, its model output
+   is invalid; a checked exception retains its raw rejection code.
 
-Steps 2 and 4 exist. This repository does not yet implement the live bus owner
-in step 3. Neither a builder nor a parser sends data by itself.
+Step 3 uses the example runner and E2 adapter. Neither a builder nor a parser
+sends data by itself. The console serves cached diagnostics after a terminal
+fault even if DE cleanup is still pending; admission remains interlocked.
 
 The bus owner is essential to correctness: an FC03 reply carries no register
 start address or transaction ID. A delayed reply of the same shape cannot be
@@ -222,11 +227,12 @@ or the E2 Arduino build. It does not initialize RS485, accept motor commands
 or test motor behavior. Its selected pins are TX47, RX48 and DE21; these
 remain example configuration. Core headers contain no board pins.
 
-The next standalone application should have a small platform entry point,
-shared command dispatch and diagnostics under `examples/common/`, and an
-application-owned transport. Arduino and ESP-IDF adapters supply console,
-UART, GPIO and time. Native tests can supply a fake transport to inject
-fragmented replies, timeouts, echo and late frames.
+The separate `examples/probe_cli` application has a small Arduino entry point
+and shared command dispatch; `examples/common` owns its runner and UART adapter.
+It calls the public ESS probe builder/parser and retains diagnostics in PSRAM.
+Its only motor operation is the model-word read. Native tests inject replies,
+timeouts, echo, capture races and stuck TX into the actual implementation.
+A native ESP-IDF entry point with equivalent semantics remains planned.
 
 The CLI should call the same public motion/profile APIs that upper firmware
 uses. It should not perform its own angle conversion or construct ESS
@@ -324,18 +330,17 @@ It may be a raw ESS exception byte, a `UnitError`, a frame reason or a request
 argument. It is not one universal error enum. Static message text is for
 people; program logic should use documented categories.
 
-For the later transport, record target/serial settings, request register and
-count, raw TX/RX with actual lengths, transaction phase and timestamps,
-parser result, and retained operation outcome. Record each observation's
+The current probe path records target/serial settings, raw TX/RX with actual
+lengths, transaction phase, time ranges, parser result and retained outcome.
+Later commands should also record their register/count and each observation's
 age separately. A fresh identity reply must not make an old position fresh.
 Keep this logging in the application so the library remains easy to test
 without a logger or clock.
 
-The current native suite was rerun for this review: **7/7 checks passed**.
-It covers units, register catalogue/access, frame fixtures and malformed
-responses, the offline preview, generated-file freshness and gap validation.
-The earlier header, installed-package and Arduino build results remain in
-[verification.md](verification.md); they were not repeated for this report.
+The 0.5.1 audit runs **12 CTest suites**, covering the core, runner, adapter,
+actual application loop, console, Python harness, generated files and preview.
+Build and historical package/header evidence is recorded in
+[verification.md](verification.md), separately from hardware qualification.
 
 Run the native checks with:
 
@@ -345,7 +350,7 @@ cmake --build build/motorcontrol-native
 ctest --test-dir build/motorcontrol-native --output-on-failure
 ```
 
-CMake currently treats Python 3.10+ as optional. Without it, only four CTest
+CMake currently treats Python 3.10+ as optional. Without it, only eight CTest
 checks are registered, so a successful run alone does not establish that
 generated files and gap metadata were checked. Full repository validation
 must include those Python checks. Ordinary consumers need only the generated
@@ -358,19 +363,20 @@ but its existence is not a completed IDF firmware test. The verified native
 package path is static linking; Windows DLL export support is not established.
 The units implementation requires `double` with at least 53 bits of precision.
 
-No serial port was opened and no firmware was uploaded for this review.
-UART timing, motion, stop behavior and persistence remain unqualified.
+COM13 now runs the read-only probe application, with the original CO2control
+flash backup retained. External UART timing, motion, stop behavior and
+persistence remain unqualified; see the dated bench and audit reports.
 
 ## 10. Review findings and next work
 
-No new runtime defect or framework dependency leak was found in the reviewed
-core. Keep the existing free functions, fixed buffers, small helpers and
+The audit found and fixed example-layer defects; no core API or register-policy
+change was needed. Keep the existing free functions, fixed buffers, small helpers and
 separate catalogue. Avoid splitting the three source files merely to make
 the folder tree look more complete.
 
 | Priority | Finding | Recommended next step |
 | --- | --- | --- |
-| Before bus bring-up | There is no example bus owner or transaction trace yet. | Implement one bounded read-only transaction path with fake-transport tests, then qualify the minimal probe on E2. |
+| Before expanding bus use | The read-only path works on the bench; its timing assumptions and raw model identity remain unqualified. | Capture external TX/RX/DE evidence and resolve exact identity/settings through reviewed read-only helpers. |
 | Before movement | Raw writable registers are not typed motion validation or command sequencing. | Add explicit state decoders and checked command preparation; test lost acknowledgements, partial setup and stop interruption with the first workflow. |
 | Before FieldCore integration | Current sensor command/transport assumptions cannot carry the full motor contract. | Extend the FieldCore owner and typed device contract in that repository; keep MotorControl-RS independent. |
 | For repeatable releases | Header/package/binary64 checks are recorded manual verification; Python checks are optional and no CI workflow is checked in. | Add a small repeatable verification command and CI in a separate block; require the complete check set for releases. |

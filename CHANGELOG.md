@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.5.1
+
+- Fix RX silence evidence around FIFO/state-machine races and reject snapshots
+  spanning a whole character. Require fresh evidence after host recovery.
+- Keep terminal fault reporting and cached commands available while TX/DE
+  cleanup is pending. Retain codec/exception details; checked device exceptions
+  do not require transport recovery. Admit no probe after a newly sampled fault.
+- Report truncated RX evidence, expose DE state, distinguish synchronous `done`
+  from probe `accepted`, and use a consistent command name for `ping` replies.
+- Check profile/address and successful result evidence in the Python harness.
+  Add native tests of the actual application loop using the shared SDK fake.
+
+These fixes do not establish external UART timing qualification or motion
+support. The framework-independent core and ESS register policy are unchanged.
+
 ## 0.5.0
 
 - Add the E2 UART2 polling adapter, read-only JSONL probe console and Python

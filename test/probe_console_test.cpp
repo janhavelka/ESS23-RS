@@ -107,7 +107,7 @@ void testProbeAdmissionAndAliases() {
     Fake fake; fake.data.address = 17;
     Probe::Console console(fake.host());
     send(console, "@8 ping\n"); assert(fake.probes == 1 && fake.address == 17 && fake.id == 8);
-    fake.contains("\"command\":\"ping\"");
+    fake.contains("\"command\":\"probe\"");
     fake.probeAction = Probe::Action::BUSY;
     send(console, "@9 probe 1\n"); fake.contains("\"result\":\"busy\""); fake.contains("\"ok\":false");
     fake.probeAction = Probe::Action::RECOVERY_REQUIRED;
@@ -127,6 +127,9 @@ void testCachedHealthAndStatus() {
     fake.data.ready = true;
     send(console, "health\n"); fake.contains("\"communication\":\"unknown\""); fake.contains("\"age_ms\":null");
     fake.contains("\"probe_address\":null");
+    fake.data.recoveryRequired = true;
+    send(console, "health\n"); fake.contains("\"communication\":\"failed\"");
+    fake.data.recoveryRequired = false;
     fake.data.probeKnown = fake.data.probeOk = true;
     fake.data.probeAddress = 17;
     fake.data.rawModel = 60; fake.data.ageMs = 5000;
@@ -140,8 +143,11 @@ void testCachedHealthAndStatus() {
     fake.data.probeOk = false;
     send(console, "status\n"); fake.contains("\"raw_model\":null"); fake.contains("\"last_probe_ok\":false");
     fake.data.probeOk = true; fake.data.busy = true; fake.data.timingQualified = false;
+    fake.data.transmitEnabled = true;
+    fake.data.codecChecked = true; fake.data.codec = MotorControlRS::Status(MotorControlRS::Err::EXCEPTION, 2, "");
     send(console, "status\n"); fake.contains("\"raw_model\":60"); fake.contains("\"busy\":true");
     fake.contains("\"probe_address\":17");
+    fake.contains("\"transmit_enabled\":true"); fake.contains("\"codec\":\"EXCEPTION\""); fake.contains("\"detail\":2");
     fake.contains("\"timing_qualified\":false"); fake.untouched();
 }
 
@@ -163,9 +169,12 @@ void testHelpConfigMemoryAndStats() {
     send(console, "stats\n"); fake.contains("\"started\":100"); fake.contains("\"max_poll_gap_us\":999");
     fake.contains("\"capture_faults\":2"); fake.untouched();
     send(console, "stats reset\nreset\n"); assert(fake.resets == 2 && fake.recoveries == 0 && fake.probes == 0);
+    fake.contains("\"result\":\"done\"");
     fake.recoverAction = Probe::Action::BUSY;
     send(console, "recover\n"); fake.contains("\"result\":\"busy\"");
     assert(fake.recoveries == 1 && fake.probes == 0);
+    fake.recoverAction = Probe::Action::OK;
+    send(console, "recover\n"); fake.contains("\"result\":\"done\"");
 }
 
 void testProbeResultEvidence() {
@@ -223,6 +232,8 @@ void testMaximumOutputAndRawBounds() {
     result.txEndUs = result.firstRxStartUs = max64;
     console.reportProbe(max, 247, result); fake.contains("\"raw_truncated\":true");
     fake.contains("18446744073709551615");
+    result.txLength = 8; result.rxLength = 64; result.transport.rxTruncated = true;
+    console.reportProbe(max, 247, result); fake.contains("\"raw_truncated\":true");
     result.tx = result.rx = nullptr;
     console.reportProbe(max, 247, result); fake.contains("\"tx_hex\":\"\""); fake.contains("\"rx_hex\":\"\"");
     fake.contains("\"raw_truncated\":true"); fake.untouched();

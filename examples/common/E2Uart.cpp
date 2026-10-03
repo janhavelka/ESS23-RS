@@ -2,7 +2,6 @@
 #include "E2Uart.h"
 #include "BoardPins.h"
 #include <cstring>
-#include <limits>
 #include <driver/uart.h>
 #include <driver/gpio.h>
 #include <esp_timer.h>
@@ -11,7 +10,7 @@
 #include <hal/uart_ll.h>
 
 #if !CONFIG_IDF_TARGET_ESP32S3
-#error E2Uart is qualified for the ESP32-S3 build only
+#error E2Uart supports ESP32-S3 builds only
 #endif
 
 namespace MotorControlRSExample {
@@ -68,6 +67,7 @@ uint64_t E2Uart::sample() noexcept {
     portENTER_CRITICAL(&mux);
     const uint64_t before = now();
     const uint32_t errors = hw->int_raw.val & ((1U << 2) | (1U << 3) | (1U << 4) | (1U << 7));
+    const bool idleRxBefore = hw->fsm_status.st_urx_out == 0 && hw->status.rxd;
     const unsigned available = uart_ll_get_rxfifo_len(hw);
     const bool idleTx = uart_ll_is_tx_idle(hw); // FIFO empty AND TX state machine idle.
     if (available == 1) uart_ll_read_rxfifo(hw, &value, 1);
@@ -79,6 +79,7 @@ uint64_t E2Uart::sample() noexcept {
     maxPollGap_ = maximum(maxPollGap_, bounded(before - sampled_));
     sampled_ = before;
     if (errors) fault(true);
+    if (after - before >= charMin_) fault(false); // A whole byte could cross this snapshot unseen.
     if (available > 1) fault(false); // Batch contains unknowable inter-byte gaps.
     if (available == 1 && !failed_) {
         if (count_ == 4 || emptySince_ > before) fault(false);
@@ -101,8 +102,10 @@ uint64_t E2Uart::sample() noexcept {
         }
     }
     if (empty) emptySince_ = emptyCheck;
-    rxIdle_ = empty && idleRx;
-    // A sample taken before the FIFO/idle checks is the safe observation bound.
+    // A byte may finish between the FIFO and state-machine reads. Require idle
+    // on both sides and no byte consumed in this sample before advancing silence.
+    // RX synchronizer/FIFO publication latency still needs external qualification.
+    rxIdle_ = idleRxBefore && available == 0 && empty && idleRx;
     if (rxIdle_) idleThrough_ = before;
     txIdle_ = idleTx;
     if (txPending_) {
@@ -183,6 +186,7 @@ bool E2Uart::clear() noexcept {
     hw->int_clr.val = UINT32_MAX;
     head_ = count_ = 0;
     failed_ = false;
+    rxIdle_ = false; // Recovery is not fresh silence evidence; sample again first.
     emptySince_ = idleThrough_ = sampled_ = now();
     return true;
 }

@@ -166,12 +166,12 @@ hardware evidence; do not generalize that to motion or full timing qualification
   a family-wide timing guarantee. No automatic retries or silent
   late-response recovery; FRAME still requires the checked profile parser.
 - Keep fixed storage caller-owned. Prefer PSRAM for larger task-context
-  traces, retained frames and caches in the future ESP32 adapter; keep
+  traces, retained frames and caches in ESP32 applications; keep
   ISR/cache-disabled/driver-required storage and stacks internal as required
   by the actual platform contract. Measure sizes and memory watermarks.
-- Add Python probe/stress/health/state automation when a machine-readable
-  standalone console exists; adapt reviewed FieldCore harness patterns.
-- Add native protocol tests and build/package metadata when real code exists.
+- Maintain the bounded Python probe/stress/health tools with the console;
+  add motor-state automation when typed state reads exist.
+- Maintain native protocol tests and build/package metadata with code changes.
   Match sibling conventions for Doxygen API comments, ESP32-S2/S3 examples,
   and framework-neutral consumption. Do not claim unperformed hardware tests.
 

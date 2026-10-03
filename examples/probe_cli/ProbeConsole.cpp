@@ -82,7 +82,8 @@ void Console::error(uint32_t id, const char* command, const char* reason) noexce
 void Console::action(uint32_t id, const char* command, Action result, uint8_t address) noexcept {
     std::snprintf(output_, sizeof(output_),
         "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"%s\",\"ok\":%s,\"result\":\"%s\",\"address\":%u}",
-        static_cast<unsigned long>(id), command, boolean(result == Action::OK), actionName(result), address);
+        static_cast<unsigned long>(id), command, boolean(result == Action::OK),
+        result == Action::OK && !address ? "done" : actionName(result), address);
     emit();
 }
 
@@ -126,6 +127,8 @@ void Console::dispatch() noexcept {
     }
     const Entry* entry = find(tokens[first]);
     if (!entry) { error(id, "unknown", "unknown_command"); return; }
+    // The asynchronous terminal event uses the canonical probe name too.
+    if (entry->command == Command::PROBE) entry = find("probe");
     const std::size_t args = count - first - 1;
     const char* arg = args ? tokens[first + 1] : nullptr;
     if (args > 1 || (args && entry->command != Command::HELP &&
@@ -206,14 +209,18 @@ void Console::dispatch() noexcept {
         break;
     case Command::STATUS:
         std::snprintf(output_, sizeof(output_),
-            "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"status\",\"ok\":true,\"uptime_ms\":%llu,\"ready\":%s,\"timing_qualified\":%s,\"busy\":%s,\"recovery_required\":%s,\"phase\":\"%s\",\"transport\":\"%s\",\"last_probe_known\":%s,\"last_probe_ok\":%s,\"probe_address\":%s,\"raw_model\":%s,\"age_ms\":%s,\"stale_after_ms\":%lu}",
+            "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"status\",\"ok\":true,\"uptime_ms\":%llu,\"ready\":%s,\"timing_qualified\":%s,\"busy\":%s,\"transmit_enabled\":%s,\"recovery_required\":%s,\"phase\":\"%s\",\"transport\":\"%s\",\"codec\":\"%s\",\"detail\":%ld,\"frame_error\":%u,\"last_probe_known\":%s,\"last_probe_ok\":%s,\"probe_address\":%s,\"raw_model\":%s,\"age_ms\":%s,\"stale_after_ms\":%lu}",
             static_cast<unsigned long>(id), static_cast<unsigned long long>(data.uptimeMs), boolean(data.ready), boolean(data.timingQualified),
-            boolean(data.busy), boolean(data.recoveryRequired), Rtu::phaseName(data.phase), Rtu::reasonName(data.transport),
+            boolean(data.busy), boolean(data.transmitEnabled), boolean(data.recoveryRequired), Rtu::phaseName(data.phase), Rtu::reasonName(data.transport),
+            data.codecChecked ? MotorControlRS::errToString(data.codec.code) : "NOT_CHECKED",
+            data.codecChecked ? static_cast<long>(data.codec.detail) : 0L,
+            data.codecChecked ? static_cast<unsigned>(data.frameError) : 0U,
             boolean(data.probeKnown), boolean(data.probeKnown && data.probeOk), probeAddress, rawModel, age, static_cast<unsigned long>(data.staleAfterMs));
         break;
     case Command::HEALTH: {
-        const char* communication = !data.ready ? "unavailable" : !data.probeKnown ? "unknown" :
-            !data.probeOk || data.recoveryRequired ? "failed" : data.ageMs > data.staleAfterMs ? "stale" : "current";
+        const char* communication = !data.ready ? "unavailable" : data.recoveryRequired ? "failed" :
+            !data.probeKnown ? "unknown" : !data.probeOk ? "failed" :
+            data.ageMs > data.staleAfterMs ? "stale" : "current";
         std::snprintf(output_, sizeof(output_),
             "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"health\",\"ok\":true,\"communication\":\"%s\",\"probe_address\":%s,\"age_ms\":%s,\"stale_after_ms\":%lu,\"readiness\":\"unknown\",\"alarms\":\"unknown\",\"state\":\"unknown\",\"identity\":\"%s\"}",
             static_cast<unsigned long>(id), communication, probeAddress, age, static_cast<unsigned long>(data.staleAfterMs), data.probeKnown && data.probeOk ? "responder_only" : "unknown");
@@ -246,7 +253,7 @@ void Console::reportProbe(uint32_t id, uint8_t address, const ProbeResult& resul
     char txHex[PROBE_TX_CAPACITY * 2 + 1], rxHex[PROBE_RX_CAPACITY * 2 + 1];
     hex(result.tx, result.txLength, txHex, sizeof(txHex));
     hex(result.rx, result.rxLength, rxHex, sizeof(rxHex));
-    const bool truncated = result.txLength > PROBE_TX_CAPACITY || result.rxLength > PROBE_RX_CAPACITY ||
+    const bool truncated = result.transport.rxTruncated || result.txLength > PROBE_TX_CAPACITY || result.rxLength > PROBE_RX_CAPACITY ||
         (!result.tx && result.txLength) || (!result.rx && result.rxLength);
     if (ok) std::snprintf(model, sizeof(model), "%u", result.rawModel);
     std::snprintf(output_, sizeof(output_),

@@ -13,6 +13,9 @@ namespace MotorControlRSExample {
  */
 class E2Uart {
 public:
+    E2Uart() = default;
+    E2Uart(const E2Uart&) = delete;
+    E2Uart& operator=(const E2Uart&) = delete;
     bool begin(uint32_t baud = 115200) noexcept;
     Rtu::Port port() noexcept;
     uint64_t sample() noexcept;

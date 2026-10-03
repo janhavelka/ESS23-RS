@@ -211,6 +211,7 @@ class Console:
                 raise BenchError("short serial command write; command was not replayed")
             total = 0
             accepted = False
+            probe_address = None
             terminal = None
             while self.clock() < deadline:
                 data = self._read()
@@ -225,18 +226,35 @@ class Console:
                         raise BenchError("duplicate or unsolicited terminal response")
                     if (type(item.get("id")) is not int or item["id"] != request_id
                             or item.get("command") != command
+                            or item.get("profile") != "ess_rs"
                             or type(item.get("ok")) is not bool):
-                        raise BenchError("reply ID, command or result does not match request")
+                        raise BenchError("reply ID, command, profile or result does not match request")
                     self.emit("reply", response=item)
                     if command == "probe":
                         if item.get("type") == "reply" and not accepted:
                             if item["ok"]:
                                 if item.get("result") != "accepted":
                                     raise BenchError("probe acceptance is not explicit")
+                                probe_address = item.get("address")
+                                if (type(probe_address) is not int or not 1 <= probe_address <= 247
+                                        or (address is not None and probe_address != address)):
+                                    raise BenchError("probe acceptance address does not match request")
                                 accepted = True
                                 continue
                             terminal = item
                         elif item.get("type") == "probe" and accepted:
+                            if (type(item.get("address")) is not int
+                                    or item["address"] != probe_address):
+                                raise BenchError("probe terminal address does not match acceptance")
+                            if item["ok"]:
+                                model = item.get("raw_model")
+                                if (item.get("transport") != "FRAME" or item.get("codec") != "OK"
+                                        or type(model) is not int or not 0 <= model <= 65535
+                                        or type(item.get("tx_bytes")) is not int or item["tx_bytes"] != 8
+                                        or type(item.get("rx_bytes")) is not int or item["rx_bytes"] != 7
+                                        or item.get("timing_valid") is not True
+                                        or item.get("raw_truncated") is not False):
+                                    raise BenchError("successful probe lacks consistent result evidence")
                             terminal = item
                         else:
                             raise BenchError("probe response sequence is invalid")
@@ -245,6 +263,8 @@ class Console:
                     else:
                         raise BenchError("unexpected structured console event")
                 if terminal is not None:
+                    if self.clock() >= deadline:
+                        raise BenchError("command response deadline expired; command was not replayed")
                     if self.buffer:
                         raise BenchError("terminal response has an incomplete trailing line")
                     if command == "status" and terminal["ok"]:

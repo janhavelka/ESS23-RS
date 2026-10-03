@@ -154,7 +154,7 @@ create stubs. See the root README for the current callable surface.
 | `include/MotorControlRS/profiles/ess_rs/Commands.h` | Full typed ESS command surface and sequence descriptions |
 | `include/MotorControlRS/profiles/ess_rs/Registers.h` | Verified ESS register definitions and value enums |
 | `include/MotorControlRS/profiles/ess_rs/Types.h` | Exact ESS values, raw flags, alarms and word order |
-| `include/MotorControlRS/Version.h` | Generated from package metadata when real code exists |
+| `include/MotorControlRS/Version.h` | Implemented generated version constants from package metadata |
 | `src/axis/`, `src/units/`, `src/protocol/` | Common validation, conversion and proven reusable framing helpers |
 | `src/profiles/ess_rs/` | ESS codec, native command mapping and bounded sequencing |
 | `examples/01_basic_bringup_cli/` | Arduino entry point, example transport and board integration |

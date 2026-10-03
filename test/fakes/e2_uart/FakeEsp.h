@@ -4,7 +4,7 @@
 #include <cstdint>
 
 // Minimal fake of the exact SDK surface used by E2Uart.cpp. Implementations
-// live in e2_uart_test.cpp; no adapter logic is duplicated here.
+// live in FakeEsp.cpp; no adapter logic is duplicated here.
 using esp_err_t = int;
 constexpr esp_err_t ESP_OK = 0;
 using uart_port_t = int;

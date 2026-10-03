@@ -3,8 +3,9 @@
 Discovery and a minimal non-changing presence probe are required design
 considerations for every supported drive profile and manufacturer grouping.
 This contract defines the public API and standalone CLI design. The ESS raw
-probe codec is now implemented; common operation preparation, scans, CLI and
-live qualification remain future work.
+probe codec and [read-only probe CLI](e2_probe.md) are implemented, with bench
+response evidence. Common operation preparation, scans, full identity reads
+and exact-model/non-changing qualification remain future work.
 
 The [axis API](axis_contract.md) exposes the common operations, the
 [profile contract](profile_contract.md) records per-device evidence, and the

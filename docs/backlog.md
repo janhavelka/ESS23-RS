@@ -168,6 +168,10 @@ The checkout and GitHub URL remain `ESS23-RS` pending the user's remote rename.
   record free/minimum/largest-block memory and stack measurements.
 - [x] Add Python bounded probe/stress and cached health/memory watching with
   JSONL evidence, no retry/recovery and native fake serial tests.
+- [x] Audit the E2/console/harness path: fix RX silence races, fault-result
+  availability, exception recovery policy, cached codec details and host
+  evidence validation; test the actual application loop with shared SDK fakes.
+  See the [0.5.1 audit](reports/2026-10-03_audit.md); external timing remains open.
 - [ ] Extend automation to actual motor state once typed state reads exist.
 - [ ] Build standalone ESP32-S2/S3 Arduino consumers and a first-class native
   ESP-IDF consumer with equivalent command semantics for equivalent features.

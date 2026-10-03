@@ -98,10 +98,18 @@ small internal queue holds at most four captured bytes. Incomplete capture
 returns `PENDING`; it does not claim an empty line. Idle/watermark evidence
 also uses the RX state machine and pin state. UART receive errors or lost
 capture evidence interlock further transactions until explicit recovery.
+Silence requires idle observations before and after the FIFO checks, with no
+byte consumed in that sample. Recovery requires a fresh sample before it can
+provide silence evidence. A snapshot spanning a full minimum character time
+fails because the checks could miss an entire character.
 
 The application avoids console parsing, JSON formatting, USB output and sleeps
 while a probe is active. Commands received then wait in the USB input path and
-are processed after it settles. This keeps the first bench implementation small;
+are processed after its terminal result. A TX or direction fault can leave DE
+asserted or uncertain; the application still publishes the failure and serves
+cached commands while the runner continues cleanup. `transmit_enabled` reports
+that state, and new probes/recovery remain interlocked until cleanup permits
+them. This keeps the first bench implementation small;
 it is not the future priority-stop or fully concurrent console design. A long
 scheduler interruption may cause a correctly reported capture failure. It must
 not be hidden by a guessed receive timestamp or automatic retry.
@@ -144,7 +152,7 @@ There are no raw writes, motion operations or automatic scans in this build.
 | `version` / `ver` | Report product, profile, library version and console protocol version. |
 | `config` / `settings` | Show host tuple, address, timing deadline and qualification state. Device settings remain unknown. |
 | `probe [address]` / `ping [address]` | Read ESS model register `0x0000`, one word: eight-byte FC03 request, seven-byte normal reply or five-byte exception. |
-| `status` | Show cached operation/transport result, model word and age. |
+| `status` | Show cached transport/codec result, raw exception detail, DE state, model word and age. |
 | `health` | Assess cached communication freshness. Drive readiness, alarms and motion state remain unknown. |
 | `stats` | Show local runner and capture counters, including maximum observed poll gap. |
 | `reset` / `stats reset` | Clear local counters only. Preserve the result and recovery interlock. |
@@ -155,6 +163,9 @@ An explicit probe address applies to that request. A later bare `probe` still
 uses the default address 1. Cached status and health label the address of their
 retained observation with `probe_address`; it is null before an observation is
 available. Neither command performs a fresh read.
+`ping` uses the canonical command name `probe` in both admission and terminal
+records. Successful synchronous `reset`, `stats reset` and `recover` return
+`result:"done"`; they do not emit a later completion record.
 
 Every reply is one JSON object per line. A human can enter `probe`; automation
 prefixes a decimal correlation ID from 1 through 4294967295:
@@ -185,8 +196,10 @@ reply establishes `identity:"responder_only"`, not a confirmed ESS model.
 external measurement. Those statements are different. A bad CRC can have a
 transport result of `FRAME` and a codec result of `CRC_ERROR`.
 
-There is one outstanding probe and no automatic retry. Faults and rejected
-frames require explicit host recovery before another request. Recovery resets
+There is one outstanding probe and no automatic retry. Transport/capture faults
+and corrupt or mismatched frames require explicit host recovery before another
+request. A fully checked Modbus exception is a completed device rejection: its
+code remains visible, but it does not require host recovery. Recovery resets
 the host capture path and invalidates cached presence confidence; its 500 ms
 guard cannot prove a still-processing drive will never send a late reply.
 
@@ -202,7 +215,8 @@ python scripts/bench_probe.py --port COM13 --log probe-watch.jsonl watch --count
 ```
 
 Use a new output filename for each run. The harness refuses to replace existing
-evidence. It checks the product/protocol handshake, request IDs, JSON shape,
+evidence. It checks the product/protocol/profile handshake, request IDs, probe
+addresses, successful transport/codec/model/length/timing evidence, JSON shape,
 line and byte bounds, deadlines, reset/fault messages and uptime regression.
 The first error stops a campaign without replay or automatic recovery.
 
@@ -229,8 +243,10 @@ include largest available blocks as well as free/minimum totals so fragmented
 heaps are visible. Console output is capped at 1024 bytes; retained hex is capped
 at eight TX and 64 RX bytes with an explicit truncation flag.
 
-Native verification covers runner framing/failure cases, console input bounds,
-cached health semantics, raw result formatting and fake serial harness failures.
+Native verification covers runner framing/failure cases, adapter snapshot races,
+the actual application loop with a stuck transmitter, checked exceptions and
+corrupt replies, console input bounds, cached health semantics, raw result
+formatting and fake serial harness failures. These tests share one SDK fake.
 Build and automated test results belong in [verification](verification.md).
 Hardware runs must separately record firmware, serial tuple, address, raw bytes,
 timing bounds, poll gaps, memory watermarks and exact observations.

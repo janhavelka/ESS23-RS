@@ -9,6 +9,8 @@
 
 using namespace MotorControlRSExample;
 namespace {
+constexpr uint32_t BAUD = 115200;
+constexpr uint32_t REPLY_GAP_US = 304;
 constexpr uint32_t RESPONSE_US = 200000; // Bench policy, not a vendor maximum.
 constexpr uint32_t RECOVER_US = 500000;  // Explicit read-only host recovery guard.
 E2Uart uart; // Tiny sampling state stays internal; application histories use PSRAM.
@@ -20,7 +22,7 @@ Rtu::Storage storage(uint8_t* tx, uint8_t* rx, Rtu::Trace* trace) {
 }
 Rtu::Timing timing() {
     Rtu::Timing t;
-    Rtu::setRtuTiming(115200, 10, t);
+    Rtu::setRtuTiming(BAUD, 10, t);
     t.setupUs = 20; t.holdUs = 20; // Conservative bench choices; electrical qualification pending.
     t.busTimeoutUs = 100000; t.txTimeoutUs = 20000; t.captureTimeoutUs = 10000;
     return t;
@@ -37,6 +39,9 @@ struct App {
     uint16_t model = 0;
     uint64_t finishedUs = 0;
     bool active = false, known = false, ok = false, parserFault = false;
+    bool codecChecked = false;
+    MotorControlRS::Status codec;
+    MotorControlRS::ESS_RS::FrameError frameError = MotorControlRS::ESS_RS::FrameError::NONE;
     App() : runner(uart.port(), storage(tx, rx, trace), timing()), console(host(this)) {}
 };
 App* app = nullptr;
@@ -47,12 +52,14 @@ void emit(void*, const char* text, std::size_t size) {
 }
 void snapshot(void* context, Probe::Snapshot& s) {
     App& a = *static_cast<App*>(context);
-    s.address = 1; s.probeAddress = a.address; s.baud = 115200; s.responseTimeoutUs = RESPONSE_US;
-    s.replyGapUs = 304; s.gap15Us = 750; s.gap35Us = 1750;
+    s.address = 1; s.probeAddress = a.address; s.baud = BAUD; s.responseTimeoutUs = RESPONSE_US;
+    s.replyGapUs = REPLY_GAP_US; s.gap15Us = timing().gap15Us; s.gap35Us = timing().gap35Us;
     s.uptimeMs = nowUs() / 1000; s.ready = uart.ready();
     s.timingQualified = false; // No external TX/RX/DE trace qualifies the sampling guard yet.
     s.busy = a.active; s.recoveryRequired = a.runner.needsRecovery() || uart.needsRecovery() || a.parserFault;
     s.phase = a.runner.phase(); s.transport = a.runner.result().reason;
+    s.transmitEnabled = a.runner.transmitEnabled();
+    s.codecChecked = a.codecChecked; s.codec = a.codec; s.frameError = a.frameError;
     s.probeKnown = a.known; s.probeOk = a.ok; s.rawModel = a.model;
     s.ageMs = a.known ? (nowUs() - a.finishedUs) / 1000 : 0;
     s.stats = a.runner.stats();
@@ -70,6 +77,7 @@ Probe::Action probe(void* context, uint32_t id, uint8_t address) {
     App& a = *static_cast<App*>(context);
     if (!uart.ready()) return Probe::Action::UNAVAILABLE;
     if (a.active) return Probe::Action::BUSY;
+    const uint64_t sampled = uart.sample(); // Include faults first observed at admission.
     if (a.parserFault || a.runner.needsRecovery() || uart.needsRecovery()) return Probe::Action::RECOVERY_REQUIRED;
     uint8_t bytes[8];
     Rtu::Request request;
@@ -79,8 +87,8 @@ Probe::Action probe(void* context, uint32_t id, uint8_t address) {
     // Observed E2 responder starts around 0.5 ms after TX. Explicit bench
     // deviation from recommended high-baud t3.5=1750 us: allow 3.5 8N1 chars.
     // Host admission/final framing still use 1750 us. Not a family-wide guarantee.
-    request.replyGapUs = 304;
-    const Rtu::Admission admitted = a.runner.start(request, uart.sample());
+    request.replyGapUs = REPLY_GAP_US;
+    const Rtu::Admission admitted = a.runner.start(request, sampled);
     if (admitted != Rtu::Admission::STARTED) return Probe::Action::FAILED;
     if (a.address != address) a.known = a.ok = false;
     a.address = address; a.activeId = id; a.active = true;
@@ -125,8 +133,10 @@ void complete(App& a) {
         result.codecChecked = true;
         result.codec = MotorControlRS::ESS_RS::parseProbe(a.rx, result.rxLength, a.address,
                                                         result.rawModel, &result.frameError);
-        a.parserFault = !result.codec;
+        // A checked Modbus exception is a complete rejection, not corrupt framing.
+        a.parserFault = !result.codec && result.codec.code != MotorControlRS::Err::EXCEPTION;
     }
+    a.codecChecked = result.codecChecked; a.codec = result.codec; a.frameError = result.frameError;
     a.ok = result.timingValid && result.codecChecked && result.codec.isOk();
     a.known = true; a.finishedUs = nowUs(); a.model = a.ok ? result.rawModel : 0;
     a.active = false;
@@ -141,7 +151,7 @@ void setup() {
         Serial.println("{\"type\":\"boot\",\"ok\":false,\"error\":\"psram_allocation\"}");
         return; // No silent large internal-RAM fallback.
     }
-    uart.begin();
+    uart.begin(BAUD);
     app = new (memory) App;
 }
 
@@ -149,10 +159,11 @@ void loop() {
     if (!app) { delay(10); return; }
     const uint64_t sampled = uart.sample();
     app->runner.poll(sampled);
-    if (app->active && !app->runner.busy() && !app->runner.transmitEnabled()) complete(*app);
+    if (app->active && !app->runner.busy()) complete(*app);
     // Formatting/USB writes happen outside the wire timing path. Commands wait
-    // at most the bounded probe duration; status/health never start a bus read.
-    if (!app->active && !app->runner.transmitEnabled()) {
+    // at most the bounded probe duration. A terminal fault can still be draining
+    // TX/DE; keep diagnostics available while the runner continues that cleanup.
+    if (!app->active) {
         for (unsigned i = 0; i < 32 && Serial.available(); ++i) {
             app->console.feed(static_cast<char>(Serial.read()));
             if (app->active) break;

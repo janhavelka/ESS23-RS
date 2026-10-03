@@ -1,0 +1,169 @@
+{
+  "date": "2026-10-03",
+  "version": "0.5.1",
+  "baseline_commit": "d2d9a3a",
+  "firmware_sha256": "3dfb028a1fc298c159bdf8bd6e40367a60190be5f08bbb2161d848337dbb8a1b",
+  "usb_serial": "3C:0F:02:CD:6B:98",
+  "port": "COM13",
+  "baud": 115200,
+  "format": "8N1",
+  "address": 1,
+  "pins": {
+    "tx": 47,
+    "rx": 48,
+    "de": 21
+  },
+  "reply_gap_us": 304,
+  "gap15_us": 750,
+  "gap35_us": 1750,
+  "timing_qualified": false,
+  "probes": 20,
+  "all_ok": true,
+  "raw_model": 20202,
+  "tx_hex": "010300000001840A",
+  "rx_hex": "0103024EEA0C6B",
+  "ranges": {
+    "duration_us": {
+      "min": 5312,
+      "max": 5497
+    },
+    "tx_uncertainty_us": {
+      "min": 9,
+      "max": 10
+    },
+    "max_rx_uncertainty_us": {
+      "min": 22,
+      "max": 29
+    }
+  },
+  "stats_before": {
+    "type": "reply",
+    "profile": "ess_rs",
+    "id": 2,
+    "command": "stats",
+    "ok": true,
+    "started": 0,
+    "frames": 0,
+    "failed": 0,
+    "timeouts": 0,
+    "cancelled": 0,
+    "rx_bytes": 0,
+    "discarded": 0,
+    "echo_bytes": 0,
+    "trace_overwritten": 0,
+    "max_poll_gap_us": 1000,
+    "capture_faults": 0,
+    "rx_errors": 0
+  },
+  "stats_after": {
+    "type": "reply",
+    "profile": "ess_rs",
+    "id": 83,
+    "command": "stats",
+    "ok": true,
+    "started": 20,
+    "frames": 20,
+    "failed": 0,
+    "timeouts": 0,
+    "cancelled": 0,
+    "rx_bytes": 140,
+    "discarded": 0,
+    "echo_bytes": 0,
+    "trace_overwritten": 212,
+    "max_poll_gap_us": 2006,
+    "capture_faults": 0,
+    "rx_errors": 0
+  },
+  "memory_last": {
+    "type": "reply",
+    "profile": "ess_rs",
+    "id": 82,
+    "command": "memory",
+    "ok": true,
+    "valid": true,
+    "internal_free": 344652,
+    "internal_min": 339504,
+    "internal_largest": 286708,
+    "psram_free": 8380332,
+    "psram_min": 8380332,
+    "psram_largest": 8257524,
+    "stack_free_bytes": 6116
+  },
+  "watch_stats": [
+    {
+      "type": "reply",
+      "profile": "ess_rs",
+      "id": 2,
+      "command": "stats",
+      "ok": true,
+      "started": 20,
+      "frames": 20,
+      "failed": 0,
+      "timeouts": 0,
+      "cancelled": 0,
+      "rx_bytes": 140,
+      "discarded": 0,
+      "echo_bytes": 0,
+      "trace_overwritten": 212,
+      "max_poll_gap_us": 2006,
+      "capture_faults": 0,
+      "rx_errors": 0
+    },
+    {
+      "type": "reply",
+      "profile": "ess_rs",
+      "id": 9,
+      "command": "stats",
+      "ok": true,
+      "started": 20,
+      "frames": 20,
+      "failed": 0,
+      "timeouts": 0,
+      "cancelled": 0,
+      "rx_bytes": 140,
+      "discarded": 0,
+      "echo_bytes": 0,
+      "trace_overwritten": 212,
+      "max_poll_gap_us": 2006,
+      "capture_faults": 0,
+      "rx_errors": 0
+    }
+  ],
+  "watch_health": [
+    {
+      "type": "reply",
+      "profile": "ess_rs",
+      "id": 4,
+      "command": "health",
+      "ok": true,
+      "communication": "stale",
+      "probe_address": 1,
+      "age_ms": 103885,
+      "stale_after_ms": 5000,
+      "readiness": "unknown",
+      "alarms": "unknown",
+      "state": "unknown",
+      "identity": "responder_only"
+    },
+    {
+      "type": "reply",
+      "profile": "ess_rs",
+      "id": 7,
+      "command": "health",
+      "ok": true,
+      "communication": "stale",
+      "probe_address": 1,
+      "age_ms": 104003,
+      "stale_after_ms": 5000,
+      "readiness": "unknown",
+      "alarms": "unknown",
+      "state": "unknown",
+      "identity": "responder_only"
+    }
+  ],
+  "raw_logs": {
+    "audit_before.jsonl": "8563f770e968e43a2493067826b5f8be729b619892bcd45a962fe8a98aacae49",
+    "audit_stress.jsonl": "80b7056d80ca27630d2c67058b0375244865b9702638a8ac539bb2199abdc1a6",
+    "audit_watch.jsonl": "84ce929b29ff415be95cd41f05b7d4117a437c70259a28e0b99e0cc15e22e021"
+  }
+}

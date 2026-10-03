@@ -52,6 +52,7 @@ class Serial:
                     + encoded(reply(request_id, command, type="probe", address=address,
                                     transport="FRAME", codec="OK", detail=0, raw_model=60,
                                     duration_us=12345, tx_bytes=8, rx_bytes=7,
+                                    timing_valid=True, raw_truncated=False,
                                     identity="responder_only")))
         if command == "status":
             return encoded(reply(request_id, command, busy=False, recovery_required=False,
@@ -156,7 +157,7 @@ class Framing(unittest.TestCase):
 
     def test_missing_probe_terminal_does_not_retry(self):
         console = self.session()
-        self.port.handler = lambda i, cmd, _: encoded(reply(i, cmd, result="accepted"))
+        self.port.handler = lambda i, cmd, _: encoded(reply(i, cmd, result="accepted", address=1))
         self.failed(lambda: console.command("probe", timeout_s=0.02), "deadline expired")
         self.assertEqual(len(self.port.writes), 2)
 
@@ -179,6 +180,48 @@ class Framing(unittest.TestCase):
                 console = self.session()
                 self.port.handler = lambda *_: content
                 self.failed(lambda: console.command("status", timeout_s=0.1), "malformed JSON")
+
+    def test_wrong_profile_stops(self):
+        console = self.session()
+        self.port.handler = lambda i, cmd, _: encoded(reply(i, cmd, profile="other"))
+        self.failed(lambda: console.command("status", timeout_s=0.1), "profile")
+
+    def test_probe_address_matches_request_and_acceptance(self):
+        for admission, terminal in ((2, 2), (True, 1), (248, 248), (1, 2), (1, True)):
+            with self.subTest(admission=admission, terminal=terminal):
+                console = self.session()
+                self.port.handler = lambda i, cmd, _: (
+                    encoded(reply(i, cmd, result="accepted", address=admission))
+                    + encoded(reply(i, cmd, type="probe", address=terminal, ok=False)))
+                self.failed(lambda: console.command("probe", address=1, timeout_s=0.1), "address")
+
+    def test_probe_success_requires_consistent_evidence(self):
+        for change in ({"transport": "NO_RESPONSE"}, {"codec": "EXCEPTION"},
+                       {"raw_model": None}, {"raw_model": True}, {"raw_model": 65536},
+                       {"tx_bytes": 0}, {"rx_bytes": 5}, {"rx_bytes": 7.0},
+                       {"timing_valid": False}, {"raw_truncated": True}):
+            with self.subTest(change=change):
+                console = self.session()
+
+                def malformed(i, cmd, args):
+                    accepted, terminal = (json.loads(line) for line in Serial.normal(i, cmd, args).splitlines())
+                    return encoded(accepted) + encoded({**terminal, **change})
+
+                self.port.handler = malformed
+                self.failed(lambda: console.command("probe", timeout_s=0.1), "result evidence")
+
+    def test_terminal_arriving_after_deadline_stops(self):
+        console = self.session()
+        original_read = self.port.read
+
+        def late_read(limit):
+            data = original_read(limit)
+            if data:
+                self.clock.now += 0.2
+            return data
+
+        self.port.read = late_read
+        self.failed(lambda: console.command("status", timeout_s=0.1), "deadline expired")
 
     def test_probe_requires_acceptance_first(self):
         console = self.session()
@@ -264,8 +307,9 @@ class Framing(unittest.TestCase):
 
         def fail_probe(request_id, command, args):
             if command == "probe":
-                return (encoded(reply(request_id, command, result="accepted"))
+                return (encoded(reply(request_id, command, result="accepted", address=1))
                         + encoded(reply(request_id, command, type="probe", ok=False,
+                                        address=1,
                                         transport="NO_RESPONSE", codec="NOT_RUN")))
             return normal(request_id, command, args)
 

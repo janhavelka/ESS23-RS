@@ -13,6 +13,8 @@ for current code and builds.
 - [Standalone RTU runner](runner.md): current callback/timing contract, state
   machine, fake tests, diagnostics, memory sizes and explicit recovery.
 - [E2 probe guide](e2_probe.md): adapter, read-only console, PSRAM and Python tools.
+- [0.5.1 implementation audit](reports/2026-10-03_audit.md): defects, fixes,
+  regression tests and remaining qualification gaps.
 - [E2 bench report](reports/2026-10-03_e2_probe.md): measured probes, timing
   exception, raw model, firmware backup and remaining qualification work.
 - [Current architecture report](architecture_report.md): source-based review

@@ -1,5 +1,18 @@
 # Software verification
 
+## Implementation audit, version 0.5.1
+
+Checks on 2026-10-03: clean Release build with warnings as errors and **12/12
+CTest suites passed**, including eight adapter groups, five actual-application
+groups and 28 Python fake serial tests. Both ESP32-S3 examples built. COM13 ran
+20/20 checked probes, cached monitoring with unchanged bus counters, and explicit
+timeout/interlock/recovery/reset/alias checks. All 14 retained source hashes match.
+
+See the [audit report](reports/2026-10-03_audit.md), measured metrics and fault
+transcript for defects, fixes and limits. External timing qualification, exact
+motor identity and motion remain open. Historical results below retain the
+versions and scope in which they were obtained.
+
 ## E2 adapter and read-only probe, version 0.5.0
 
 Checks on 2026-10-03:

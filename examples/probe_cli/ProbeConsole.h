@@ -11,7 +11,7 @@ constexpr std::size_t OUTPUT_CAPACITY = 1024;
 constexpr std::size_t PROBE_TX_CAPACITY = 8;
 constexpr std::size_t PROBE_RX_CAPACITY = 64;
 
-/** Admission result only; an accepted probe finishes asynchronously. */
+/** Host action result; only a probe completes asynchronously. */
 enum class Action : uint8_t { OK, BUSY, RECOVERY_REQUIRED, UNAVAILABLE, FAILED };
 
 /** Task-context cached host observations. No probe establishes motor readiness. */
@@ -25,9 +25,13 @@ struct Snapshot {
     bool ready = false;
     bool timingQualified = false;
     bool busy = false;
+    bool transmitEnabled = false; ///< Asserted or uncertain DE, including fault cleanup.
     bool recoveryRequired = false;
     Rtu::Phase phase = Rtu::Phase::IDLE;
     Rtu::Reason transport = Rtu::Reason::NONE;
+    bool codecChecked = false;
+    MotorControlRS::Status codec;
+    MotorControlRS::ESS_RS::FrameError frameError = MotorControlRS::ESS_RS::FrameError::NONE;
     bool probeKnown = false;
     bool probeOk = false;
     uint8_t probeAddress = 0; ///< Address of retained probe evidence, not the default target.

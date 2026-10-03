@@ -29,11 +29,12 @@ This note does not start a test session or claim any completed validation.
 
 ## Establish the host connection when testing starts
 
-COM13 currently exposes the board running CO2control. Do not assume it is a
+COM13 originally exposed the board running CO2control; see current status below.
+Do not assume it is a
 transparent USB-to-RS485 adapter or send raw RTU frames to an unknown console.
 Inspect that firmware's available CLI/bridge and board configuration first.
 Record the actual path from host to motor and any firmware change needed to
-run the future standalone test application. Preserve enough firmware/build
+run the standalone test application. Preserve enough firmware/build
 information to reproduce or restore the bench setup.
 
 The USB console baud rate and the motor RS485 baud rate are separate facts.
@@ -79,7 +80,9 @@ completion and record changes to the setup for the next session.
 
 - Bench access and motion-test authorization: recorded from the user.
 - COM13 inspected on 2026-10-03; original CO2Control-node 1.3.0 flash backed up.
-- Board now runs the standalone MotorControl-RS 0.5.0 read-only probe console.
+- Board now runs the standalone MotorControl-RS 0.5.1 read-only probe console.
+- The [0.5.1 audit](reports/2026-10-03_audit.md) adds 20 checked probes and
+  timeout/recovery/alias/reset evidence; the original flash backup is unchanged.
 - Repeated checked model reads succeed at node 1, 115200 8N1, TX47/RX48/DE21.
 - Raw model: `0x4EEA`; exact model/firmware mapping and settings remain unknown.
 - External TX/RX/DE timing qualification remains open; see the explicit bench
