@@ -113,10 +113,12 @@ existing files from planned operations; do not create placeholder headers.
 | --- | --- |
 | `include/MotorControlRS/Profiles.h` (planned) | Profile identity, capability and coverage metadata shared by applications |
 | `include/MotorControlRS/profiles/ess_rs/Codec.h` | Stateless bounded frame builders, validators, decoders and checked response parsers |
+| `include/MotorControlRS/ReadOperation.h` | Portable read targets, application-supplied events, timing evidence and declared wiring |
+| `include/MotorControlRS/profiles/ess_rs/Reads.h` | Bounded typed identity/configuration preparations, observations and read capabilities |
 | `include/MotorControlRS/profiles/ess_rs/Registers.h` | Resolved register identities and typed descriptors, including access and widths |
 | `include/MotorControlRS/profiles/ess_rs/Types.h` | Existing generated family enums; future handwritten observations and operation types belong in separately owned headers |
 | `include/MotorControlRS/profiles/ess_rs/Commands.h` (planned) | Native operation preparation, command constraints and family sequence definitions |
-| `src/profiles/ess_rs/` | Existing codec/catalogue implementation; typed operations follow here when implemented |
+| `src/profiles/ess_rs/` | Codec/catalogue implementation and the bounded identity/configuration read operations in `Reads.cpp` |
 
 Expose named read preparations, typed configuration preparations and explicit
 actions. Native operations can use the `prepare...` vocabulary and the same

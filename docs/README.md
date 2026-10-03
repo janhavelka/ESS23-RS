@@ -7,11 +7,16 @@ Release prompts 01–04 deliver the application owner, responsive console and
 7/37-byte read-only bench evidence pass. Capture costs about 20–21% of one
 core; independent electrical timing remains NOT RUN.
 
+Prompt 05 adds installed typed identity/configuration reads, matching console
+routes and a ledger-linked operation inventory, with native/package and read-only
+COM13 evidence. See the [read API](ess_reads.md) and
+[fresh audit](reports/ess_release_05_audit_2026-10-04.md).
+
 Implemented blocks are pure unit conversion, an ESS register catalogue,
 checked wire codecs with a minimal probe and standalone build foundations.
 The standalone RTU runner and ESP32-S3 adapter have native fake tests. The read-only
-probe CLI has bench evidence; external timing qualification, typed commands,
-motion workflows, discovery orchestration and full CLI coverage remain future
+probe CLI has bench evidence; external timing qualification, typed setting/action
+commands, motion workflows, discovery orchestration and full CLI coverage remain future
 work. See the [root README](../README.md)
 for current code and builds.
 
@@ -118,5 +123,3 @@ SHA-256 checksums.
 quick searching. Original PDFs remain the reference for tables and diagrams.
 These documents are reference material, not hardware qualification or a
 completed driver design.
-
-Typed identity and motion-prerequisite configuration reads are implemented through the installed public [read API](ess_reads.md). The standalone console exposes `read identity`, `read config`, `caps` and matching ESS profile routes. These are non-changing reads; exact-model, state and motion qualification remain separate.

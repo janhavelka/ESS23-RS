@@ -389,6 +389,12 @@ possible. This list is not a request for the user to answer everything now.
 
 ## Prompt 05 typed read handoff
 
+The [fresh audit](reports/ess_release_05_audit_2026-10-04.md) rechecked the actual
+public/core/application paths and retained evidence. No implementation defect
+was confirmed; stale profile/discovery API descriptions were corrected.
+Native/package/build checks and 16 additional non-changing COM13 transactions
+passed on the unchanged image.
+
 - [x] Pure caller-owned identity/configuration operations, exact gap-safe FC03 windows, checked atomic publication and copied provenance; installed-core consumer verification.
 - [x] Same public preparation/event/decoder APIs through common/profile console routes and strict Python correlation, retention and release.
 - [x] Complete ledger-linked operation inventory with separate source/model/read/write/action/API/CLI/native/hardware dispositions; generated descriptors remain unchanged.

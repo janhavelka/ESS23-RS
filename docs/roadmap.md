@@ -16,6 +16,9 @@ The [fresh prompt 03 audit](reports/ess_release_03_audit_2026-10-04.md) corrects
 cache/result/deadline edges and repeats native/build and read-only timer campaigns.
 The [fresh prompt 01 audit](reports/ess_release_01_audit_2026-10-03.md) corrects
 two timeout-reporting defects with native and current-image regression evidence.
+The [fresh prompt 05 audit](reports/ess_release_05_audit_2026-10-04.md) verifies
+the typed read implementation, corrects stale API descriptions and repeats
+native/package/build and unloaded COM13 checks on the unchanged image.
 Preparing a prompt does not complete its milestone.
 The historical [source re-audit](reports/2026-10-03_promptset_reaudit.md) adds
 explicit gates for absolute deadlines, queued work across recovery, same-axis

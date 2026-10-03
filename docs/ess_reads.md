@@ -97,3 +97,7 @@ another address catalogue. Reads never satisfy write/action obligations.
 
 Current native/public-package and hardware evidence, memory sizes and remaining
 motion prerequisites are in the [prompt 05 handoff](reports/ess_release_05_2026-10-04.md).
+
+The [fresh prompt 05 audit](reports/ess_release_05_audit_2026-10-04.md)
+independently rechecks these contracts and repeats native, installed-package,
+build and read-only bench verification.

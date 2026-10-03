@@ -127,7 +127,8 @@ fields are rejected. FC10 accepts four documented start/count windows:
 not establish a device-wide maximum. The malformed position example on manual
 p16 is corrected in the builder and covered by an independent frame fixture.
 Builders validate raw access/framing, not register-value meaning, motion limits,
-readiness or persistence; typed command helpers remain future work.
+readiness or persistence. Typed identity/configuration reads are implemented;
+typed setting changes and motor actions remain future work.
 
 The probe reads the read-only model word at `0x0000`; no consuming side effect is
 documented. Its successful reply is seven bytes. Pure 32-bit helpers require an

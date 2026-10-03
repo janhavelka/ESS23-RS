@@ -21,7 +21,8 @@ bus arbitration, scan scheduling, time, cancellation and result storage.
 | Probe | One smallest reviewed query sufficient to test a selected endpoint's responsiveness | Normally one request/reply; explicitly bounded by profile |
 | Discover | Iterate an explicit bounded set of candidate profiles, endpoints and serial tuples; refine identity where documented | Scheduled probe/identity reads only |
 
-`prepareProbe` is distinct from `prepareReadIdentity`. A quick probe can
+The planned common `prepareProbe` is distinct from the implemented
+`ESS_RS::prepareIdentity`. A quick probe can
 establish that a responder exists without reporting its complete identity or
 state. If the smallest documented identity read is also the best probe, both
 operations may share a codec path; they still report different evidence
@@ -42,8 +43,9 @@ alarm reset, save, guessed invalid writes or read-to-clear fields as probes.
 (function manual physical p68). `parseProbe` checks the complete response and
 returns the raw model value. No consuming side effect is documented for this
 identity field. This is the smallest holding-register read: eight request
-bytes, seven success bytes or five exception bytes. No universal timeout,
-confirmed model interpretation or hardware behavior is established yet.
+bytes, seven success bytes or five exception bytes. No universal timeout or
+confirmed model interpretation is established; hardware evidence is limited
+to the recorded read-only bench configuration.
 
 Unknown raw values remain observable. Probe success refreshes only the caller's
 responsiveness evidence, not position, readiness, alarm state or completed
@@ -71,11 +73,12 @@ Extend the profile coverage ledger with:
 - Permitted serial tuples and endpoint ranges for bounded discovery, plus
   compatible candidate sets on which those queries may be used.
 
-The common API provides `getDiscoveryCapabilities` and `prepareProbe`, with
-fixed-size descriptions/results and the existing caller-owned operation
-contract. Capability inspection performs no I/O. Discovery orchestration
-belongs to the consumer and can reuse those operations without parsing CLI
-strings or depending on Arduino, ESP-IDF or FieldCore services.
+The implemented `ESS_RS::readCapabilities` reports the current non-changing
+probe, identity and configuration read surface without I/O. The common discovery
+capability API and `prepareProbe` remain planned, with fixed-size descriptions
+and results and caller-owned operations. Discovery orchestration belongs to the
+consumer and can reuse those operations without parsing CLI strings or depending
+on Arduino, ESP-IDF or FieldCore services.
 
 Return structured evidence for a validated responder, identity mismatch,
 ambiguous candidates, device exception, no reply, malformed/checksum failure,
