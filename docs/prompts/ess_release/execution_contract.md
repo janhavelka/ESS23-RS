@@ -55,6 +55,14 @@ do not absorb an entire missing future subsystem into the selected block.
   queues into this single-owner example, its eight-byte TX limit, automatic
   request-prefix echo stripping, float measurement payloads or sensor retries.
   Its E2 bus abstraction is not this repository's physical E2 board label.
+- This is an RTU motion-owner reference. FieldCore also supports non-Modbus
+  framing, including VibWire ASCII; later integration extends its existing owner
+  and preserves those paths. Do not turn this runner into a universal engine.
+  Each admitted transaction retains its own validator and immutable context.
+- Public operation/event types belong to the installed core. Applications map
+  runner evidence into them; example `Rtu::Request`/`Result`, console caches and
+  FieldCore types must not leak into public headers. Transaction serialization
+  and a same-axis operation reservation are separate responsibilities.
 - Prefer a small number of cohesive types, direct functions and explicit
   state transitions. Use short engineering names and Doxygen comments for
   public invariants, lifetime, units, errors and effects. Refactor duplicated

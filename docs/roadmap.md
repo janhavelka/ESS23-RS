@@ -9,6 +9,9 @@ The [ESS release prompt set](prompts/ess_release/README.md) turns these stages
 into 30 ordered implementation blocks with tests, independent audits and
 evidence handoffs. Start with prompt 01 when implementation is dispatched.
 Preparing the prompts does not complete any milestone.
+The [source re-audit](reports/2026-10-03_promptset_reaudit.md) adds explicit gates
+for absolute deadlines, queued work across recovery, same-axis staging ownership,
+honest observation age and long-frame evidence without changing this stage order.
 
 ## Release scope
 

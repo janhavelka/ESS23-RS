@@ -40,6 +40,12 @@ failure rather than claiming the work is synced. Do not make empty commits
 for read-only replies or unfinished intermediate edits. The root agent owns
 staging/committing shared work when subagents are used.
 
+For every implementation or audit prompt, inspect the actual source and affected
+callers/tests in this repository and the relevant current FieldCore source
+read-only. Check conventions and integration boundaries against code, not only
+historical reports. Record deliberate differences; matching FieldCore does not
+mean importing its framework types or replacing its other device protocols.
+
 ## Backlog and available bench
 
 Maintain [the implementation backlog](docs/backlog.md) as features, open

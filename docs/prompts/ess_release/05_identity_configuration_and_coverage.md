@@ -16,6 +16,7 @@ Read the profile/discovery contracts, ESS JSON ledger, generated descriptors, or
 - Add the bounded read-only configuration subset needed for motion: direction, subdivision, paired-word order, serial settings, algorithm and configured encoder resolution. Read windows stay within reviewed access and the 16-word limit.
 - Separate stored/pending settings from the observed active transport tuple. Resolve pair decoding before using a pair; unresolved physical units remain raw with a reason.
 - Introduce only the common capability and operation types actually consumed by these reads. Caller-owned bounded state, supplied events/time and yielded requests may support a multi-read operation; there is no I/O inside it.
+- Put handwritten public operation/event types under `include/MotorControlRS`, separately from generated enums. Map runner evidence in the application; public signatures must not depend on example `Rtu` or console/cache types. Compile new public headers with the installed core and no example include path.
 - Add `read identity`, `read config`, minimal `caps` and profile identity/configuration routes through these same public APIs.
 
 ## Verify

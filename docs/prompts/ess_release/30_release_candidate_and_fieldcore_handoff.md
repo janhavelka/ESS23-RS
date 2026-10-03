@@ -16,6 +16,8 @@ Read the complete roadmap and operation/platform coverage, current package metad
 - Verify clean library consumers and shipped source/package artifacts. Record hashes, commands, exact candidate commit and available test/CI results. Preserve vendor licensing/provenance and the current GitHub URL unless the user has actually renamed it.
 - Write a concise FieldCore handoff mapping final motor API/sequence requests, IDs/results, cancellation/stop, freshness/health, memory and timing to its current module/owner/backend boundaries.
 - Name the necessary FieldCore changes: frame capacity, FC06 echo policy, exception framing, physical timing evidence, typed motion outcomes, scheduling/stop and no uncertain replay. Preserve its other sensor/framing modes in the proposed regression plan.
+- Map onto its existing owner, preserving VibWire ASCII/suffix framing alongside RTU rather than replacing the owner with `RtuRunner`. Specify regressions for mixed device/tuple traffic, per-request validator/context, same-axis operation exclusion, retained recovery outcomes and stale queued work after recovery.
+- Distinguish normal per-transaction UART baud selection from logical motor reconfiguration and reference invalidation. Record C++11 core and current FieldCore consumer-build compatibility without aliasing firmware-owned types into the library.
 - Distinguish this repository's physical E2 board from FieldCore's E2 bus abstraction and selected CO2 product composition. Board-pin/product support must be verified in a later integration task.
 - Leave the standalone repository independently usable. Do not edit FieldCore or create a second bus owner there.
 

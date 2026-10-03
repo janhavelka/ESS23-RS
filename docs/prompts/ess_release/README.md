@@ -13,6 +13,9 @@ The [roadmap](../../roadmap.md), [backlog](../../backlog.md) and current
 The [coverage map](coverage.md) connects those obligations to prompt owners.
 The [preparation/source audit](../../reports/2026-10-03_promptset_audit.md)
 records the inspected FieldCore conventions and corrections to this set.
+The [follow-up source audit](../../reports/2026-10-03_promptset_reaudit.md)
+checks the committed set against actual runner, application and FieldCore code;
+its fixes tighten deadlines, recovery, operation ownership and qualification.
 
 ## Dispatch
 

@@ -15,6 +15,7 @@ Read discovery/CLI contracts, board settings, the pinned SDK UART APIs and curre
 - Allow changes only after queued/active work and DE are settled. Reserve exclusive bus configuration ownership; prevent other producers from dispatching against an intermediate tuple.
 - Recompute actual character duration, RTU thresholds, capture interval bounds and budgets for each tuple. The 304-us first-reply exception is specific to the recorded bench tuple and is not a universal override.
 - Retain original/requested/active host tuple, configuration generation and failure state. If change or restoration fails, block new work until explicit repair; do not silently claim the old configuration survived.
+- Separate logical endpoint/configuration generations from the transient UART tuple. This standalone step changes a selected host session explicitly; FieldCore normally selects baud between device transactions. Retain each request's intended tuple and context. Serving another endpoint must not itself invalidate prepared motor work; deliberate target/configuration changes still do.
 - Reuse one adapter; no second UART engine. Add `host` and tuple capability diagnostics through application APIs, without exposing platform types in the core.
 - Invalidate selected-device confidence appropriately while retaining historical results under their original tuple.
 

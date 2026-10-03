@@ -16,6 +16,7 @@ Inspect `E2Uart.*`, `E2Load.*`, `test/capture_service_test.cpp`, the pinned SDK 
 - Check physical TX completion, DE hold/release, first RX, final stop-bit publication, idle watermarks and echo assumptions with an independent TX/RX/DE capture when equipment is available. Preserve waveforms and align them with firmware traces.
 - Establish the selected SDK's cache-off/interrupt-starvation policy. An IRAM-marked callback alone does not prove cache-safe execution. If such periods are unsupported, expose/enforce that operating restriction rather than claiming uninterrupted capture.
 - Keep ambiguous intervals, FIFO/ring overflow and missing evidence explicit failures. Do not loosen a guard only to improve a pass rate or CPU percentage.
+- Qualify frame-size limits explicitly. Use a reviewed non-consuming read window longer than the model probe when its semantics and fixture permit, up to the supported 37-byte FC03 reply. Keep unavailable long-frame cases open; FC06/FC10 physical write-frame evidence follows typed operations and their prerequisites. Repeated seven-byte probe replies do not qualify every request/reply size.
 
 ## Verify and disposition
 

@@ -58,6 +58,8 @@ for current code and builds.
   shared audit/testing rules and a requirement-to-prompt coverage map.
 - [Prompt preparation and source audit](reports/2026-10-03_promptset_audit.md):
   actual FieldCore conventions, scope differences and corrected dependencies.
+- [Prompt/source re-audit](reports/2026-10-03_promptset_reaudit.md): deadline,
+  recovery, operation ownership, cache age and mixed-device integration gaps.
 - [Capture and load audit](reports/2026-10-03_capture_load.md): independent wire
   fixtures, timer capture, measured load and remaining timing qualification.
 

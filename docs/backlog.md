@@ -135,6 +135,9 @@ and then first motion/stop follow the reviewed transport and drive prerequisites
   device-counter changes, alarm clear and state observations.
 - [ ] Implement caller-owned contexts, operation correlation, retained
   uncertain outcomes, stop preemption and explicit queue disposition.
+- [ ] Reserve same-axis operations across parameter staging/trigger/observation
+  while allowing eligible unrelated bus work. Validate/reserve stop before
+  superseding active work; rejected stop admission must not cancel it.
 - [ ] Preserve per-field actual/commanded, valid/unknown/stale and raw/native
   evidence; keep application health and clock ownership outside the core.
 
@@ -220,9 +223,19 @@ of the standalone bus owner. See the
 - [ ] Build a small standalone bus-owner reference with bounded queue/admission,
   multiple request producers, retained results, fair scheduling and priority
   for a pending stop. Settle in-flight transport and recovery explicitly.
+- [ ] Enforce absolute admitted-request deadlines in the runner without losing
+  on-time captured evidence. Define queued/retained work across recovery; old
+  queued writes and sequence continuations must not resume implicitly.
+- [ ] Separate observation age from application delivery and recovery-settlement
+  time in the probe application. Current `finishedUs` makes delayed delivery look
+  newly observed; prompts 03/06 own the correction and regression. See the
+  [prompt/source re-audit](reports/2026-10-03_promptset_reaudit.md).
 - [ ] Exercise FC06 echo/ack, all reviewed FC10 request sizes, exception and
   late-response behavior using fake responders; add physical write qualification
   only with reviewed typed motor operations and their prerequisites.
+- [ ] Qualify longer reviewed non-consuming reads and the supported frame-size
+  envelope separately from seven-byte model replies; preserve unavailable
+  physical long-frame/write cases as open evidence.
 - [ ] Package repeatable scenarios and a mapping to FieldCore's request/result,
   module and backend boundaries. Preserve its other serial framing modes in
   future integration regressions; do not clone the whole FieldCore task here.

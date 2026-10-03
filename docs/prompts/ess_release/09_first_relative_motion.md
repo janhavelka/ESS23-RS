@@ -13,6 +13,7 @@ Review original ESS position/start pages and appendix, `01_implementation_refere
 
 - Add a native finite relative-position operation and its common preparation. Validate the entire parameter set, command flags, native target, speed/ramp policy and readiness before any write.
 - Stage parameters, then start only after prerequisites and preceding writes succeed. A partially applied setup or lost trigger acknowledgement produces a retained uncertain outcome, never an automatic replay.
+- Reuse 08's same-axis reservation across staging and trigger; no competing native/common/configuration write may replace the staged parameters. A stop may supersede the sequence through its admitted priority path, while eligible unrelated bus work can continue.
 - Reuse the bounded operation mechanism and priority stop. Select an explicit verified device-configured ramp or resolved conversion; do not label an unknown millisecond field as physical acceleration.
 - Define completion from new operation-relevant observations. An old arrival flag, target equality or trigger echo alone must not falsely complete a fresh move.
 - Add direct API and CLI paths for a small relative move with explicit units, effective target and limits. Extend the finite Python bench scenario, including cleanup evidence.
@@ -20,6 +21,8 @@ Review original ESS position/start pages and appendix, `01_implementation_refere
 ## Verify
 
 Native fault injection covers each sequence boundary, stale completion, rejected intermediate write, wrong echo, delayed response, cancel and stop during setup/acceleration/movement. On COM13 use small bounded positive/negative moves only where encoding is resolved; compare requested/native/readback values and independently observed shaft movement. Measure dynamic stop and final state. Do not blindly repeat a move after uncertain execution or substitute fake physical observations.
+
+Inject a second producer's target/speed/configuration write between staging acknowledgement and trigger; verify explicit conflict rejection/defer and that the original prepared values alone can be triggered.
 
 ## Subagents and handoff
 

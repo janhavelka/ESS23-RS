@@ -13,6 +13,7 @@ Read the qualification matrix, capture/CPU policy, supported platform scope and 
 
 - Define finite durations/counts and measurable pass/fail thresholds before each run: no lost terminal results or replay, bounded service/stop latency, unchanged memory trend, explicit failures and known final state.
 - Run extended read-only load/owner-sleep/console campaigns on supported images, then bounded feature sequences within the qualified motion/configuration envelope. Persistence/factory restore never enters a repetitive wear loop.
+- Cover the supported frame-size envelope: short/long reviewed reads, five-byte exceptions where available, FC06 acknowledgement/echo handling and each used FC10 shape (currently up to 21-byte requests). Use typed operations and known settings for write cases; record unavailable cases separately. A model-probe soak alone is insufficient.
 - Exercise lost/delayed acknowledgements, partial setup, wrong/stale frames, queue/result pressure, interrupted motion, local cancellation and pending stop. Label wire/software injection separately from physically removed connections.
 - Run real disconnect/reconnect, power interruption or external I/O cases only with the actual fixture/control available. Confirm no motion replay on startup/recovery and reconcile reference/configuration afterward.
 - Independently observe dynamic stop/position where required. A telemetry flag alone does not prove physical movement or stopping.

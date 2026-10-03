@@ -14,6 +14,7 @@ Read the axis/profile/CLI contracts, original ESS status/alarm tables and `docs/
 - Decode reviewed alarms, motion flags, input/output state, speed and paired position. Preserve raw/unknown bits and retain an explicit reason when units or signed encoding cannot be established.
 - Check the ESS enabled/released polarity in the original table. Treat subdivision-equivalent position feedback separately from raw encoder counts and commanded position.
 - Record validity, source, configuration generation, last attempt, last success and age per observation block. Failed refreshes retain previous valid values; multiple reads are not an atomic motor snapshot.
+- Reuse 03's separate observation/delivery timestamps. Bound observation age conservatively from available transaction evidence; do not claim an exact drive sample time absent documentation. Delayed owner service and repeated cached queries must not refresh feedback age.
 - Keep communication freshness, drive alarm, readiness and active-operation outcome separate. A successful identity read does not refresh motion state or resolve an uncertain write.
 - Add `read state`, cached `status`/`health`, explicit `health check` and bounded opt-in observation polling through shared APIs. Consuming fields require an explicit owner and cannot enter generic polling accidentally.
 - Extend Python state/health checks now; later harness consolidation must reuse them.

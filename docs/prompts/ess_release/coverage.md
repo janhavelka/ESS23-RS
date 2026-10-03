@@ -12,8 +12,12 @@ register transcription; prompt 05 extends operational coverage linked to it.
 | --- | --- | --- |
 | Queue admission, copied request lifetime, result capacity and exact IDs | 01 | 03, 28 |
 | Fairness, deadlines, cancellation, urgent/stop capacity, no automatic replay | 02, 08 | 03, 29 |
+| Absolute-deadline runner evidence, recovery queue disposition and retained outcomes | 01–03 | 28–29 |
+| Same-axis staging reservation and non-mutating rejected stop admission | 08–09 | 23, 28–29 |
 | Real E2 owner, responsive console, retained results and diagnostics | 03 | 23, 29 |
+| Observation time versus delayed delivery, cache age and recovery guard | 03, 06 | 24, 28 |
 | TX/RX/DE observations, interval/watermark truth, echo and cache policy | Existing runner/adapter; 04 | 26, 29 |
+| Short/long normal/exception frames and each supported write shape | 01, 04; typed feature prompts | 29 |
 | CPU, service gap, latency, internal RAM, PSRAM and stack budgets | 03–04 and every resource-changing block | 26, 29 |
 | Profile/model/firmware capabilities and four separate coverage dimensions | 05; maintained by every feature prompt | 23, 28, 30 |
 | Typed identity, version, address/DIP and configuration readback | 05 | 22–24 |
@@ -40,6 +44,8 @@ register transcription; prompt 05 extends operational coverage linked to it.
 | Finite Python feature/stress/state checks and truthful evidence | Each feature; 24 | 26, 29 |
 | Arduino and real native ESP-IDF example parity; S2 portability disposition | 25–26 | 27, 30 |
 | Repeatable verification, CI, header isolation, clean package consumption | Existing CMake; 27 | 28, 30 |
+| Core/event isolation, C++11 and FieldCore C++17 without RTTI consumption | 05, 08, 27 | 30 |
+| FieldCore ASCII preservation, per-device tuple switching and logical context mapping | 19, 30 (read-only handoff) | Separate later FieldCore integration |
 | Whole-code audit, simplification, duplication/stale code removal | Each prompt; 28 | Fix review in 29–30 |
 | Fault/endurance, independent physical motion/stop, reconnect/restart | Each feature; 29 | 30 |
 | Supported release scope, exact evidence and later FieldCore adaptation map | 30 | Explicit candidate/release disposition |
