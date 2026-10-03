@@ -51,6 +51,21 @@ authorized bench when new behavior reaches the board, plus focused feature
 checks. Record unperformed hardware checks explicitly; quick regressions do
 not replace the later soak and electrical qualification gates.
 
+When hardware tests expose a bug or unexpected behavior, rerun the failing
+scenario deliberately and add the diagnostics needed to establish its root
+cause. Retain the firmware/settings, raw traffic, timing, task/service gaps,
+errors and resource measurements relevant to distinguishing competing causes.
+Use bounded diagnostics and account for their effect on timing. Do not treat
+a later passing run, guessed cause, relaxed timeout or hidden retry as a fix.
+Once the cause is established, apply the simplest proper fix or refactor the
+affected code rather than adding a workaround that only hides the symptom.
+Rerun the original failing hardware scenario and a short regression of existing
+functionality; add a native regression where the failure can be represented.
+Record the cause, evidence, fix and verification in the relevant report/backlog.
+If evidence is insufficient, keep the issue explicitly unresolved and state
+which measurement is missing. Deliberate test reruns must still respect the
+existing prohibition on automatically replaying an uncertain motor write.
+
 The user has authorized future communication and motion testing on the motor
 bench described in [hardware bench notes](docs/hardware_bench.md). As reported
 on 2026-10-02, COM13 connects to a board running CO2control firmware with the
