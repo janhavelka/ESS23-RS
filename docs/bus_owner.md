@@ -107,8 +107,14 @@ qualified closure evidence exists.
 the full final t3.5. `closureQualified` means the watermark or next frame proves
 the whole idle gap, independently of trace storage. Success requires qualified
 latest closure <= deadline. A straddling interval is `TIMING_UNCERTAIN`, a
-definitely late closure is `REQUEST_DEADLINE`. Last-byte receipt alone is
-insufficient. Failures may retain a candidate interval without closure proof.
+definitely late closure is `REQUEST_DEADLINE` for the absolute limit or
+`PARTIAL_RESPONSE` for the earlier relative response limit. When both limits
+have elapsed, the earlier latest cutoff determines the reason; uncertainty at
+a later limit cannot mask definite expiry of the earlier one. Last-byte receipt
+alone is insufficient. Both limits retain candidate closure bounds on byte
+expiry, including the full final gap, without claiming closure proof.
+Before any response byte, closure bounds remain zero: TX/DE uncertainty is a
+transport failure, not evidence of a response closure.
 `endedUs` is closure for FRAME and task observation for most faults; it is not
 a uniform physical timestamp.
 
@@ -134,5 +140,7 @@ reply-validator frames; callee stack use is additional.
 [bus_owner_test.cpp](../test/bus_owner_test.cpp) uses real Runner, independent
 fake wire times and no trace ring. The
 [prompt 01 report](reports/ess_release_01_2026-10-03.md) records exact evidence.
+The [fresh prompt 01 audit](reports/ess_release_01_audit_2026-10-03.md) corrects
+timeout precedence and relative byte-expiry closure evidence.
 Prompt 02 reuses these actual APIs, reservation/lifetime rules and deadline/
 parser contract. The console advertises owner commands only after prompt 03.

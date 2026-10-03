@@ -210,6 +210,8 @@ private:
     void frame(uint64_t nowUs) noexcept;
     void completedFrame(uint64_t latestUs, uint32_t uncertaintyUs) noexcept;
     void closure(uint64_t latestUs, uint32_t uncertaintyUs, bool qualified) noexcept;
+    bool requestDeadlineFirst() const noexcept;
+    Reason closureDeadline(uint64_t latestUs, uint32_t uncertaintyUs) const noexcept;
     bool expired(uint64_t nowUs) const noexcept;
     void releaseFault(uint64_t nowUs) noexcept;
 

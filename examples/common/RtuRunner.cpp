@@ -228,20 +228,28 @@ void Runner::closure(uint64_t latestUs, uint32_t uncertaintyUs, bool qualified) 
     result_.closureQualified = qualified;
 }
 
+bool Runner::requestDeadlineFirst() const noexcept {
+    // Compare without adding a relative timeout near the clock's upper bound.
+    return deadlineUs_ && (deadlineUs_ <= txEndUs_ ||
+                          deadlineUs_ - txEndUs_ <= responseTimeoutUs_);
+}
+
+Reason Runner::closureDeadline(uint64_t latestUs, uint32_t uncertaintyUs) const noexcept {
+    const uint64_t earliestUs = latestUs - uncertaintyUs;
+    const bool responseLate = latestUs - (txEndUs_ - txUncertaintyUs_) > responseTimeoutUs_;
+    if (deadlineUs_ && latestUs > deadlineUs_ && (requestDeadlineFirst() || !responseLate))
+        return earliestUs > deadlineUs_ ? Reason::REQUEST_DEADLINE : Reason::TIMING_UNCERTAIN;
+    if (responseLate)
+        return earliestUs > txEndUs_ && earliestUs - txEndUs_ > responseTimeoutUs_ ?
+            Reason::PARTIAL_RESPONSE : Reason::TIMING_UNCERTAIN;
+    return Reason::NONE;
+}
+
 void Runner::completedFrame(uint64_t latestUs, uint32_t uncertaintyUs) noexcept {
     closure(latestUs, uncertaintyUs, true);
-    if (deadlineUs_ && latestUs > deadlineUs_) {
-        finish(latestUs - uncertaintyUs > deadlineUs_ ? Reason::REQUEST_DEADLINE :
-               Reason::TIMING_UNCERTAIN, now_, true);
-        return;
-    }
-    // A successful frame must fit even the earliest possible response deadline.
-    const uint64_t earliestTx = txEndUs_ - txUncertaintyUs_;
-    if (latestUs - earliestTx <= responseTimeoutUs_) frame(latestUs);
-    else if (latestUs - uncertaintyUs > txEndUs_ &&
-             latestUs - uncertaintyUs - txEndUs_ > responseTimeoutUs_)
-        finish(Reason::PARTIAL_RESPONSE, now_, true);
-    else finish(Reason::TIMING_UNCERTAIN, now_, true);
+    const Reason deadline = closureDeadline(latestUs, uncertaintyUs);
+    if (deadline == Reason::NONE) frame(latestUs);
+    else finish(deadline, now_, true);
 }
 
 bool Runner::onByte(const RxByte& byte, uint64_t nowUs) noexcept {
@@ -313,18 +321,12 @@ bool Runner::onByte(const RxByte& byte, uint64_t nowUs) noexcept {
         completedFrame(previousEnd + timing_.gap35Us, previousUncertainty);
         return false;
     }
-    if (deadlineUs_ && byte.endUs > deadlineUs_) {
+    if ((deadlineUs_ && byte.endUs > deadlineUs_) ||
+        byte.endUs - (txEndUs_ - txUncertaintyUs_) > responseTimeoutUs_) {
         closure(byte.endUs + timing_.gap35Us, byte.uncertaintyUs, false);
-        finish(result_.closureEarliestUs > deadlineUs_ ? Reason::REQUEST_DEADLINE :
-               Reason::TIMING_UNCERTAIN, nowUs, true);
-        return false;
-    }
-    if (endEarliest > txEndUs_ && endEarliest - txEndUs_ > responseTimeoutUs_) {
-        finish(result_.rxLength ? Reason::PARTIAL_RESPONSE : Reason::NO_RESPONSE, nowUs, true);
-        return false;
-    }
-    if (byte.endUs - (txEndUs_ - txUncertaintyUs_) > responseTimeoutUs_) {
-        finish(Reason::TIMING_UNCERTAIN, nowUs, true);
+        const Reason deadline = closureDeadline(result_.closureLatestUs, byte.uncertaintyUs);
+        finish(deadline == Reason::PARTIAL_RESPONSE && !result_.rxLength ?
+               Reason::NO_RESPONSE : deadline, nowUs, true);
         return false;
     }
     if (result_.rxLength && startLatest - previousEarliest > timing_.gap15Us) {
@@ -531,23 +533,23 @@ void Runner::poll(uint64_t nowUs) noexcept {
     if (phase_ == Phase::RECEIVE) {
         const bool empty = receive(nowUs);
         if (!busy() || !empty) return;
+        const bool requestExpired = deadlineUs_ && observedUs_ >= deadlineUs_;
+        const bool responseExpired = elapsed(observedUs_, txEndUs_, responseTimeoutUs_);
         if (result_.rxLength && elapsed(observedUs_, lastRxEndUs_, timing_.gap35Us)) {
             completedFrame(lastRxEndUs_ + timing_.gap35Us, rxUncertaintyUs_);
-        } else if (deadlineUs_ && observedUs_ >= deadlineUs_) {
-            if (result_.rxLength)
+        } else if (requestExpired || responseExpired) {
+            if (result_.rxLength) {
                 closure(lastRxEndUs_ + timing_.gap35Us, rxUncertaintyUs_, false);
-            finish(result_.rxLength && result_.closureEarliestUs <= deadlineUs_ ?
-                   Reason::TIMING_UNCERTAIN : Reason::REQUEST_DEADLINE, nowUs, true);
-        } else if (elapsed(observedUs_, txEndUs_, responseTimeoutUs_)) {
+                finish(closureDeadline(result_.closureLatestUs, rxUncertaintyUs_), nowUs, true);
+                return;
+            }
+            if (requestExpired && (requestDeadlineFirst() || !responseExpired)) {
+                finish(Reason::REQUEST_DEADLINE, nowUs, true);
+                return;
+            }
             const bool missingEcho = echo_ == Echo::REQUIRED && result_.echoBytes != txLength_;
             if (missingEcho) increment(stats_.timeouts);
-            const bool uncertain = result_.rxLength &&
-                lastRxEndUs_ - rxUncertaintyUs_ + timing_.gap35Us >= txEndUs_ &&
-                lastRxEndUs_ - rxUncertaintyUs_ + timing_.gap35Us - txEndUs_ <= responseTimeoutUs_;
-            if (result_.rxLength)
-                closure(lastRxEndUs_ + timing_.gap35Us, rxUncertaintyUs_, false);
-            finish(missingEcho ? Reason::ECHO_ERROR : uncertain ? Reason::TIMING_UNCERTAIN :
-                   result_.rxLength ? Reason::PARTIAL_RESPONSE : Reason::NO_RESPONSE, nowUs, true);
+            finish(missingEcho ? Reason::ECHO_ERROR : Reason::NO_RESPONSE, nowUs, true);
         }
     }
 }

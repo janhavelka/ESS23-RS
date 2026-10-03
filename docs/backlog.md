@@ -79,6 +79,9 @@ checked parser settlement and absolute closure deadlines through the real Runner
 Native tests pass; the rebuilt Runner passed read-only bench regression.
 Owner/absolute-deadline hardware checks await console integration in 03.
 See [the prompt 01 handoff](reports/ess_release_01_2026-10-03.md).
+Its [fresh independent audit](reports/ess_release_01_audit_2026-10-03.md)
+corrected earlier-budget timeout precedence and retained final-gap evidence
+on relative byte expiry; focused regressions and current-image probes pass.
 
 The next block is prompt 02: producer fairness, cancellation, urgent reservation
 and recovery queue disposition. Current recovery requires an empty pending

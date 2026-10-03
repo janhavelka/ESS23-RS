@@ -558,10 +558,75 @@ void testAbsoluteDeadline() {
         assert(done(rig, id).transport.reason == Reason::CAPTURE_TIMEOUT);
     }
 }
+void testEffectiveClosureBudget() {
+    // TX ends at 2160. The final stop is [3190,3210], so closure is
+    // [3540,3560]. The earlier applicable budget must decide expiry even
+    // when the later budget straddles the closure interval.
+    struct Scenario {
+        uint64_t deadline;
+        uint32_t responseTimeout;
+        uint64_t serviceAt;
+        Reason reason;
+        bool response, qualified;
+    };
+    const Scenario scenarios[] = {
+        {3550, 1300, 4000, Reason::PARTIAL_RESPONSE, true, true},
+        {3550, 1300, 3550, Reason::PARTIAL_RESPONSE, true, false},
+        {3550, 1300, 4000, Reason::NO_RESPONSE, false, false},
+        {3550, 2000, 4000, Reason::TIMING_UNCERTAIN, true, true},
+        {3550, 2000, 3550, Reason::TIMING_UNCERTAIN, true, false},
+        {3550, 2000, 5000, Reason::REQUEST_DEADLINE, false, false},
+        {3500, 1300, 4000, Reason::PARTIAL_RESPONSE, true, true},
+        {3400, 1300, 4000, Reason::REQUEST_DEADLINE, true, true}
+    };
+    for (const Scenario& scenario : scenarios) {
+        Rig rig; uint8_t bytes[32]; BusRequest b = request(bytes, scenario.deadline);
+        b.wire.responseTimeoutUs = scenario.responseTimeout;
+        RequestId id = admit(rig, b); rig.send();
+        const std::vector<uint8_t> response = reply();
+        if (scenario.response) {
+            rig.fake.bytes(response, 2510);
+            rig.fake.input.back().uncertaintyUs = 20;
+        }
+        rig.service(scenario.serviceAt);
+        const Completion& r = done(rig, id);
+        assert(r.outcome == Outcome::TRANSPORT && r.transport.reason == scenario.reason);
+        assert(r.deadlineUs == scenario.deadline && r.responseTimeoutUs == scenario.responseTimeout);
+        assert(r.transport.txAccepted == 8 && r.executionUnknown && rig.owner.needsRecovery());
+        assert(r.transport.closureQualified == scenario.qualified);
+        if (scenario.response) {
+            assert(r.transport.rxLength == response.size());
+            assert(std::memcmp(r.raw, response.data(), response.size()) == 0);
+            assert(r.transport.closureEarliestUs == 3540 && r.transport.closureLatestUs == 3560);
+        } else {
+            assert(r.transport.rxLength == 0 && r.transport.closureEarliestUs == 0 && r.transport.closureLatestUs == 0);
+        }
+        const Completion retained = r;
+        rig.service(scenario.serviceAt + 1000, 3);
+        assert(done(rig, id).transport.reason == retained.transport.reason && rig.fake.writes == 1);
+        assert(done(rig, id).transport.endedUs == retained.transport.endedUs);
+    }
+    {
+        Rig rig; uint8_t bytes[32]; BusRequest b = request(bytes);
+        b.wire.responseTimeoutUs = 730; // Relative cutoff2890 straddles the fourth byte's stop.
+        RequestId id = admit(rig, b); rig.send();
+        const std::vector<uint8_t> response = reply();
+        rig.fake.bytes(response, 2510); rig.fake.input[3].uncertaintyUs = 20;
+        rig.service(3000);
+        const Completion& r = done(rig, id);
+        // The candidate closure [3240,3260] is definitely late even though
+        // the stop-bit interval [2890,2910] includes the relative cutoff.
+        assert(r.transport.reason == Reason::PARTIAL_RESPONSE && r.outcome == Outcome::TRANSPORT);
+        assert(r.transport.rxLength == 3 && std::memcmp(r.raw, response.data(), 3) == 0);
+        assert(r.transport.closureEarliestUs == 3240 && r.transport.closureLatestUs == 3260);
+        assert(!r.transport.closureQualified && r.executionUnknown && rig.owner.needsRecovery());
+        assert(r.deadlineUs == 20000 && r.transport.txAccepted == 8 && rig.fake.writes == 1);
+    }
+}
 } // namespace
 int main() {
     testCapacitiesAndIds(); testTransientAndReadShapes(); testWriteShapes();
     testStandaloneValidatorBounds(); testInvalidRequestsAndStorage(); testClassificationAndRecovery();
-    testWriteEchoAndOverflow(); testWrappedCompactionAndReuse(); testFifoExpiryAndBudget(); testClassificationBarrierAndLateBudget(); testClockRegression(); testAbsoluteDeadline();
+    testWriteEchoAndOverflow(); testWrappedCompactionAndReuse(); testFifoExpiryAndBudget(); testClassificationBarrierAndLateBudget(); testClockRegression(); testAbsoluteDeadline(); testEffectiveClosureBudget();
     return 0;
 }

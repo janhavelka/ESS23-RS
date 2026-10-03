@@ -77,6 +77,9 @@ completion and record changes to the setup for the next session.
 
 ## Current status
 
+- The [fresh prompt 01 audit](reports/ess_release_01_audit_2026-10-03.md) uploaded
+  the corrected Runner and passed 10 unloaded, 10 loaded and 3 final checked
+  read-only probes; workload is disabled. Exact current-image evidence is there.
 - Prompt 01 rebuilt the Runner/timer console and passed 10 unloaded, 10 loaded
   and 3 final read-only probes. The exact retained image and evidence are in
   [the prompt 01 report](reports/ess_release_01_2026-10-03.md). Workload is disabled;

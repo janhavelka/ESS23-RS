@@ -136,6 +136,9 @@ are processed before current task time declares expiry. `Result` exposes
 `closureEarliestUs`, `closureLatestUs` and `closureQualified` without traces.
 The full final idle gap must fit; straddling bounds fail uncertainly.
 `REQUEST_DEADLINE` differs from relative response and capture timeout.
+When both receive budgets expire, the earlier latest cutoff determines the
+reason. Byte expiry retains candidate final-gap bounds for either budget;
+uncertainty in a byte's stop time alone cannot mask a definitely late closure.
 See [the owner contract](bus_owner.md) for deadline/evidence and lifetime rules.
 
 The raw request must already have passed its profile's builder/validator.
