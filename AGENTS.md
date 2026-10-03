@@ -6,8 +6,9 @@ Implementation is authorized in small, tested blocks. Implemented foundations
 are configurable units, the complete documented ESS register catalogue,
 standalone build/board settings and checked ESS wire codecs with a minimal
 probe. The standalone runner under `examples/common/` now has native fake
-tests. Its production platform adapter, motion sequences, discovery
-orchestration and the full CLI follow in later blocks; do not add placeholder APIs.
+tests. The E2 ESP32-S3 polling adapter and read-only probe CLI now have native
+tests and bench probe evidence. External timing qualification, motion sequences,
+discovery orchestration and the full CLI follow; do not add placeholder APIs.
 The accepted scope remains a general framework-independent serial motion
 library: common axis API, drive profiles and application integration. Implement
 ESS first; design against Leadshine iEM-RS without claiming it is implemented
@@ -65,7 +66,8 @@ This is recorded availability, not a claim that communication has been tested.
    `docs/reference/06_encoder_units.md`. Read
    `docs/reference/09_timing_and_gap_audit.md` for framing and unresolved
    response, configuration and motion timing before transport/workflow work.
-   Read `docs/runner.md` and `docs/reference/10_runner_platform_review.md`
+   Read `docs/runner.md`, `docs/e2_probe.md`, the current bench report and
+   `docs/reference/10_runner_platform_review.md`
    before runner, ESP32 adapter or automated bench work.
    Read
    `docs/reference/04_co2control_platform.md` before board/example work.
@@ -79,7 +81,8 @@ extracts may scramble tables, omit figures, or lose notation. Check the actual
 PDF page before turning an ambiguous table into constants or code. The
 function manual covers multiple product families: use the ESS-RS material,
 not unrelated DM-PR registers. Record unresolved documentation/firmware
-differences instead of guessing. No hardware behavior has been validated yet.
+differences instead of guessing. Only the recorded read-only bench probes have
+hardware evidence; do not generalize that to motion or full timing qualification.
 
 ## Intended structure and architecture
 
@@ -157,8 +160,10 @@ differences instead of guessing. No hardware behavior has been validated yet.
   Raw codecs validate wire shape/access, not value meaning, motion readiness
   or persistence. Keep generic RTU mechanics private and profile policy explicit.
 - Keep board pins and platform adapters under `examples/common/`.
-- Preserve the runner's actual TX completion and RX timestamp/watermark
-  contracts. Polling time is not wire timing. No automatic retries or silent
+- Preserve the runner's physical TX completion and RX interval/watermark
+  contracts. Polling timestamps bound observations; they are not exact wire times.
+  Ambiguous intervals fail explicitly. The bench turnaround exception is not
+  a family-wide timing guarantee. No automatic retries or silent
   late-response recovery; FRAME still requires the checked profile parser.
 - Keep fixed storage caller-owned. Prefer PSRAM for larger task-context
   traces, retained frames and caches in the future ESP32 adapter; keep

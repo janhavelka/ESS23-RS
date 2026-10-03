@@ -13,18 +13,23 @@ enum class Phase : uint8_t { IDLE, WAIT_BUS, SETUP, DRAIN, HOLD, RECEIVE, DONE, 
 enum class Reason : uint8_t {
     NONE, FRAME, NO_RESPONSE, PARTIAL_RESPONSE, LENGTH, GAP, EARLY_REPLY,
     RX_OVERFLOW, RX_ERROR, TX_ERROR, TX_TIMEOUT, BUS_TIMEOUT, DIRECTION_ERROR,
-    ECHO_ERROR, CANCELLED, CLOCK_ERROR, CAPTURE_TIMEOUT
+    ECHO_ERROR, CANCELLED, CLOCK_ERROR, CAPTURE_TIMEOUT, TIMING_UNCERTAIN
 };
 enum class Admission : uint8_t { STARTED, BUSY, RECOVERY_REQUIRED, INVALID };
 enum class Echo : uint8_t { NONE, REQUIRED }; ///< REQUIRED means one qualified local copy.
-enum class ReadState : uint8_t { BYTE, EMPTY, ERROR };
+enum class ReadState : uint8_t { BYTE, EMPTY, ERROR, PENDING };
 enum class TxState : uint8_t { IDLE, BUSY, ERROR };
 
-/** Actual start/stop-bit times on the same monotonic microsecond clock as poll(). */
+/** Conservative wire-time intervals on the same microsecond clock as poll().
+ * Start is in [startUs, startUs + uncertaintyUs]; stop-bit end is in
+ * [endUs - uncertaintyUs, endUs]. Zero uncertainty means exact timestamps.
+ * Bounds include capture delay, receiver sampling and baud uncertainty.
+ */
 struct RxByte {
     uint64_t startUs = 0;
     uint64_t endUs = 0;
     uint8_t value = 0;
+    uint32_t uncertaintyUs = 0;
 };
 
 struct WriteResult {
@@ -36,11 +41,13 @@ struct WriteResult {
 /** Bounded, nonblocking adapter callbacks; caller configured an idle UART in receive mode.
  * write() is called once per request. It must enqueue a contiguous whole RTU frame;
  * a short enqueue is a failed transaction, never resumed or retried here.
- * txState(IDLE) supplies the actual final stop-bit timestamp after write(), not
- * the time a later poll noticed idle. IDLE must mean physical transmission ended.
+ * txState(IDLE) supplies the latest possible final stop-bit timestamp after write().
+ * With txUncertaintyUs(), its interval is [endedUs - width, endedUs]; without
+ * that callback the timestamp must be exact. IDLE means physical TX has ended.
  * read() reports ordered wire events at/before nowUs. EMPTY supplies a monotonic
  * observedThroughUs watermark: all wire activity through that time was reported.
  * An in-progress character or delayed capture must hold the watermark back.
+ * PENDING means capture is incomplete; no empty/silence proof is supplied.
  * Poll time / Serial.available() alone cannot satisfy this timing contract.
  * Errors must not hide accepted TX bytes or queued activity. Calls share one owner.
  */
@@ -50,6 +57,7 @@ struct Port {
     WriteResult (*write)(void*, const uint8_t*, std::size_t) = nullptr;
     TxState (*txState)(void*, uint64_t nowUs, uint64_t& endedUs) = nullptr;
     ReadState (*read)(void*, uint64_t nowUs, RxByte&, uint64_t& observedThroughUs) = nullptr;
+    uint32_t (*txUncertaintyUs)(void*) = nullptr; ///< Optional latest IDLE interval width.
 };
 
 struct Timing {
@@ -74,6 +82,7 @@ struct Request {
     std::size_t length = 0;
     std::size_t replyLength = 0;    ///< Normal reply, including CRC; exception is five bytes.
     uint32_t responseTimeoutUs = 0; ///< From physical TX end, including final framing gap.
+    uint32_t replyGapUs = 0;        ///< Explicit device turnaround; zero uses gap35Us.
     Echo echo = Echo::NONE;
 };
 
@@ -95,12 +104,13 @@ struct Result {
 enum class Event : uint8_t { START, PHASE, TX, TX_DONE, DIRECTION, RX, ECHO, DISCARD, END, RECOVER, CLOCK_ERROR };
 struct Trace {
     uint64_t atUs = 0;
-    uint64_t wireStartUs = 0; ///< RX events only; atUs is their stop-bit time.
+    uint64_t wireStartUs = 0; ///< RX earliest start; atUs is latest stop-bit end.
     Event event = Event::START;
     Phase phase = Phase::IDLE;
     Reason reason = Reason::NONE;
     uint8_t byte = 0;
     uint16_t count = 0;
+    uint32_t uncertaintyUs = 0; ///< RX or TX_DONE interval width; zero otherwise.
 };
 
 struct Stats {
@@ -162,11 +172,12 @@ private:
     bool direction(bool enabled, uint64_t nowUs) noexcept;
     void phase(Phase next, uint64_t nowUs) noexcept;
     void record(Event event, uint64_t atUs, uint8_t byte = 0, uint16_t count = 0,
-                uint64_t wireStartUs = 0) noexcept;
+                uint64_t wireStartUs = 0, uint32_t uncertaintyUs = 0) noexcept;
     void finish(Reason reason, uint64_t nowUs, bool fault) noexcept;
     bool receive(uint64_t nowUs) noexcept; // true only when adapter reaches EMPTY.
     bool onByte(const RxByte& byte, uint64_t nowUs) noexcept;
     void frame(uint64_t nowUs) noexcept;
+    void completedFrame(uint64_t latestUs, uint32_t uncertaintyUs) noexcept;
     void releaseFault(uint64_t nowUs) noexcept;
 
     Port port_;
@@ -179,7 +190,8 @@ private:
     Reason pending_ = Reason::NONE;
     std::size_t txLength_ = 0, replyLength_ = 0;
     std::size_t traceHead_ = 0, traceSize_ = 0;
-    uint32_t responseTimeoutUs_ = 0;
+    uint32_t responseTimeoutUs_ = 0, replyGapUs_ = 0;
+    uint32_t txUncertaintyUs_ = 0, rxUncertaintyUs_ = 0;
     uint64_t now_ = 0, quietSince_ = 0, assertedUs_ = 0, queuedUs_ = 0;
     uint64_t txEndUs_ = 0, releasedUs_ = 0, lastRxEndUs_ = 0, observedUs_ = 0;
     bool clockSet_ = false, observed_ = false, haveRx_ = false, de_ = false;

@@ -1,0 +1,227 @@
+{
+  "date": "2026-10-03",
+  "board": "E2 HW2.0.0, ESP32-S3",
+  "port": "COM13",
+  "usb_serial": "3C:0F:02:CD:6B:98",
+  "pins": {
+    "tx": 47,
+    "rx": 48,
+    "de": 21
+  },
+  "tuple": {
+    "baud": 115200,
+    "format": "8N1",
+    "address": 1
+  },
+  "reply_gap_us": 304,
+  "gap15_us": 750,
+  "gap35_us": 1750,
+  "timing_qualified": false,
+  "campaigns": [
+    {
+      "source_file": "stress_100.jsonl",
+      "sha256": "43b3ca49dd4d1aaefaa24f01a283bef0aa7db9e5858cf1571244808b39dd7cfb",
+      "count": 100,
+      "successful": 100,
+      "models": [
+        20202
+      ],
+      "tx_hex": "010300000001840A",
+      "rx_hex": "0103024EEA0C6B",
+      "duration_us": {
+        "min": 5307,
+        "median": 5335.0,
+        "max": 5528
+      },
+      "tx_uncertainty_us": {
+        "min": 8,
+        "median": 9.0,
+        "max": 9
+      },
+      "max_rx_uncertainty_us": {
+        "min": 18,
+        "median": 22.0,
+        "max": 29
+      },
+      "first_reply_gap_lower_us": {
+        "min": 438,
+        "max": 649
+      },
+      "stats_first": {
+        "type": "reply",
+        "profile": "ess_rs",
+        "id": 2,
+        "command": "stats",
+        "ok": true,
+        "started": 1,
+        "frames": 1,
+        "failed": 0,
+        "timeouts": 0,
+        "cancelled": 0,
+        "rx_bytes": 7,
+        "discarded": 0,
+        "echo_bytes": 0,
+        "trace_overwritten": 0,
+        "max_poll_gap_us": 2001,
+        "capture_faults": 0,
+        "rx_errors": 0
+      },
+      "stats_last": {
+        "type": "reply",
+        "profile": "ess_rs",
+        "id": 403,
+        "command": "stats",
+        "ok": true,
+        "started": 101,
+        "frames": 101,
+        "failed": 0,
+        "timeouts": 0,
+        "cancelled": 0,
+        "rx_bytes": 707,
+        "discarded": 0,
+        "echo_bytes": 0,
+        "trace_overwritten": 1589,
+        "max_poll_gap_us": 2003,
+        "capture_faults": 0,
+        "rx_errors": 0
+      },
+      "memory_first": {
+        "type": "reply",
+        "profile": "ess_rs",
+        "id": 6,
+        "command": "memory",
+        "ok": true,
+        "valid": true,
+        "internal_free": 344652,
+        "internal_min": 339504,
+        "internal_largest": 286708,
+        "psram_free": 8380332,
+        "psram_min": 8380332,
+        "psram_largest": 8257524,
+        "stack_free_bytes": 6228
+      },
+      "memory_last": {
+        "type": "reply",
+        "profile": "ess_rs",
+        "id": 402,
+        "command": "memory",
+        "ok": true,
+        "valid": true,
+        "internal_free": 344652,
+        "internal_min": 339504,
+        "internal_largest": 286708,
+        "psram_free": 8380332,
+        "psram_min": 8380332,
+        "psram_largest": 8257524,
+        "stack_free_bytes": 6068
+      }
+    },
+    {
+      "source_file": "final_stress_20.jsonl",
+      "sha256": "fe6539e5ed36dcedb4be079de12e31a56cf0a1bb8bd8cfcbed835e098bf8f0b6",
+      "count": 20,
+      "successful": 20,
+      "models": [
+        20202
+      ],
+      "tx_hex": "010300000001840A",
+      "rx_hex": "0103024EEA0C6B",
+      "duration_us": {
+        "min": 5312,
+        "median": 5328.5,
+        "max": 5360
+      },
+      "tx_uncertainty_us": {
+        "min": 8,
+        "median": 8.5,
+        "max": 9
+      },
+      "max_rx_uncertainty_us": {
+        "min": 22,
+        "median": 23.5,
+        "max": 29
+      },
+      "first_reply_gap_lower_us": {
+        "min": 441,
+        "max": 543
+      },
+      "stats_first": {
+        "type": "reply",
+        "profile": "ess_rs",
+        "id": 2,
+        "command": "stats",
+        "ok": true,
+        "started": 0,
+        "frames": 0,
+        "failed": 0,
+        "timeouts": 0,
+        "cancelled": 0,
+        "rx_bytes": 0,
+        "discarded": 0,
+        "echo_bytes": 0,
+        "trace_overwritten": 0,
+        "max_poll_gap_us": 2001,
+        "capture_faults": 0,
+        "rx_errors": 0
+      },
+      "stats_last": {
+        "type": "reply",
+        "profile": "ess_rs",
+        "id": 83,
+        "command": "stats",
+        "ok": true,
+        "started": 20,
+        "frames": 20,
+        "failed": 0,
+        "timeouts": 0,
+        "cancelled": 0,
+        "rx_bytes": 140,
+        "discarded": 0,
+        "echo_bytes": 0,
+        "trace_overwritten": 253,
+        "max_poll_gap_us": 2004,
+        "capture_faults": 0,
+        "rx_errors": 0
+      },
+      "memory_first": {
+        "type": "reply",
+        "profile": "ess_rs",
+        "id": 6,
+        "command": "memory",
+        "ok": true,
+        "valid": true,
+        "internal_free": 344652,
+        "internal_min": 339504,
+        "internal_largest": 286708,
+        "psram_free": 8380332,
+        "psram_min": 8380332,
+        "psram_largest": 8257524,
+        "stack_free_bytes": 6148
+      },
+      "memory_last": {
+        "type": "reply",
+        "profile": "ess_rs",
+        "id": 82,
+        "command": "memory",
+        "ok": true,
+        "valid": true,
+        "internal_free": 344652,
+        "internal_min": 339504,
+        "internal_largest": 286708,
+        "psram_free": 8380332,
+        "psram_min": 8380332,
+        "psram_largest": 8257524,
+        "stack_free_bytes": 6148
+      }
+    }
+  ],
+  "full_flash_backup_sha256": "85c089bc3956b22037af7e6f0d7945f6ed778bb1a0526fb5b2ba3e8fea02d0c1",
+  "twenty_probe_firmware_sha256": "42deb6e81b17a4cacd5fddbbb36a4bae5f983c33852bd256c63a06b7f991630b",
+  "final_firmware_sha256": "9da9be4eef14dea98dc513192413d294a0be494a5efb50cc136988343d16aca6",
+  "final_smoke": {
+    "source_file": "reviewed_smoke_3.jsonl",
+    "sha256": "6f645d99e053aa5b3a11d1022c021fbceedaba586ee3d54d66f4b21e95654115",
+    "successful": 3,
+    "count": 3
+  }
+}

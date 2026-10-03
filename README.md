@@ -7,9 +7,10 @@ and GitHub URL remain `ESS23-RS` until the user renames the remote repository.
 
 The implementation supplies **configurable units, the ESS register catalogue
 and checked ESS Modbus RTU codecs**. A [standalone transaction runner](docs/runner.md)
-now has native fake-transport tests. The production UART adapter, motion commands,
-discovery orchestration and full standalone CLI are the next stages. No motor
-communication or motion has been tested. Other reviewed drives, including
+has native fake-transport tests. The [E2 read-only probe](docs/e2_probe.md) adds
+a polling UART adapter, JSONL console and Python bench tools. Model-register
+communication has bench evidence; external timing qualification, motion commands,
+discovery orchestration and the full CLI remain future work. Other reviewed drives, including
 Leadshine iEM-RS, are design contrasts rather than implemented profiles.
 
 The core has no Arduino, ESP-IDF, FieldCore, UART, GPIO, clock, heap, retry or
@@ -133,7 +134,7 @@ deadlines that the manuals leave unspecified.
 The example-owned [RTU runner](examples/common/RtuRunner.h) exchanges frames
 through bounded callbacks with supplied wire timing. It owns no allocations
 and accepts caller-provided TX/RX and optional trace storage. Tests use a fake
-adapter; the offline preview below still does not run a UART. See the
+adapter; E2 hardware tests use the separate probe build below. See the
 [runner guide](docs/runner.md) for deadlines, echo/recovery rules and memory sizes.
 
 With CMake and a C++11 compiler, build and run the native tests and unit preview:
@@ -157,6 +158,12 @@ ESP32-S3 bench using the FieldCore N16R8 memory/platform baseline:
 .\scripts\pio.cmd run -e e2_s3_units
 ```
 
+Build the read-only E2 console with `.\scripts\pio.cmd run -e e2_s3_probe`.
+It sends nothing until an explicit `probe`/`ping` command. See the
+[guide](docs/e2_probe.md) for uploading, JSONL commands, Python stress/watch
+tools, PSRAM placement and qualification limits, and the
+[bench report](docs/reports/2026-10-03_e2_probe.md) for measured results.
+
 This preview prints conversions to USB; it does not initialize the motor UART
 or send commands. Board pins are explicitly TX47, RX48, DE21 in
 [BoardPins.h](examples/common/BoardPins.h). See the
@@ -178,7 +185,8 @@ python scripts/generate_ess_registers.py --check
 | `include/MotorControlRS/`, `src/` | Public common API and implementation |
 | `include/MotorControlRS/profiles/ess_rs/`, `src/profiles/ess_rs/` | ESS catalogue, raw codecs, probe and word conversion |
 | `src/rtu/` | Small private byte/CRC/frame helpers, without device policy |
-| `examples/common/` | Board/build settings and native-tested RTU runner; hardware adapter pending |
+| `examples/common/` | Board/build settings, native-tested RTU runner and E2 UART adapter |
+| `examples/probe_cli/` | Read-only E2 console and platform-neutral JSONL command parser |
 | `examples/units_preview/` | Desktop/Arduino consumer of the current units API |
 | `test/` | Native units, catalogue and independent protocol verification |
 | `scripts/` | Reference preparation and deterministic generators |

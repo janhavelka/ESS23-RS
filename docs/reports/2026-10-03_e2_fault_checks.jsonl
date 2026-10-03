@@ -1,0 +1,38 @@
+{"sent": "version", "id": 1}
+{"type": "reply", "profile": "ess_rs", "id": 1, "command": "version", "ok": true, "product": "MotorControl-RS", "protocol": 1, "version": "0.5.0"}
+{"sent": "config", "id": 2}
+{"type": "reply", "profile": "ess_rs", "id": 2, "command": "config", "ok": true, "address": 1, "baud": 115200, "format": "8N1", "response_timeout_us": 200000, "reply_gap_us": 304, "gap15_us": 750, "gap35_us": 1750, "stale_after_ms": 5000, "ready": true, "timing_qualified": false, "device_settings": "unknown"}
+{"sent": "stats", "id": 3}
+{"type": "reply", "profile": "ess_rs", "id": 3, "command": "stats", "ok": true, "started": 1, "frames": 0, "failed": 1, "timeouts": 1, "cancelled": 0, "rx_bytes": 0, "discarded": 0, "echo_bytes": 0, "trace_overwritten": 0, "max_poll_gap_us": 2003, "capture_faults": 0, "rx_errors": 0}
+{"sent": "probe 0", "id": 4}
+{"type": "reply", "profile": "ess_rs", "id": 4, "command": "probe", "ok": false, "result": "invalid_address"}
+{"sent": "move", "id": 5}
+{"type": "reply", "profile": "ess_rs", "id": 5, "command": "unknown", "ok": false, "result": "unknown_command"}
+{"sent": "stats", "id": 6}
+{"type": "reply", "profile": "ess_rs", "id": 6, "command": "stats", "ok": true, "started": 1, "frames": 0, "failed": 1, "timeouts": 1, "cancelled": 0, "rx_bytes": 0, "discarded": 0, "echo_bytes": 0, "trace_overwritten": 0, "max_poll_gap_us": 2003, "capture_faults": 0, "rx_errors": 0}
+{"sent": "probe 247", "id": 7}
+{"type": "reply", "profile": "ess_rs", "id": 7, "command": "probe", "ok": true, "result": "accepted", "address": 247}
+{"type": "probe", "profile": "ess_rs", "id": 7, "command": "probe", "ok": false, "address": 247, "transport": "NO_RESPONSE", "codec": "NOT_CHECKED", "detail": 0, "frame_error": 0, "raw_model": null, "duration_us": 202505, "tx_bytes": 8, "rx_bytes": 0, "identity": "unknown", "tx_hex": "F70300000001909C", "rx_hex": "", "raw_truncated": false, "timing_valid": false, "tx_uncertainty_us": 8, "max_rx_uncertainty_us": 0, "tx_end_us": 137804965, "first_rx_start_us": 0}
+{"sent": "probe 1", "id": 8}
+{"type": "reply", "profile": "ess_rs", "id": 8, "command": "probe", "ok": false, "result": "recovery_required", "address": 1}
+{"sent": "recover", "id": 9}
+{"type": "reply", "profile": "ess_rs", "id": 9, "command": "recover", "ok": true, "result": "accepted", "address": 0}
+{"sent": "status", "id": 10}
+{"type": "reply", "profile": "ess_rs", "id": 10, "command": "status", "ok": true, "uptime_ms": 138613, "ready": true, "timing_qualified": false, "busy": false, "recovery_required": false, "phase": "IDLE", "transport": "NO_RESPONSE", "last_probe_known": false, "last_probe_ok": false, "probe_address": null, "raw_model": null, "age_ms": null, "stale_after_ms": 5000}
+{"sent": "probe", "id": 11}
+{"type": "reply", "profile": "ess_rs", "id": 11, "command": "probe", "ok": true, "result": "accepted", "address": 1}
+{"type": "probe", "profile": "ess_rs", "id": 11, "command": "probe", "ok": true, "address": 1, "transport": "FRAME", "codec": "OK", "detail": 0, "frame_error": 0, "raw_model": 20202, "duration_us": 5353, "tx_bytes": 8, "rx_bytes": 7, "identity": "responder_only", "tx_hex": "010300000001840A", "rx_hex": "0103024EEA0C6B", "raw_truncated": false, "timing_valid": true, "tx_uncertainty_us": 9, "max_rx_uncertainty_us": 23, "tx_end_us": 138619952, "first_rx_start_us": 138620441}
+{"sent": "health", "id": 12}
+{"type": "reply", "profile": "ess_rs", "id": 12, "command": "health", "ok": true, "communication": "current", "probe_address": 1, "age_ms": 3, "stale_after_ms": 5000, "readiness": "unknown", "alarms": "unknown", "state": "unknown", "identity": "responder_only"}
+{"sent": "health", "id": 13}
+{"type": "reply", "profile": "ess_rs", "id": 13, "command": "health", "ok": true, "communication": "stale", "probe_address": 1, "age_ms": 5106, "stale_after_ms": 5000, "readiness": "unknown", "alarms": "unknown", "state": "unknown", "identity": "responder_only"}
+{"sent": "memory", "id": 14}
+{"type": "reply", "profile": "ess_rs", "id": 14, "command": "memory", "ok": true, "valid": true, "internal_free": 344652, "internal_min": 339504, "internal_largest": 286708, "psram_free": 8380332, "psram_min": 8380332, "psram_largest": 8257524, "stack_free_bytes": 6148}
+{"sent": "stats", "id": 15}
+{"type": "reply", "profile": "ess_rs", "id": 15, "command": "stats", "ok": true, "started": 3, "frames": 1, "failed": 2, "timeouts": 2, "cancelled": 0, "rx_bytes": 7, "discarded": 0, "echo_bytes": 0, "trace_overwritten": 0, "max_poll_gap_us": 2003, "capture_faults": 0, "rx_errors": 0}
+{"sent": "reset", "id": 16}
+{"type": "reply", "profile": "ess_rs", "id": 16, "command": "reset", "ok": true, "result": "accepted", "address": 0}
+{"sent": "stats", "id": 17}
+{"type": "reply", "profile": "ess_rs", "id": 17, "command": "stats", "ok": true, "started": 0, "frames": 0, "failed": 0, "timeouts": 0, "cancelled": 0, "rx_bytes": 0, "discarded": 0, "echo_bytes": 0, "trace_overwritten": 0, "max_poll_gap_us": 1000, "capture_faults": 0, "rx_errors": 0}
+{"sent": "status", "id": 18}
+{"type": "reply", "profile": "ess_rs", "id": 18, "command": "status", "ok": true, "uptime_ms": 143742, "ready": true, "timing_qualified": false, "busy": false, "recovery_required": false, "phase": "DONE", "transport": "FRAME", "last_probe_known": true, "last_probe_ok": true, "probe_address": 1, "raw_model": 20202, "age_ms": 5119, "stale_after_ms": 5000}

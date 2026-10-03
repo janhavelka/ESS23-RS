@@ -1,5 +1,27 @@
 # Software verification
 
+## E2 adapter and read-only probe, version 0.5.0
+
+Checks on 2026-10-03:
+
+| Check | Result |
+| --- | --- |
+| CMake Release and CTest | 11/11 passed, including actual adapter code built against SDK fakes, console and Python harness |
+| Runner | 20 groups, including interval ambiguity, incomplete capture, explicit reply turnaround and prior 1000-transaction fake soak |
+| E2 adapter fakes | Six groups cover ownership/init errors, physical TX versus FIFO empty, interval capture, faults/recovery/storage and full runner probe |
+| Console | Eight groups cover input/correlation bounds, no side effects on invalid input, cached health and retained raw/timing evidence |
+| Python harness | 24 fake serial tests, including framing/deadlines/reset detection, explicit repeated probes and passive watch |
+| Arduino headers | Fixed DEFAULT/DISABLED macro collisions; native macro regression and Arduino-first include build pass |
+| ESP32-S3 | Probe firmware and existing offline units preview build with the pinned platform |
+| Bench | 100 consecutive parsed probes, later 20-probe run, explicit timeout/recovery, cached watch/staleness and local counter reset |
+| Memory | Interval runner: 320 bytes native / 256 ESP32-S3; trace entry 32 bytes. App storage actually allocated in PSRAM; runtime metrics retained |
+
+See the [bench report](reports/2026-10-03_e2_probe.md), its metrics and fault
+transcript. Strict native warnings pass. These results do not establish exact
+motor identity, external timing bounds, motion, native ESP-IDF firmware or
+FieldCore integration. COM13 was deliberately flashed after firmware backup;
+historical sections below describe earlier blocks in which it was untouched.
+
 ## Native standalone runner, version 0.4.0
 
 Checks on 2026-10-03:

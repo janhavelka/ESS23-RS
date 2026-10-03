@@ -10,10 +10,12 @@ FieldCore are separate applications of the same library.
 Implemented blocks supply pure units, an ESS register catalogue and checked
 wire codecs with a minimal model-register probe. An example-owned RTU runner
 is implemented and tested with a native fake adapter; see [runner.md](runner.md).
-Motion preparation, production UART adapters, discovery orchestration, CLI and FieldCore adapters remain contracts
+The [E2 polling adapter and probe CLI](e2_probe.md) now have native and bench
+evidence, with external timing qualification still open. Motion preparation,
+discovery orchestration, the full CLI and FieldCore adapters remain contracts
 for later blocks. See the root
 README for current callable APIs and build commands. No motor behavior has
-been qualified on hardware.
+been qualified beyond the recorded model-register probes.
 The [current architecture report](architecture_report.md) maps existing files
 and dependencies, walks through a transaction and records the latest source
 review of standalone and FieldCore integration. The planned layout below is
@@ -471,10 +473,9 @@ work is requested.
    checked responses, raw exceptions, word helpers, minimal probe and native
    tests. General FC10 limits and typed field/motion ambiguities remain open.
    Wire support does not establish permission to write every register.
-3. The example-owned runner and fake tests exist. Add its qualified ESP32
-   adapter and a small read-only CLI slice on the E2
-   bench. Inspect/preserve the existing firmware before a test-firmware upload;
-   record actual identity, settings, raw frames, timing and echo behavior.
+3. The runner, E2 adapter and probe CLI have native tests and bench evidence.
+   Finish external timing qualification and identity/settings/state reads;
+   preserve explicit raw-model uncertainty and the observed turnaround exception.
 4. Implement checked target preparation, ESS motion/stop sequencing and the
    corresponding common/native commands in small tested blocks. Challenge
    signatures against the documented Leadshine contrast. Qualify stop handling

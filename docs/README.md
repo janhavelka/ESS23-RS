@@ -4,13 +4,17 @@
 
 Implemented blocks are pure unit conversion, an ESS register catalogue,
 checked wire codecs with a minimal probe and standalone build foundations.
-The standalone RTU runner is tested with a native fake adapter. Its hardware
-adapter, typed commands, motion workflows, discovery orchestration and CLI
-remain future work. See the [root README](../README.md)
+The standalone RTU runner and E2 adapter have native fake tests. The read-only
+probe CLI has bench evidence; external timing qualification, typed commands,
+motion workflows, discovery orchestration and full CLI coverage remain future
+work. See the [root README](../README.md)
 for current code and builds.
 
 - [Standalone RTU runner](runner.md): current callback/timing contract, state
   machine, fake tests, diagnostics, memory sizes and explicit recovery.
+- [E2 probe guide](e2_probe.md): adapter, read-only console, PSRAM and Python tools.
+- [E2 bench report](reports/2026-10-03_e2_probe.md): measured probes, timing
+  exception, raw model, firmware backup and remaining qualification work.
 - [Current architecture report](architecture_report.md): source-based review
   of what exists, file and dependency map, transaction flow, standalone and
   FieldCore ownership, debugging and remaining integration work.

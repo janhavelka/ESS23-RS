@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.5.0
+
+- Add the E2 UART2 polling adapter, read-only JSONL probe console and Python
+  probe/stress/health/memory tools. Native SDK fakes compile the real adapter;
+  recorded bench probes use TX47/RX48/DE21, address 1 and 115200 8N1.
+- Represent timing as conservative intervals, reject ambiguous framing and
+  retain uncertainty in traces. Add an explicit per-request turnaround minimum;
+  the E2 bench uses 304 us after observed replies failed the 1750 us default.
+  Host admission and final frame gaps remain 1750 us.
+- Allocate the console, runner, frame buffers and history once in PSRAM; keep
+  capture state internal and expose memory/stack measurements.
+- Fix Arduino macro collisions: `DefaultDirection::DEFAULT` becomes `NORMAL`,
+  and `SoftLimitEnable::DISABLED` becomes `LIMITS_OFF`. Register values are unchanged.
+
+External sampling/DE timing qualification, exact identity for raw model `0x4EEA`,
+native ESP-IDF firmware and motion remain open. This polling bench adapter is
+not a drop-in replacement for FieldCore's shared bus owner.
+
 ## 0.4.0
 
 - Add an application-owned RTU runner under `examples/common/`, tested with

@@ -78,9 +78,16 @@ completion and record changes to the setup for the next session.
 ## Current status
 
 - Bench access and motion-test authorization: recorded from the user.
-- COM13 inspection and connection test: not performed.
-- Motor identity/settings readback: not performed.
+- COM13 inspected on 2026-10-03; original CO2Control-node 1.3.0 flash backed up.
+- Board now runs the standalone MotorControl-RS 0.5.0 read-only probe console.
+- Repeated checked model reads succeed at node 1, 115200 8N1, TX47/RX48/DE21.
+- Raw model: `0x4EEA`; exact model/firmware mapping and settings remain unknown.
+- External TX/RX/DE timing qualification remains open; see the explicit bench
+  turnaround exception and sampling assumptions in the report.
 - Motion, conversion, stop and persistence qualification: not performed.
+
+See the [dated bench report](reports/2026-10-03_e2_probe.md) for evidence, firmware
+backup/restore information, measured intervals, memory and qualification limits.
 
 Track subsequent work in [the backlog](backlog.md). This dated setup note is
 the starting point; update it with observations instead of silently treating

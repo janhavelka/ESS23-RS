@@ -335,7 +335,7 @@ Does not change Modbus byte order within a 16-bit register.
 
 | Name | Value | Meaning | Function PDF pages |
 | --- | ---: | --- | --- |
-| `DEFAULT` | 0 | Default movement direction. | 69 |
+| `NORMAL` | 0 | Default movement direction. | 69 |
 | `REVERSED` | 1 | Reverse default movement direction. | 69 |
 
 ### `BaudRateCode`
@@ -367,7 +367,7 @@ Does not change Modbus byte order within a 16-bit register.
 
 | Name | Value | Meaning | Function PDF pages |
 | --- | ---: | --- | --- |
-| `DISABLED` | 0 | Software limits disabled. | 29, 70 |
+| `LIMITS_OFF` | 0 | Software limits disabled. | 29, 70 |
 | `AFTER_HOMING` | 1 | Limits effective only after returning to zero. | 29, 70 |
 
 ### `PositionMode`

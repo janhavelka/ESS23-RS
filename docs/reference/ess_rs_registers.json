@@ -2122,7 +2122,7 @@
       "notes": "",
       "values": [
         {
-          "name": "DEFAULT",
+          "name": "NORMAL",
           "value": 0,
           "description": "Default movement direction.",
           "pages": [
@@ -2259,7 +2259,7 @@
       "notes": "",
       "values": [
         {
-          "name": "DISABLED",
+          "name": "LIMITS_OFF",
           "value": 0,
           "description": "Software limits disabled.",
           "pages": [

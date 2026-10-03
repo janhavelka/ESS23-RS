@@ -1,11 +1,11 @@
 # Standalone RTU transaction runner
 
-Implemented in version 0.4.0 under
+First implemented in version 0.4.0, extended with timing intervals in 0.5.0, under
 [RtuRunner.h](../examples/common/RtuRunner.h) and
 [RtuRunner.cpp](../examples/common/RtuRunner.cpp), namespace
 `MotorControlRSExample::Rtu`. The [native tests](../test/runner_test.cpp)
-provide the first working adapter: a fake UART with independent wire times.
-No production UART adapter or motor console is implemented in this block.
+provide a fake UART with independent wire times. The [E2 probe](e2_probe.md)
+now adds a hardware adapter and read-only console with explicit qualification limits.
 
 ## Boundary and responsibilities
 
@@ -66,8 +66,8 @@ a clock-error trace event while preserving the prior transaction result.
 | --- | --- |
 | `setTransmit(context, enabled)` | Set the one owned direction control; return failure if the requested direction is not established. The port starts physically idle in receive mode. |
 | `write(context, bytes, length)` | One bounded attempt to enqueue a continuous RTU frame. Report accepted bytes and failure separately. No scheduler-created gaps between partial chunks are allowed. |
-| `txState(context, nowUs, endedUs)` | Distinguish pending, physical idle and failure. After enqueue, `IDLE` supplies the actual final stop-bit time. A later poll noticing idle is not that timestamp. |
-| `read(context, nowUs, byte, observedThroughUs)` | Return one ordered wire byte, an error, or `EMPTY`. A byte includes actual start/stop times. On `EMPTY`, the watermark states how far all receive activity has been observed. |
+| `txState(context, nowUs, endedUs)` | Distinguish pending, physical idle and failure. After enqueue, `IDLE` supplies the latest bound on the final stop-bit time, with optional interval width. A polling observation alone is not an exact timestamp. |
+| `read(context, nowUs, byte, observedThroughUs)` | Return one ordered wire byte, an error, or `EMPTY`. A byte includes start/stop intervals. On `EMPTY`, the watermark states how far all receive activity has been observed. |
 
 An incomplete character or delayed capture holds the receive watermark back.
 It cannot be replaced with the current polling time. Before asserting DE or
@@ -77,23 +77,30 @@ interval or response deadline has really passed. A stale watermark exceeding
 the configured capture-lag budget produces `CAPTURE_TIMEOUT`, independently
 of drive response timeout.
 
-Silence between received characters is `next.startUs - previous.endUs`.
+Exact silence between received characters is `next.startUs - previous.endUs`.
 Counting stop-to-stop time instead would incorrectly include the next
 character's wire duration. A gap above `t1.5` and below `t3.5` invalidates a
 frame. A gap at least `t3.5` ends the previous frame; a byte from the following
 frame is logged as discarded rather than appended to that previous frame.
-The first response must also follow `t3.5` from actual TX completion and
-start after DE release.
+The first response must follow the configured `Request.replyGapUs` from TX
+completion and start after DE release. Zero selects `t3.5`. An explicit shorter
+value is a device-specific exception and never shortens admission/final gaps.
 
-The runner rejects future, overlapping, zero-duration or regressing byte
-timestamps, backward watermarks and events contradicting a prior watermark.
+RX `uncertaintyUs` defines start in `[startUs, startUs + uncertaintyUs]` and
+end in `[endUs - uncertaintyUs, endUs]`. TX uses optional
+`Port.txUncertaintyUs()` to define `[endedUs - width, endedUs]`. Zero width
+retains the exact native-fixture behavior. Each gap must be valid across the
+whole range; an ambiguous gap or deadline returns `TIMING_UNCERTAIN`.
+`PENDING` supplies no silence evidence; prolonged lack of capture progress
+fails with `CAPTURE_TIMEOUT`. The runner rejects impossible ordering, future
+end bounds, backward watermarks and contradictory observations.
 These checks detect an inconsistent adapter; they cannot prove that a
 hardware adapter reported the actual wire correctly.
 
 `Serial.available()` batches and FieldCore's current read callback do not
 meet this timing contract by themselves. FieldCore's TX-drain mechanism is
-useful, but obtaining qualified TX-end/RX timing remains explicit work for
-the ESP32 adapter. Review UART events, hardware idle evidence and timing
+useful, and the implemented [E2 adapter](e2_probe.md) brackets hardware observations.
+External validation of its RX sampling assumptions remains open. Review UART events, hardware idle evidence and timing
 uncertainty before connecting that adapter. See the
 [platform review](reference/10_runner_platform_review.md).
 
@@ -162,7 +169,7 @@ uncertain movement into "not executed".
 
 ## Diagnostics and memory
 
-The optional trace ring records phases, enqueue count, actual TX end,
+The optional trace ring records phases, enqueue count, TX end bounds,
 direction changes, every received byte including rejected bytes, echo,
 discard, terminal result and recovery. RX events retain both start and stop
 times. Ring order is observation order; delayed wire events can have earlier
@@ -177,22 +184,23 @@ whole-firmware RAM/flash usage:
 
 | Storage | Native 64-bit | ESP32-S3 |
 | --- | ---: | ---: |
-| Runner object, including copied callbacks/configuration/result/statistics | 304 bytes | 240 bytes |
-| One trace entry | 24 bytes | 24 bytes |
+| Runner object, including copied callbacks/configuration/result/statistics | 320 bytes | 256 bytes |
+| One trace entry | 32 bytes | 32 bytes |
 | Result alone, already included in Runner | 32 bytes | 32 bytes |
 | Example caller TX/RX arrays | 32 + 64 bytes | 32 + 64 bytes |
-| Optional 64-entry trace ring | 1536 bytes | 1536 bytes |
-| Runner plus those arrays/ring | 1936 bytes | 1872 bytes |
+| Optional 64-entry trace ring | 2048 bytes | 2048 bytes |
+| Runner plus those arrays/ring | 2464 bytes | 2400 bytes |
 
 TX and RX capacities are independently bounded at 256 bytes. Traces are
 optional and caller-sized; the helper does not allocate a default large ring.
-For the future ESP32 adapter, prefer one PSRAM allocation at initialization
+The E2 probe allocates its application, buffers and 128-entry trace ring in
+PSRAM once at initialization. Prefer this pattern
 for larger task-context histories, retained frames and caches. Task-context
 TX/RX buffers can use PSRAM where the driver permits it. Keep ISR,
 cache-disabled and driver-required storage internal; initially keep stacks
-and the small timing object internal too. Allocation/fallback policy and
-memory watermarks will be measured in the real adapter. No PSRAM allocation
-or claim of runtime PSRAM use is made by native tests.
+and the small timing object internal too. The adapter keeps its small capture working set internal. Its
+[bench report](reports/2026-10-03_e2_probe.md) records runtime memory; native
+tests alone make no claim of runtime PSRAM use.
 
 ## Verification and next block
 
@@ -207,8 +215,8 @@ Run the repository's CMake/CTest commands from [README](../README.md).
 The runner is also compiled independently with strict C++11 warnings and
 the ESP32-S3 compiler. Those checks do not establish UART or motor behavior.
 
-The next block is a qualified E2 adapter and a small read-only console.
-Future Python runners should adapt FieldCore's framed command collection,
-trace/error evidence and memory checkpoints for probe latency, stress,
-cached health and state watching. Add these when the console protocol exists;
-the [backlog](backlog.md) records this work. COM13 remains untouched.
+The [E2 probe](e2_probe.md) now supplies the adapter, read-only JSONL console
+and Python probe/stress/cached-watch harness. Native SDK fakes compile the
+actual adapter source. Bench probes establish a working communication path;
+external TX/RX/DE timing, loaded-firmware integration and motion remain separate
+qualification work. See the [bench report](reports/2026-10-03_e2_probe.md).

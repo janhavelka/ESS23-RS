@@ -39,11 +39,11 @@ The authoritative contracts are [architecture](architecture.md),
    checked replies, independent CRC/frame tests and raw word conversions.
    Probe reads model register 0x0000/one word. General FC10 limits and typed
    field meanings remain unresolved where documented; no hardware I/O occurred.
-2. **Read-only E2 bring-up:** the application RTU runner and native fake tests
-   are complete. Implement/qualify its UART/DE/RE and receive-timing adapter, then a
-   small CLI for probe, available identity/configuration/state reads and cached
-   diagnostics. Inspect COM13 and preserve current firmware before any test
-   upload. Record actual settings and distinguish identity from mere response.
+2. **Read-only E2 bring-up:** runner, polling adapter, probe CLI, native tests
+   and a 100-probe bench run are complete. Existing CO2control flash was backed
+   up before upload. Next verify the RX timing assumptions with an external
+   TX/RX/DE trace and resolve raw model `0x4EEA`; add explicit identity/state
+   reads after reviewing their semantics. See the dated bench report.
 3. **First motion and stop:** target quantization/reference/limits, required
    ESS setup and bounded operation sequencing, interrupting stop and uncertain
    outcomes. Test failure events natively before qualifying small step/angle
@@ -159,16 +159,16 @@ The checkout and GitHub URL remain `ESS23-RS` pending the user's remote rename.
 - [x] Implement example-owned RTU runner with fake callback tests: physical
   TX drain, wire-timed receive framing, explicit echo, exception length,
   cancellation, retained diagnostics and recovery admission.
-- [ ] Implement/qualify the ESP32 adapter, including actual TX-end evidence,
-  receive timestamps/observation watermark and UART error reporting. A
-  `Serial.available()` poll timestamp does not satisfy this contract.
-- [ ] Allocate larger task-context trace/frame/cache storage in PSRAM in the
+- [x] Implement the E2 UART adapter with physical TX-idle intervals, RX
+  capture intervals, UART error reporting and actual-source SDK fake tests.
+- [ ] Externally qualify RX FIFO/stop sampling and idle-watermark assumptions,
+  DE setup/hold and load tolerance. Probe success is not full timing qualification.
+- [x] Allocate larger task-context trace/frame/cache storage in PSRAM in the
   adapter; document fallback, retain driver-required internal storage, and
   record free/minimum/largest-block memory and stack measurements.
-- [ ] Add Python automation for bounded probe/latency/health/state watching,
-  stress and fault evidence once the machine-readable standalone console
-  exists. Reuse reviewed FieldCore serial framing and evidence patterns;
-  cached health queries must not add unintended bus traffic or replay motion.
+- [x] Add Python bounded probe/stress and cached health/memory watching with
+  JSONL evidence, no retry/recovery and native fake serial tests.
+- [ ] Extend automation to actual motor state once typed state reads exist.
 - [ ] Build standalone ESP32-S2/S3 Arduino consumers and a first-class native
   ESP-IDF consumer with equivalent command semantics for equivalent features.
 - [x] Verify framework-free native consumption, self-contained headers and
@@ -186,10 +186,12 @@ The checkout and GitHub URL remain `ESS23-RS` pending the user's remote rename.
   generated files, header isolation and package consumption. Require Python
   checks for repository/release validation; ordinary C++ consumers remain
   independent of Python. Record the supported compiler/platform matrix.
-- [ ] Inspect COM13's current CO2control firmware and available console/bridge;
-  establish actual board, pins, direction control and serial settings.
-- [ ] Run the first minimal probe/identity read and record raw frames/timing,
-  echo behavior, actual motor identity and communication configuration.
+- [x] Inspect COM13's CO2control firmware, preserve flash, build/upload the E2
+  probe and establish communication at address 1, 115200 8N1, TX47/RX48/DE21.
+- [x] Record the first minimal model read, raw frames, interval evidence and
+  explicit 304 us bench turnaround exception; complete repeated probe tests.
+- [ ] Establish exact motor/firmware identity and echo behavior for writes.
+  Raw model `0x4EEA` differs from the manual example; no mapping is invented.
 - [x] Validate codec golden frames and malformed inputs with unchanged payload
   outputs on errors; test exception/echo/word-order/count boundaries.
 - [ ] Validate conversion, angular-path, capability, sequencing and interruption

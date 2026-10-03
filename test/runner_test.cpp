@@ -33,13 +33,14 @@ struct Fake {
     uint64_t now = 0;
     uint64_t txEnd = 0;
     uint64_t txDuration = 800;
+    uint32_t txUncertainty = 0;
     uint64_t captureThrough = std::numeric_limits<uint64_t>::max();
     std::size_t acceptLimit = MAX_FRAME;
     std::size_t readIndex = 0;
     unsigned writes = 0, reads = 0, txChecks = 0;
     bool queued = false, writeError = false, txError = false;
     bool enableError = false, disableError = false, readError = false;
-    bool holdBusy = false;
+    bool holdBusy = false, capturePending = false;
     std::vector<uint8_t> written;
     std::vector<RxByte> input;
     std::vector<DirectionChange> directions;
@@ -85,6 +86,7 @@ struct Fake {
         Fake& self = *static_cast<Fake*>(context);
         ++self.reads;
         if (self.readError) return ReadState::ERROR;
+        if (self.capturePending) return ReadState::PENDING;
         if (self.readIndex < self.input.size()) {
             const RxByte& next = self.input[self.readIndex];
             if (next.endUs <= now && next.endUs <= self.captureThrough) {
@@ -100,6 +102,10 @@ struct Fake {
         through = std::min(now, self.captureThrough);
         return ReadState::EMPTY;
     }
+
+    static uint32_t uncertainty(void* context) {
+        return static_cast<Fake*>(context)->txUncertainty;
+    }
 };
 
 Port makePort(Fake& fake) {
@@ -109,6 +115,7 @@ Port makePort(Fake& fake) {
     port.write = Fake::write;
     port.txState = Fake::tx;
     port.read = Fake::read;
+    port.txUncertaintyUs = Fake::uncertainty;
     return port;
 }
 
@@ -909,6 +916,199 @@ void testRepeatedTransactions() {
     assert(rig.runner.stats().timeouts == 0 && rig.runner.stats().cancelled == 0);
 }
 
+void testTimingIntervals() {
+    {
+        Rig rig;
+        rig.fake.txUncertainty = 20;
+        rig.start(); rig.send(); rig.receive();
+        rig.fake.bytes(REPLY, sizeof(REPLY), 2570);
+        for (RxByte& byte : rig.fake.input) {
+            byte.startUs -= 10;
+            byte.endUs += 10;
+            byte.uncertaintyUs = 20;
+        }
+        rig.poll(3629);
+        assert(rig.runner.busy());
+        rig.poll(3630);
+        assert(rig.runner.result().reason == Reason::FRAME);
+        assert(rig.runner.result().endedUs == 3630);
+        bool txSeen = false, rxSeen = false;
+        for (std::size_t i = 0; i < rig.runner.traceSize(); ++i) {
+            const Trace& item = *rig.runner.traceAt(i);
+            if (item.event == Event::TX_DONE) {
+                txSeen = true;
+                assert(item.atUs == 2160 && item.uncertaintyUs == 20);
+            }
+            if (item.event == Event::RX) {
+                rxSeen = true;
+                assert(item.uncertaintyUs == 20);
+            }
+        }
+        assert(txSeen && rxSeen && rig.fake.writes == 1);
+    }
+    {
+        Rig rig;
+        rig.start(); rig.send(); rig.receive();
+        rig.fake.bytes(REPLY, 1, 2500);
+        rig.fake.input[0].uncertaintyUs = 20; // Start straddles TX end + t3.5.
+        rig.poll(2700);
+        assert(rig.runner.result().reason == Reason::TIMING_UNCERTAIN);
+        assert(rig.runner.needsRecovery());
+    }
+    {
+        Rig rig;
+        rig.fake.txUncertainty = 20;
+        rig.start(); rig.send(); rig.receive();
+        rig.fake.bytes(REPLY, 1, 2500); // Exact RX, uncertain TX end straddles t3.5.
+        rig.poll(2700);
+        assert(rig.runner.result().reason == Reason::TIMING_UNCERTAIN);
+    }
+    for (unsigned difference = 0; difference < 2; ++difference) {
+        Rig rig;
+        rig.start(); rig.send(); rig.receive();
+        rig.fake.bytes(REPLY, 1, 2510);
+        rig.fake.bytes(REPLY + 1, 1, 2760 + difference * 10);
+        rig.fake.input[1].uncertaintyUs = 20;
+        rig.poll(3000);
+        assert(rig.runner.result().reason ==
+               (difference ? Reason::GAP : Reason::TIMING_UNCERTAIN));
+    }
+    {
+        Rig rig;
+        rig.start(); rig.send(); rig.receive();
+        rig.fake.bytes(REPLY, sizeof(REPLY), 2510);
+        rig.fake.bytes(REPLY, 1, 3550);
+        rig.fake.input.back().uncertaintyUs = 20; // Gap may or may not be t3.5.
+        rig.poll(3800);
+        assert(rig.runner.result().reason == Reason::TIMING_UNCERTAIN);
+        assert(rig.runner.result().rxLength == sizeof(REPLY));
+    }
+    {
+        Rig rig;
+        rig.fake.txUncertainty = 20;
+        Request value = request();
+        value.responseTimeoutUs = 1400; // Deadline lies in [3540,3560].
+        rig.start(value); rig.send(); rig.receive();
+        rig.fake.bytes(REPLY, sizeof(REPLY), 2510);
+        rig.poll(3560);
+        assert(rig.runner.result().reason == Reason::TIMING_UNCERTAIN);
+    }
+    {
+        Rig rig;
+        Request value = request();
+        value.responseTimeoutUs = 1390; // 3550; final gap lies in [3540,3560].
+        rig.start(value); rig.send(); rig.receive();
+        rig.fake.bytes(REPLY, sizeof(REPLY), 2510);
+        rig.fake.input.back().uncertaintyUs = 20;
+        rig.poll(3550);
+        assert(rig.runner.result().reason == Reason::TIMING_UNCERTAIN);
+    }
+    {
+        Rig rig;
+        rig.fake.txUncertainty = 20;
+        Request value = request();
+        value.responseTimeoutUs = 1400;
+        rig.start(value); rig.send(); rig.receive();
+        rig.poll(3540);
+        assert(rig.runner.busy()); // Earliest possible deadline cannot prove timeout.
+        rig.poll(3560);
+        assert(rig.runner.result().reason == Reason::NO_RESPONSE);
+    }
+    {
+        Rig rig;
+        rig.start(); rig.send(); rig.receive();
+        rig.fake.bytes(REPLY, 1, 2510);
+        rig.fake.input[0].uncertaintyUs = 3000;
+        rig.poll(3000);
+        assert(rig.runner.result().reason == Reason::CLOCK_ERROR);
+    }
+    {
+        Rig rig;
+        rig.fake.txUncertainty = 1000; // Earliest completion predates enqueue.
+        rig.start(); rig.send();
+        rig.poll(2160);
+        assert(rig.runner.result().reason == Reason::CLOCK_ERROR);
+    }
+}
+
+void testPendingCapture() {
+    {
+        Rig rig;
+        rig.start();
+        rig.fake.capturePending = true;
+        rig.poll(1350);
+        assert(!rig.runner.transmitEnabled() && rig.fake.writes == 0);
+        rig.fake.capturePending = false;
+        rig.poll(1351);
+        assert(rig.runner.transmitEnabled());
+    }
+    {
+        Timing timing = makeTiming();
+        timing.captureTimeoutUs = 1000;
+        Rig rig(timing);
+        rig.start(); rig.send(); rig.receive();
+        rig.fake.capturePending = true;
+        rig.poll(3180);
+        assert(rig.runner.busy());
+        rig.poll(3181);
+        assert(rig.runner.result().reason == Reason::CAPTURE_TIMEOUT);
+    }
+    {
+        Rig rig;
+        rig.start(); rig.send(); rig.receive();
+        rig.fake.bytes(REPLY, sizeof(REPLY), 2510);
+        rig.poll(3210);
+        rig.fake.capturePending = true;
+        rig.poll(3560);
+        assert(rig.runner.busy()); // No fabricated final gap from a pending capture.
+        rig.fake.capturePending = false;
+        rig.poll(3570);
+        assert(rig.runner.result().reason == Reason::FRAME);
+    }
+}
+
+void testReplyGapPolicy() {
+    {
+        Rig rig;
+        Request value = request();
+        value.replyGapUs = 50;
+        rig.start(value); rig.send(); rig.receive();
+        rig.fake.bytes(REPLY, sizeof(REPLY), 2210); // TX ends 2160; explicit reply gap is 50.
+        rig.poll(3259);
+        assert(rig.runner.busy()); // Final t3.5 remains 350, independent of turnaround.
+        rig.poll(3260);
+        assert(rig.runner.result().reason == Reason::FRAME);
+        assert(rig.runner.result().endedUs == 3260);
+    }
+    {
+        Rig rig;
+        Request value = request();
+        value.replyGapUs = 50;
+        rig.start(value); rig.send(); rig.receive();
+        rig.fake.bytes(REPLY, 1, 2209);
+        rig.poll(2400);
+        assert(rig.runner.result().reason == Reason::EARLY_REPLY);
+        assert(rig.runner.needsRecovery());
+    }
+    {
+        Rig rig;
+        Request value = request();
+        value.replyGapUs = 50;
+        rig.start(value); rig.send(); rig.receive();
+        rig.fake.bytes(REPLY, 1, 2200);
+        rig.fake.input[0].uncertaintyUs = 20;
+        rig.poll(2400);
+        assert(rig.runner.result().reason == Reason::TIMING_UNCERTAIN);
+    }
+    {
+        Rig rig;
+        rig.start(); rig.send(); rig.receive();
+        rig.fake.bytes(REPLY, 1, 2210); // Zero/default retains the original t3.5 requirement.
+        rig.poll(2400);
+        assert(rig.runner.result().reason == Reason::EARLY_REPLY);
+    }
+}
+
 } // namespace
 
 int main() {
@@ -929,5 +1129,8 @@ int main() {
     testRejectedByteEvidence();
     testAdmissionAndFaults();
     testRepeatedTransactions();
+    testTimingIntervals();
+    testPendingCapture();
+    testReplyGapPolicy();
     return 0;
 }

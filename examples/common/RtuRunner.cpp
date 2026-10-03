@@ -57,7 +57,7 @@ bool Runner::busy() const noexcept {
 }
 
 void Runner::record(Event event, uint64_t atUs, uint8_t byte, uint16_t count,
-                    uint64_t wireStartUs) noexcept {
+                    uint64_t wireStartUs, uint32_t uncertaintyUs) noexcept {
     if (!storage_.traceCapacity) return;
     Trace& trace = storage_.trace[traceHead_];
     trace.atUs = atUs;
@@ -67,6 +67,7 @@ void Runner::record(Event event, uint64_t atUs, uint8_t byte, uint16_t count,
     trace.reason = event == Event::CLOCK_ERROR ? Reason::CLOCK_ERROR : result_.reason;
     trace.byte = byte;
     trace.count = count;
+    trace.uncertaintyUs = uncertaintyUs;
     traceHead_ = (traceHead_ + 1) % storage_.traceCapacity;
     if (traceSize_ < storage_.traceCapacity) ++traceSize_;
     else increment(stats_.traceOverwritten);
@@ -141,11 +142,13 @@ Admission Runner::start(const Request& request, uint64_t nowUs) noexcept {
     txLength_ = request.length;
     replyLength_ = request.replyLength;
     responseTimeoutUs_ = request.responseTimeoutUs;
+    replyGapUs_ = request.replyGapUs ? request.replyGapUs : timing_.gap35Us;
     echo_ = request.echo;
     pending_ = Reason::NONE;
     quietSince_ = nowUs;
     observed_ = haveRx_ = false;
     observedUs_ = lastRxEndUs_ = txEndUs_ = releasedUs_ = queuedUs_ = 0;
+    txUncertaintyUs_ = rxUncertaintyUs_ = 0;
     increment(stats_.started);
     phase_ = Phase::WAIT_BUS;
     record(Event::START, nowUs, 0, static_cast<uint16_t>(txLength_));
@@ -163,17 +166,38 @@ void Runner::frame(uint64_t nowUs) noexcept {
            nowUs, result_.rxLength != expected);
 }
 
+void Runner::completedFrame(uint64_t latestUs, uint32_t uncertaintyUs) noexcept {
+    // A successful frame must fit even the earliest possible response deadline.
+    const uint64_t earliestTx = txEndUs_ - txUncertaintyUs_;
+    if (latestUs - earliestTx <= responseTimeoutUs_) frame(latestUs);
+    else if (latestUs - uncertaintyUs > txEndUs_ &&
+             latestUs - uncertaintyUs - txEndUs_ > responseTimeoutUs_)
+        finish(Reason::PARTIAL_RESPONSE, now_, true);
+    else finish(Reason::TIMING_UNCERTAIN, now_, true);
+}
+
 bool Runner::onByte(const RxByte& byte, uint64_t nowUs) noexcept {
     // Retain every observed byte in the optional trace, including rejected bytes.
-    record(Event::RX, byte.endUs, byte.value, result_.rxLength, byte.startUs);
+    record(Event::RX, byte.endUs, byte.value, result_.rxLength, byte.startUs,
+           byte.uncertaintyUs);
     if (byte.startUs >= byte.endUs || byte.endUs > nowUs ||
-        (observed_ && byte.startUs < observedUs_) ||
-        (haveRx_ && byte.startUs < lastRxEndUs_)) {
+        byte.uncertaintyUs > byte.endUs ||
+        byte.startUs > std::numeric_limits<uint64_t>::max() - byte.uncertaintyUs) {
+        finish(Reason::CLOCK_ERROR, nowUs, true);
+        return false;
+    }
+    const uint64_t startLatest = byte.startUs + byte.uncertaintyUs;
+    const uint64_t endEarliest = byte.endUs - byte.uncertaintyUs;
+    const uint64_t previousEarliest = lastRxEndUs_ - rxUncertaintyUs_;
+    if ((observed_ && startLatest < observedUs_) ||
+        (haveRx_ && (startLatest < previousEarliest || byte.endUs <= previousEarliest))) {
         finish(Reason::CLOCK_ERROR, nowUs, true);
         return false;
     }
     const uint64_t previousEnd = lastRxEndUs_;
+    const uint32_t previousUncertainty = rxUncertaintyUs_;
     lastRxEndUs_ = byte.endUs;
+    rxUncertaintyUs_ = byte.uncertaintyUs;
     haveRx_ = true;
     increment(stats_.rxBytes);
     if (phase_ == Phase::WAIT_BUS) {
@@ -186,10 +210,15 @@ bool Runner::onByte(const RxByte& byte, uint64_t nowUs) noexcept {
     // Local echo is admitted only in the known transmit interval. Timestamped
     // echo buffered until after DE release still qualifies; a real FC06 reply does not.
     if (echo_ == Echo::REQUIRED && result_.echoBytes < txLength_) {
-        if (!result_.txAccepted || byte.startUs < queuedUs_ ||
-            (result_.txComplete && byte.endUs > txEndUs_) ||
+        if (!result_.txAccepted || startLatest < queuedUs_ ||
+            (result_.txComplete && endEarliest > txEndUs_) ||
             byte.value != storage_.tx[result_.echoBytes]) {
             finish(Reason::ECHO_ERROR, nowUs, true);
+            return false;
+        }
+        if (byte.startUs < queuedUs_ || (result_.txComplete &&
+            byte.endUs > txEndUs_ - txUncertaintyUs_)) {
+            finish(Reason::TIMING_UNCERTAIN, nowUs, true);
             return false;
         }
         ++result_.echoBytes;
@@ -197,9 +226,13 @@ bool Runner::onByte(const RxByte& byte, uint64_t nowUs) noexcept {
         record(Event::ECHO, byte.endUs, byte.value, result_.echoBytes);
         return true;
     }
-    if (phase_ != Phase::RECEIVE || byte.startUs < releasedUs_ ||
-        !elapsed(byte.startUs, txEndUs_, timing_.gap35Us)) {
+    if (phase_ != Phase::RECEIVE || startLatest < releasedUs_ ||
+        !elapsed(startLatest, txEndUs_ - txUncertaintyUs_, replyGapUs_)) {
         finish(Reason::EARLY_REPLY, nowUs, true);
+        return false;
+    }
+    if (byte.startUs < releasedUs_ || !elapsed(byte.startUs, txEndUs_, replyGapUs_)) {
+        finish(Reason::TIMING_UNCERTAIN, nowUs, true);
         return false;
     }
 
@@ -208,17 +241,22 @@ bool Runner::onByte(const RxByte& byte, uint64_t nowUs) noexcept {
     if (result_.rxLength && elapsed(byte.startUs, previousEnd, timing_.gap35Us)) {
         increment(stats_.discarded);
         record(Event::DISCARD, byte.endUs, byte.value);
-        const uint64_t completed = previousEnd + timing_.gap35Us;
-        if (completed - txEndUs_ <= responseTimeoutUs_) frame(completed);
-        else finish(Reason::PARTIAL_RESPONSE, nowUs, true);
+        completedFrame(previousEnd + timing_.gap35Us, previousUncertainty);
         return false;
     }
-    if (byte.endUs - txEndUs_ > responseTimeoutUs_) {
+    if (endEarliest > txEndUs_ && endEarliest - txEndUs_ > responseTimeoutUs_) {
         finish(result_.rxLength ? Reason::PARTIAL_RESPONSE : Reason::NO_RESPONSE, nowUs, true);
         return false;
     }
-    if (result_.rxLength && byte.startUs - previousEnd > timing_.gap15Us) {
-        finish(Reason::GAP, nowUs, true);
+    if (byte.endUs - (txEndUs_ - txUncertaintyUs_) > responseTimeoutUs_) {
+        finish(Reason::TIMING_UNCERTAIN, nowUs, true);
+        return false;
+    }
+    if (result_.rxLength && startLatest - previousEarliest > timing_.gap15Us) {
+        const bool definitelyInvalid = byte.startUs > previousEnd &&
+            byte.startUs - previousEnd > timing_.gap15Us &&
+            startLatest - previousEarliest < timing_.gap35Us;
+        finish(definitelyInvalid ? Reason::GAP : Reason::TIMING_UNCERTAIN, nowUs, true);
         return false;
     }
     if (result_.rxLength == storage_.rxCapacity) {
@@ -237,6 +275,13 @@ bool Runner::receive(uint64_t nowUs) noexcept {
         const ReadState state = port_.read(port_.context, nowUs, byte, through);
         if (state == ReadState::ERROR) {
             finish(Reason::RX_ERROR, nowUs, true);
+            return false;
+        }
+        if (state == ReadState::PENDING) {
+            uint64_t progress = observed_ ? observedUs_ : result_.startedUs;
+            if (haveRx_ && lastRxEndUs_ > progress) progress = lastRxEndUs_;
+            if (nowUs - progress > timing_.captureTimeoutUs)
+                finish(Reason::CAPTURE_TIMEOUT, nowUs, true);
             return false;
         }
         if (state == ReadState::EMPTY) {
@@ -325,14 +370,25 @@ void Runner::poll(uint64_t nowUs) noexcept {
             return;
         }
         if (state == TxState::IDLE) {
-            if ((result_.txAccepted && ended < queuedUs_) || ended > nowUs ||
-                (echo_ == Echo::REQUIRED && result_.echoBytes && lastRxEndUs_ > ended)) {
+            const uint32_t uncertainty = port_.txUncertaintyUs ?
+                port_.txUncertaintyUs(port_.context) : 0;
+            if (uncertainty > ended ||
+                (result_.txAccepted && ended - uncertainty < queuedUs_) || ended > nowUs ||
+                (echo_ == Echo::REQUIRED && result_.echoBytes &&
+                 lastRxEndUs_ - rxUncertaintyUs_ > ended)) {
                 finish(Reason::CLOCK_ERROR, nowUs, true);
                 return;
             }
             txEndUs_ = result_.txAccepted ? ended : queuedUs_;
+            txUncertaintyUs_ = result_.txAccepted ? uncertainty : 0;
             result_.txComplete = result_.txAccepted == txLength_;
-            record(Event::TX_DONE, txEndUs_, 0, result_.txAccepted);
+            record(Event::TX_DONE, txEndUs_, 0, result_.txAccepted, 0, txUncertaintyUs_);
+            if (echo_ == Echo::REQUIRED && result_.echoBytes &&
+                lastRxEndUs_ > txEndUs_ - txUncertaintyUs_) {
+                finish(Reason::TIMING_UNCERTAIN, nowUs, true);
+                releaseFault(nowUs);
+                return;
+            }
             phase(Phase::HOLD, nowUs);
         }
         if (elapsed(nowUs, assertedUs_, timing_.txTimeoutUs)) {
@@ -366,14 +422,15 @@ void Runner::poll(uint64_t nowUs) noexcept {
     if (phase_ == Phase::RECEIVE) {
         const bool empty = receive(nowUs);
         if (!busy() || !empty) return;
-        if (result_.rxLength && elapsed(observedUs_, lastRxEndUs_, timing_.gap35Us) &&
-            lastRxEndUs_ - txEndUs_ <= responseTimeoutUs_ &&
-            timing_.gap35Us <= responseTimeoutUs_ - (lastRxEndUs_ - txEndUs_)) {
-            frame(lastRxEndUs_ + timing_.gap35Us);
+        if (result_.rxLength && elapsed(observedUs_, lastRxEndUs_, timing_.gap35Us)) {
+            completedFrame(lastRxEndUs_ + timing_.gap35Us, rxUncertaintyUs_);
         } else if (elapsed(observedUs_, txEndUs_, responseTimeoutUs_)) {
             const bool missingEcho = echo_ == Echo::REQUIRED && result_.echoBytes != txLength_;
             if (missingEcho) increment(stats_.timeouts);
-            finish(missingEcho ? Reason::ECHO_ERROR :
+            const bool uncertain = result_.rxLength &&
+                lastRxEndUs_ - rxUncertaintyUs_ + timing_.gap35Us >= txEndUs_ &&
+                lastRxEndUs_ - rxUncertaintyUs_ + timing_.gap35Us - txEndUs_ <= responseTimeoutUs_;
+            finish(missingEcho ? Reason::ECHO_ERROR : uncertain ? Reason::TIMING_UNCERTAIN :
                    result_.rxLength ? Reason::PARTIAL_RESPONSE : Reason::NO_RESPONSE, nowUs, true);
         }
     }
@@ -423,6 +480,7 @@ const char* reasonName(Reason value) noexcept {
         REASON_NAME(RX_ERROR); REASON_NAME(TX_ERROR); REASON_NAME(TX_TIMEOUT); REASON_NAME(BUS_TIMEOUT);
         REASON_NAME(DIRECTION_ERROR); REASON_NAME(ECHO_ERROR); REASON_NAME(CANCELLED); REASON_NAME(CLOCK_ERROR);
         REASON_NAME(CAPTURE_TIMEOUT);
+        REASON_NAME(TIMING_UNCERTAIN);
 #undef REASON_NAME
     }
     return "UNKNOWN";

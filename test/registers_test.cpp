@@ -1,4 +1,9 @@
+// Common Arduino macros must not break public enum declarations or uses.
+#define DEFAULT 1
+#define DISABLED 0
 #include "MotorControlRS/profiles/ess_rs/Registers.h"
+static_assert(static_cast<unsigned>(MotorControlRS::ESS_RS::DefaultDirection::NORMAL) == 0, "default direction");
+static_assert(static_cast<unsigned>(MotorControlRS::ESS_RS::SoftLimitEnable::LIMITS_OFF) == 0, "limits off");
 #include "MotorControlRS/profiles/ess_rs/Codec.h"
 
 #include <cassert>

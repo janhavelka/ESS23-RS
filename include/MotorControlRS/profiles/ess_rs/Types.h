@@ -38,7 +38,7 @@ enum class WordOrder : uint16_t {
 /** DefaultDirection Source function-PDF pages: 69. */
 enum class DefaultDirection : uint16_t {
     /** Default movement direction. */
-    DEFAULT = 0,
+    NORMAL = 0,
     /** Reverse default movement direction. */
     REVERSED = 1,
 };
@@ -78,7 +78,7 @@ enum class OverLimitStop : uint16_t {
 /** SoftLimitEnable Source function-PDF pages: 29, 70. */
 enum class SoftLimitEnable : uint16_t {
     /** Software limits disabled. */
-    DISABLED = 0,
+    LIMITS_OFF = 0,
     /** Limits effective only after returning to zero. */
     AFTER_HOMING = 1,
 };
