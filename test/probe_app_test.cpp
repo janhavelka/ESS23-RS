@@ -82,6 +82,8 @@ void testCheckedExceptionAndParserRejection() {
     reply(operation, 0, {1, 0x83, 2, 0xC0, 0xF1});
     assert(view(operation).probe.outcome == Rtu::Outcome::DEVICE_REJECTED);
     assert(app->known && !app->ok && !app->owner.needsRecovery());
+    Probe::Snapshot failed; snapshot(app, failed);
+    assert(!failed.modelKnown && failed.modelOperationId == 0 && failed.deliveredUs == 0);
     command("@2 status\n"); contains("\"codec\":\"EXCEPTION\""); contains("\"recovery_required\":false");
     fresh(); const uint32_t corrupt = admit();
     reply(corrupt, 0, {1, 3, 2, 0, 0x3C, 0xB8, 0x54});
@@ -294,6 +296,143 @@ void testDelayedCaptureKeepsObservationAge() {
     for (unsigned i = 0; i < 80000 && app->owner.recovering(); ++i) step();
     assert(!app->owner.recovering() && hardware.writes == 1);
 }
+void testLookupReplacesReusedResultView() {
+    fresh(); const uint32_t first = admit(); reply(first, 0);
+    command("@2 recover\n");
+    for (unsigned i = 0; i < 80000 && app->owner.recovering(); ++i) step();
+    assert(!app->owner.recovering());
+    Probe::ResultView reused;
+    assert(host(app).result(app, 2, reused) && reused.recovery && !reused.pending);
+    assert(host(app).result(app, first, reused));
+    assert(!reused.recovery && !reused.pending && reused.address == 1 && reused.probe.rawModel == 60);
+    const Probe::ResultView preserved = reused;
+    assert(!host(app).result(app, 0xFFFFFFFF, reused));
+    assert(reused.operationId == preserved.operationId && reused.commandId == preserved.commandId);
+    assert(reused.recovery == preserved.recovery && reused.pending == preserved.pending);
+    assert(reused.probe.rawModel == preserved.probe.rawModel && reused.probe.rx == preserved.probe.rx);
+    assert(reused.probe.deliveredUs == preserved.probe.deliveredUs);
+    const uint32_t pending = admit(3);
+    assert(host(app).result(app, pending, reused));
+    assert(!reused.recovery && reused.pending && reused.operationId == pending);
+    assert(!reused.probe.codecChecked && reused.probe.transport.reason == Rtu::Reason::NONE);
+    assert(reused.probe.rawModel == 0 && reused.probe.tx == nullptr && reused.probe.rx == nullptr);
+}
+void testExpiredRecoveryDoesNotResetIdleAdapter() {
+    fresh(); command("@1 recover\n");
+    assert(app->owner.recovering() && !app->runner.busy() && !app->runner.transmitEnabled());
+    const unsigned resets = hardware.rxResets;
+    advanceHardware(app->recovery.deadlineUs + 10000); loop();
+    const auto expired = view(1);
+    assert(!expired.pending && expired.recoveryResult.outcome == Rtu::RecoveryOutcome::EXPIRED);
+    assert(hardware.rxResets == resets && hardware.writes == 0 && app->owner.needsRecovery());
+}
+void testBlockedOutputDoesNotBlockNewerCachedObservation() {
+    fresh(); timerCapture(); command("@1 probe 1\n@2 probe 2\n");
+    assert(view(1).pending && view(2).pending);
+    Serial.writeCapacity = 0; Serial.output.clear();
+    for (unsigned i = 10; i < 24; ++i) Serial.input += "@" + std::to_string(i) + " status\n";
+    for (unsigned i = 0; i < 1000 && !Serial.input.empty(); ++i) step();
+    assert(Serial.input.empty() && app->outputCount == OUTPUT_LINES && app->console.outputPending());
+    reply(1, 0);
+    std::vector<uint8_t> second = {2, 3, 2, 0, 61};
+    const uint16_t crc = MotorControlRS::ESS_RS::calcCrc16(second.data(), second.size());
+    second.push_back(static_cast<uint8_t>(crc)); second.push_back(static_cast<uint8_t>(crc >> 8));
+    reply(2, 1, second);
+    assert(view(1).probe.outcome == Rtu::Outcome::SUCCESS && view(2).probe.outcome == Rtu::Outcome::SUCCESS);
+    assert(hardware.writes == 2 && app->console.outputPending());
+    Probe::Snapshot cached; snapshot(app, cached);
+    assert(cached.probeKnown && cached.probeOk && cached.probeAddress == 2 && cached.rawModel == 61);
+    assert(cached.modelKnown && cached.modelAddress == 2 && cached.modelOperationId == 2);
+    assert(cached.observedEarliestUs == view(2).probe.observedEarliestUs);
+    assert(cached.observedLatestUs == view(2).probe.observedLatestUs);
+    assert(cached.deliveredUs == 0); // New evidence has not transferred to the console yet.
+    Serial.writeCapacity = 4096; pump(1000);
+    assert(occurrences(Serial.output, "\"type\":\"probe\"") == 2);
+    snapshot(app, cached);
+    assert(cached.deliveredUs && cached.deliveredUs == view(2).probe.deliveredUs);
+    assert(cached.modelAddress == 2 && cached.modelOperationId == 2);
+}
+void testSnapshotReportsEarliestActiveAndRecoveryDeadline() {
+    fresh(); hardware.txCharacterUs = 0; const uint32_t operation = admit(); startTx(0);
+    const uint64_t requestDeadline = app->records[0].deadlineUs;
+    command("@2 recover\n");
+    assert(app->owner.active() && app->owner.recovering() && view(operation).pending);
+    assert(requestDeadline < app->recovery.deadlineUs);
+    Probe::Snapshot reused; snapshot(app, reused);
+    assert(reused.deadlineUs == requestDeadline);
+    fakeUart.status.txfifo_cnt = 0; fakeUart.fsm_status.st_utx_out = 0;
+    for (unsigned i = 0; i < 1000 && view(operation).pending; ++i) step();
+    assert(!view(operation).pending && app->owner.recovering());
+    snapshot(app, reused); assert(reused.deadlineUs == app->recovery.deadlineUs);
+    for (unsigned i = 0; i < 80000 && app->owner.recovering(); ++i) step();
+    assert(!app->owner.recovering()); snapshot(app, reused); assert(reused.deadlineUs == 0);
+}
+void checkFailedProbeKeepsValidModelAndAge(const std::vector<uint8_t>& failedReply,
+                                         MotorControlRS::Err codecError) {
+    fresh(); const uint32_t first = admit(); reply(first, 0);
+    Probe::Snapshot before; snapshot(app, before);
+    assert(before.probeKnown && before.probeOk && before.modelKnown && before.rawModel == 60);
+    assert(before.modelAddress == 1 && before.modelOperationId == first && before.deliveredUs);
+    const uint32_t failed = admit(2, 2); reply(failed, 1, failedReply);
+    contains("\"raw_model\":null");
+    const auto terminal = view(failed).probe;
+    assert(terminal.codecChecked && terminal.codec.code == codecError && terminal.rawModel == 0);
+    Probe::Snapshot after; snapshot(app, after);
+    assert(after.probeKnown && !after.probeOk && after.codecChecked && after.codec.code == codecError);
+    assert(after.probeAddress == 2 && after.modelKnown && after.modelAddress == 1);
+    assert(after.modelOperationId == first);
+    assert(after.rawModel == before.rawModel);
+    assert(after.observedEarliestUs == before.observedEarliestUs && after.observedLatestUs == before.observedLatestUs);
+    assert(after.deliveredUs == before.deliveredUs && after.ageMs >= before.ageMs);
+    assert(view(first).probe.rawModel == 60 && hardware.writes == 2);
+    command("@3 status\n"); contains("\"probe_address\":2"); contains("\"model_address\":1");
+    contains("\"raw_model\":60");
+}
+void testCheckedExceptionKeepsValidModelAndAge() {
+    std::vector<uint8_t> exception = {2, 0x83, 2};
+    const uint16_t crc = MotorControlRS::ESS_RS::calcCrc16(exception.data(), exception.size());
+    exception.push_back(static_cast<uint8_t>(crc)); exception.push_back(static_cast<uint8_t>(crc >> 8));
+    checkFailedProbeKeepsValidModelAndAge(exception, MotorControlRS::Err::EXCEPTION);
+}
+void testBadCrcKeepsValidModelAndAge() {
+    std::vector<uint8_t> corrupt = {2, 3, 2, 0, 0x3C};
+    const uint16_t crc = MotorControlRS::ESS_RS::calcCrc16(corrupt.data(), corrupt.size());
+    corrupt.push_back(static_cast<uint8_t>(crc)); corrupt.push_back(static_cast<uint8_t>((crc >> 8) ^ 1));
+    checkFailedProbeKeepsValidModelAndAge(corrupt, MotorControlRS::Err::CRC_ERROR);
+}
+void testDelayedHarvestKeepsSuccessIndependentOfLatestFailure() {
+    fresh(); timerCapture(); command("@1 probe 1\n@2 probe 2\n");
+    // Advance the actual UART and owner while application harvesting is delayed.
+    // Result slots retain both completions; their bookkeeping order is unrelated
+    // to wire order when released records are reused.
+    const auto ownerStep = []() {
+        advanceHardware(hardware.time + 10); app->owner.service(uart.sample());
+    };
+    for (unsigned i = 0; i < 1000 && hardware.writes < 1; ++i) ownerStep();
+    assert(hardware.writes == 1);
+    scheduleReply(hardware.time + 2000, REPLY);
+    for (unsigned i = 0; i < 25000 && view(1).pending; ++i) ownerStep();
+    assert(!view(1).pending && !app->records[0].observed);
+    for (unsigned i = 0; i < 1000 && hardware.writes < 2; ++i) ownerStep();
+    assert(hardware.writes == 2);
+    std::vector<uint8_t> exception = {2, 0x83, 2};
+    const uint16_t crc = MotorControlRS::ESS_RS::calcCrc16(exception.data(), exception.size());
+    exception.push_back(static_cast<uint8_t>(crc)); exception.push_back(static_cast<uint8_t>(crc >> 8));
+    scheduleReply(hardware.time + 2000, exception);
+    for (unsigned i = 0; i < 25000 && view(2).pending; ++i) ownerStep();
+    assert(view(1).probe.outcome == Rtu::Outcome::SUCCESS);
+    assert(view(2).probe.outcome == Rtu::Outcome::DEVICE_REJECTED);
+    assert(!app->records[1].observed);
+    std::swap(app->records[0], app->records[1]);
+    deliver(*app);
+    Probe::Snapshot cached; snapshot(app, cached);
+    assert(cached.probeKnown && !cached.probeOk && cached.probeAddress == 2);
+    assert(cached.codecChecked && cached.codec.code == MotorControlRS::Err::EXCEPTION);
+    assert(cached.modelKnown && cached.rawModel == 60 && cached.modelAddress == 1 && cached.modelOperationId == 1);
+    assert(cached.observedEarliestUs == view(1).probe.observedEarliestUs);
+    assert(cached.observedLatestUs == view(1).probe.observedLatestUs);
+    assert(cached.deliveredUs && cached.deliveredUs == view(1).probe.deliveredUs);
+}
 #if MOTORCONTROLRS_LOAD_FIXTURE
 void testLoadLocalAdmission() {
     fresh(); command("@1 load\n"); contains("\"command\":\"load\"");
@@ -341,6 +480,10 @@ int main() {
     testRecoveryExpiryStillSettlesDriverAndRetainsBothResults(); testRetainedTimingDiagnosticsSurviveLaterTransaction();
     testUnsentCancellationPreservesCachedObservation(); testRecoveryInvalidationIgnoresOutputAndOccursOnce();
     testDelayedCaptureKeepsObservationAge();
+    testLookupReplacesReusedResultView(); testExpiredRecoveryDoesNotResetIdleAdapter();
+    testBlockedOutputDoesNotBlockNewerCachedObservation(); testSnapshotReportsEarliestActiveAndRecoveryDeadline();
+    testCheckedExceptionKeepsValidModelAndAge(); testBadCrcKeepsValidModelAndAge();
+    testDelayedHarvestKeepsSuccessIndependentOfLatestFailure();
 #if MOTORCONTROLRS_LOAD_FIXTURE
     testLoadLocalAdmission();
     testLoadDelayExhaustsSetupTxBudgetWithoutTransmission();

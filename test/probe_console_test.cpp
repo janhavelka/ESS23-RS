@@ -180,6 +180,7 @@ void testCachedHealthAndStatus() {
     send(console, "health\n"); fake.contains("\"communication\":\"failed\"");
     fake.data.recoveryRequired = false;
     fake.data.probeKnown = fake.data.probeOk = true;
+    fake.data.modelKnown = true; fake.data.modelAddress = 17;
     fake.data.observedEarliestUs = fake.data.observedLatestUs = 1000;
     fake.data.probeAddress = 17;
     fake.data.rawModel = 60; fake.data.ageMs = 5000;
@@ -191,9 +192,13 @@ void testCachedHealthAndStatus() {
     fake.data.recoveryRequired = true;
     send(console, "health\n"); fake.contains("\"communication\":\"failed\"");
     fake.data.probeOk = false;
-    fake.data.observedEarliestUs = fake.data.observedLatestUs = 0;
-    send(console, "status\n"); fake.contains("\"raw_model\":null"); fake.contains("\"last_probe_ok\":false");
-    fake.contains("\"age_ms\":null"); fake.contains("\"probe_address\":17");
+    fake.data.probeAddress = 18;
+    send(console, "status\n"); fake.contains("\"raw_model\":60"); fake.contains("\"last_probe_ok\":false");
+    fake.contains("\"age_ms\":5001"); fake.contains("\"probe_address\":18"); fake.contains("\"model_address\":17");
+    send(console, "health\n"); fake.contains("\"communication\":\"failed\""); fake.contains("\"model_address\":17");
+    fake.data.modelKnown = false;
+    send(console, "status\n"); fake.contains("\"raw_model\":null"); fake.contains("\"model_address\":null"); fake.contains("\"age_ms\":null");
+    fake.data.modelKnown = true; fake.data.probeAddress = 17;
     fake.data.probeOk = true; fake.data.busy = true; fake.data.timingQualified = false;
     fake.data.transmitEnabled = true;
     fake.data.codecChecked = true; fake.data.codec = MotorControlRS::Status(MotorControlRS::Err::EXCEPTION, 2, "");

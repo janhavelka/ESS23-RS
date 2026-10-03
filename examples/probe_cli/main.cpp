@@ -67,12 +67,12 @@ struct App {
     } recovery;
     struct Line { char text[Probe::OUTPUT_CAPACITY + 1]; std::size_t size = 0, offset = 0; } output[OUTPUT_LINES];
     std::size_t outputHead = 0, outputCount = 0;
-    uint32_t nextOperationId = 1, latestOperationId = 0, cacheOperationId = 0;
+    uint32_t nextOperationId = 1, latestOperationId = 0, cacheOperationId = 0, modelOperationId = 0;
     uint64_t outputBlocked = 0, outputShortWrites = 0, inputBytes = 0, inputLines = 0;
     uint64_t observedEarliestUs = 0, observedLatestUs = 0, deliveredUs = 0, recoveryGuardUntilUs = 0;
-    uint8_t address = 1;
+    uint8_t address = 1, modelAddress = 0;
     uint16_t model = 0;
-    bool known = false, ok = false, codecChecked = false;
+    bool known = false, ok = false, modelKnown = false, codecChecked = false;
     MotorControlRS::Status codec;
     MotorControlRS::ESS_RS::FrameError frameError = MotorControlRS::ESS_RS::FrameError::NONE;
     App() : runner(uart.port(), storage(tx, rx, trace), timing()),
@@ -112,7 +112,9 @@ void snapshot(void* context, Probe::Snapshot& s) {
     s.phase = a.runner.phase(); s.transport = a.runner.result().reason; s.transmitEnabled = a.runner.transmitEnabled();
     s.codecChecked = a.codecChecked; s.codec = a.codec; s.frameError = a.frameError;
     s.probeKnown = a.known; s.probeOk = a.ok; s.rawModel = a.model;
-    s.ageMs = a.known && a.observedEarliestUs ? (nowUs() - a.observedEarliestUs) / 1000 : 0;
+    s.modelKnown = a.modelKnown; s.modelAddress = a.modelAddress;
+    s.modelOperationId = a.modelKnown ? a.modelOperationId : 0;
+    s.ageMs = a.modelKnown && a.observedEarliestUs ? (nowUs() - a.observedEarliestUs) / 1000 : 0;
     s.observedEarliestUs = a.observedEarliestUs; s.observedLatestUs = a.observedLatestUs;
     s.deliveredUs = a.deliveredUs; s.recoveryGuardUntilUs = a.recoveryGuardUntilUs;
     s.operationId = a.latestOperationId; s.pending = a.owner.pending(); s.pendingCapacity = 4; s.resultCapacity = REQUEST_CAPACITY;
@@ -126,7 +128,8 @@ void snapshot(void* context, Probe::Snapshot& s) {
     for (const auto& record : a.records) if (record.operationId && !a.owner.result(record.requestId)) {
         if (!s.deadlineUs || record.deadlineUs < s.deadlineUs) s.deadlineUs = record.deadlineUs;
     }
-    if (a.owner.recovering()) s.deadlineUs = a.recovery.deadlineUs;
+    if (a.owner.recovering() && (!s.deadlineUs || a.recovery.deadlineUs < s.deadlineUs))
+        s.deadlineUs = a.recovery.deadlineUs;
     const auto capture = uart.stats(); s.maxPollGapUs = capture.maxGapUs; s.captureFaults = capture.faults; s.rxErrors = capture.rxErrors;
     s.memoryValid = true;
     s.internalFree = heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
@@ -185,11 +188,13 @@ Probe::Action recover(void* context, uint32_t commandId, uint32_t& operationId) 
 bool lookup(void* context, uint32_t operationId, Probe::ResultView& out) {
     App& a = *static_cast<App*>(context); if (!operationId) operationId = a.latestOperationId;
     if (operationId && operationId == a.recovery.operationId) {
+        out = Probe::ResultView();
         out.operationId = operationId; out.commandId = a.recovery.commandId; out.recovery = true;
         const auto* result = a.owner.recoveryResult(a.recovery.id);
         out.pending = !result; if (result) out.recoveryResult = *result; return true;
     }
     const auto* record = findRecord(a, operationId); if (!record) return false;
+    out = Probe::ResultView();
     out.commandId = record->commandId; out.operationId = operationId; out.address = record->address;
     const auto* result = a.owner.result(record->requestId); out.pending = !result; if (!result) return true;
     Probe::ProbeResult& p = out.probe;
@@ -257,15 +262,20 @@ void deliver(App& a) {
             if (view.probe.transport.txAccepted && record.operationId > a.cacheOperationId) {
                 a.cacheOperationId = record.operationId; a.known = true; a.address = record.address;
                 a.codecChecked = view.probe.codecChecked; a.codec = view.probe.codec; a.frameError = view.probe.frameError;
-                a.ok = view.probe.outcome == Rtu::Outcome::SUCCESS; a.model = a.ok ? view.probe.rawModel : 0;
+                a.ok = view.probe.outcome == Rtu::Outcome::SUCCESS;
+            }
+            if (view.probe.outcome == Rtu::Outcome::SUCCESS && record.operationId > a.modelOperationId) {
+                a.modelKnown = true; a.model = view.probe.rawModel; a.modelAddress = record.address;
+                a.modelOperationId = record.operationId; a.deliveredUs = record.deliveredUs;
                 a.observedEarliestUs = view.probe.timingValid ? view.probe.observedEarliestUs : 0;
                 a.observedLatestUs = view.probe.timingValid ? view.probe.observedLatestUs : 0;
             }
         }
         view.probe.deliveredUs = nowUs();
-        if (!a.console.reportProbe(record.commandId, record.address, record.operationId, view.probe)) return;
+        // Output pressure must not prevent harvesting later completed observations.
+        if (!a.console.reportProbe(record.commandId, record.address, record.operationId, view.probe)) continue;
         record.delivered = true; record.deliveredUs = view.probe.deliveredUs;
-        if (record.operationId == a.cacheOperationId) a.deliveredUs = record.deliveredUs;
+        if (a.modelKnown && record.operationId == a.modelOperationId) a.deliveredUs = record.deliveredUs;
     }
     if (a.recovery.operationId && !a.recovery.delivered) {
         const auto* result = a.owner.recoveryResult(a.recovery.id);
@@ -298,7 +308,8 @@ void loop() {
 #endif
     if (serviceDue) {
         uint64_t sampled = uart.sample(); bool recoveryReady = !a.owner.recovering();
-        if (a.owner.recovering() && !a.runner.busy() && !a.runner.transmitEnabled() && sampled >= a.recoveryGuardUntilUs) {
+        if (a.owner.recovering() && sampled < a.recovery.deadlineUs && !a.runner.busy() &&
+            !a.runner.transmitEnabled() && sampled >= a.recoveryGuardUntilUs) {
             if (!a.recovery.prepared) a.recovery.prepared = uart.clear();
             recoveryReady = a.recovery.prepared; sampled = uart.sample();
         }
@@ -314,7 +325,10 @@ void loop() {
     }
     const auto* recovered = a.owner.recoveryResult(a.recovery.id);
     if (recovered && recovered->outcome == Rtu::RecoveryOutcome::RECOVERED && a.recovery.operationId > a.cacheOperationId) {
-        a.known = a.ok = false; a.cacheOperationId = a.recovery.operationId;
+        a.known = a.ok = a.modelKnown = false; a.cacheOperationId = a.recovery.operationId;
+        // Both harvest watermarks exclude old results after recovery.
+        a.modelOperationId = a.recovery.operationId;
+        a.observedEarliestUs = a.observedLatestUs = a.deliveredUs = 0;
     }
     a.console.serviceOutput(); deliver(a);
     for (unsigned i = 0; i < 32 && Serial.available(); ++i) {

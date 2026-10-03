@@ -77,6 +77,11 @@ completion and record changes to the setup for the next session.
 
 ## Current status
 
+- The [fresh prompt 03 audit](reports/ess_release_03_audit_2026-10-04.md)
+  uploaded the corrected timer console and passed 37 checked read-only probes
+  plus the expected zero-TX 20-ms-delay failure and explicit recovery.
+  Workload is disabled, DE settled, no pending/retained work at cleanup.
+
 - Prompt 03 connects the real BusOwner and responsive console. Current timer
   unloaded/load/interleaved and delayed-observation evidence, exact image and
   the reproduced 20-ms setup-budget boundary are in

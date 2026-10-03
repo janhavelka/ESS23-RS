@@ -262,6 +262,9 @@ same core and request/wait/result pattern must also work for other consumers. Se
 - [x] Integrate the bounded responsive console, retained result/cancel/driver
   commands and owner recovery policy; timer read-only/load/interleaved hardware
   evidence is in [prompt 03](reports/ess_release_03_2026-10-03.md).
+  Its [fresh independent audit](reports/ess_release_03_audit_2026-10-04.md)
+  corrects deadline-gated adapter recovery, result reuse/inspection and cache
+  attribution under failed reads and output pressure; new-image regression PASS.
 - [x] Enforce immutable absolute deadlines through queue/setup/TX/closure without
   losing qualified on-time captured evidence; native evidence in prompts 01–02.
 - [x] Extend recovery/cancellation generation disposition: terminally cancel old

@@ -56,7 +56,10 @@ struct Snapshot {
     MotorControlRS::ESS_RS::FrameError frameError = MotorControlRS::ESS_RS::FrameError::NONE;
     bool probeKnown = false;
     bool probeOk = false;
-    uint8_t probeAddress = 0; ///< Address of retained probe evidence, not the default target.
+    uint8_t probeAddress = 0; ///< Address of latest transmitted attempt, not the default target.
+    bool modelKnown = false; ///< Last checked successful model is retained across failed reads.
+    uint8_t modelAddress = 0; ///< Target of rawModel and its observation/delivery timestamps.
+    uint32_t modelOperationId = 0; ///< Successful observation's operation ID; zero while unknown.
     uint16_t rawModel = 0;
     uint64_t ageMs = 0; ///< Conservative age from observedEarliestUs; absent bounds print null.
     uint64_t observedEarliestUs = 0, observedLatestUs = 0, deliveredUs = 0;
@@ -96,7 +99,8 @@ struct ProbeResult {
     uint64_t observedEarliestUs = 0, observedLatestUs = 0, deliveredUs = 0;
 };
 
-/** Synchronous, non-consuming lookup. Raw frame pointers are borrowed only
+/** Synchronous, non-consuming lookup replaces the complete view on success.
+ * Raw frame pointers are borrowed only
  * until the result callback's caller finishes formatting this view. */
 struct ResultView {
     uint32_t commandId = 0, operationId = 0;

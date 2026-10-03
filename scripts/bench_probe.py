@@ -381,13 +381,25 @@ class Console:
                     if (not self._operation_id(original_id)
                             or (original is not None and original_id != original.id)):
                         raise BenchError("result original command ID does not match retained operation")
+                    recovery = item.get("recovery", False)
+                    if (type(recovery) is not bool or
+                            (original is not None and recovery != (original.command == "recover"))):
+                        raise BenchError("result kind does not match retained operation")
                     if item.get("result") == "pending":
                         if item["ok"] is not True or type(item.get("recovery")) is not bool:
                             raise BenchError("pending result lacks a valid lifecycle")
-                    elif item.get("recovery") is True:
+                        if original is not None and original.terminal is not None:
+                            raise BenchError("completed retained operation regressed to pending")
+                    elif recovery:
                         self._check_recovery(item)
                     else:
                         self._check_probe(item, original.address if original else None)
+                    if original is not None and original.terminal is not None:
+                        routing = {"type", "id", "command", "recovery"}
+                        retained = {key: value for key, value in original.terminal.items() if key not in routing}
+                        inspected = {key: value for key, value in item.items() if key not in routing}
+                        if inspected != retained:
+                            raise BenchError("result changed immutable retained terminal")
         self._complete(handle, item)
 
     def _consume(self, data: bytes) -> None:

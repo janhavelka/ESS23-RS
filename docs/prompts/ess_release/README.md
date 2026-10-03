@@ -41,7 +41,7 @@ Never mark all preceding physical work qualified just because code compiles.
 | --- | --- | --- | --- |
 | [01 — Bounded bus admission and retained results](01_bus_admission_and_results.md) | 3 | Implemented and freshly audited; native PASS; Runner regression PASS, owner hardware NOT RUN | [Handoff](../../reports/ess_release_01_2026-10-03.md), [fresh audit](../../reports/ess_release_01_audit_2026-10-03.md) |
 | [02 — Fair scheduling, cancellation and urgent work](02_bus_scheduling_and_cancellation.md) | 3 | Implemented and freshly audited; native/build PASS; owner hardware NOT RUN | [Handoff](../../reports/ess_release_02_2026-10-03.md), [fresh audit](../../reports/ess_release_02_audit_2026-10-03.md) |
-| [03 — Connect the bus owner to the standalone console](03_standalone_owner_and_responsive_console.md) | 3 | Implemented; native/build PASS; read-only timer owner/load/console bench PASS; upper 20-ms delay fails closed before TX | [Handoff](../../reports/ess_release_03_2026-10-03.md) |
+| [03 — Connect the bus owner to the standalone console](03_standalone_owner_and_responsive_console.md) | 3 | Implemented and freshly audited; native/build PASS; read-only timer owner/load/console bench PASS; upper 20-ms delay fails closed before TX | [Handoff](../../reports/ess_release_03_2026-10-03.md), [fresh audit](../../reports/ess_release_03_audit_2026-10-04.md) |
 | [04 — Review capture cost and qualify available timing](04_capture_cost_and_timing_qualification.md) | 2 / 8 | Prepared | — |
 | [05 — Typed identity/configuration reads and coverage tracking](05_identity_configuration_and_coverage.md) | 4 | Prepared | — |
 | [06 — Typed state, feedback and separate health observations](06_state_feedback_and_health.md) | 4 | Prepared | — |

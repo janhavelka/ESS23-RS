@@ -223,12 +223,12 @@ whole-firmware RAM/flash usage:
 
 | Storage | Native 64-bit | ESP32-S3 |
 | --- | ---: | ---: |
-| Runner object, including copied callbacks/configuration/result/statistics | 360 bytes | 296 bytes |
+| Runner object, including copied callbacks/configuration/result/statistics | 384 bytes | 320 bytes |
 | One trace entry | 32 bytes | 32 bytes |
-| Result alone, already included in Runner | 56 bytes | 56 bytes |
+| Result alone, already included in Runner | 80 bytes | 80 bytes |
 | Example caller TX/RX arrays | 32 + 64 bytes | 32 + 64 bytes |
 | Optional 64-entry trace ring | 2048 bytes | 2048 bytes |
-| Runner plus those arrays/ring | 2504 bytes | 2440 bytes |
+| Runner plus those arrays/ring | 2528 bytes | 2464 bytes |
 
 TX and RX capacities are independently bounded at 256 bytes. Traces are
 optional and caller-sized; the helper does not allocate a default large ring.
@@ -262,5 +262,5 @@ owner, FIFO batches/overflow, late/foreign replies, missing evidence and
 interrupt masking. See the [capture/load audit](reports/2026-10-03_capture_load.md).
 External TX/RX/DE timing, cache-off operation and motion remain separate
 qualification work. Admission/results and fairness/cancellation are implemented
-in the [bus owner](bus_owner.md); standalone console integration follows in
-prompt 03 under the [roadmap](roadmap.md).
+in the [bus owner](bus_owner.md); prompt 03 connects the actual standalone
+console under the [roadmap](roadmap.md).

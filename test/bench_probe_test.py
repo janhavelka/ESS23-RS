@@ -676,6 +676,71 @@ class Framing(unittest.TestCase):
         self.assertTrue(handle.released)
         self.assertEqual(sum(line.split()[1] == b"probe" for line in self.port.writes), 1)
 
+    def test_result_inspection_rejects_wrong_known_operation_kind(self):
+        for command in ("probe", "recover"):
+            for pending in (False, True):
+                with self.subTest(command=command, pending=pending):
+                    def handler(i, cmd, args):
+                        if cmd == command:
+                            return Serial.normal(i, cmd, args).splitlines()[0] + b"\n"
+                        if cmd == "result":
+                            if pending:
+                                return encoded(reply(i, cmd, command_id=2, operation_id=102,
+                                                     result="pending", recovery=command == "probe"))
+                            wrong = "recover" if command == "probe" else "probe"
+                            item = json.loads(Serial.normal(2, wrong, ["1"]).splitlines()[1])
+                            return encoded({**item, "type": "reply", "id": i, "command": cmd})
+                        return Serial.normal(i, cmd, args)
+
+                    console = self.session(handler)
+                    handle = console.begin(command, timeout_s=0.1)
+                    self.failed(lambda: console.command("result", operation_id=handle.operation_id,
+                                                        timeout_s=0.1), "kind does not match")
+                    self.assertEqual(sum(line.split()[1] == command.encode() for line in self.port.writes), 1)
+
+    def test_result_inspection_rejects_terminal_regression_to_pending(self):
+        for command in ("probe", "recover"):
+            with self.subTest(command=command):
+                console = self.session()
+                handle = console.begin(command, timeout_s=0.1)
+                terminal = console.wait(handle)
+                self.port.handler = lambda i, cmd, args: encoded(reply(
+                    i, cmd, command_id=handle.id, operation_id=handle.operation_id,
+                    result="pending", recovery=command == "recover"))
+                self.failed(lambda: console.command("result", operation_id=handle.operation_id,
+                                                    timeout_s=0.1), "regressed to pending")
+                self.assertIs(handle.terminal, terminal)
+
+    def test_result_inspection_rejects_changed_retained_terminal_evidence(self):
+        for command, fields in (
+                ("probe", {"raw_model": 61}),
+                ("probe", {"observed_earliest_us": 13301, "delivered_us": 16001}),
+                ("probe", {"ok": False, "outcome": "cancelled", "transport": "CANCELLED"}),
+                ("recover", {"finished_us": 1501}),
+                ("recover", {"ok": False, "outcome": "expired", "finished_us": 50000})):
+            with self.subTest(command=command, fields=fields):
+                console = self.session()
+                handle = console.begin(command, timeout_s=0.1)
+                terminal = console.wait(handle)
+                self.port.handler = lambda i, cmd, args: encoded({
+                    **terminal, **fields, "type": "reply", "id": i, "command": cmd})
+                self.failed(lambda: console.command("result", operation_id=handle.operation_id,
+                                                    timeout_s=0.1), "changed immutable retained terminal")
+                self.assertIs(handle.terminal, terminal)
+
+    def test_recovery_inspection_preserves_terminal_with_new_query_routing(self):
+        console = self.session(fragment=7)
+        handle = console.begin("recover", timeout_s=0.1)
+        terminal = console.wait(handle)
+        self.port.handler = lambda i, cmd, args: encoded({
+            **terminal, "type": "reply", "id": i, "command": cmd})
+        for _ in range(3):
+            inspected = console.command("result", operation_id=handle.operation_id, timeout_s=0.1)
+            self.assertNotEqual(inspected["id"], terminal["id"])
+            self.assertEqual(inspected["finished_us"], terminal["finished_us"])
+        self.assertTrue(console.synchronized)
+        self.assertEqual(sum(line.split()[1] == b"recover" for line in self.port.writes), 1)
+
     def test_cancel_is_explicit_local_work_with_original_terminal(self):
         def handler(i, command, args):
             if command == "probe":

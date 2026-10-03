@@ -1,5 +1,16 @@
 # Software verification
 
+## Fresh prompt 03 audit
+
+The [fresh independent audit](reports/ess_release_03_audit_2026-10-04.md) fixes
+result-view reuse, expired adapter recovery, deadline diagnostics, output/cache
+coupling, valid cache retention and strict Python retained-result inspection.
+16/16 CTest suites, 8 generator cases, 70 Python cases and all three firmware
+environments pass. Current-image COM13 campaigns pass 37 checked reads plus
+the expected pre-TX 20-ms-delay failure, retained inspection and explicit recovery.
+Electrical, physical USB saturation/disconnect, cache-off, motion/stop and
+extended soak remain unqualified.
+
 ## Release prompt 03 owner/console integration
 
 Strict C++11 Release build with assertions and warnings as errors: 16/16 CTest

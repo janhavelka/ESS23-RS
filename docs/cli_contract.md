@@ -8,6 +8,8 @@ The current protocol-2 subset also implements `drv`, non-consuming `result`,
 explicit `release`, local `cancel [operation-id]` and asynchronous host recovery.
 Finite admission/retention/output limits and measured evidence are in the
 [probe guide](esp32_probe.md) and [prompt 03 report](reports/ess_release_03_2026-10-03.md).
+The [fresh audit](reports/ess_release_03_audit_2026-10-04.md) verifies retained
+value/attempt attribution, deadline-gated recovery and immutable result inspection.
 Checkout naming is independent of the CLI. The [architecture](architecture.md),
 [axis contract](axis_contract.md) and [profile contract](profile_contract.md)
 define the public operations that the console exposes.

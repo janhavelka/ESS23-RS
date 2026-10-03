@@ -342,15 +342,18 @@ void Console::dispatch() noexcept {
         action(id, entry->name, result, static_cast<uint8_t>(address), result == Action::OK ? operationId : 0);
         return;
     }
-    char rawModel[8] = "null", age[24] = "null", probeAddress[5] = "null";
-    if (data.probeKnown && data.observedEarliestUs)
+    char rawModel[8] = "null", age[24] = "null", probeAddress[5] = "null", modelAddress[5] = "null";
+    if (data.modelKnown && data.observedEarliestUs)
         std::snprintf(age, sizeof(age), "%llu", static_cast<unsigned long long>(data.ageMs));
     if (data.probeKnown) std::snprintf(probeAddress, sizeof(probeAddress), "%u", data.probeAddress);
-    if (data.probeKnown && data.probeOk) std::snprintf(rawModel, sizeof(rawModel), "%u", data.rawModel);
+    if (data.modelKnown) {
+        std::snprintf(rawModel, sizeof(rawModel), "%u", data.rawModel);
+        std::snprintf(modelAddress, sizeof(modelAddress), "%u", data.modelAddress);
+    }
     switch (entry->command) {
     case Command::DRV: {
         const int written = std::snprintf(output_, sizeof(output_),
-            "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"drv\",\"ok\":true,\"phase\":\"%s\",\"busy\":%s,\"transmit_enabled\":%s,\"recovery_required\":%s,\"pending\":%u,\"retained\":%u,\"reserved\":%u,\"pending_capacity\":%u,\"result_capacity\":%u,\"outstanding_capacity\":%u,\"operation_id\":%lu,\"output_queued\":%u,\"output_blocked\":%llu,\"output_short_writes\":%llu,\"input_bytes\":%llu,\"input_lines\":%llu,\"input_dropped\":%llu,\"recovery_guard_until_us\":%llu,\"request_deadline_us\":%llu,\"capture_mode\":\"%s\",\"read_budget\":%lu,\"observed_earliest_us\":%llu,\"observed_latest_us\":%llu,\"delivered_us\":%llu}",
+            "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"drv\",\"ok\":true,\"phase\":\"%s\",\"busy\":%s,\"transmit_enabled\":%s,\"recovery_required\":%s,\"pending\":%u,\"retained\":%u,\"reserved\":%u,\"pending_capacity\":%u,\"result_capacity\":%u,\"outstanding_capacity\":%u,\"operation_id\":%lu,\"output_queued\":%u,\"output_blocked\":%llu,\"output_short_writes\":%llu,\"input_bytes\":%llu,\"input_lines\":%llu,\"input_dropped\":%llu,\"recovery_guard_until_us\":%llu,\"request_deadline_us\":%llu,\"capture_mode\":\"%s\",\"read_budget\":%lu,\"model_address\":%s,\"model_operation_id\":%lu,\"observed_earliest_us\":%llu,\"observed_latest_us\":%llu,\"delivered_us\":%llu}",
             static_cast<unsigned long>(id), Rtu::phaseName(data.phase), boolean(data.busy),
             boolean(data.transmitEnabled), boolean(data.recoveryRequired),
             static_cast<unsigned>(data.pending), static_cast<unsigned>(data.retained), static_cast<unsigned>(data.reserved),
@@ -361,7 +364,7 @@ void Console::dispatch() noexcept {
             static_cast<unsigned long long>(data.inputLines), static_cast<unsigned long long>(data.inputDropped),
             static_cast<unsigned long long>(data.recoveryGuardUntilUs),
             static_cast<unsigned long long>(data.deadlineUs), data.timerCapture ? "timer" : "poll",
-            static_cast<unsigned long>(data.readBudget),
+            static_cast<unsigned long>(data.readBudget), modelAddress, static_cast<unsigned long>(data.modelOperationId),
             static_cast<unsigned long long>(data.observedEarliestUs), static_cast<unsigned long long>(data.observedLatestUs),
             static_cast<unsigned long long>(data.deliveredUs));
         if (written < 0 || static_cast<std::size_t>(written) >= sizeof(output_)) { error(id, entry->name, "output_full"); return; }
@@ -377,21 +380,21 @@ void Console::dispatch() noexcept {
         break;
     case Command::STATUS:
         std::snprintf(output_, sizeof(output_),
-            "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"status\",\"ok\":true,\"uptime_ms\":%llu,\"ready\":%s,\"timing_qualified\":%s,\"busy\":%s,\"transmit_enabled\":%s,\"recovery_required\":%s,\"phase\":\"%s\",\"transport\":\"%s\",\"codec\":\"%s\",\"detail\":%ld,\"frame_error\":%u,\"last_probe_known\":%s,\"last_probe_ok\":%s,\"probe_address\":%s,\"raw_model\":%s,\"age_ms\":%s,\"stale_after_ms\":%lu}",
+            "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"status\",\"ok\":true,\"uptime_ms\":%llu,\"ready\":%s,\"timing_qualified\":%s,\"busy\":%s,\"transmit_enabled\":%s,\"recovery_required\":%s,\"phase\":\"%s\",\"transport\":\"%s\",\"codec\":\"%s\",\"detail\":%ld,\"frame_error\":%u,\"last_probe_known\":%s,\"last_probe_ok\":%s,\"probe_address\":%s,\"model_address\":%s,\"raw_model\":%s,\"age_ms\":%s,\"stale_after_ms\":%lu}",
             static_cast<unsigned long>(id), static_cast<unsigned long long>(data.uptimeMs), boolean(data.ready), boolean(data.timingQualified),
             boolean(data.busy), boolean(data.transmitEnabled), boolean(data.recoveryRequired), Rtu::phaseName(data.phase), Rtu::reasonName(data.transport),
             data.codecChecked ? MotorControlRS::errToString(data.codec.code) : "NOT_CHECKED",
             data.codecChecked ? static_cast<long>(data.codec.detail) : 0L,
             data.codecChecked ? static_cast<unsigned>(data.frameError) : 0U,
-            boolean(data.probeKnown), boolean(data.probeKnown && data.probeOk), probeAddress, rawModel, age, static_cast<unsigned long>(data.staleAfterMs));
+            boolean(data.probeKnown), boolean(data.probeKnown && data.probeOk), probeAddress, modelAddress, rawModel, age, static_cast<unsigned long>(data.staleAfterMs));
         break;
     case Command::HEALTH: {
         const char* communication = !data.ready ? "unavailable" : data.recoveryRequired ? "failed" :
             !data.probeKnown ? "unknown" : !data.probeOk ? "failed" : !data.observedEarliestUs ? "unknown" :
             data.ageMs > data.staleAfterMs ? "stale" : "current";
         std::snprintf(output_, sizeof(output_),
-            "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"health\",\"ok\":true,\"communication\":\"%s\",\"probe_address\":%s,\"age_ms\":%s,\"stale_after_ms\":%lu,\"readiness\":\"unknown\",\"alarms\":\"unknown\",\"state\":\"unknown\",\"identity\":\"%s\"}",
-            static_cast<unsigned long>(id), communication, probeAddress, age, static_cast<unsigned long>(data.staleAfterMs), data.probeKnown && data.probeOk ? "responder_only" : "unknown");
+            "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"health\",\"ok\":true,\"communication\":\"%s\",\"probe_address\":%s,\"model_address\":%s,\"age_ms\":%s,\"stale_after_ms\":%lu,\"readiness\":\"unknown\",\"alarms\":\"unknown\",\"state\":\"unknown\",\"identity\":\"%s\"}",
+            static_cast<unsigned long>(id), communication, probeAddress, modelAddress, age, static_cast<unsigned long>(data.staleAfterMs), data.probeKnown && data.probeOk ? "responder_only" : "unknown");
         break;
     }
     case Command::STATS:

@@ -241,8 +241,10 @@ There are no raw writes, motion operations or automatic scans in this build.
 
 An explicit probe address applies to that request. A later bare `probe` still
 uses the default address 1. Cached status and health label the address of their
-retained observation with `probe_address`; it is null before an observation is
-available. Neither command performs a fresh read.
+latest transmitted attempt with `probe_address`; it is null before an attempt
+is available. `model_address` labels the last checked successful `raw_model`
+and its age, separately from the latest attempt/error. Failed reads preserve
+that value and its original observation bounds. Neither command performs a fresh read.
 `ping` uses the canonical command name `probe` in both admission and terminal
 records. Synchronous `reset` and `stats reset` return `result:"done"`.
 Recovery emits an accepted reply and one separate `type:"recovery"` terminal.
@@ -262,8 +264,12 @@ Unread results never expire or get overwritten. Duplicate outstanding command
 IDs fail before admission; callers wait for the terminal before reusing IDs.
 
 Cache age uses immutable qualified closure bounds, separately from terminal
-delivery and recovery settlement. Unsent cancellation does not change a cached
-observation. A transmitted failure without qualified closure has null age.
+delivery and recovery settlement. Output pressure does not defer harvesting
+completed observations. Unsent cancellation does not change a cached
+observation. Failed reads retain the last valid model and its age; age is null
+before a successful observation with qualified closure bounds. Driver
+`model_operation_id` attributes observation and delivery timestamps to that
+successful request independently of latest admission/attempt IDs.
 Successful recovery invalidates confidence once, independently of output, and
 an unread recovery result does not erase newer observations.
 

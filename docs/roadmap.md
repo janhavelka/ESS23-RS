@@ -1,6 +1,6 @@
 # Roadmap to a supported ESS release
 
-Updated 2026-10-03. This is the delivery order and the definition of done.
+Updated 2026-10-04. This is the delivery order and the definition of done.
 The [backlog](backlog.md) holds individual features, register questions and
 verification tasks. Update both when evidence changes the plan; dates and
 future version numbers are not commitments.
@@ -11,6 +11,8 @@ evidence handoffs. Prompts 01–03 are implemented and tested; prompt 04 is next
 The [fresh prompt 02 audit](reports/ess_release_02_audit_2026-10-03.md) corrects
 cancellation cutoff precedence and recovery evidence continuity; hardware owner
 integration now has [prompt 03 evidence](reports/ess_release_03_2026-10-03.md).
+The [fresh prompt 03 audit](reports/ess_release_03_audit_2026-10-04.md) corrects
+cache/result/deadline edges and repeats native/build and read-only timer campaigns.
 The [fresh prompt 01 audit](reports/ess_release_01_audit_2026-10-03.md) corrects
 two timeout-reporting defects with native and current-image regression evidence.
 Preparing a prompt does not complete its milestone.
