@@ -57,6 +57,30 @@ The authoritative contracts are [architecture](architecture.md),
 The package is `MotorControl-RS`; namespace/includes/CMake use `MotorControlRS`.
 The checkout and GitHub URL remain `ESS23-RS` pending the user's remote rename.
 
+## Immediate next implementation block
+
+Start capture/load verification around the existing runner and E2 adapter.
+The shared-bus owner and motion API remain unimplemented; the recent FieldCore
+discussion established their development route, not completed code.
+
+1. Extend native fixtures so wire arrival and application servicing can be
+   delayed independently. Exercise FIFO batches/overflow, missing timing,
+   late/foreign replies and bounded failure delivery. Reject ambiguous evidence
+   without replaying the request.
+2. Add an E2 load fixture with competing task work and controlled console/USB
+   activity, initially using the existing read-only probe. Retain service gaps,
+   failures, latency, CPU cost and internal/PSRAM/stack measurements.
+3. Use that evidence and the SDK/hardware contracts to select the receive
+   capture path for a sleeping owner task. Document the supported service/load
+   envelope and remaining independent TX/RX/DE measurements. Successful probes
+   alone do not qualify timing; native work can proceed before external captures.
+
+The following block adds the small bounded bus owner: pending requests, explicit
+queue limits, retained results, fairness and priority for a pending stop after
+in-flight transport settlement. Reuse the runner, keep this code in the
+application layer, and leave FieldCore read-only. Typed identity/state reads
+and then first motion/stop follow the reviewed transport and drive prerequisites.
+
 ## ESS source and profile work
 
 - [x] Transcribe the complete ESS appendix, named choices/bitfields and indexed
@@ -111,8 +135,8 @@ The checkout and GitHub URL remain `ESS23-RS` pending the user's remote rename.
   identified encoder counts where mappings exist.
 - [ ] Implement turns, degrees and radians: unwrapped multi-turn positioning
   and wrapped orientations with direction and half-turn tie policy.
-- [ ] Implement configured linear travel, initially mm, and corresponding
-  velocity/acceleration conversions with rational scale/gear/lead values.
+- [ ] Prepare and execute configured linear-travel moves, initially mm, using
+  the existing velocity/acceleration conversions and rational scale/gear/lead.
 - [ ] Implement conversion provenance, precision/rounding reports, overflow,
   effective-target/path limits and reference/configuration generations.
 - [ ] Implement velocity/jog, explicit ramps and profile keepalive deadlines;
@@ -142,8 +166,10 @@ The checkout and GitHub URL remain `ESS23-RS` pending the user's remote rename.
   protocol mixing or infer a manufacturer from a valid CRC alone.
 - [ ] Preserve host settings/selection and restore them after scans; expose
   restoration failure, collisions and unresolved matches.
-- [ ] Add CLI catalog, quick `probe`/`ping`, explicit `read identity` and
-  `discover` using the same public API as upper firmware.
+- [x] Add read-only CLI `probe`/`ping` through the existing public ESS probe
+  builder and checked parser. The common discovery preparation API is still planned.
+- [ ] Add CLI catalog, explicit `read identity` and bounded `discover` through
+  the same public APIs as upper firmware.
 - [ ] Qualify latency and non-changing behavior per exact model/firmware;
   retain one-attempt quick probing and explicit bounded scan retry policies.
 
@@ -166,7 +192,7 @@ The checkout and GitHub URL remain `ESS23-RS` pending the user's remote rename.
 - [ ] Externally qualify RX FIFO/stop sampling and idle-watermark assumptions,
   DE setup/hold and load tolerance. Probe success is not full timing qualification.
 - [x] Allocate larger task-context trace/frame/cache storage in PSRAM in the
-  adapter; document fallback, retain driver-required internal storage, and
+  standalone application; document fallback, retain required internal storage, and
   record free/minimum/largest-block memory and stack measurements.
 - [x] Add Python bounded probe/stress and cached health/memory watching with
   JSONL evidence, no retry/recovery and native fake serial tests.
@@ -245,10 +271,10 @@ possible. This list is not a request for the user to answer everything now.
 | --- | --- |
 | When does the GitHub repository URL change? | The user will rename the remote; update metadata then. Local package/API rename is complete. |
 | What motor/model/firmware is actually connected? | Read documented identity; compare model markings if identity is insufficient. The project's RS20 target is not a bench measurement. |
-| Is COM13 a console, a usable RS485 bridge, or a board needing test firmware? | Inspect CO2control source/configuration and current interface before sending motor bytes. |
+| What firmware/host path is active on COM13? | Resolved for the recorded bench: MotorControl-RS 0.5.1 JSONL probe console, with original CO2control backup retained. Recheck identity at each new hardware session; it is not a raw RTU bridge. |
 | What are the board pins, DE/RE polarity, echo topology and bus wiring? | User confirms E2 HW2.0 TX47/RX48/DE21. Matching FieldCore HW200 source uses UART2/active-high DE. Live polarity, echo and wiring qualification remain. |
-| Which address/baud/format is active despite reported defaults? | Reviewed bounded discovery/readback; defaults and console settings remain separate. |
-| Is the selected ESS probe qualified on the connected firmware? | FC03 0x0000/one word is implemented from the read-only model entry p68; measure behavior/timing on the bench. |
+| Which address/baud/format is active despite reported defaults? | Replies are observed at node 1, 115200 8N1. Device configuration/DIP readback and bounded discovery remain pending. |
+| Is the selected ESS probe qualified on the connected firmware? | Repeated checked FC03 0x0000/one-word replies have bench evidence. Exact model/firmware, external timing and communication-watchdog interaction remain unqualified. |
 | Can discovery distinguish a manufacturer/model or only a responder? | Record exact reply evidence and retain ambiguous candidates; no guessed selection. |
 | Which candidate protocols can be probed on the same bus? | Review query effects for the actual attached families; use an isolated target when compatibility is unknown. |
 | What are the actual ESS command/feedback subdivisions and signed limits? | Resolve p69-70 inconsistencies with configuration readback and measured movement. |
