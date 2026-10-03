@@ -158,3 +158,89 @@ path; a failed acknowledgement must never cause automatic motion replay.
 
 Native fake tests establish runner state transitions and bounded behavior.
 They do not qualify UART timing, echo wiring, PSRAM under load or the motor.
+
+## Develop the integration reference here
+
+On 2026-10-03 the user requested that the major transport development and
+testing happen in this simpler repository, leaving FieldCore read-only for
+the session. This is feasible and is the recommended development route.
+Keep a working reference and portable test scenarios here; later FieldCore
+integration must still validate its actual scheduling, devices and hardware.
+
+A fresh read-only source check used the FieldCore checkout at HEAD
+`560f8a234d8d840b4737c61dcb4196f438ca01a1`. The inspected transaction header
+still limits TX to eight bytes; `processResponse()` still strips a matching
+request prefix; completion still uses fixed length or suffix; the backend
+returns untimed byte batches; and the worker still delays 5 ms between cycles.
+These observations concern the inspected source, not a new FieldCore build or
+test. The earlier pinned source review above retains its original provenance.
+
+The existing MotorControl-RS runner already covers the bounded single-request
+state machine, separate TX acceptance/completion, explicit echo, exception
+length, fault cleanup and retained diagnostics. Reuse that implementation and
+its tests. Keep motor codecs, units and future profile sequences in the public
+framework-independent library; keep bus ownership, queues, UART capture,
+FreeRTOS and health policy in the standalone application layer.
+
+| Develop and test here | What later remains in FieldCore |
+| --- | --- |
+| UART capture under realistic task/interrupt/console load; physical TX drain and DE control | Adapt its one existing UART owner/backend to the qualified capture strategy; repeat measurements with its full workload |
+| Transaction behavior: reviewed request sizes, FC06 echo/ack distinction, normal/exception replies, late traffic and uncertain writes | Map request/result fields and deadlines without losing information; retain compatibility with existing sensor protocols |
+| Small bounded bus-owner reference with multiple producers, explicit admission, queue limits and priority for a pending stop | Connect its command ingress, device module lifecycle and scheduling; verify fairness, cancellation and stop latency in the real runtime |
+| Motor profile preparation/sequencing and state interpretation, with native fault injection | Integrate the motor module, product configuration and health presentation |
+| Raw traces, memory watermarks, deterministic scenarios and Python campaigns | Run the same cases through its integration adapter, then add product-specific regressions |
+
+Avoid copying the complete FieldCore task and its runtime dependencies here.
+That would create a second firmware to maintain. Implement only the ownership
+and scheduling behavior needed to exercise the transport and motor contracts.
+Later reuse should favor the tested helper where its boundary fits; if a direct
+reuse does not fit, port the small mechanism with its regression scenarios.
+Do not maintain two independently evolving copies of the transaction engine.
+Packaging a shared transport component can be decided at that concrete reuse
+point; it is not a reason to put UART ownership into the motor library now.
+
+### First block: capture and scheduling evidence
+
+The polling E2 adapter is a working bench reference, not a proven backend for
+FieldCore's worker. At 115200 baud an 8N1 character lasts about 87 microseconds;
+5 ms spans about 58 characters. Our adapter deliberately rejects more than one
+byte waiting in the hardware FIFO. Increasing the buffer or calling the same
+polling code from a slower task cannot reconstruct the missing wire timing.
+The four captured-byte slots are not an interrupt-fed receive buffer.
+
+Start with a load and fault test fixture around the existing adapter/runner:
+
+1. Add deterministic native cases for delayed servicing, UART batch/overflow,
+   late and foreign replies, queued requests and bounded result delivery.
+   Separate actual wire events from the task's servicing time.
+2. Establish an E2 workload fixture with competing task work and controlled
+   logging/USB pressure. Measure CPU/service gaps, drops, latency, internal
+   memory, PSRAM and stack use. Start with the existing non-changing probe.
+3. Review a capture strategy that preserves sufficient hardware timing evidence
+   while the owner task sleeps. Driver events or interrupt capture are candidates,
+   not a selected implementation: delayed event delivery alone is not a timestamp.
+   Extend the adapter/runner contract only if the measured strategy needs it;
+   do not fake per-byte timestamps from a batch.
+4. Qualify physical TX/RX/DE and framing boundaries with an independent capture.
+   Native tests and a soak run cannot substitute for this evidence. Report
+   unsupported load/timing cases explicitly until that qualification exists.
+
+Then add the smallest application bus owner needed for multiple request
+producers and stop priority. Admission must be bounded, queue-full behavior
+explicit, and a device's wait between sequence steps must release the bus.
+A pending stop gets the next permitted opportunity after settling the in-flight
+transaction; it cannot cut through an RTU frame or override unresolved bus
+recovery. Define and measure the latency bound for that case. Local cancellation
+is still not a motor stop, and bus failure cannot guarantee a physical stop.
+
+Use fake responders for writes, exceptions, dropped acknowledgements, echoes
+and incompatible frames before exercising typed motor operations on the bench.
+Keep normal-response correctness, rejection of bad evidence, service latency
+and resource limits as separate pass criteria. Existing FieldCore fixed-length
+and suffix protocols will need their own regression cases; this RTU runner
+must not silently redefine how all existing serial devices complete frames.
+
+The result should be working code, reproducible tests and a short mapping to
+FieldCore's ownership contract. It can remove much of the protocol debugging
+from integration. It cannot establish FieldCore thread safety, product timing,
+shared-device behavior or memory use without subsequent tests in that firmware.

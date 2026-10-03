@@ -26,6 +26,11 @@ engine or a speculative common framework here. The accepted package name is
 
 ## Delivery workflow
 
+Session boundary, confirmed by the user on 2026-10-03: treat the FieldCore-node
+repository as read-only reference. Do not edit it during this session. Develop
+and test the transport reference in this repository; eventual FieldCore changes
+belong to a separately authorized integration step.
+
 The user requests a commit and sync after each prompt or completed logical
 block. Validate the block, commit the task-owned changes, and push to the
 configured upstream before declaring it finished. Fetch/check the remote

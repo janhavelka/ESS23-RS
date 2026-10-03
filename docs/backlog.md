@@ -44,6 +44,8 @@ The authoritative contracts are [architecture](architecture.md),
    up before upload. Next verify the RX timing assumptions with an external
    TX/RX/DE trace and resolve raw model `0x4EEA`; add explicit identity/state
    reads after reviewing their semantics. See the dated bench report.
+   Develop the load-tolerant capture and bus-owner reference here before
+   eventual FieldCore integration; see the staged transport work below.
 3. **First motion and stop:** target quantization/reference/limits, required
    ESS setup and bounded operation sequencing, interrupting stop and uncertain
    outcomes. Test failure events natively before qualifying small step/angle
@@ -183,6 +185,31 @@ The checkout and GitHub URL remain `ESS23-RS` pending the user's remote rename.
   receive timing evidence, scheduling and stop priority. Standalone work must
   not depend on this step. Recheck its current product composition as well as
   the matching physical board pins.
+
+## Transport reference before FieldCore integration
+
+FieldCore is read-only for the current session. Major transport development
+and testing belong here, with the public motor library remaining independent
+of the standalone bus owner. See the
+[development route](reference/10_runner_platform_review.md#develop-the-integration-reference-here).
+
+- [ ] Extend native fixtures for delayed task service and captured wire events;
+  check lost timing, UART overflow, late replies and bounded terminal results.
+- [ ] Add an E2 task/USB/load fixture and measure service gaps, CPU cost, errors,
+  transaction latency and memory. Qualify a capture path that does not require
+  the application owner to poll once per character. Select its mechanism from
+  hardware/SDK evidence; independent TX/RX/DE capture remains required.
+- [ ] Build a small standalone bus-owner reference with bounded queue/admission,
+  multiple request producers, retained results, fair scheduling and priority
+  for a pending stop. Settle in-flight transport and recovery explicitly.
+- [ ] Exercise FC06 echo/ack, all reviewed FC10 request sizes, exception and
+  late-response behavior using fake responders; add physical write qualification
+  only with reviewed typed motor operations and their prerequisites.
+- [ ] Package repeatable scenarios and a mapping to FieldCore's request/result,
+  module and backend boundaries. Preserve its other serial framing modes in
+  future integration regressions; do not clone the whole FieldCore task here.
+- [ ] Later, under separate authorization, adapt FieldCore's existing owner
+  and test real concurrency, sensor regressions and product load there.
 
 ## Verification and COM13 bench work
 

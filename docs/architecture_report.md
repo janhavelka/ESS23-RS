@@ -378,7 +378,7 @@ the folder tree look more complete.
 | --- | --- | --- |
 | Before expanding bus use | The read-only path works on the bench; its timing assumptions and raw model identity remain unqualified. | Capture external TX/RX/DE evidence and resolve exact identity/settings through reviewed read-only helpers. |
 | Before movement | Raw writable registers are not typed motion validation or command sequencing. | Add explicit state decoders and checked command preparation; test lost acknowledgements, partial setup and stop interruption with the first workflow. |
-| Before FieldCore integration | Current sensor command/transport assumptions cannot carry the full motor contract. | Extend the FieldCore owner and typed device contract in that repository; keep MotorControl-RS independent. |
+| Before FieldCore integration | Current sensor command/transport assumptions cannot carry the full motor contract. | Develop and qualify the small transport/bus-owner reference here first, then adapt FieldCore's existing owner in a separately authorized integration step. See the [development route](reference/10_runner_platform_review.md#develop-the-integration-reference-here). |
 | For repeatable releases | Header/package/binary64 checks are recorded manual verification; Python checks are optional and no CI workflow is checked in. | Add a small repeatable verification command and CI in a separate block; require the complete check set for releases. |
 | During each implementation block | Design documents contain more APIs than the current headers. | Keep current code status explicit, update the backlog, and add files only with real behavior and tests. |
 
