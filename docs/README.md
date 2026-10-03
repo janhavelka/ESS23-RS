@@ -24,6 +24,9 @@ future work. See the [root README](../README.md) for current code and builds.
 - [Multi-vendor feasibility](reference/03_multi_vendor_feasibility.md): official
   manufacturer evidence behind the accepted general-library scope. Research
   coverage does not imply implemented device support.
+- [CANopen extension feasibility](reference/07_canopen_feasibility.md): proposed
+  limited sharing with a CANopen backend, CL86-C evidence, required ownership
+  changes and scope boundaries. This analysis does not add CANopen support.
 
 ## Work tracking and bench
 

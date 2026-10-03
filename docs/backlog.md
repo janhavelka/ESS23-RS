@@ -165,6 +165,16 @@ possible. This list is not a request for the user to answer everything now.
 
 ## Later extensions
 
+- [x] Assess adding selected CANopen/CiA 402 drives alongside Modbus RTU;
+  [feasibility review](reference/07_canopen_feasibility.md) records the proposed
+  boundary and the user's Lichuan CL86-C candidate. This is research only.
+- [ ] If the CANopen extension is accepted: obtain firmware-matched CL86-C
+  manual/EDS, qualify a CAN transport/stack adapter, extend event/state/stop
+  contracts, then implement a narrow identity/position/stop vertical slice.
+  Keep host-streamed cyclic modes and cross-bus synchronization separate.
+  Manufacturer manual/EDS listings were found; direct downloads were unavailable
+  during review, so exact object semantics and loss-of-controller behavior remain open.
+
 - [ ] Qualify additional explicit families from the
   [manufacturer review](reference/03_multi_vendor_feasibility.md), with full
   native coverage and their own discovery/probe evidence.
