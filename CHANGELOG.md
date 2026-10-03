@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.2.0
+
+- Add bounded ESS FC03/FC06/FC10 request builders and checked response parsers,
+  with exact expectations, raw exceptions, write echoes and unchanged outputs
+  on failure. FC10 initially supports only the documented 0x0024/two-word write.
+- Add the one-word model-register probe, explicit 32-bit word conversions and
+  independent native codec tests. No I/O, retries or timing enter the core.
+- Preserve five contrasting manufacturers' manuals and document their protocol
+  differences, probe candidates and implications for future serial profiles.
+
+This release builds and parses frames but does not exchange them with a motor.
+Transport, motion sequences, full typed native commands and CLI remain future
+work. Hardware behavior is unqualified; other reviewed drives are not supported.
+
 ## 0.1.0
 
 - Add framework-independent displacement, velocity and acceleration conversion

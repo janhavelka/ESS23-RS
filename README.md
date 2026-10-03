@@ -4,10 +4,11 @@ A framework-independent serial motion library, starting with STEPPERONLINE
 ESS23-RS10/RS20. The repository directory remains `ESS23-RS`; the common C++
 namespace and package name are `RS485Motion`.
 
-The first implementation supplies **configurable unit conversion and the ESS
-register catalogue**. Frame codecs, motion commands, discovery and the full
-standalone CLI are the next stages. No motor communication or motion has been
-tested yet. Leadshine iEM-RS is a design contrast, not an implemented backend.
+The implementation supplies **configurable units, the ESS register catalogue
+and checked ESS Modbus RTU codecs**. Transport, motion commands, discovery
+orchestration and the full standalone CLI are the next stages. No motor
+communication or motion has been tested. Other reviewed drives, including
+Leadshine iEM-RS, are design contrasts rather than implemented profiles.
 
 The core has no Arduino, ESP-IDF, FieldCore, UART, GPIO, clock, heap, retry or
 health-service dependency. Applications own those responsibilities. Common
@@ -73,6 +74,46 @@ inventory. Source conflicts, unknown signed encodings, scaling and application
 semantics stay visible. Metadata coverage does not imply command implementation.
 Generic Modbus or another manufacturer's registers are not substituted for ESS.
 
+## ESS wire API
+
+[Codec.h](include/RS485Motion/profiles/ess_rs/Codec.h) builds FC03/FC06/FC10
+requests into caller-owned byte buffers and checks complete replies against
+the expected slave, function, length, count, CRC and write echo. Errors leave
+payload outputs unchanged; the parsed word count resets to zero. `Status`
+preserves raw device exceptions separately from malformed frames and CRC errors.
+
+```cpp
+#include <RS485Motion/profiles/ess_rs/Codec.h>
+
+uint8_t request[8];
+const std::size_t length = RS485Motion::ESS_RS::buildProbe(1, request, sizeof(request));
+// length == 8; request is 01 03 00 00 00 01 84 0A. Nothing is transmitted.
+
+// A synthetic complete reply for an offline parsing example:
+const uint8_t reply[] = {1, 3, 2, 3, 5, 0x78, 0xB7};
+uint16_t model = 0;
+RS485Motion::Status result = RS485Motion::ESS_RS::parseProbe(reply, sizeof(reply), 1, model);
+// Success publishes raw model 0x0305; it does not confirm a connected motor's identity.
+```
+
+FC03 accepts up to 16 documented readable words, excluding gaps/reserved/unknown
+access. FC06 accepts documented writable single words; split writes to paired
+fields are rejected. FC10 initially accepts only the manual's `0x0024`, two-word
+window. This is an implementation restriction, not a discovered device maximum.
+Builders validate raw access/framing, not register-value meaning, motion limits,
+readiness or persistence; typed command helpers remain future work.
+
+The probe reads the read-only model word at `0x0000`; no consuming side effect is
+documented. Its successful reply is seven bytes. Pure 32-bit helpers require an
+explicit word order; signed helpers specify two's complement without asserting
+that an unresolved ESS field uses it. See [codec evidence and limits](docs/reference/01_implementation_reference.md#implemented-codec-scope).
+
+Small private RTU helpers handle byte packing and CRC. Profile policy stays in
+ESS, informed by [five contrasting manufacturers](docs/reference/08_serial_protocol_review.md).
+Applications still own transport and response correlation: local FC06 echo and
+a drive acknowledgement have identical bytes, and write acknowledgement does
+not establish motion completion. No codec retries, clocks or I/O are hidden.
+
 ## Build and preview
 
 With CMake and a C++11 compiler, build and run the native tests and unit preview:
@@ -115,10 +156,11 @@ python scripts/generate_ess_registers.py --check
 | Path | Responsibility |
 | --- | --- |
 | `include/RS485Motion/`, `src/` | Public common API and implementation |
-| `include/RS485Motion/profiles/ess_rs/`, `src/profiles/ess_rs/` | ESS-specific data and later codecs/helpers |
+| `include/RS485Motion/profiles/ess_rs/`, `src/profiles/ess_rs/` | ESS catalogue, raw codecs, probe and word conversion |
+| `src/rtu/` | Small private byte/CRC/frame helpers, without device policy |
 | `examples/common/` | Board/build settings and later platform transport |
 | `examples/units_preview/` | Desktop/Arduino consumer of the current units API |
-| `test/` | Native units and catalogue verification |
+| `test/` | Native units, catalogue and independent protocol verification |
 | `scripts/` | Reference preparation and deterministic generators |
 | `docs/reference/` | Register inventory, source evidence and implementation questions |
 | `docs/vendor/`, `docs/standards/`, `docs/pdf-extracted-md/` | Preserved original references and searchable extracts |

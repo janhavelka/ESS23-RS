@@ -1,8 +1,8 @@
 # Features implementation tasks and open questions
 
 This is the working backlog for `RS485Motion`. The three-layer architecture
-is accepted; the first implementation block supplies units and register
-metadata. Checked design decisions below remain documentation milestones,
+is accepted; implemented blocks supply units, register metadata and checked
+ESS codecs with a minimal probe. Checked design decisions below remain documentation milestones,
 not claims of complete motion API or hardware support. Keep this list current
 after each completed logical block, and commit
 and sync that block under [the repository guidance](../AGENTS.md).
@@ -33,14 +33,12 @@ The authoritative contracts are [architecture](architecture.md),
 [axis API](axis_contract.md), [profiles](profile_contract.md),
 [discovery](discovery_contract.md) and [CLI](cli_contract.md).
 
-## Next implementation blocks
+## Implementation blocks
 
-1. **ESS protocol core:** bounded FC03/FC06/FC10 builders and checked parsers
-   where vendor evidence establishes the operation and limits. Verify CRC,
-   exact request/response expectations, exceptions, write echoes, capacities
-   and unchanged outputs on error using independent golden frames. Resolve
-   the minimal non-changing probe; preserve unresolved FC10 limits explicitly.
-   This block performs no hardware I/O.
+1. **Completed ESS protocol core:** FC03/FC06 and the reviewed FC10 pair,
+   checked replies, independent CRC/frame tests and raw word conversions.
+   Probe reads model register 0x0000/one word. General FC10 limits and typed
+   field meanings remain unresolved where documented; no hardware I/O occurred.
 2. **Read-only E2 bring-up:** example-owned UART/DE/RE and RTU framing, then a
    small CLI for probe, available identity/configuration/state reads and cached
    diagnostics. Inspect COM13 and preserve current firmware before any test
@@ -55,12 +53,18 @@ The authoritative contracts are [architecture](architecture.md),
 
 The name is open; retain `RS485Motion` until a replacement is selected, then
 update package, namespace, includes, builds, examples and docs together.
+`MotorControl-RS` is the latest candidate; no rename has been performed.
 
 ## ESS source and profile work
 
 - [x] Transcribe the complete ESS appendix, named choices/bitfields and indexed
   records into a canonical JSON ledger and generated C++ catalogue: 221 logical
-  records / 242 words. Operational and CLI coverage remain unimplemented.
+  records / 242 words. Complete typed operational and CLI coverage remain unimplemented.
+- [x] Implement checked raw ESS codecs and their reviewed access/window policy.
+  Raw FC06 words are not typed value validation or complete native command coverage.
+- [x] Re-audit original ESS wire/probe pages and document retained ambiguities;
+  download/audit five contrasting serial manufacturers in the
+  [protocol review](reference/08_serial_protocol_review.md).
 - [ ] Resolve or explicitly retain every ambiguity in the
   [implementation reference](reference/01_implementation_reference.md), using
   original PDF pages and later exact-model readback.
@@ -111,8 +115,10 @@ update package, namespace, includes, builds, examples and docs together.
 
 - [ ] Record discovery/probe/identity support for every supported profile and
   manufacturer group, including explicit unsupported or unresolved entries.
-- [ ] Select the smallest documented non-changing ESS query; verify access,
-  side effects, response checking and expected timing before live use.
+- [x] Select and implement the smallest documented ESS query: FC03 model word
+  0x0000/one word, with checked raw reply. No consuming side effect is documented.
+- [ ] Qualify ESS probe latency, firmware behavior and communication-watchdog
+  interaction on hardware before claiming a measured non-changing fast probe.
 - [ ] Design the contrasting Leadshine query with the same requirements;
   do not consume its read-to-clear status as a generic presence probe.
 - [ ] Implement `getDiscoveryCapabilities`, `prepareProbe` and structured
@@ -153,7 +159,7 @@ update package, namespace, includes, builds, examples and docs together.
   establish actual board, pins, direction control and serial settings.
 - [ ] Run the first minimal probe/identity read and record raw frames/timing,
   echo behavior, actual motor identity and communication configuration.
-- [ ] Validate codec golden frames and malformed inputs with unchanged payload
+- [x] Validate codec golden frames and malformed inputs with unchanged payload
   outputs on errors; test exception/echo/word-order/count boundaries.
 - [ ] Validate conversion, angular-path, capability, sequencing and interruption
   behavior independently of hardware; exercise failure/timeout events.
@@ -178,7 +184,7 @@ possible. This list is not a request for the user to answer everything now.
 | Is COM13 a console, a usable RS485 bridge, or a board needing test firmware? | Inspect CO2control source/configuration and current interface before sending motor bytes. |
 | What are the board pins, DE/RE polarity, echo topology and bus wiring? | User confirms E2 HW2.0 TX47/RX48/DE21. Matching FieldCore HW200 source uses UART2/active-high DE. Live polarity, echo and wiring qualification remain. |
 | Which address/baud/format is active despite reported defaults? | Reviewed bounded discovery/readback; defaults and console settings remain separate. |
-| Which ESS read is the minimal non-changing probe? | Resolve from the original identity/status access table and qualify with firmware; do not assume Modbus supplies a universal ping. |
+| Is the selected ESS probe qualified on the connected firmware? | FC03 0x0000/one word is implemented from the read-only model entry p68; measure behavior/timing on the bench. |
 | Can discovery distinguish a manufacturer/model or only a responder? | Record exact reply evidence and retain ambiguous candidates; no guessed selection. |
 | Which candidate protocols can be probed on the same bus? | Review query effects for the actual attached families; use an isolated target when compatibility is unknown. |
 | What are the actual ESS command/feedback subdivisions and signed limits? | Resolve p69-70 inconsistencies with configuration readback and measured movement. |

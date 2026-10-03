@@ -2,8 +2,9 @@
 
 Discovery and a minimal non-changing presence probe are required design
 considerations for every supported drive profile and manufacturer grouping.
-This contract adds them to the public API and standalone CLI design. No
-probe, scan, code or live test is implemented by this document.
+This contract defines the public API and standalone CLI design. The ESS raw
+probe codec is now implemented; common operation preparation, scans, CLI and
+live qualification remain future work.
 
 The [axis API](axis_contract.md) exposes the common operations, the
 [profile contract](profile_contract.md) records per-device evidence, and the
@@ -32,6 +33,22 @@ stub. Probe selection must account for documented read side effects and any
 operational effect of communication itself. A nominal read or diagnostic
 opcode alone is not evidence of suitability. Do not use stop, enable, jog,
 alarm reset, save, guessed invalid writes or read-to-clear fields as probes.
+
+## Implemented ESS probe
+
+`ESS_RS::buildProbe` builds FC03 for read-only model register 0x0000, one word
+(function manual physical p68). `parseProbe` checks the complete response and
+returns the raw model value. No consuming side effect is documented for this
+identity field. This is the smallest holding-register read: eight request
+bytes, seven success bytes or five exception bytes. No universal timeout,
+confirmed model interpretation or hardware behavior is established yet.
+
+Unknown raw values remain observable. Probe success refreshes only the caller's
+responsiveness evidence, not position, readiness, alarm state or completed
+motion. The codec performs no scan, retry, setting change or I/O. These helpers
+will underpin the planned common `prepareProbe`; they are not that sequencer.
+The [serial comparison](reference/08_serial_protocol_review.md) records other
+manufacturers' prospective queries and why read-only alone is insufficient.
 
 ## Per-profile evidence and API
 

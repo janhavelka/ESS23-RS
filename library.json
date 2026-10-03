@@ -1,7 +1,7 @@
 {
   "name": "RS485Motion",
-  "version": "0.1.0",
-  "description": "Framework-independent motion unit conversions and ESS-RS register catalogue. Initial foundation; no transport or motor command execution yet.",
+  "version": "0.2.0",
+  "description": "Framework-independent motion units, ESS-RS register catalogue and checked Modbus RTU codecs. Application-owned transport; no motion sequencing yet.",
   "keywords": ["rs485", "modbus", "stepper", "servo", "ess23", "motion"],
   "authors": [{"name": "Jan Havelka", "maintainer": true}],
   "repository": {"type": "git", "url": "https://github.com/janhavelka/ESS23-RS.git"},

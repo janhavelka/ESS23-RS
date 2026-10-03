@@ -38,3 +38,13 @@ mechanical references. No motor or tuning software has been run.
 
 Manufacturer PDFs, software, CAD files, and Modbus standards retain their
 original owners' rights; they are not relicensed as library code.
+
+## Contrasting serial drivers
+
+Five additional original manufacturer manuals were collected on 2026-10-03:
+Leadshine iEM-RS, Oriental Motor AZ, Nanotec PD4-E, Makerbase SERVO42D/57D and
+Applied Motion SCL. See the [protocol review](08_serial_protocol_review.md),
+[download inventory](../vendor/contrasts/README.md) and separate
+[hash/source manifest](serial_contrasts_sources.json). The nine original
+snapshots above remain unchanged. Downloading a manual does not add profile
+support; only the ESS codec is implemented in this block.

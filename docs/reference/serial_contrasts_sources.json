@@ -1,0 +1,96 @@
+{
+  "purpose": "Contrasting serial-drive evidence; no support or hardware qualification implied",
+  "references": [
+    {
+      "path": "vendor/contrasts/Leadshine_iEM-RS_User_Manual_V2.0.pdf",
+      "url": "https://www.leadshine.com/upfiles/downloads/3b01ef83987a2abfffcb4d4301a9cf4b_1689587677198.pdf",
+      "resolved_url": "https://www.leadshine.com/upfiles/downloads/3b01ef83987a2abfffcb4d4301a9cf4b_1689587677198.pdf",
+      "retrieved_at_utc": "2026-10-03T06:32:47.257005+00:00",
+      "manufacturer": "Leadshine",
+      "family": "iEM-RS",
+      "revision": "V2.0, 2022-10-20",
+      "bytes": 3066574,
+      "pages": 55,
+      "sha256": "7c7c02ad5c652657c437c2816c27271a53de69d09389549aa2e28f8fc591181d",
+      "visually_reviewed_pdf_pages": [
+        17,
+        18,
+        21,
+        22,
+        25
+      ],
+      "review": "reference/08_serial_protocol_review.md"
+    },
+    {
+      "path": "vendor/contrasts/Oriental_Motor_AZ_HM-60262E.pdf",
+      "url": "https://www.orientalmotor.com/products/pdfs/opmanuals/HM-60262E.pdf",
+      "resolved_url": "https://www.orientalmotor.com/products/pdfs/opmanuals/HM-60262E.pdf",
+      "retrieved_at_utc": "2026-10-03T06:32:48.176411+00:00",
+      "manufacturer": "Oriental Motor",
+      "family": "AZ series, Modbus RTU sections",
+      "revision": "HM-60262E",
+      "bytes": 3698565,
+      "pages": 484,
+      "sha256": "d95a6a666224c468b452751e79322eaa3c593f447865a3e0b22b3f2942963b92",
+      "visually_reviewed_pdf_pages": [
+        241,
+        253
+      ],
+      "review": "reference/08_serial_protocol_review.md"
+    },
+    {
+      "path": "vendor/contrasts/Nanotec_PD4E_ModbusRTU_V1.6.0.pdf",
+      "url": "https://www.nanotec.com/fileadmin/files/Handbuecher/Plug_Drive/PD4-E/fir-v2213/PD4E_ModbusRTU_Technical-Manual_V1.6.0.pdf",
+      "resolved_url": "https://www.nanotec.com/fileadmin/files/Handbuecher/Plug_Drive/PD4-E/fir-v2213/PD4E_ModbusRTU_Technical-Manual_V1.6.0.pdf",
+      "retrieved_at_utc": "2026-10-03T06:32:46.725822+00:00",
+      "manufacturer": "Nanotec",
+      "family": "PD4-E Modbus RTU",
+      "revision": "V1.6.0, FIR-v2213",
+      "bytes": 4309633,
+      "pages": 332,
+      "sha256": "7efe0e28dc8201817609b1f3d6fb9993582465664d1200c6273b58fe1db01748",
+      "visually_reviewed_pdf_pages": [
+        103,
+        105,
+        106,
+        128
+      ],
+      "review": "reference/08_serial_protocol_review.md"
+    },
+    {
+      "path": "vendor/contrasts/Applied_Motion_Host_Command_Reference_920-0002W.pdf",
+      "url": "https://applied-motion.s3.amazonaws.com/documents/Manuals/Host-Command-Reference_920-0002W.pdf",
+      "resolved_url": "https://applied-motion.s3.amazonaws.com/documents/Manuals/Host-Command-Reference_920-0002W.pdf",
+      "retrieved_at_utc": "2026-10-03T06:32:48.416967+00:00",
+      "manufacturer": "Applied Motion Products",
+      "family": "SCL / Q command families; model compatibility must be checked",
+      "revision": "920-0002 Rev. W",
+      "bytes": 5698619,
+      "pages": 427,
+      "sha256": "adf67ba55838dd7849d2edfe26700d5348d6a1f95516829a10649f166896f81f",
+      "visually_reviewed_pdf_pages": [
+        184,
+        304
+      ],
+      "review": "reference/08_serial_protocol_review.md"
+    },
+    {
+      "path": "vendor/contrasts/Makerbase_SERVO42_57D_Modbus_V1.0.9.pdf",
+      "url": "https://raw.githubusercontent.com/makerbase-motor/MKS-SERVO42D-57D/master/User%20Manual/V1.0.9/MKS%20SERVO42%2657D_Modbus%20RTU%20User%20Manual%20V1.0.9.pdf",
+      "resolved_url": "https://raw.githubusercontent.com/makerbase-motor/MKS-SERVO42D-57D/master/User%20Manual/V1.0.9/MKS%20SERVO42%2657D_Modbus%20RTU%20User%20Manual%20V1.0.9.pdf",
+      "retrieved_at_utc": "2026-10-03T06:32:47.131494+00:00",
+      "manufacturer": "Makerbase",
+      "family": "MKS SERVO42D / 57D",
+      "revision": "V1.0.9",
+      "bytes": 2222983,
+      "pages": 68,
+      "sha256": "951e1d3e3b0dc24781fa8e94b54052b6943619419170dff2b598ca15b2ec1fd1",
+      "visually_reviewed_pdf_pages": [
+        9,
+        11,
+        14
+      ],
+      "review": "reference/08_serial_protocol_review.md"
+    }
+  ]
+}

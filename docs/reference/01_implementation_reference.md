@@ -5,8 +5,9 @@ hardware contract. Sources were downloaded on 2026-10-02. All page numbers below
 are **physical PDF pages, counted from 1**; printed page numbers in both
 manufacturer manuals are two lower. The complete first source transcription is
 now in the [register catalogue](05_ess_register_catalog.md); pure conversions and
-bench assumptions are in [encoder and units notes](06_encoder_units.md). Wire
-commands and motion preparation are still future work.
+bench assumptions are in [encoder and units notes](06_encoder_units.md).
+Checked raw wire codecs and a minimal probe are implemented; typed commands,
+motion preparation and hardware qualification remain future work.
 
 ## Source priority
 
@@ -68,6 +69,47 @@ The [extracted function-manual text](../pdf-extracted-md/Modbus-Series-Bus-Produ
 - ESS-RS default column p70 contains conflicting pairs such as acceleration `50 (100ms)` and starting speed `30 (60r/min)`. Its pulse-count range is also malformed. Do not infer scaling or signed limits from those entries alone; verify with readback and hardware.
 - Function p8 prints two different CRCs for the same FC10 request: the diagram ends in `B9 56`, while the prose example ends in `FD 12`. Inspection of the original page and independent Modbus CRC calculation for `01 10 00 24 00 02 04 00 00 13 88` confirm `FD 12`. Do not copy printed example bytes into tests without checking them.
 - Function p68 describes the DIP-status register as SW1-SW7, while the ESS23-RS hardware manual defines five switches (p8, p11). Preserve raw DIP status and confirm the actual firmware mapping before assigning model-specific switch labels.
+
+## Implemented codec scope
+
+The original function-PDF pages 6-12, 29-30 and 68-70, plus hardware pages 8
+and 11, were re-inspected as rendered pages on 2026-10-03. The following decisions
+are implemented in [Codec.h](../../include/RS485Motion/profiles/ess_rs/Codec.h):
+
+| Concern | Implemented behavior and evidence |
+| --- | --- |
+| Address | Unicast 1-247 only, an explicit standard-compatible library policy despite the vendor's 0-255 parameter range. |
+| FC03 | 1-16 words (p7/p12), all mapped and readable; no undefined, reserved, write-only or unspecified-access words. Raw pair halves may be read. |
+| FC06 | Documented writable single words only. Rejecting paired halves is a library policy against unqualified split updates, not a claimed vendor prohibition. |
+| FC10 | Only 0x0024/count2, the explicit p8 example. Other counts/windows return unsupported. General device maximum, other-pair acceptance and atomic application remain unresolved. |
+| Raw values | Words are exactly 16 bits. Codecs do not validate typed ranges, motion preconditions, persistent effects or signed field semantics. |
+| Word helpers | Explicit high/low word order; bytes inside each word are big-endian on the wire. Pure signed helpers use two's complement by contract, without resolving unknown ESS field encodings. |
+| Homing offset | 0x0035/36 is omitted from the p30 configurable-order list. Its existing catalogue uncertainty remains; no typed offset encoder is supplied. |
+| Replies | Exact slave/function/length/count/CRC and applicable write echo, including exact five-byte exceptions. Unknown exception bytes are preserved. |
+| Outputs | No payload mutation on error; parsed word count resets to zero. Accessed input/output overlap is rejected. Diagnostic/count outputs must be separate storage. |
+
+**Minimal probe:** FC03 at read-only Driver Model register 0x0000, count1 (p68).
+No consuming side effect is documented for this identity field. The eight-byte
+request at address1 is `01 03 00 00 00 01 84 0A`; a synthetic raw model0x0305
+reply is `01 03 02 03 05 78 B7`. Seven bytes is the smallest successful FC03
+reply. `buildProbe`/`parseProbe` expose this path without I/O or retries.
+A matching response establishes responsiveness and a raw code, not confirmed
+manufacturer/model, readiness, freshness of other fields or motion completion.
+Timing, watchdog interaction and firmware side effects remain unqualified.
+
+The vendor exception meanings on pp11-12 differ from standard Modbus: 01 CRC,
+02 instruction, 03 disallowed address, 04 outside map, 05 read quantity,
+06 access direction and 07 value range. The codec returns neutral `EXCEPTION`
+with the raw byte, never a guessed standard label. The p10 no-reply/CRC-error
+contradiction remains unresolved. A remote CRC exception is distinct from a
+locally detected bad reply CRC.
+
+The complete register catalogue and typed enums are not a complete operational
+API. Negative position encoding/range, ramp scaling, motion/stop semantics and
+other existing uncertainties still require field-specific helpers and evidence.
+Other manufacturers' different counts, consuming reads, data representation and
+error envelopes are documented in the [serial review](08_serial_protocol_review.md);
+they do not relax ESS validation.
 
 ## Architecture consequences
 

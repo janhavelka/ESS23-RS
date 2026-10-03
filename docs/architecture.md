@@ -7,9 +7,10 @@ profiles, while typed profile extensions expose each drive's complete
 documented command set. Arduino, native ESP-IDF, desktop/native consumers and
 FieldCore are separate applications of the same library.
 
-The first implementation block supplies pure unit conversion and an ESS
-register catalogue. Motion preparation, wire codecs, discovery, the CLI and
-FieldCore adapters below remain contracts for later blocks. See the root
+Implemented blocks supply pure units, an ESS register catalogue and checked
+wire codecs with a minimal model-register probe. Motion preparation,
+transport, discovery orchestration, CLI and FieldCore adapters remain contracts
+for later blocks. See the root
 README for current callable APIs and build commands. No motor behavior has
 been qualified on hardware.
 
@@ -128,7 +129,7 @@ contexts are reentrant; applications synchronize shared buffers and contexts.
 
 ## Planned file responsibilities
 
-The units, status, entry/version headers and ESS catalogue already exist.
+The units, status, entry/version headers, ESS catalogue and codec already exist.
 The following layout also includes planned files; it is not a request to
 create stubs. See the root README for the current callable surface.
 
@@ -140,7 +141,8 @@ create stubs. See the root README for the current callable surface.
 | `include/RS485Motion/Profiles.h` | Profile identity and finite dispatch contracts |
 | `include/RS485Motion/Sequence.h` | Bounded caller-owned operation state, supplied events and yielded work |
 | `include/RS485Motion/Status.h` | Shared validation result and parser error categories |
-| `include/RS485Motion/profiles/ess_rs/Codec.h` | ESS bounded builders, validators and checked response parsers |
+| `include/RS485Motion/profiles/ess_rs/Codec.h` | Implemented bounded builders, validators, checked parsers, probe and word conversion |
+| `src/rtu/Frame.h` | Private byte packing, CRC and frame helpers without device policy |
 | `include/RS485Motion/profiles/ess_rs/Commands.h` | Full typed ESS command surface and sequence descriptions |
 | `include/RS485Motion/profiles/ess_rs/Registers.h` | Verified ESS register definitions and value enums |
 | `include/RS485Motion/profiles/ess_rs/Types.h` | Exact ESS values, raw flags, alarms and word order |
@@ -166,8 +168,9 @@ members from siblings.
 
 ## Codec function vocabulary and buffer contract
 
-These are intended ESS codec naming families, not complete C++ declarations.
-Final signatures require the register/width review before implementation.
+The raw codec families below are implemented in `profiles/ess_rs/Codec.h`;
+typed identity/status and motion helpers remain planned. The header records
+the callable signatures and validation precedence.
 Common axis names are specified separately in the [axis contract](axis_contract.md).
 Non-Modbus profiles retain suitable native framing and address types; these
 register-oriented helpers are not mandatory public operations for every drive.
@@ -183,7 +186,8 @@ register-oriented helpers are not mandatory public operations for every drive.
 | Domain checks | `isValidAddress`, `isReadRangeValid`; use only the reviewed ESS map |
 | Sizing and CRC | `expectedReadRegistersLen`, `expectedWriteSingleRegisterLen`, `expectedWriteMultipleRegistersLen`, `calcCrc16` |
 
-Use the shared long generic names directly. All ESS frame parsers are checked;
+Use the agreed generic names directly and simple private helper names such as
+`readWord`, `writeHeader` and `checkReply`. All ESS frame parsers are checked;
 there is no need for an unchecked compatibility variant or a second identical
 `Checked` alias in a fresh API. A payload decoder is distinctly named
 `decode...` and operates on an already validated register block.
@@ -274,9 +278,10 @@ acknowledgements are 8 bytes; an exception reply is 5 bytes. FC10 requests
 need `9 + 2 * count` bytes, including 13 bytes for the documented two-register
 example (p8). These frame sizes do not establish a device FC10 count limit.
 
-The general ESS write limit is unresolved. The initial implementation should
-support only reviewed write windows/counts, including the documented pair
-when qualified, rather than advertise the generic Modbus maximum. Do not
+The general ESS write limit is unresolved. The implementation admits only the
+explicit FC10 example's 0x0024/two-word window; this is a supported window,
+not a device maximum. Other FC10 windows await evidence. FC06 rejects paired
+halves as a library policy; the manual does not explicitly prohibit them. Do not
 split a 32-bit target into unrelated FC06 writes as a capacity workaround.
 Do not assume a multi-register write is internally atomic without evidence.
 
@@ -308,6 +313,19 @@ through undefined gaps just to reduce transactions. Retain raw flags and
 unknown bits, and avoid claiming a snapshot assembled from separate reads is
 atomic. In particular, the status enable bit has inverted semantics in the
 ESS table: bit 4 clear means enabled, set means released (function PDF p68).
+
+The implemented `buildProbe`/`parseProbe` path reads one model word at 0x0000
+(p68): eight request bytes, seven normal reply bytes. Unknown model codes stay
+raw, and parser success is not confirmed identity. Generic read/write codecs
+check raw access and frame shape, not typed value ranges or motion prerequisites.
+Pure signed word helpers declare two's complement without resolving the
+catalogue's field-specific signedness questions. The larger common
+`prepareProbe`/discovery API remains unimplemented.
+
+The [serial comparison](reference/08_serial_protocol_review.md) demonstrates
+why limits, read effects, representation and exception meaning stay in each
+profile. The private `src/rtu/Frame.h` shares mechanics only; strict ESS reply
+checks are not relaxed for other manufacturers' extensions.
 
 ## Explicit native commands and shared sequences
 
@@ -432,10 +450,10 @@ work is requested.
 1. Completed foundation: pure units, the ESS register catalogue, native tests,
    package/build metadata and the offline E2 preview. Metadata coverage is
    distinct from operational command coverage and hardware qualification.
-2. Next, implement bounded ESS codecs with checked responses and native tests.
-   Resolve relevant widths/counts/word order from the original PDFs, preserve
-   uncertainties and select a documented non-changing probe. Wire support for
-   a write function does not establish permission to write every register.
+2. Completed codec block: bounded ESS FC03/FC06 and the reviewed FC10 pair,
+   checked responses, raw exceptions, word helpers, minimal probe and native
+   tests. General FC10 limits and typed field/motion ambiguities remain open.
+   Wire support does not establish permission to write every register.
 3. Add example-owned RS485 transport and a small read-only CLI slice on the E2
    bench. Inspect/preserve the existing firmware before a test-firmware upload;
    record actual identity, settings, raw frames, timing and echo behavior.

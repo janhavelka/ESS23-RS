@@ -9,12 +9,15 @@
 
 namespace RS485Motion {
 
-/** @brief Errors returned by the implemented configuration/conversion API. */
+/** @brief Pure-call errors; separate from drive alarms and application health. */
 enum class Err : uint8_t {
   OK = 0,          ///< The requested calculation/validation succeeded.
   INVALID_CONFIG,  ///< Invalid configuration, enum, scale or argument.
   ILLEGAL_VALUE,   ///< Value cannot be represented within the declared bounds.
-  UNSUPPORTED     ///< Required conversion or capability is unavailable.
+  UNSUPPORTED,    ///< Required conversion or reviewed capability is unavailable.
+  CRC_ERROR,      ///< Frame checksum does not match.
+  FRAME_ERROR,    ///< Reply shape or request expectation does not match.
+  EXCEPTION       ///< Valid device exception; detail preserves its raw byte.
 };
 
 /**
@@ -44,6 +47,9 @@ inline const char* errToString(Err code) {
     case Err::INVALID_CONFIG: return "INVALID_CONFIG";
     case Err::ILLEGAL_VALUE: return "ILLEGAL_VALUE";
     case Err::UNSUPPORTED: return "UNSUPPORTED";
+    case Err::CRC_ERROR: return "CRC_ERROR";
+    case Err::FRAME_ERROR: return "FRAME_ERROR";
+    case Err::EXCEPTION: return "EXCEPTION";
   }
   return "UNKNOWN";
 }

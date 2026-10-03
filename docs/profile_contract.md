@@ -4,8 +4,9 @@ This is the accepted profile-layer design for `RS485Motion`. It specifies how
 each selected drive exposes its complete documented functionality alongside
 the [common axis API](axis_contract.md). The first implementation supplies the
 [ESS register catalogue](reference/05_ess_register_catalog.md), generated C++
-descriptors and native enums. Wire codecs, typed command helpers and hardware
-qualification remain future work. ESS-RS is the first target; Leadshine iEM-RS
+descriptors and native enums. Checked raw ESS codecs and a minimal probe are
+also implemented; typed commands, sequencing and hardware qualification remain
+future work. ESS-RS is the first target; Leadshine iEM-RS
 is a contrasting design case whose concrete model and firmware still require
 selection.
 
@@ -302,7 +303,8 @@ A future release may claim complete documented API coverage only when:
    advertised fast probe has its own validation, side-effect and timing
    evidence; a full identity/status sweep is not hidden behind `probe`.
 
-The present deliverable is this acceptance contract and source-grounded
-inventory outline. Creating the complete ledger, resolving the remaining
-vendor ambiguities, implementing typed operations and qualifying hardware
-are subsequent implementation work.
+The catalogue and bounded raw ESS codec are implemented. They do not establish
+complete typed native command coverage. Resolving remaining vendor ambiguities,
+implementing typed operations and qualifying hardware are subsequent blocks.
+The [serial comparison](reference/08_serial_protocol_review.md) supplies original
+manuals and protocol contrasts for future families without claiming support.

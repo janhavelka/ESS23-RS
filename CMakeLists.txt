@@ -2,7 +2,8 @@ cmake_minimum_required(VERSION 3.16)
 
 set(RS485MOTION_SOURCES
     "src/Units.cpp"
-    "src/profiles/ess_rs/Registers.cpp")
+    "src/profiles/ess_rs/Registers.cpp"
+    "src/profiles/ess_rs/Codec.cpp")
 
 # ESP-IDF component consumption requires no Arduino or FieldCore dependency.
 if(COMMAND idf_component_register)
@@ -34,7 +35,7 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     include(CTest)
     # Distributed source packages contain the core; repository tests stay here.
     if(BUILD_TESTING AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/test/units_test.cpp")
-        foreach(suite units registers)
+        foreach(suite units registers codec)
             add_executable(${suite}_test "test/${suite}_test.cpp")
             target_link_libraries(${suite}_test PRIVATE RS485Motion)
             set_target_properties(${suite}_test PROPERTIES

@@ -2,10 +2,11 @@
 
 ## Current scope
 
-Implementation is authorized in small, tested blocks. The first block is
-configurable unit conversion, the complete documented ESS register catalogue,
-and standalone build/board foundations. Protocol helpers, motion sequences,
-discovery and the full CLI follow in later blocks; do not add placeholder APIs.
+Implementation is authorized in small, tested blocks. Implemented foundations
+are configurable units, the complete documented ESS register catalogue,
+standalone build/board settings and checked ESS wire codecs with a minimal
+probe. Transport, motion sequences, discovery orchestration and the full CLI
+follow in later blocks; do not add placeholder APIs.
 The accepted scope remains a general framework-independent serial motion
 library: common axis API, drive profiles and application integration. Implement
 ESS first; design against Leadshine iEM-RS without claiming it is implemented
@@ -61,6 +62,9 @@ This is recorded availability, not a claim that communication has been tested.
    `docs/reference/05_ess_register_catalog.md`, and
    `docs/reference/06_encoder_units.md`. Read
    `docs/reference/04_co2control_platform.md` before board/example work.
+   Read `docs/reference/08_serial_protocol_review.md` before extending codecs
+   to another manufacturer; contrasting manuals are preserved under
+   `docs/vendor/contrasts/` with their own source/hash manifest.
 5. The original vendor function and hardware manuals in `docs/vendor/`.
 
 The original PDFs are authoritative for documented motor behavior. Searchable
@@ -101,7 +105,8 @@ differences instead of guessing. No hardware behavior has been validated yet.
   register escape hatch is not full command coverage. Track unresolved fields,
   implementation coverage and hardware qualification separately; never invent
   commands for capabilities available only through external inputs.
-- Use the long generic builder/parser names from the architecture. All ESS
+- Keep the agreed generic builder/parser vocabulary; use short, direct helper
+  names such as `readWord`, `checkReply` and `writeHeader`. All ESS
   frame parsers require request expectations; output capacity is not the
   expected register count. Payload outputs stay unchanged on error, with an
   explicit output count reset to zero.
@@ -136,6 +141,11 @@ differences instead of guessing. No hardware behavior has been validated yet.
   measurement-only contracts need review before claiming motor compatibility.
 - Establish supported register widths, signedness, scaling, word order,
   request limits, and exception behavior from the relevant vendor pages.
+- ESS FC03 permits at most 16 reviewed readable words; FC06 excludes paired
+  halves. FC10 initially admits only the documented 0x0024/two-word window,
+  not a claimed device-wide maximum. Probe reads model register 0x0000/one word.
+  Raw codecs validate wire shape/access, not value meaning, motion readiness
+  or persistence. Keep generic RTU mechanics private and profile policy explicit.
 - Keep board pins and platform adapters under `examples/common/`.
 - Add native protocol tests and build/package metadata when real code exists.
   Match sibling conventions for Doxygen API comments, ESP32-S2/S3 examples,
@@ -151,3 +161,8 @@ of documentation preparation. Vendor files are not covered by any future
 library license. The ESS JSON catalogue is the register transcription source;
 regenerate its C++ tables with `scripts/generate_ess_registers.py` and check
 them with `--check`. Keep firmware uncertainties visible in that source.
+
+`scripts/prepare_serial_contrasts.py` preserves the additional manufacturer
+manuals and verifies `serial_contrasts_sources.json` offline with `--check`.
+It also refuses changed snapshot bytes. These references inform the design;
+they do not establish support for the compared drives.

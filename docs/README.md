@@ -2,10 +2,11 @@
 
 ## Architecture baseline
 
-The first implementation is pure unit conversion, an ESS register catalogue
-and standalone build foundations. The contracts below describe the larger
-intended library; wire commands, motion workflows, discovery and CLI remain
-future work. See the [root README](../README.md) for current code and builds.
+Implemented blocks are pure unit conversion, an ESS register catalogue,
+checked wire codecs with a minimal probe and standalone build foundations.
+The contracts below also describe future transport, typed commands, motion
+workflows, discovery orchestration and CLI. See the [root README](../README.md)
+for current code and builds.
 
 - [Architecture and ownership](architecture.md): intended core layout,
   function names, buffer/status contracts, motor workflows and implementation
@@ -27,10 +28,13 @@ future work. See the [root README](../README.md) for current code and builds.
 - [CANopen feasibility and library boundary](reference/07_canopen_feasibility.md):
   accepted separate-library decision, common motion contract, CL86-C evidence
   and protocol-specific work. This analysis does not add CANopen support.
+- [Serial protocol comparison](reference/08_serial_protocol_review.md): five
+  downloaded manufacturer manuals, contrasting framing/limits/read effects,
+  probe candidates and consequences for the ESS codec boundary.
 
 ## Work tracking and bench
 
-- [Software verification](verification.md): first implementation checks and
+- [Software verification](verification.md): foundation and codec checks with
   explicit limits on what was tested.
 
 - [Features, implementation tasks and open questions](backlog.md): current
