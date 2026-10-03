@@ -55,7 +55,8 @@ The authoritative contracts are [architecture](architecture.md),
    then FieldCore integration in its own repository.
 
 The package is `MotorControl-RS`; namespace/includes/CMake use `MotorControlRS`.
-The checkout and GitHub URL remain `ESS23-RS` pending the user's remote rename.
+Metadata is prepared for the user's GitHub/folder rename to `MotorControl-RS`;
+see the [rename steps](repository_rename.md). This does not change the API.
 
 ## Immediate next implementation block
 
@@ -274,7 +275,7 @@ possible. This list is not a request for the user to answer everything now.
 
 | Question | Evidence or next action |
 | --- | --- |
-| When does the GitHub repository URL change? | The user will rename the remote; update metadata then. Local package/API rename is complete. |
+| When does the GitHub repository URL change? | Metadata is prepared for `janhavelka/MotorControl-RS`; the user performs the GitHub rename, then updates the clone's origin. Folder/cache steps are in [the rename guide](repository_rename.md). Package/API identity is already complete. |
 | What motor/model/firmware is actually connected? | Read documented identity; compare model markings if identity is insufficient. The project's RS20 target is not a bench measurement. |
 | What firmware/host path is active on COM13? | Latest recorded bench: MotorControl-RS 0.6.0 JSONL probe/load console with timer capture, with original CO2control backup retained. Recheck identity at each new hardware session; it is not a raw RTU bridge. |
 | What are the board pins, DE/RE polarity, echo topology and bus wiring? | User confirms E2 HW2.0 TX47/RX48/DE21. Matching FieldCore HW200 source uses UART2/active-high DE. Live polarity, echo and wiring qualification remain. |

@@ -51,6 +51,8 @@ for current code and builds.
 
 ## Work tracking and bench
 
+- [Repository/folder rename](repository_rename.md): prepared metadata,
+  remote update and fresh build/IDE paths while preserving bench evidence.
 - [Release roadmap](roadmap.md): delivery order, release scope, completion gates
   and the hardware regression required as each implemented feature reaches E2.
 - [ESS release prompt set](prompts/ess_release/README.md): 30 numbered blocks

@@ -1,7 +1,7 @@
 {
   "name": "E2 HW2.0 ESP32-S3 N16R8",
   "vendor": "Custom",
-  "url": "https://github.com/janhavelka/ESS23-RS",
+  "url": "https://github.com/janhavelka/MotorControl-RS",
   "build": {
     "mcu": "esp32s3",
     "core": "esp32",

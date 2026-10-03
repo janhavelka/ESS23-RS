@@ -2,8 +2,10 @@
 
 A framework-independent serial motion library, starting with STEPPERONLINE
 ESS23-RS10/RS20. The package is `MotorControl-RS`; the C++ namespace, include
-directory and CMake package/target are `MotorControlRS`. The checkout directory
-and GitHub URL remain `ESS23-RS` until the user renames the remote repository.
+directory and CMake package/target are `MotorControlRS`. The recommended GitHub
+repository and checkout name is `MotorControl-RS`; the folder name does not
+affect the API. Metadata is prepared for the rename from `ESS23-RS`.
+See [repository and folder rename steps](docs/repository_rename.md).
 
 The implementation supplies **configurable units, the ESS register catalogue
 and checked ESS Modbus RTU codecs**. A [standalone transaction runner](docs/runner.md)

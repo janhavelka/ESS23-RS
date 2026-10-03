@@ -15,7 +15,7 @@ Inspect `CMakeLists.txt`, `library.json`, `platformio.ini`, generators, all nati
 - Cover native Release tests, public-header isolation, generated register/version checks, offline reference consistency, clean source/install consumers and affected Arduino/native-IDF builds.
 - Add CI using the same entry point and a justified compiler/platform matrix. Hardware jobs require real named runners and separate evidence; ordinary hosted CI must not pretend to test COM13.
 - Verify exported core source packages build without examples, Python, vendor downloads or FieldCore. Verify basic codec linking does not pull descriptive catalogue strings accidentally.
-- Preserve framework-neutral C++ requirements, library identity and the current remote URL. Keep version generation deterministic, metadata/export/install rules consistent and vendor reference licensing separate.
+- Preserve framework-neutral C++ requirements and library identity. Follow the repository rename guide for the canonical URL; do not restore a historical URL from an old report. Keep version generation deterministic, metadata/export/install rules consistent and vendor reference licensing separate.
 - Compile a strict C++11 core consumer and a C++17 consumer with RTTI disabled, matching the inspected FieldCore build constraint. Recheck current FieldCore flags read-only; do not copy C++17-only declarations or firmware types into the C++11 public API.
 - Add documentation/reference-link checks appropriate to this repository rather than assuming FieldCore's Doxygen tooling exists. Do not add a large build orchestration framework.
 

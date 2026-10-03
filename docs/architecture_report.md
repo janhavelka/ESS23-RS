@@ -39,8 +39,8 @@ qualifying the exact hardware and firmware.
 ## 2. What exists and where it lives
 
 The package name is `MotorControl-RS`. C++ headers and namespace use
-`MotorControlRS`; the ESS family uses `MotorControlRS::ESS_RS`. The checkout
-and GitHub repository are still named `ESS23-RS`.
+`MotorControlRS`; the ESS family uses `MotorControlRS::ESS_RS`. The recommended
+checkout/GitHub name is `MotorControl-RS`; see [rename steps](repository_rename.md).
 
 | Current location | Responsibility |
 | --- | --- |

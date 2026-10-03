@@ -12,8 +12,8 @@ discovery orchestration and the full CLI follow; do not add placeholder APIs.
 The accepted scope remains a general framework-independent serial motion
 library: common axis API, drive profiles and application integration. Implement
 ESS first; design against Leadshine iEM-RS without claiming it is implemented
-or qualified. Preserve original downloaded references. The repository directory
-remains `ESS23-RS`.
+or qualified. Preserve original downloaded references. The checkout directory
+name is not part of the library API; `MotorControl-RS` is the recommended name.
 
 CANopen belongs in a separate future motion library, initially targeting the
 verified CL86-C subset. Keep one documented motion vocabulary and behavioral
@@ -22,7 +22,10 @@ application bus owners. Extract shared units/types only after the second
 implementation demonstrates concrete reuse; do not add a universal transport
 engine or a speculative common framework here. The accepted package name is
 `MotorControl-RS`; C++ namespace, include directory and CMake identity are
-`MotorControlRS`. The user will rename GitHub later; preserve the current URL.
+`MotorControlRS`. Repository/board metadata is prepared for the user's GitHub
+rename to `janhavelka/MotorControl-RS`. Keep the working Git remote until that
+endpoint exists, then update it. See [rename steps](docs/repository_rename.md)
+for generated-cache handling; never delete bench evidence with build caches.
 
 ## Delivery workflow
 

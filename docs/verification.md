@@ -1,5 +1,13 @@
 # Software verification
 
+## Repository rename preparation
+
+On 2026-10-03, a clean copy named `MotorControl-RS` passed all 13 CTest suites
+and built `e2_s3_units` and `e2_s3_load_timer`. PlatformIO's local dependency
+links and regenerated VS Code paths pointed to that copy. No hardware was
+flashed for this metadata/documentation change. See the
+[rename guide](repository_rename.md) for the tested move/cache procedure.
+
 ## Capture and load audit, version 0.6.0
 
 Checks on 2026-10-03: Release build with warnings as errors and **13/13 CTest

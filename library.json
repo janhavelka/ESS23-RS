@@ -4,7 +4,7 @@
   "description": "Framework-independent motion units, ESS-RS register catalogue and checked Modbus RTU codecs. Application-owned transport; no motion sequencing yet.",
   "keywords": ["rs485", "modbus", "stepper", "servo", "ess23", "motion"],
   "authors": [{"name": "Jan Havelka", "maintainer": true}],
-  "repository": {"type": "git", "url": "https://github.com/janhavelka/ESS23-RS.git"},
+  "repository": {"type": "git", "url": "https://github.com/janhavelka/MotorControl-RS.git"},
   "license": "MIT",
   "frameworks": "*",
   "platforms": "*",

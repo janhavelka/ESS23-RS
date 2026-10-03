@@ -37,8 +37,9 @@ questions remain in the [implementation reference](reference/01_implementation_r
 
 Use `MotorControl-RS` as the package name, `MotorControlRS` as the namespace
 and CMake identity, and `MotorControlRS/MotorControlRS.h` as the entry header.
-The repository folder and GitHub URL remain `ESS23-RS`; the user will rename
-the remote later. The ESS family lives under `MotorControlRS::ESS_RS`.
+The recommended repository/folder name is `MotorControl-RS`; a checkout rename
+does not change these identities. See [rename steps](repository_rename.md).
+The ESS family lives under `MotorControlRS::ESS_RS`.
 Consumers must update old includes/names; no legacy alias layer is supplied.
 
 The accepted CANopen direction is a separate future library, initially for the

@@ -1,4 +1,5 @@
 .pio/
+.pio-before-rename/
 .vscode/
 .idea/
 build/
