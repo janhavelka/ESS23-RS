@@ -3,7 +3,7 @@
 Execute only this prompt under [the execution contract](execution_contract.md).
 Read [the sequence index](README.md); all prerequisite dispositions must be current.
 
-Prerequisite: 12 pair policy, 13 configuration effects and 15 external I/O. This block is bounded indexed record access, not a trajectory engine.
+Prerequisite: 12 pair policy, 13 configuration effects and 15 optional I/O configuration. This block is bounded indexed record access, not a trajectory engine.
 
 ## Read and reuse
 
@@ -16,6 +16,9 @@ Review original ESS multisegment pages and indexed ledger records. Reuse index v
 - Use one small indexed helper per real record layout, not 16 copied functions or a generic runtime schema engine.
 - Record storage capacity separately from what the selected model's input combinations can select. Four ESS inputs do not prove all 16 entries are physically addressable simultaneously.
 - Expose typed profile CLI access and bounded multi-field updates with honest partial-application results. Unknown paired-write support from 12 remains a visible blocker.
+- Keep record configuration available without an external trigger fixture.
+  Reject/defer physical execution prerequisites when its required inputs are
+  unwired, disabled or unknown; other serial motion remains independent.
 - Execution is external-input-triggered. Do not add a fictional serial startSegment, scheduler-generated trigger or claim that PT timing prose automatically applies to PV.
 
 ## Verify

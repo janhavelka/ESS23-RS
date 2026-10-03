@@ -1,4 +1,4 @@
-# 03 — Connect the bus owner to the E2 console
+# 03 — Connect the bus owner to the standalone console
 
 Execute only this prompt under [the execution contract](execution_contract.md).
 Read [the sequence index](README.md); all prerequisite dispositions must be current.
@@ -7,7 +7,7 @@ Prerequisite: verified owner and scheduling contracts from 01–02.
 
 ## Read and reuse
 
-Inspect `examples/probe_cli/main.cpp`, `ProbeConsole.*`, `E2Load.*`, `test/probe_app_test.cpp`, shared SDK fakes and `scripts/bench_probe.py`. Read the CLI and FieldCore diagnostics contracts; reuse the existing console instead of creating a second command engine.
+Inspect `examples/probe_cli/main.cpp`, `ProbeConsole.*`, `Esp32Load.*`, `test/probe_app_test.cpp`, shared SDK fakes and `scripts/bench_probe.py`. Read the CLI contract and existing diagnostics; reuse the console instead of creating a second command engine. The ESP32-S3 adapter runs the reference on the available bench; it does not define the public library API.
 
 ## Implement
 
@@ -28,4 +28,4 @@ Use delayed-owner timer capture to verify old observations keep their age, repea
 
 ## Subagents and handoff
 
-Assign a console/correlation reviewer and an application/FieldCore-fit reviewer. Re-audit code and help/dispatch parity, fix root causes of hardware failures, and deliver the real owner integration and measured limits to 04 under the common workflow.
+Assign a console/correlation reviewer and an application/platform-boundary reviewer. Re-audit code and help/dispatch parity, fix root causes of hardware failures, and deliver the real owner integration and measured limits to 04 under the common workflow.

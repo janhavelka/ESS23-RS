@@ -3,7 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 
-// Minimal fake of the exact SDK surface used by E2Uart.cpp. Implementations
+// Minimal fake of the exact SDK surface used by Esp32S3Uart.cpp. Implementations
 // live in FakeEsp.cpp; no adapter logic is duplicated here.
 using esp_err_t = int;
 constexpr esp_err_t ESP_OK = 0;
@@ -17,6 +17,13 @@ struct uart_config_t {
 };
 using gpio_num_t = int;
 constexpr int GPIO_MODE_OUTPUT = 1;
+constexpr int GPIO_NUM_MAX = 49;
+// ESP32-S3 SDK mask excludes GPIO22..25; all remaining GPIOs allow output.
+constexpr bool fakeValidGpio(int pin) {
+    return pin >= 0 && pin < GPIO_NUM_MAX && (pin <= 21 || pin >= 26);
+}
+#define GPIO_IS_VALID_GPIO(pin) fakeValidGpio(pin)
+#define GPIO_IS_VALID_OUTPUT_GPIO(pin) fakeValidGpio(pin)
 using portMUX_TYPE = int;
 #define portMUX_INITIALIZER_UNLOCKED 0
 void fakeEnterCritical();

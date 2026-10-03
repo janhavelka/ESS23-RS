@@ -13,6 +13,9 @@ Read the original ESS method diagrams, search/return speed, offset, limit and co
 
 - Build an explicit per-method support/prerequisite table from documented ESS methods. Distinguish configured direction, search/return rates, acceleration/deceleration, auxiliary flags, offset and reference/completion evidence.
 - Prepare and execute supported methods with bounded caller-owned state. No method is available simply because its numeric enum exists.
+- Require sensors/limits only for methods that actually use them. Documented
+  methods requiring no external input remain eligible with unwired/disabled
+  inputs; do not invent a sensorless method or alter drive assignments silently.
 - Use already verified sensor/limit input configuration. Methods needing new input assignments remain pending prompt 15; do not duplicate its I/O setters here. Record the dependent admission and fixture checks for 15 to revisit.
 - Reuse reviewed pair writes for offsets; unresolved fields fail before staging. Retain collision-parameter conflicts rather than aliasing addresses.
 - Establish origin/reference only on sufficiently fresh correlated completion evidence. Old homed flags, a start echo or interrupted search cannot establish a new reference.

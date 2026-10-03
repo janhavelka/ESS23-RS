@@ -9,7 +9,7 @@
 
 namespace MotorControlRSExample {
 
-/// @brief USB console rate used by both inspected CO2Control firmware builds.
+/// @brief Standalone USB console rate.
 /// @note This is not the RS485 motor baud rate or evidence of its settings.
 constexpr uint32_t kConsoleBaud = 115200U;
 

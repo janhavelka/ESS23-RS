@@ -7,15 +7,18 @@ Prerequisite: 25's actual IDF firmware and 24's reusable scenarios. Use only alr
 
 ## Read and reuse
 
-Read platform build settings, board notes, current electrical/capture report and each platform adapter. Reuse shared command scenarios; inspect FieldCore memory/task conventions without modifying it.
+Read platform build settings, board notes, current electrical/capture report and each platform adapter. Reuse shared command scenarios and measured application memory/task budgets.
 
 ## Work
 
-- Execute equivalent read-only, state, bounded movement/stop and native-feature cases on Arduino E2/S3 and native IDF E2/S3 where prerequisites permit.
+- Execute equivalent read-only, state, bounded movement/stop and native-feature cases on Arduino ESP32-S3 and native IDF ESP32-S3 where prerequisites permit.
 - Each image's physical write/motion cases require its applicable capture/timing evidence. Arduino qualification and a native-IDF read smoke alone do not qualify IDF timing.
 - Compare command semantics, effective native values, result/uncertainty, timing policy, capture failures and cleanup. Explain legitimate adapter capability differences explicitly.
 - Repeat loaded owner-sleep/console tests and short memory/stack checks per image. Test init/PSRAM failure, console backpressure and transport faults through real paths or labelled injection.
-- Verify the core and platform-neutral application pieces on the selected ESP32-S2 build target if a maintained target is available. Board pins/transceiver adapters require separate board facts; do not compile the S3-only E2 adapter as if it supported S2.
+- Verify the core and platform-neutral application pieces on the selected ESP32-S2 build target if a maintained target is available. Board pins/transceiver adapters require separate board facts; do not compile the S3-only UART adapter as if it supported S2.
+- Verify the installed core builds with no ESP32, Arduino, IDF, board or
+  FieldCore include path. Keep application memory policy and bench presets out
+  of public profile/common APIs; compiling on a platform is not adapter support.
 - Record compile-only portability separately from actual hardware qualification. Do not invent another board wiring map or claim unavailable S2 tests passed.
 - Fix shared defects in shared owners, adapter defects in adapters. Re-run the original discrepancy and both affected platform regressions.
 

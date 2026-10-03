@@ -7,7 +7,7 @@ Prerequisite: 05–22 have recorded implementation and qualification disposition
 
 ## Read and reuse
 
-Read the full axis/profile/CLI/discovery contracts and operation coverage inventory. Trace every public operation to its implementation, console entry, help text and test; inspect current FieldCore passive status/diagnostic conventions read-only.
+Read the full axis/profile/CLI/discovery contracts and operation coverage inventory. Trace every public operation to its implementation, console entry, help text and test. Reuse passive status/diagnostic conventions from the existing console.
 
 ## Work
 
@@ -15,6 +15,9 @@ Read the full axis/profile/CLI/discovery contracts and operation coverage invent
 - Ensure every implemented typed device operation is callable directly and through the CLI with identical validation, units, prerequisites and effects.
 - Complete implemented host selection/configuration, capabilities, cached status/health, explicit checks, diagnostics/trace, result retrieval, cancel, optional polling, reset and recover. Add flush only with its explicit idle-only host semantics.
 - Preserve response correlation, bounded progress/terminal output, target/configuration generations, unknown bits and per-field freshness. Status/result inspection is non-consuming.
+- Expose unwired/disabled input disposition and documented typed disable
+  commands consistently in API/CLI. Operations needing an unavailable input
+  fail before TX; serial operations with no such dependency remain usable.
 - Keep unsupported, unresolved and unimplemented capabilities separate. ESS current settings are not torque/current motion support; external-trigger segments do not gain a serial start.
 - Remove redundant dispatch/conversion/register paths. Do not introduce a second CLI or split implementations by framework.
 - Update the complete coverage matrix. Substantial missing family behavior returns to its owning prompt as a named gap; do not mark this prompt or the release fully complete by narrowing the denominator silently.

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-#include "E2Load.h"
+#include "Esp32Load.h"
 #include <Arduino.h>
 #include <esp_timer.h>
 #include <cstring>
@@ -10,7 +10,7 @@ uint64_t clockUs() { return static_cast<uint64_t>(esp_timer_get_time()); }
 constexpr uint32_t PERIOD_MS = 10;
 }
 
-bool E2Load::begin() {
+bool Esp32Load::begin() {
     if (worker_) return false;
     output_ = xSemaphoreCreateMutexStatic(&outputState_);
     if (!output_) return false;
@@ -22,7 +22,7 @@ bool E2Load::begin() {
     return worker_ != nullptr;
 }
 
-void E2Load::writeLine(const char* text, std::size_t size) {
+void Esp32Load::writeLine(const char* text, std::size_t size) {
     if (output_) xSemaphoreTake(output_, portMAX_DELAY);
     Serial.write('\n'); // Resynchronize after a short diagnostic write/disconnect.
     Serial.write(reinterpret_cast<const uint8_t*>(text), size);
@@ -30,20 +30,20 @@ void E2Load::writeLine(const char* text, std::size_t size) {
     if (output_) xSemaphoreGive(output_);
 }
 
-uint32_t E2Load::ownerDelayUs() {
+uint32_t Esp32Load::ownerDelayUs() {
     portENTER_CRITICAL(&mux_);
     const uint32_t value = settings_.ownerDelayUs;
     portEXIT_CRITICAL(&mux_);
     return value;
 }
 
-void E2Load::serviced(uint64_t atUs, bool active) {
+void Esp32Load::serviced(uint64_t atUs, bool active) {
     // Called only by the owner; stats queries/configuration use that same task.
     if (active && ownerAt_ && atUs - ownerAt_ > ownerGap_) ownerGap_ = atUs - ownerAt_;
     ownerAt_ = active ? atUs : 0;
 }
 
-void E2Load::resetStats(E2Uart& uart) {
+void Esp32Load::resetStats(Esp32S3Uart& uart) {
     const uint32_t idle0 = ulTaskGetIdleRunTimeCounterForCore(0);
     const uint32_t idle1 = ulTaskGetIdleRunTimeCounterForCore(1);
     portENTER_CRITICAL(&mux_);
@@ -56,8 +56,8 @@ void E2Load::resetStats(E2Uart& uart) {
     uart.resetStats(); // Never clears transport or capture faults.
 }
 
-Probe::Action E2Load::configure(const Probe::LoadSettings* requested,
-                              Probe::LoadSnapshot& out, E2Uart& uart) {
+Probe::Action Esp32Load::configure(const Probe::LoadSettings* requested,
+                              Probe::LoadSnapshot& out, Esp32S3Uart& uart) {
     if (!worker_) return Probe::Action::UNAVAILABLE;
     if (requested && (requested->workUs > 5000 || requested->ownerDelayUs > 20000 ||
                       requested->consoleBytes > 256)) return Probe::Action::FAILED;
@@ -94,9 +94,9 @@ Probe::Action E2Load::configure(const Probe::LoadSettings* requested,
     return Probe::Action::OK;
 }
 
-void E2Load::task(void* context) { static_cast<E2Load*>(context)->run(); }
+void Esp32Load::task(void* context) { static_cast<Esp32Load*>(context)->run(); }
 
-void E2Load::run() {
+void Esp32Load::run() {
     TickType_t wake = xTaskGetTickCount();
     volatile uint32_t value = 1;
     for (;;) {

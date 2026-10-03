@@ -1,5 +1,5 @@
 {
-  "name": "E2 HW2.0 ESP32-S3 N16R8",
+  "name": "MotorControl-RS bench ESP32-S3 N16R8",
   "vendor": "Custom",
   "url": "https://github.com/janhavelka/MotorControl-RS",
   "build": {

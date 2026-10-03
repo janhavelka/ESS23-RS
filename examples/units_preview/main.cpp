@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// The same pure-library preview runs on a desktop and on the E2 USB console.
+// The same pure-library preview runs on a desktop and on the ESP32-S3 bench USB console.
 #include <MotorControlRS/MotorControlRS.h>
 #include <MotorControlRS/profiles/ess_rs/Defaults.h>
 #include <MotorControlRS/profiles/ess_rs/Registers.h>
@@ -54,7 +54,7 @@ void setup() {
     // Bound console attachment waiting; do not wait forever without a host.
     const uint32_t started = millis();
     while (!Serial && millis() - started < 2000) delay(10);
-    PREVIEW_PRINTF("E2 HW2.0 pins: TX%d RX%d DE%d (not initialized)\n",
+    PREVIEW_PRINTF("Bench RS485 pins: TX%d RX%d DE%d (not initialized)\n",
                    MotorControlRSExample::Board::kRs485TxPin,
                    MotorControlRSExample::Board::kRs485RxPin,
                    MotorControlRSExample::Board::kRs485DeRePin);

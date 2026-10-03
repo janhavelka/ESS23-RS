@@ -1,5 +1,13 @@
 # Software verification
 
+## Platform boundary and optional I/O audit
+
+The current standalone environments are `bench_s3_units`, `bench_s3_probe`,
+`bench_s3_load_poll` and `bench_s3_load_timer`. The adapter is `Esp32S3Uart`,
+with application-supplied pins and polarity. Earlier entries retain historical
+names and results. See the [scope audit](reports/2026-10-03_platform_scope_audit.md)
+for the cleanup, independent review, build and new-image bench evidence.
+
 ## Repository rename preparation
 
 On 2026-10-03, a clean copy named `MotorControl-RS` passed all 13 CTest suites

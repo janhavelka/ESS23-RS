@@ -8,7 +8,7 @@ folder name is not part of the API.
 
 Prepared on 2026-10-03:
 
-- `library.json` and the E2 board metadata point to
+- `library.json` and the standalone bench board metadata point to
   `https://github.com/janhavelka/MotorControl-RS` (the library URL adds `.git`).
 - Source, CMake, PlatformIO configuration and reference generators resolve
   local files relative to the project or script. No source rename is needed.
@@ -77,7 +77,7 @@ cmake -S . -B build/native -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build build/native
 ctest --test-dir build/native --output-on-failure
 .\scripts\pio.cmd project init --ide vscode
-.\scripts\pio.cmd run -e e2_s3_units -e e2_s3_load_timer
+.\scripts\pio.cmd run -e bench_s3_units -e bench_s3_load_timer
 ```
 
 The last commands rebuild local dependency links and the generated
@@ -87,14 +87,15 @@ have no custom edits; if you add custom debug settings before moving, save
 those separately before regenerating. Close/reopen the workspace or rebuild
 the IntelliSense index if the editor still displays old paths.
 
-The E2 upload environment and COM13 do not change because of a repository
+The bench upload environment and COM13 do not change because of a repository
 rename. Recheck the actual board/port before any later upload as usual.
 
 ## Verification performed
 
 A separate clean source copy named `MotorControl-RS` was built outside the
 original checkout on 2026-10-03. All 13 native CTest suites passed, and
-`e2_s3_units` plus `e2_s3_load_timer` built successfully. Their local dependency
+`e2_s3_units` plus `e2_s3_load_timer` built successfully (historical names,
+now `bench_s3_units` and `bench_s3_load_timer`). Their local dependency
 links resolved to the copied project. The old generated VS Code files were
 copied into that fixture, then `pio project init --ide vscode` regenerated both
 with the new absolute path. The working checkout and its caches were not moved

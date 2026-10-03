@@ -2,7 +2,7 @@
 
 This defines the planned standalone console for the general `MotorControlRS`
 library and its family profiles, beginning with `MotorControlRS::ESS_RS`.
-The [probe/load console](e2_probe.md) implements the current read-only subset;
+The [probe/load console](esp32_probe.md) implements the current read-only subset;
 the full command surface below remains a contract for later implementation.
 Checkout naming is independent of the CLI. The [architecture](architecture.md),
 [axis contract](axis_contract.md) and [profile contract](profile_contract.md)
@@ -255,7 +255,7 @@ access and effects without duplicating that register inventory:
 | `profile ess-rs position ...` / `speed ...` / `jog ...` | Native motion parameters and documented serial actions; separate configuration, start and observation |
 | `profile ess-rs home ...` / `limits ...` | Homing method/parameters, software limits, over-limit and fixed-length interruption settings |
 | `profile ess-rs segments ...` | Multi-position/multi-speed and shared start-speed configuration; expose documented trigger requirements |
-| `profile ess-rs io ...` | Reviewed input/output functions, polarity and custom output control |
+| `profile ess-rs io ...` | Reviewed input/output functions, explicit disabled/none assignment, polarity and custom output control |
 | `profile ess-rs tuning ...` | Closed-loop, encoder, current, lock, filter, deviation, arrival, current-loop and LA settings |
 | `profile ess-rs auxiliary ...` | Explicit enable/release, stop/emergency-stop, alarm/position clear, save and factory restore |
 | `profile ess-rs parameter <typed-name> ...` | Remaining reviewed parameter descriptors with typed values, ranges, prerequisites and effects |
@@ -272,6 +272,20 @@ In particular, the current ESS manual describes multisegment execution as
 external-input-triggered: the CLI exposes documented configuration, not an
 invented serial `startSegment` action. Model-specific I/O counts likewise come
 from the ESS inventory, not generic prose for other product families.
+
+The typed I/O commands must expose an explicit `none`/disabled function for
+each supported terminal. For ESS this maps to the existing native
+`InputFunction::UNDEFINED` or `OutputFunction::UNDEFINED`, value `0`; it is not
+a polarity change. Selecting unused external I/O is a valid setup for serial
+motion. Host wiring declarations are local configuration and must be shown
+separately from drive assignment readback and raw/logical levels. An
+unconnected terminal must not silently acquire a disabled assignment, and a
+disabled output must not be reported electrically inactive without evidence.
+Commands whose selected mode needs external signals report the missing
+prerequisite before writes; other serial commands remain available. Neither
+startup nor a normal move rewrites I/O assignments. These commands call the
+same typed profile API as any application; their implementation is still
+pending.
 
 No startup, `setup`, `diagnose`, `recover` or host configuration command may
 silently enable, move, home, clear alarms, save parameters, restore defaults or
@@ -345,7 +359,12 @@ service deadlines and no automatic motion replay. Equivalent Arduino/native
 ESP-IDF consumers must pass the same semantic command cases; report actual
 adapter serial/echo/timing capabilities separately.
 
+Include the no-external-I/O setup in API/CLI parity tests. Verify explicit
+no-function writes and readback, local-only wiring declarations, and rejection
+of switch/trigger-dependent requests when their required terminals are unused.
+
 The [ESS implementation reference](reference/01_implementation_reference.md)
 and original vendor PDFs remain authoritative for native behavior. Console
-contract tests, firmware builds and physical motor qualification are distinct;
-none has been performed during this documentation stage.
+contract tests, firmware builds and physical motor qualification are distinct.
+See [verification](verification.md) and the linked bench reports for completed
+checks; the planned full motion/I/O console remains unimplemented.

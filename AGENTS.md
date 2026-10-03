@@ -6,7 +6,7 @@ Implementation is authorized in small, tested blocks. Implemented foundations
 are configurable units, the complete documented ESS register catalogue,
 standalone build/board settings and checked ESS wire codecs with a minimal
 probe. The standalone runner under `examples/common/` now has native fake
-tests. The E2 ESP32-S3 adapter supports polling and GPTimer capture; the
+tests. The ESP32-S3 adapter supports polling and GPTimer capture; the
 read-only probe/load CLI has native tests and measured bench evidence. External timing qualification, motion sequences,
 discovery orchestration and the full CLI follow; do not add placeholder APIs.
 The accepted scope remains a general framework-independent serial motion
@@ -100,11 +100,11 @@ This is recorded availability, not a claim that communication has been tested.
    `docs/reference/06_encoder_units.md`. Read
    `docs/reference/09_timing_and_gap_audit.md` for framing and unresolved
    response, configuration and motion timing before transport/workflow work.
-   Read `docs/runner.md`, `docs/e2_probe.md`, the current bench report and
+   Read `docs/runner.md`, `docs/esp32_probe.md`, the current bench report and
    `docs/reference/10_runner_platform_review.md`
    before runner, ESP32 adapter or automated bench work.
    Read
-   `docs/reference/04_co2control_platform.md` before board/example work.
+   `docs/reference/04_esp32_bench.md` before board/example work.
    Read `docs/reference/08_serial_protocol_review.md` before extending codecs
    to another manufacturer; contrasting manuals are preserved under
    `docs/vendor/contrasts/` with their own source/hash manifest.
@@ -120,6 +120,20 @@ hardware evidence; do not generalize that to motion or full timing qualification
 
 ## Intended structure and architecture
 
+- This library targets RS485-controlled motors through independent drive
+  profiles. FieldCore is one future consumer; its motor device/product does
+  not exist yet. Only its RS485 owner/module/backend workflow is a reference.
+  Do not import E2 sensor-bus, CO2control product, cloud, settings service or
+  product composition requirements. Historical bench labels are not APIs.
+- Keep MCU-specific adapters and load fixtures outside the reusable core.
+  The ESP32-S3 adapter takes explicit TX/RX/DE pins and direction polarity;
+  the standalone application supplies its bench wiring. Neither an MCU nor
+  PSRAM is a prerequisite for consuming the core or portable runner.
+- External drive I/O may be unused. Distinguish unconnected wiring from a
+  disabled function assignment; use the profile's documented no-function
+  value rather than polarity tricks. ESS input/output function 0 means no
+  function. Require physical inputs only for operations that need them, and
+  never silently disable inputs, limits or stops during serial motion setup.
 - Common public headers: `include/MotorControlRS/`, namespace
   `MotorControlRS`; ESS headers: `include/MotorControlRS/profiles/ess_rs/`, namespace
   `MotorControlRS::ESS_RS`; implementation: `src/`.

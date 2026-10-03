@@ -17,6 +17,11 @@ Read axis operation/stop contracts, ESS auxiliary and normal/emergency-stop page
 - Retain admission, transmitted/acknowledged/rejected/unknown execution and completion evidence separately. A write echo is not proof that windings changed or movement stopped.
 - Validate stop behavior and reserve urgent/result capacity before superseding unsent continuations. Rejected/unsupported/full stop admission leaves the current operation and queue intact. Once accepted, preserve the interrupted outcome and route stop through reserved priority after settling the in-flight transaction.
 - Stop has its own prerequisites: a usable stop for a known target must not wait for move readiness, idle state, host origin, fresh position or an alarm-free axis unless its particular requested semantics needs that information. Do not insert an unnecessary refresh before priority stop; actual transport recovery constraints still apply.
+- Support serial-only use with known unwired or documented disabled inputs.
+  Gate only on external prerequisites of the requested action. An absent home
+  switch must not reject a serial stop; an unwired but assigned asserted limit
+  is not equivalent to disabled input. Needed I/O changes use prompt 15's typed
+  operations and never happen implicitly as part of enable or stop.
 - Define supported deceleration and host/device queued-command disposition explicitly. Unsupported ESS policy must fail before parameter writes. Local cancel remains local.
 - Add the corresponding CLI commands through the public preparations. Ensure console and result pressure cannot erase either the interrupted operation or the stop result.
 

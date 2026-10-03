@@ -7,11 +7,11 @@ Prerequisite: the shared public API/CLI and application owner are real; the curr
 
 ## Read and reuse
 
-Read architecture/ownership, current CMake/package metadata, E2 board/pins/partitions, selected capture SDK dependencies and all application consumers. Inspect FieldCore's platform boundary read-only; do not import its product headers.
+Read architecture/ownership, current CMake/package metadata, bench board pins/partitions, selected capture SDK dependencies and all application consumers. Keep board and platform headers in the standalone example.
 
 ## Implement
 
-- Add a real native ESP-IDF E2/S3 example using the same core, portable console semantics, owner, operations and evidence/result contracts as Arduino.
+- Add a real native ESP-IDF ESP32-S3 example using the same core, portable console semantics, owner, operations and evidence/result contracts as Arduino. Select the available board through example configuration; do not encode its pins or product name in reusable APIs.
 - Separate unavoidable framework startup/USB/task/allocation code into small platform adapters. Extract shared application logic only where the second real consumer proves reuse; avoid two copies of the motor workflow.
 - Keep exclusive UART/DE ownership and the measured capture/clock contract. Check SDK compatibility explicitly; do not assume Arduino's prebuilt SDK flags match the native IDF configuration.
 - Use caller-owned bounded storage, measured PSRAM placement and required internal ISR/driver/stacks. Expose initialization/allocation failure without a silent large internal fallback.

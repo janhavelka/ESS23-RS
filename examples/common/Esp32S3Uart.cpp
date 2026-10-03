@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: MIT
-#include "E2Uart.h"
-#include "BoardPins.h"
+#include "Esp32S3Uart.h"
 #include <cstdlib>
 #include <cstring>
 #include <driver/uart.h>
@@ -13,7 +12,7 @@
 #include <hal/gpio_ll.h>
 
 #if !CONFIG_IDF_TARGET_ESP32S3
-#error E2Uart supports ESP32-S3 builds only
+#error Esp32S3Uart supports ESP32-S3 builds only
 #endif
 
 namespace MotorControlRSExample {
@@ -24,24 +23,29 @@ uint64_t now() { return static_cast<uint64_t>(esp_timer_get_time()); }
 uint32_t bounded(uint64_t v) { return v > UINT32_MAX ? UINT32_MAX : static_cast<uint32_t>(v); }
 void increment(uint32_t& v) { if (v != UINT32_MAX) ++v; }
 uint32_t maximum(uint32_t a, uint32_t b) { return a > b ? a : b; }
+bool validPin(int pin, bool output) {
+    // IDF's validity macros shift by pin; bound it before evaluating either.
+    return pin >= 0 && pin < GPIO_NUM_MAX &&
+        (output ? GPIO_IS_VALID_OUTPUT_GPIO(pin) : GPIO_IS_VALID_GPIO(pin));
+}
 // One peripheral, one lock, shared by the owner and the capture interrupt.
 struct Guard {
     Guard() { portENTER_CRITICAL_SAFE(&mux); }
     ~Guard() { portEXIT_CRITICAL_SAFE(&mux); }
 };
 bool capture(gptimer_handle_t, const gptimer_alarm_event_data_t*, void* context) {
-    static_cast<E2Uart*>(context)->sample();
+    static_cast<Esp32S3Uart*>(context)->sample();
     return false;
 }
 }
 
-E2Uart::~E2Uart() {
+Esp32S3Uart::~Esp32S3Uart() {
     // A live callback must never outlast its object. Applications should call
     // stopCapture() while idle and handle its result before ending the lifetime.
     if (!stopTimer()) std::abort(); // Do not silently leak a timer or leave a dangling callback.
 }
 
-bool E2Uart::startCapture(uint32_t periodUs, uint32_t holdUs) noexcept {
+bool Esp32S3Uart::startCapture(uint32_t periodUs, uint32_t holdUs) noexcept {
     {
         Guard guard;
         if (!ready_ || failed_ || timer_ || transmitting_ || periodUs < 10 || periodUs > 40 ||
@@ -77,7 +81,7 @@ bool E2Uart::startCapture(uint32_t periodUs, uint32_t holdUs) noexcept {
     return false;
 }
 
-bool E2Uart::stopTimer() noexcept {
+bool Esp32S3Uart::stopTimer() noexcept {
     if (!timer_) return true;
     auto timer = static_cast<gptimer_handle_t>(timer_);
     if (timerRunning_) {
@@ -94,7 +98,7 @@ bool E2Uart::stopTimer() noexcept {
     return true;
 }
 
-bool E2Uart::stopCapture() noexcept {
+bool Esp32S3Uart::stopCapture() noexcept {
     if (!timer_) return true;
     {
         Guard guard;
@@ -105,11 +109,16 @@ bool E2Uart::stopCapture() noexcept {
     return stopTimer();
 }
 
-bool E2Uart::begin(uint32_t baud) noexcept {
-    if (ready_ || uart_is_driver_installed(UART_NUM_2) || baud != 115200) return false;
+bool Esp32S3Uart::begin(const Pins& pins, uint32_t baud) noexcept {
+    if (ready_ || baud != 115200 || !validPin(pins.tx, true) ||
+        !validPin(pins.rx, false) || !validPin(pins.de, true) ||
+        pins.tx == pins.rx || pins.tx == pins.de || pins.rx == pins.de ||
+        uart_is_driver_installed(UART_NUM_2)) return false;
     // Initial slice intentionally fixes the documented default tuple: 115200 8N1.
-    if (gpio_set_level(static_cast<gpio_num_t>(Board::kRs485DeRePin), 0) != ESP_OK) return false;
-    if (gpio_set_direction(static_cast<gpio_num_t>(Board::kRs485DeRePin), GPIO_MODE_OUTPUT) != ESP_OK)
+    pins_ = pins;
+    const auto de = static_cast<gpio_num_t>(pins_.de);
+    if (gpio_set_level(de, pins_.activeHigh ? 0 : 1) != ESP_OK) return false;
+    if (gpio_set_direction(de, GPIO_MODE_OUTPUT) != ESP_OK)
         return false;
     uart_config_t config = {};
     config.baud_rate = static_cast<int>(baud);
@@ -121,7 +130,7 @@ bool E2Uart::begin(uint32_t baud) noexcept {
     // UART setup does not install its driver or ISR. The optional GPTimer samples
     // raw FIFO/state/error registers under the same exclusive owner.
     if (uart_param_config(UART_NUM_2, &config) != ESP_OK ||
-        uart_set_pin(UART_NUM_2, Board::kRs485TxPin, Board::kRs485RxPin,
+        uart_set_pin(UART_NUM_2, pins_.tx, pins_.rx,
                      UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE) != ESP_OK) return false;
     hw->int_ena.val = 0;
     uart_ll_set_tx_idle_num(hw, 0);
@@ -138,12 +147,12 @@ bool E2Uart::begin(uint32_t baud) noexcept {
     return true;
 }
 
-void E2Uart::fault(bool uartError) noexcept {
+void Esp32S3Uart::fault(bool uartError) noexcept {
     if (!failed_) { increment(captureFaults_); if (uartError) increment(rxErrors_); }
     failed_ = true;
 }
 
-uint64_t E2Uart::sample() noexcept {
+uint64_t Esp32S3Uart::sample() noexcept {
     Guard guard;
     if (!ready_) return now();
     uint8_t value = 0;
@@ -205,7 +214,7 @@ uint64_t E2Uart::sample() noexcept {
         // Release locally even if the owner is asleep. GPIO write timing is
         // bracketed; electrical DE timing still needs an independent capture.
         const uint64_t low = now();
-        gpio_ll_set_level(&GPIO, Board::kRs485DeRePin, 0);
+        gpio_ll_set_level(&GPIO, pins_.de, pins_.activeHigh ? 0 : 1);
         releasedAt_ = directionAt_ = now();
         releaseWidth_ = bounded(releasedAt_ - low);
         transmitting_ = false;
@@ -215,13 +224,14 @@ uint64_t E2Uart::sample() noexcept {
     return before;
 }
 
-bool E2Uart::direction(void* ctx, bool enabled) {
-    E2Uart& self = *static_cast<E2Uart*>(ctx);
+bool Esp32S3Uart::direction(void* ctx, bool enabled) {
+    Esp32S3Uart& self = *static_cast<Esp32S3Uart*>(ctx);
     Guard guard;
     if (!self.ready_ || !uart_ll_is_tx_idle(hw) || (enabled && self.failed_)) return false;
     if (!enabled && !self.transmitting_) return true;
     const uint64_t before = now();
-    if (gpio_set_level(static_cast<gpio_num_t>(Board::kRs485DeRePin), enabled ? 1 : 0) != ESP_OK)
+    const int level = enabled == self.pins_.activeHigh ? 1 : 0;
+    if (gpio_set_level(static_cast<gpio_num_t>(self.pins_.de), level) != ESP_OK)
         return false;
     self.transmitting_ = enabled;
     self.directionAt_ = now();
@@ -240,8 +250,8 @@ bool E2Uart::direction(void* ctx, bool enabled) {
     return true;
 }
 
-Rtu::WriteResult E2Uart::write(void* ctx, const uint8_t* bytes, std::size_t length) {
-    E2Uart& self = *static_cast<E2Uart*>(ctx);
+Rtu::WriteResult Esp32S3Uart::write(void* ctx, const uint8_t* bytes, std::size_t length) {
+    Esp32S3Uart& self = *static_cast<Esp32S3Uart*>(ctx);
     if (!bytes || !length || length > 64)
         return Rtu::WriteResult(0, true);
     uint8_t local[64]; // Internal stack: no PSRAM reads in the short FIFO fill.
@@ -262,8 +272,8 @@ Rtu::WriteResult E2Uart::write(void* ctx, const uint8_t* bytes, std::size_t leng
     return Rtu::WriteResult(length, after - before >= self.charMin_);
 }
 
-Rtu::TxState E2Uart::txState(void* ctx, uint64_t at, Rtu::TxObservation& observation) {
-    E2Uart& self = *static_cast<E2Uart*>(ctx);
+Rtu::TxState Esp32S3Uart::txState(void* ctx, uint64_t at, Rtu::TxObservation& observation) {
+    Esp32S3Uart& self = *static_cast<Esp32S3Uart*>(ctx);
     Guard guard;
     if (!self.ready_) return Rtu::TxState::ERROR;
     // In timer mode report completion and DE release together. Otherwise a
@@ -279,8 +289,8 @@ Rtu::TxState E2Uart::txState(void* ctx, uint64_t at, Rtu::TxObservation& observa
     return Rtu::TxState::IDLE;
 }
 
-Rtu::ReadState E2Uart::read(void* ctx, uint64_t at, Rtu::RxByte& byte, uint64_t& through) {
-    E2Uart& self = *static_cast<E2Uart*>(ctx);
+Rtu::ReadState Esp32S3Uart::read(void* ctx, uint64_t at, Rtu::RxByte& byte, uint64_t& through) {
+    Esp32S3Uart& self = *static_cast<Esp32S3Uart*>(ctx);
     Guard guard;
     if (!self.ready_ || self.failed_) return Rtu::ReadState::ERROR;
     if (self.count_) {
@@ -295,7 +305,7 @@ Rtu::ReadState E2Uart::read(void* ctx, uint64_t at, Rtu::RxByte& byte, uint64_t&
     return Rtu::ReadState::EMPTY;
 }
 
-bool E2Uart::clear() noexcept {
+bool Esp32S3Uart::clear() noexcept {
     Guard guard;
     if (!ready_ || transmitting_ || !uart_ll_is_tx_idle(hw) ||
         hw->fsm_status.st_urx_out != 0 || !hw->status.rxd) return false;
@@ -307,13 +317,13 @@ bool E2Uart::clear() noexcept {
     emptySince_ = idleThrough_ = sampled_ = now();
     return true;
 }
-void E2Uart::resetStats() noexcept {
+void Esp32S3Uart::resetStats() noexcept {
     Guard guard;
     captureFaults_ = rxErrors_ = maxPollGap_ = maxRxWidth_ = 0;
     samples_ = busyUs_ = 0;
     highWater_ = count_;
 }
-E2Uart::CaptureStats E2Uart::stats() const noexcept {
+Esp32S3Uart::CaptureStats Esp32S3Uart::stats() const noexcept {
     Guard guard;
     CaptureStats s;
     s.samples = samples_; s.busyUs = busyUs_; s.txEndUs = txEnd_;
@@ -322,7 +332,7 @@ E2Uart::CaptureStats E2Uart::stats() const noexcept {
     s.ready = ready_; s.failed = failed_; s.timer = timerRunning_;
     return s;
 }
-Rtu::Port E2Uart::port() noexcept {
+Rtu::Port Esp32S3Uart::port() noexcept {
     Rtu::Port value;
     value.context = this;
     value.setTransmit = direction;

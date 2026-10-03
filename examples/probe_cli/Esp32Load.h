@@ -1,26 +1,26 @@
 // SPDX-License-Identifier: MIT
 #pragma once
 #include "ProbeConsole.h"
-#include "../common/E2Uart.h"
+#include "../common/Esp32S3Uart.h"
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <freertos/semphr.h>
 
 namespace MotorControlRSExample {
 
-/** Optional E2 test fixture, outside the library. One competing task on the
+/** Optional ESP32 test fixture, outside the library. One competing task on the
  * owner's core, fixed internal stack, and serialized USB diagnostic lines.
  * This object has application lifetime and must remain in internal RAM.
  */
-class E2Load {
+class Esp32Load {
 public:
-    E2Load() = default;
-    E2Load(const E2Load&) = delete;
-    E2Load& operator=(const E2Load&) = delete;
+    Esp32Load() = default;
+    Esp32Load(const Esp32Load&) = delete;
+    Esp32Load& operator=(const Esp32Load&) = delete;
     bool begin();
-    Probe::Action configure(const Probe::LoadSettings*, Probe::LoadSnapshot&, E2Uart&);
+    Probe::Action configure(const Probe::LoadSettings*, Probe::LoadSnapshot&, Esp32S3Uart&);
     uint32_t ownerDelayUs();
-    void resetStats(E2Uart&); ///< One measurement window; preserves workload and faults.
+    void resetStats(Esp32S3Uart&); ///< One measurement window; preserves workload and faults.
     void serviced(uint64_t atUs, bool active);
     void writeLine(const char*, std::size_t);
 private:

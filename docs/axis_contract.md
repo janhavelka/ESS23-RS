@@ -73,6 +73,32 @@ transport, scheduling, time, deadlines, retries and physical interlocks.
 No default constructor, selection, configuration, conversion or cached query
 causes motion, drive enable, homing, persistence or communication changes.
 
+## Optional drive I/O
+
+Serial motion must support installations with no external drive I/O connected.
+The application may declare a terminal unconnected; the profile exposes the
+documented no-function assignment when the drive supports disabling that
+terminal. Wiring, configured function, polarity and observed signal level are
+separate facts. An unconnected declaration changes no register, and a disabled
+function is neither an unknown observation nor proof of an electrical output
+level. Do not infer physical wiring from a status bit.
+
+Require external signals only for an operation that actually depends on them:
+for example a selected switch-based homing method or an external segment
+trigger. Missing or disabled required signals reject that operation before
+writes. Ordinary serial positioning, velocity and state reads have no blanket
+requirement for origin/limit switches, external enable or output wiring; their
+actual device readiness and configured application limits still apply.
+Profiles must account for active input functions that can inhibit or trigger
+motion. A serial enable acknowledgement does not establish that it overrides
+an asserted hardware release, stop or limit input.
+
+Disabling a drive terminal is explicit device configuration, never an implicit
+step in a move, startup or recovery. It must not silently remove an application
+interlock. Outputs needed by a configured brake or other external function
+have the same operation-specific dependency rules. The core performs no host
+GPIO access and assumes no particular controller board or attached sensors.
+
 ## Units and coordinate frames
 
 A numeric value always carries a unit and a coordinate-frame identifier.
@@ -424,3 +450,8 @@ context, valid failure events advancing it, stale generation/events,
 keepalive obligations, stop priority and uncertain results retained across
 cancellation/rebinding. These checks qualify software contracts; they do not
 replace motor/model/firmware hardware qualification.
+
+Cover serial operation with external I/O unused, explicit terminal disabling,
+and rejection of operations whose selected method needs missing signals.
+Changing only the caller's wiring declaration must emit no device write;
+disabled assignments must not be treated as unknown or active input functions.

@@ -1,16 +1,17 @@
 // SPDX-License-Identifier: MIT
 // Wire events progress independently of capture sampling and runner servicing.
 // This tests the actual polling adapter's limits, not an invented UART backend.
-#include "../examples/common/E2Uart.h"
+#include "../examples/common/Esp32S3Uart.h"
 #include <MotorControlRS/profiles/ess_rs/Codec.h>
-#include "fakes/e2_uart/Hardware.h"
+#include "fakes/esp32_uart/Hardware.h"
 #include <cassert>
 #include <vector>
 
 namespace Rtu = MotorControlRSExample::Rtu;
 namespace Ess = MotorControlRS::ESS_RS;
-using MotorControlRSExample::E2Uart;
+using MotorControlRSExample::Esp32S3Uart;
 namespace {
+constexpr Esp32S3Uart::Pins PINS = {47, 48, 21, true};
 const std::vector<uint8_t> REPLY = {1, 3, 2, 0, 0x3C, 0xB8, 0x55};
 
 Rtu::Timing timing() {
@@ -23,7 +24,7 @@ Rtu::Timing timing() {
     return value;
 }
 struct Fixture {
-    E2Uart uart;
+    Esp32S3Uart uart;
     uint8_t tx[32] = {}, rx[64] = {}, bytes[8] = {};
     Rtu::Request request;
     Rtu::Runner runner;
@@ -37,7 +38,7 @@ struct Fixture {
     Fixture() : runner(uart.port(), storage(), timing()) {
         resetHardware();
         hardware.txCharacterUs = 87;
-        assert(uart.begin());
+        assert(uart.begin(PINS));
         request.bytes = bytes;
         request.length = Ess::buildProbe(1, bytes, sizeof(bytes));
         request.replyLength = REPLY.size();
@@ -92,7 +93,7 @@ void testOwnerDelayAfterCapture() {
 void testCaptureQueueOverflow() {
     Fixture test;
     test.receive();
-    const std::vector<uint8_t> noise(E2Uart::CAPTURE_CAPACITY + 1, 0x55);
+    const std::vector<uint8_t> noise(Esp32S3Uart::CAPTURE_CAPACITY + 1, 0x55);
     scheduleReply(hardware.time + 2000, noise);
     const uint64_t until = hardware.time + 2000 + noise.size() * 87 + 100;
     while (hardware.time < until) test.service(false);

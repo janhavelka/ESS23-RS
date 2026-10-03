@@ -4,7 +4,7 @@
 
 Implemented blocks are pure unit conversion, an ESS register catalogue,
 checked wire codecs with a minimal probe and standalone build foundations.
-The standalone RTU runner and E2 adapter have native fake tests. The read-only
+The standalone RTU runner and ESP32-S3 adapter have native fake tests. The read-only
 probe CLI has bench evidence; external timing qualification, typed commands,
 motion workflows, discovery orchestration and full CLI coverage remain future
 work. See the [root README](../README.md)
@@ -12,10 +12,10 @@ for current code and builds.
 
 - [Standalone RTU runner](runner.md): current callback/timing contract, state
   machine, fake tests, diagnostics, memory sizes and explicit recovery.
-- [E2 probe guide](e2_probe.md): adapter, read-only console, PSRAM and Python tools.
+- [ESP32-S3 probe guide](esp32_probe.md): adapter, read-only console, PSRAM and Python tools.
 - [0.5.1 implementation audit](reports/2026-10-03_audit.md): defects, fixes,
   regression tests and remaining qualification gaps.
-- [E2 bench report](reports/2026-10-03_e2_probe.md): measured probes, timing
+- [Initial bench report](reports/2026-10-03_e2_probe.md): measured probes, timing
   exception, raw model, firmware backup and remaining qualification work.
 - [Current architecture report](architecture_report.md): source-based review
   of what exists, file and dependency map, transaction flow, standalone and
@@ -51,10 +51,12 @@ for current code and builds.
 
 ## Work tracking and bench
 
+- [Platform scope and optional I/O audit](reports/2026-10-03_platform_scope_audit.md):
+  product decoupling, explicit adapter wiring, disabled I/O semantics and regression evidence.
 - [Repository/folder rename](repository_rename.md): prepared metadata,
   remote update and fresh build/IDE paths while preserving bench evidence.
 - [Release roadmap](roadmap.md): delivery order, release scope, completion gates
-  and the hardware regression required as each implemented feature reaches E2.
+  and the hardware regression required as each implemented feature reaches the bench.
 - [ESS release prompt set](prompts/ess_release/README.md): 30 numbered blocks
   from bus ownership through motion, native ESS coverage and release evidence;
   shared audit/testing rules and a requirement-to-prompt coverage map.
@@ -80,8 +82,8 @@ for current code and builds.
   source differences. This is metadata, not operational command coverage.
 - [Encoder and unit conversion](reference/06_encoder_units.md): exact source
   facts, explicit bench assumptions and use of the current API.
-- [E2 board and FieldCore build audit](reference/04_co2control_platform.md):
-  verified source pins, user-confirmed bench wiring and integration boundaries.
+- [ESP32-S3 bench configuration](reference/04_esp32_bench.md):
+  explicit pins, SDK/build settings and separation from the reusable library.
 
 Start with the [inventory](reference/00_document_inventory.md) and the
 [implementation reference](reference/01_implementation_reference.md).

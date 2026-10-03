@@ -2,11 +2,11 @@
 
 Reviewed on 2026-10-03 against FieldCore-node commit
 `063ca063a50bcb8afb2b3b59f9af0f3f89bfc82f`. Its inspected RS485 files had no
-local changes. This is source review and guidance for the later E2 adapter;
+local changes. This is source review and guidance for the later ESP32-S3 adapter;
 no firmware was flashed and COM13 was not opened. The native transaction
 runner belongs under `examples/common/`. FieldCore continues to own its bus.
 
-This is the version 0.4.0 review. The later [E2 implementation](../e2_probe.md)
+This is the version 0.4.0 review. The later [ESP32-S3 implementation](../esp32_probe.md)
 uses direct polling without installing the IDF driver and supplies conservative
 timing intervals to the extended runner. See its current contract and bench
 report for implemented behavior and outstanding external qualification.
@@ -20,7 +20,7 @@ report for implemented behavior and outstanding external qualification.
 | [Rs485Diagnostics.cpp](https://github.com/janhavelka/FieldCore-node/blob/063ca063a50bcb8afb2b3b59f9af0f3f89bfc82f/src/rs485/Rs485Diagnostics.cpp) | Fixed diagnostic rings, drop counts, high-water marks, passive status copies and PSRAM allocation at initialization | Reuse these diagnostic conventions as the standalone CLI grows. Do not import the whole worker/runtime subsystem. |
 | [Rs485Devices.h](https://github.com/janhavelka/FieldCore-node/blob/063ca063a50bcb8afb2b3b59f9af0f3f89bfc82f/include/TunnelMonitor/contracts/Rs485Devices.h) | Separate bus, device and parser state; traces include state, event, counts, timestamps and sequence numbers | Keep transport failure, codec failure, motor alarms and stale observations separate. |
 
-The existing [E2 board reference](04_co2control_platform.md) remains the pin
+The existing [bench board reference](04_esp32_bench.md) remains the pin
 authority: UART2, TX47, RX48 and active-high DE/RE21 for the user-confirmed
 bench. Product selection and the physical board are separate. Do not import a
 FieldCore product environment just to reuse its UART operations.
@@ -99,7 +99,7 @@ mechanism; they are not qualification of every Arduino package or board.
 
 The runner and codecs should allocate nothing. The application provides fixed
 storage and decides its placement. This permits native arrays for tests and
-PSRAM-backed task-context storage on E2 without an ESP32 dependency in core
+PSRAM-backed task-context storage on the ESP32-S3 bench without an ESP32 dependency in core
 headers. Fixed capacity does not require internal RAM or repeated allocation.
 
 FieldCore's [PsramAllocator.h](https://github.com/janhavelka/FieldCore-node/blob/063ca063a50bcb8afb2b3b59f9af0f3f89bfc82f/include/TunnelMonitor/core/PsramAllocator.h)
@@ -201,7 +201,7 @@ point; it is not a reason to put UART ownership into the motor library now.
 
 ### First block: capture and scheduling evidence
 
-The polling E2 adapter is a working bench reference, not a proven backend for
+The polling ESP32-S3 adapter is a working bench reference, not a proven backend for
 FieldCore's worker. At 115200 baud an 8N1 character lasts about 87 microseconds;
 5 ms spans about 58 characters. Our adapter deliberately rejects more than one
 byte waiting in the hardware FIFO. Increasing the buffer or calling the same
@@ -219,7 +219,7 @@ or shortening every application task's polling interval.
 The first capture/load implementation block is now complete; see the
 [capture/load audit](../reports/2026-10-03_capture_load.md). Native fixtures
 separate wire arrival from service and test batch/overflow, late/foreign replies,
-missing evidence and no replay. The E2 load fixture measures task/USB load,
+missing evidence and no replay. The ESP32 load fixture measures task/USB load,
 service gaps, failures and resources. GPTimer sampling and asynchronous DE
 release allow the owner to sleep; atomic TX/release bounds replace separate
 completion observations. No per-byte times are reconstructed from a FIFO batch.

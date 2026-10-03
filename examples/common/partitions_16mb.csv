@@ -1,4 +1,4 @@
-# FieldCore N16R8 partition dimensions; see docs/reference/04_co2control_platform.md.
+# Bench 16-MiB flash layout; see docs/reference/04_esp32_bench.md.
 # Name,   Type, SubType, Offset,   Size
 nvs,      data, nvs,     0x9000,   0x5000
 otadata,  data, ota,     0xe000,   0x2000

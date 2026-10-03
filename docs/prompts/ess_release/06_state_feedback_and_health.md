@@ -25,4 +25,4 @@ Test stale/mismatched generations, unknown alarms, partial refresh, absent feedb
 
 ## Subagents and handoff
 
-Assign a source/bitfield reviewer and a health/cache test reviewer. Audit against FieldCore's cached observation conventions without importing its framework types. Deliver state evidence and completion-observation limitations for 07–09; apply the common audit and commit/sync workflow.
+Assign a source/bitfield reviewer and a health/cache test reviewer. Audit observation freshness and passive cache reads through the actual API and application. Deliver state evidence and completion-observation limitations for 07–09; apply the common audit and commit/sync workflow.

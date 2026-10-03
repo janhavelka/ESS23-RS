@@ -11,7 +11,7 @@ Read `docs/runner.md`, `docs/architecture.md`, `docs/reference/10_runner_platfor
 
 ## Implement
 
-- Add one small application-owned RTU bus owner under `examples/common/`, using the existing Runner for its supported RTU transactions. Start with FIFO admission and one active transaction; scheduling policy follows in 02. This is not a replacement for FieldCore's non-Modbus framing paths.
+- Add one small application-owned RTU bus owner under `examples/common/`, using the existing Runner for its supported RTU transactions. Start with FIFO admission and one active transaction; scheduling policy follows in 02. Use the portable callback boundary; no board, product or firmware module types belong in this owner.
 - Keep admission, service and result access in one cooperative owner context. Multiple logical producers do not imply thread-safe public calls. Add synchronized ingress only if an actual caller needs it, with bounded storage and explicit tests.
 - Give requests bounded storage and immutable request expectations. Copy admitted bytes or enforce a documented lifetime that real callers can satisfy; never retain a caller's stack buffer accidentally.
 - Separate pending-request and retained-result capacities. Reserve completion storage at admission, or reject explicitly; never overwrite an unread terminal result.

@@ -7,7 +7,7 @@ Prerequisite: 03's owner-integrated read-only image. Read-only work in 05–07 m
 
 ## Read and reuse
 
-Inspect `E2Uart.*`, `E2Load.*`, `test/capture_service_test.cpp`, the pinned SDK source/configuration and `docs/reports/2026-10-03_capture_load.md`. Audit FieldCore's current backend and service constraints read-only. The historical 20-us sampler costs about 19–21% of one core inside capture alone.
+Inspect `Esp32S3Uart.*`, `Esp32Load.*`, `test/capture_service_test.cpp`, the pinned SDK source/configuration and `docs/reports/2026-10-03_capture_load.md`. The historical 20-us sampler costs about 19–21% of one core inside capture alone.
 
 ## Work
 

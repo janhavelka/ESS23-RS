@@ -26,11 +26,11 @@ that every supported input setting meets a deadline.
   and serialized console traffic exercise the same probe path. Python records
   failures, latency and resource data and stops without replay or recovery.
 
-See [E2Uart](../../examples/common/E2Uart.h),
+See [E2Uart](../../examples/common/Esp32S3Uart.h),
 [RtuRunner](../../examples/common/RtuRunner.h),
-[E2Load](../../examples/probe_cli/E2Load.h), the
+[E2Load](../../examples/probe_cli/Esp32Load.h), the
 [wire fixture](../../test/capture_service_test.cpp), and the
-[probe/load guide](../e2_probe.md) for code and commands.
+[probe/load guide](../esp32_probe.md) for code and commands.
 
 ## Audit findings and fixes
 

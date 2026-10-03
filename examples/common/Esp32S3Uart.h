@@ -4,21 +4,33 @@
 
 namespace MotorControlRSExample {
 
-/** Exclusive UART2 adapter for E2. No HardwareSerial/IDF UART
- * driver may own this peripheral concurrently. ESP32-S3/IDF-5.5 specific.
+/** Exclusive UART2 adapter with application-supplied pins. Use exactly one
+ * adapter instance and owner for UART2. No HardwareSerial/IDF UART driver may
+ * own it concurrently. begin() detects SDK drivers, not another adapter.
+ * ESP32-S3/IDF-5.5 specific.
  * Capture brackets are observations, not exact wire timestamps. The RX
  * character/stop-sampling guard remains an explicit qualification assumption.
  * Optional GPTimer capture continues RX and DE release while the owner sleeps.
  * Keep this object in internal RAM. Service sample() before runner.poll().
  * Lost timing fails closed. Timer capture is not qualified during flash writes.
  */
-class E2Uart {
+class Esp32S3Uart {
 public:
-    E2Uart() = default;
-    ~E2Uart(); ///< Owner must be quiescent. A timer that cannot be stopped is fatal.
-    E2Uart(const E2Uart&) = delete;
-    E2Uart& operator=(const E2Uart&) = delete;
-    bool begin(uint32_t baud = 115200) noexcept;
+    Esp32S3Uart() = default;
+    ~Esp32S3Uart(); ///< Owner must be quiescent. A timer that cannot be stopped is fatal.
+    Esp32S3Uart(const Esp32S3Uart&) = delete;
+    Esp32S3Uart& operator=(const Esp32S3Uart&) = delete;
+    /** Pin selection for an external RS485 transceiver with combined DE/RE.
+     * Pins must be distinct, valid ESP32-S3 GPIOs. The application must also
+     * exclude pins used by its flash, PSRAM, USB console or other peripherals.
+     * Transceiver polarity is explicit; disconnected DE is not supported.
+     */
+    struct Pins { int tx, rx, de; bool activeHigh; };
+    /** Configure UART2 at the currently supported 115200 8N1.
+     * Invalid pins/baud fail before GPIO changes. This adapter is example
+     * support, not part of the framework-independent motor library.
+     */
+    bool begin(const Pins& pins, uint32_t baud = 115200) noexcept;
     static constexpr unsigned CAPTURE_CAPACITY = 64;
     bool startCapture(uint32_t periodUs = 20, uint32_t holdUs = 20) noexcept;
     bool stopCapture() noexcept; ///< Idle-only, retryable cleanup; no motor configuration change.
@@ -50,6 +62,7 @@ private:
     void fault(bool uartError) noexcept;
     bool stopTimer() noexcept; // Retains failed cleanup stages for an explicit retry.
 
+    Pins pins_{-1, -1, -1, true};
     Rtu::RxByte pending_[CAPTURE_CAPACITY]; // ISR working set; internal RAM only.
     void* timer_ = nullptr;
     unsigned head_ = 0, count_ = 0;

@@ -1,14 +1,15 @@
 // SPDX-License-Identifier: MIT
-#include "../examples/common/E2Uart.h"
-#include "fakes/e2_uart/Hardware.h"
+#include "../examples/common/Esp32S3Uart.h"
+#include "fakes/esp32_uart/Hardware.h"
 #include <cassert>
 #include <deque>
 #include <vector>
 
-using MotorControlRSExample::E2Uart;
+using MotorControlRSExample::Esp32S3Uart;
 namespace Rtu = MotorControlRSExample::Rtu;
 namespace {
-uint64_t sample(E2Uart& uart, uint64_t at) {
+constexpr Esp32S3Uart::Pins PINS = {47, 48, 21, true};
+uint64_t sample(Esp32S3Uart& uart, uint64_t at) {
     hardware.time = at;
     const uint64_t result = uart.sample();
     assert(hardware.criticalDepth == 0);
@@ -19,7 +20,7 @@ Rtu::ReadState read(Rtu::Port& port, uint64_t at, Rtu::RxByte& byte, uint64_t& t
 }
 void testInitialization() {
     resetHardware();
-    E2Uart uart;
+    Esp32S3Uart uart;
     Rtu::Port port = uart.port();
     uint64_t through = 777;
     Rtu::TxObservation tx;
@@ -27,31 +28,39 @@ void testInitialization() {
     assert(port.txState(port.context, 1000, tx) == Rtu::TxState::ERROR);
     assert(read(port, 1000, byte, through) == Rtu::ReadState::ERROR);
     assert(!uart.clear());
-    assert(!uart.begin(9600));
+    assert(!uart.begin(PINS, 9600));
     hardware.driverInstalled = true;
-    assert(!uart.begin());
+    assert(!uart.begin(PINS));
     assert(hardware.de == -1); // Refuse another driver's peripheral before GPIO changes.
     hardware.driverInstalled = false;
-    assert(uart.begin());
+    assert(uart.begin(PINS));
     assert(uart.ready() && hardware.de == 0);
     assert(hardware.txPin == 47 && hardware.rxPin == 48);
     assert(hardware.config.baud_rate == 115200 && hardware.config.data_bits == UART_DATA_8_BITS);
     assert(hardware.config.parity == UART_PARITY_DISABLE && hardware.config.stop_bits == UART_STOP_BITS_1);
-    assert(!uart.begin());
-    for (unsigned failure = 0; failure < 4; ++failure) {
-        resetHardware();
-        E2Uart failing;
-        if (failure == 0) hardware.levelResult = -1;
-        if (failure == 1) hardware.directionResult = -1;
-        if (failure == 2) hardware.configResult = -1;
-        if (failure == 3) hardware.pinResult = -1;
-        assert(!failing.begin() && !failing.ready());
+    assert(!uart.begin(PINS));
+    for (bool activeHigh : {false, true}) {
+        const Esp32S3Uart::Pins pins = {4, 5, 6, activeHigh};
+        for (unsigned failure = 0; failure < 4; ++failure) {
+            resetHardware();
+            Esp32S3Uart failing;
+            if (failure == 0) hardware.levelResult = -1;
+            if (failure == 1) hardware.directionResult = -1;
+            if (failure == 2) hardware.configResult = -1;
+            if (failure == 3) hardware.pinResult = -1;
+            assert(!failing.begin(pins) && !failing.ready());
+            assert(hardware.writes == 0 && !failing.startCapture());
+            if (failure != 0) assert(hardware.de == (activeHigh ? 0 : 1));
+            hardware.levelResult = hardware.directionResult = hardware.configResult = hardware.pinResult = ESP_OK;
+            assert(failing.begin(pins)); // Partial initialization remains retryable.
+            assert(hardware.de == (activeHigh ? 0 : 1) && hardware.writes == 0);
+        }
     }
 }
 void testPhysicalTx() {
     resetHardware();
-    E2Uart uart;
-    assert(uart.begin());
+    Esp32S3Uart uart;
+    assert(uart.begin(PINS));
     Rtu::Port port = uart.port();
     const uint8_t frame[] = {1, 3, 0, 0, 0, 1, 0x84, 0x0A};
     assert(port.write(port.context, frame, sizeof(frame)).error);
@@ -77,10 +86,48 @@ void testPhysicalTx() {
     assert(uart.clear());
     assert(hardware.writes == 1); // Recovery never repeats the write.
 }
+void testPinValidation() {
+    const Esp32S3Uart::Pins invalid[] = {
+        {-1, 48, 21, true}, {47, -1, 21, true}, {47, 48, -1, true},
+        {49, 48, 21, true}, {47, 64, 21, true}, {47, 48, 1000, true},
+        {22, 48, 21, true}, {47, 25, 21, true}, {47, 48, 24, true},
+        {47, 47, 21, true}, {47, 48, 47, true}, {47, 48, 48, true}
+    };
+    for (const auto& pins : invalid) {
+        resetHardware();
+        Esp32S3Uart uart;
+        assert(!uart.begin(pins) && !uart.ready());
+        assert(hardware.dePin == -1 && hardware.txPin == -1 && hardware.rxPin == -1);
+        assert(hardware.writes == 0 && hardware.config.baud_rate == 0);
+    }
+}
+void testAlternatePinsAndPolarity() {
+    // An unrelated application supplies its own pins and an active-low driver.
+    const Esp32S3Uart::Pins pins = {4, 5, 6, false};
+    resetHardware();
+    hardware.txCharacterUs = 87;
+    hardware.transmitLevel = 0;
+    Esp32S3Uart uart;
+    assert(uart.begin(pins));
+    assert(hardware.txPin == 4 && hardware.rxPin == 5 && hardware.dePin == 6);
+    assert(hardware.de == 1); // Receive is high for this transceiver.
+    Rtu::Port port = uart.port();
+    assert(port.setTransmit(port.context, true) && hardware.de == 0);
+    assert(port.setTransmit(port.context, false) && hardware.de == 1);
+    assert(uart.startCapture());
+    const uint8_t bytes[] = {1, 3, 0, 0};
+    assert(port.setTransmit(port.context, true) && hardware.de == 0);
+    assert(!port.write(port.context, bytes, sizeof(bytes)).error);
+    advanceHardware(hardware.time + 1000);
+    assert(hardware.dePin == 6 && hardware.de == 1 && hardware.writes == 1);
+    Rtu::TxObservation tx;
+    assert(port.txState(port.context, hardware.time, tx) == Rtu::TxState::IDLE);
+    assert(tx.released);
+}
 void testReceiveCapture() {
     resetHardware();
-    E2Uart uart;
-    assert(uart.begin());
+    Esp32S3Uart uart;
+    assert(uart.begin(PINS));
     Rtu::Port port = uart.port();
     Rtu::RxByte byte;
     byte.value = 0xAA;
@@ -108,8 +155,8 @@ void testReceiveCapture() {
 }
 void testIdleSnapshotRace() {
     resetHardware();
-    E2Uart uart;
-    assert(uart.begin());
+    Esp32S3Uart uart;
+    assert(uart.begin(PINS));
     Rtu::Port port = uart.port();
     Rtu::RxByte byte;
     uint64_t through = 0;
@@ -129,16 +176,16 @@ void testIdleSnapshotRace() {
 }
 void testSlowSnapshotFails() {
     resetHardware();
-    E2Uart uart;
-    assert(uart.begin());
+    Esp32S3Uart uart;
+    assert(uart.begin(PINS));
     hardware.clockStep = 50;
     sample(uart, 1200);
     assert(uart.needsRecovery() && uart.captureFaults() == 1);
 }
 void testCaptureFaultsAndRecovery() {
     resetHardware();
-    E2Uart uart;
-    assert(uart.begin());
+    Esp32S3Uart uart;
+    assert(uart.begin(PINS));
     Rtu::Port port = uart.port();
     Rtu::RxByte byte;
     uint64_t through = 0;
@@ -172,9 +219,9 @@ void testCaptureFaultsAndRecovery() {
 }
 void testPendingCapacity() {
     resetHardware();
-    E2Uart uart;
-    assert(uart.begin());
-    for (unsigned i = 0; i < E2Uart::CAPTURE_CAPACITY + 1; ++i) {
+    Esp32S3Uart uart;
+    assert(uart.begin(PINS));
+    for (unsigned i = 0; i < Esp32S3Uart::CAPTURE_CAPACITY + 1; ++i) {
         hardware.rx.push_back(static_cast<uint8_t>(i));
         sample(uart, 1200 + i * 100);
     }
@@ -188,9 +235,9 @@ void testCaptureTimerLifecycle() {
     resetHardware();
     unsigned startupCalls = 0;
     {
-        E2Uart uart;
+        Esp32S3Uart uart;
         assert(!uart.startCapture());
-        assert(uart.begin());
+        assert(uart.begin(PINS));
         assert(!uart.startCapture(0) && !uart.startCapture(1000));
         assert(uart.startCapture() && uart.stats().timer);
         assert(!uart.startCapture());
@@ -206,8 +253,8 @@ void testCaptureTimerLifecycle() {
     assert(!hardware.timerRunning && !hardware.timerCreated); // Destructor owns its timer.
     for (unsigned call = 1; call <= startupCalls; ++call) {
         resetHardware();
-        E2Uart uart;
-        assert(uart.begin());
+        Esp32S3Uart uart;
+        assert(uart.begin(PINS));
         hardware.timerFailCalls = {call};
         assert(!uart.startCapture());
         assert(!hardware.timerCreated && !hardware.timerRunning && !uart.stats().timer);
@@ -218,8 +265,8 @@ void testCaptureTimerLifecycle() {
 void testCaptureTimerStopsOnlyWhenIdle() {
     resetHardware();
     hardware.txCharacterUs = 87;
-    E2Uart uart;
-    assert(uart.begin() && uart.startCapture());
+    Esp32S3Uart uart;
+    assert(uart.begin(PINS) && uart.startCapture());
     Rtu::Port port = uart.port();
     const uint8_t frame[] = {1, 3, 0, 0};
     assert(port.setTransmit(port.context, true));
@@ -235,8 +282,8 @@ void testCaptureTimerStopsOnlyWhenIdle() {
 void testPartialTimerCleanupCanResume() {
     for (unsigned stage : {2U, 3U}) {
         resetHardware();
-        E2Uart uart;
-        assert(uart.begin() && uart.startCapture());
+        Esp32S3Uart uart;
+        assert(uart.begin(PINS) && uart.startCapture());
         advanceHardware(hardware.time + 1000);
         hardware.timerFailCalls = {hardware.timerCalls + stage};
         assert(!uart.stopCapture());
@@ -251,8 +298,8 @@ void testPartialTimerCleanupCanResume() {
 }
 void testStartupCleanupFailureKeepsOwnership() {
     resetHardware();
-    E2Uart uart;
-    assert(uart.begin());
+    Esp32S3Uart uart;
+    assert(uart.begin(PINS));
     // Current startup: create, callbacks, alarm, enable, start. Fail start and
     // the subsequent disable, then require staged cleanup of the retained timer.
     hardware.timerFailCalls = {5, 6};
@@ -266,8 +313,8 @@ void testStartupCleanupFailureKeepsOwnership() {
 }
 void testTimerStopChecksCurrentReceiveState() {
     resetHardware();
-    E2Uart uart;
-    assert(uart.begin() && uart.startCapture());
+    Esp32S3Uart uart;
+    assert(uart.begin(PINS) && uart.startCapture());
     advanceHardware(hardware.time + 1000);
     fakeUart.fsm_status.st_urx_out = 1;
     assert(!uart.stopCapture() && hardware.timerRunning);
@@ -281,8 +328,8 @@ void testTimerStopChecksCurrentReceiveState() {
 void testUnrepresentableTimingFails() {
     {
         resetHardware();
-        E2Uart uart;
-        assert(uart.begin());
+        Esp32S3Uart uart;
+        assert(uart.begin(PINS));
         sample(uart, 1100);
         hardware.rx.push_back(0x55);
         sample(uart, uint64_t(UINT32_MAX) + 2000);
@@ -294,8 +341,8 @@ void testUnrepresentableTimingFails() {
     }
     {
         resetHardware();
-        E2Uart uart;
-        assert(uart.begin());
+        Esp32S3Uart uart;
+        assert(uart.begin(PINS));
         Rtu::Port port = uart.port();
         const uint8_t bytes[] = {1, 3, 0, 0};
         assert(port.setTransmit(port.context, true));
@@ -309,8 +356,8 @@ void testUnrepresentableTimingFails() {
 void testTimerTxObservationWaitsForRelease() {
     resetHardware();
     hardware.txCharacterUs = 87;
-    E2Uart uart;
-    assert(uart.begin() && uart.startCapture(20, 1000));
+    Esp32S3Uart uart;
+    assert(uart.begin(PINS) && uart.startCapture(20, 1000));
     Rtu::Port port = uart.port();
     const uint8_t bytes[] = {1, 3, 0, 0};
     assert(port.setTransmit(port.context, true));
@@ -337,8 +384,8 @@ void testTimerTxObservationWaitsForRelease() {
 }
 void testRunnerProbe() {
     resetHardware();
-    E2Uart uart;
-    assert(uart.begin());
+    Esp32S3Uart uart;
+    assert(uart.begin(PINS));
     uint8_t tx[32] = {}, rx[64] = {};
     Rtu::Storage storage;
     storage.tx = tx; storage.txCapacity = sizeof(tx);
@@ -381,6 +428,7 @@ void testRunnerProbe() {
 
 int main() {
     testInitialization(); testPhysicalTx(); testReceiveCapture();
+    testPinValidation(); testAlternatePinsAndPolarity();
     testIdleSnapshotRace(); testSlowSnapshotFails();
     testCaptureFaultsAndRecovery(); testPendingCapacity();
     testCaptureTimerLifecycle(); testCaptureTimerStopsOnlyWhenIdle();

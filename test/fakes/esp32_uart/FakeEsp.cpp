@@ -90,10 +90,14 @@ esp_err_t uart_set_pin(uart_port_t port, int tx, int rx, int rts, int cts) {
     hardware.txPin = tx; hardware.rxPin = rx; return hardware.pinResult;
 }
 esp_err_t gpio_set_level(gpio_num_t pin, int value) {
-    assert(pin == 21); if (hardware.levelResult == ESP_OK) hardware.de = value; return hardware.levelResult;
+    assert(GPIO_IS_VALID_OUTPUT_GPIO(pin));
+    hardware.dePin = pin;
+    if (hardware.levelResult == ESP_OK) hardware.de = value;
+    return hardware.levelResult;
 }
 esp_err_t gpio_set_direction(gpio_num_t pin, int mode) {
-    assert(pin == 21 && mode == GPIO_MODE_OUTPUT); return hardware.directionResult;
+    assert(GPIO_IS_VALID_OUTPUT_GPIO(pin) && pin == hardware.dePin && mode == GPIO_MODE_OUTPUT);
+    return hardware.directionResult;
 }
 int64_t esp_timer_get_time() {
     const uint64_t at = hardware.time;
@@ -101,7 +105,7 @@ int64_t esp_timer_get_time() {
     return static_cast<int64_t>(at);
 }
 void gpio_ll_set_level(gpio_dev_t* gpio, unsigned pin, unsigned level) {
-    assert(gpio == &GPIO && pin == 21 && level <= 1);
+    assert(gpio == &GPIO && static_cast<int>(pin) == hardware.dePin && level <= 1);
     hardware.de = static_cast<int>(level);
 }
 void esp_rom_delay_us(uint32_t us) { advanceHardware(hardware.time + us); }
@@ -125,7 +129,8 @@ void uart_ll_read_rxfifo(uart_dev_t*, uint8_t* bytes, std::size_t count) {
     while (count--) { *bytes++ = hardware.rx.front(); hardware.rx.pop_front(); }
 }
 void uart_ll_write_txfifo(uart_dev_t* hw, const uint8_t* bytes, std::size_t count) {
-    assert(hardware.criticalDepth == 1 && hardware.de == 1 && count <= 128 - hw->status.txfifo_cnt);
+    assert(hardware.criticalDepth == 1 && hardware.de == hardware.transmitLevel &&
+           count <= 128 - hw->status.txfifo_cnt);
     ++hardware.writes; hardware.tx.assign(bytes, bytes + count);
     hardware.writeStarted = hardware.time;
     hw->status.txfifo_cnt += static_cast<unsigned>(count); hw->fsm_status.st_utx_out = 1;

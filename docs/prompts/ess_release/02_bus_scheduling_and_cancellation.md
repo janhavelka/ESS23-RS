@@ -7,7 +7,7 @@ Prerequisite: 01's admission, completion reservation and parser settlement are v
 
 ## Read and reuse
 
-Read `docs/axis_contract.md` on stop/sequencing and the owner/runner delivered by 01. Compare FieldCore's cancellation and recovery paths; sensor cancellation is not a motor-stop implementation.
+Read `docs/axis_contract.md` on stop/sequencing and the owner/runner delivered by 01. Keep local transaction cancellation distinct from a physical motor stop.
 
 ## Implement
 

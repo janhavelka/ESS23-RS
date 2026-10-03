@@ -4,7 +4,7 @@ First implemented in version 0.4.0, extended with timing intervals in 0.5.0, und
 [RtuRunner.h](../examples/common/RtuRunner.h) and
 [RtuRunner.cpp](../examples/common/RtuRunner.cpp), namespace
 `MotorControlRSExample::Rtu`. The [native tests](../test/runner_test.cpp)
-provide a fake UART with independent wire times. The [E2 probe](e2_probe.md)
+provide a fake UART with independent wire times. The [ESP32-S3 probe](esp32_probe.md)
 now adds a hardware adapter and read-only console with explicit qualification limits.
 
 ## Boundary and responsibilities
@@ -93,7 +93,7 @@ end in `[endedUs - uncertaintyUs, endedUs]` and optional physical DE release in
 must follow the latest TX end plus hold. A background adapter can retain these
 observations while the owner sleeps; the runner advances to RECEIVE before
 reading queued reply bytes. The deadline follows physical release evidence,
-not the task wake-up time. In timer mode, E2 reports BUSY until completion and
+not the task wake-up time. In timer mode, the ESP32-S3 adapter reports BUSY until completion and
 release evidence are both available at the supplied time. Zero width
 retains the exact native-fixture behavior. Each gap must be valid across the
 whole range; an ambiguous gap or deadline returns `TIMING_UNCERTAIN`.
@@ -105,7 +105,7 @@ hardware adapter reported the actual wire correctly.
 
 `Serial.available()` batches and FieldCore's current read callback do not
 meet this timing contract by themselves. FieldCore's TX-drain mechanism is
-useful, and the implemented [E2 adapter](e2_probe.md) brackets hardware observations.
+useful, and the implemented [ESP32-S3 adapter](esp32_probe.md) brackets hardware observations.
 External validation of its RX sampling assumptions remains open. Review UART events, hardware idle evidence and timing
 uncertainty before connecting that adapter. See the
 [platform review](reference/10_runner_platform_review.md).
@@ -199,7 +199,7 @@ whole-firmware RAM/flash usage:
 
 TX and RX capacities are independently bounded at 256 bytes. Traces are
 optional and caller-sized; the helper does not allocate a default large ring.
-The E2 probe allocates its application, buffers and 128-entry trace ring in
+The ESP32-S3 probe allocates its application, buffers and 128-entry trace ring in
 PSRAM once at initialization. Prefer this pattern
 for larger task-context histories, retained frames and caches. Task-context
 TX/RX buffers can use PSRAM where the driver permits it. Keep ISR,
@@ -221,7 +221,7 @@ Run the repository's CMake/CTest commands from [README](../README.md).
 The runner is also compiled independently with strict C++11 warnings and
 the ESP32-S3 compiler. Those checks do not establish UART or motor behavior.
 
-The [E2 probe](e2_probe.md) now supplies the adapter, read-only JSONL console
+The [ESP32-S3 probe](esp32_probe.md) now supplies the adapter, read-only JSONL console
 and Python probe/stress/cached-watch harness. Native SDK fakes compile the
 actual adapter source. Bench probes establish a working communication path;
 The independent wire fixture and timer load bench now exercise a sleeping

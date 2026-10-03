@@ -1,0 +1,462 @@
+{
+  "date": "2026-10-03",
+  "baseline_commit": "fdb9926",
+  "hardware": {
+    "port": "COM13",
+    "usb_vid_pid": "303A:1001",
+    "chip": "ESP32-S3",
+    "tx": 47,
+    "rx": 48,
+    "de": 21,
+    "active_high": true,
+    "uart": 2,
+    "baud": 115200,
+    "format": "8N1",
+    "address": 1,
+    "raw_model": "0x4EEA",
+    "external_timing_qualified": false
+  },
+  "campaigns": [
+    {
+      "path": "build/bench/platform_scope_baseline_20261003.jsonl",
+      "sha256": "c3677f902d2ffb31ff0ba6b3eed8eab8ed24ae1a4b40fe85acc2a497cc14eea1",
+      "image": "previous recorded firmware",
+      "result": {
+        "event": "summary",
+        "utc": "2026-10-03T18:52:37.411+00:00",
+        "elapsed_s": 1.265,
+        "mode": "stress",
+        "iterations": 10,
+        "requested_count": 10,
+        "probes_attempted": 10,
+        "probes_passed": 10,
+        "probes_failed": 0,
+        "latency_us": {
+          "min": 5382,
+          "max": 5520,
+          "mean": 5416.7
+        },
+        "load_settings": null,
+        "last_load": null,
+        "last_memory": {
+          "type": "reply",
+          "profile": "ess_rs",
+          "id": 42,
+          "command": "memory",
+          "ok": true,
+          "valid": true,
+          "internal_free": 336864,
+          "internal_min": 331704,
+          "internal_largest": 278516,
+          "psram_free": 8380332,
+          "psram_min": 8380332,
+          "psram_largest": 8257524,
+          "stack_free_bytes": 5728
+        },
+        "ok": true,
+        "error": null
+      }
+    },
+    {
+      "path": "build/bench/platform_scope_timer_probes_20261003.jsonl",
+      "sha256": "e0e1bf479b45532c2de51914d978f0011df9e6812dbe024a73d7b680cbe30c77",
+      "image": "first refactored image; build cache cleared by IDE metadata regeneration, no retained binary",
+      "result": {
+        "event": "summary",
+        "utc": "2026-10-03T18:59:42.744+00:00",
+        "elapsed_s": 2.063,
+        "mode": "stress",
+        "iterations": 20,
+        "requested_count": 20,
+        "probes_attempted": 20,
+        "probes_passed": 20,
+        "probes_failed": 0,
+        "latency_us": {
+          "min": 5376,
+          "max": 5432,
+          "mean": 5401.5
+        },
+        "load_settings": null,
+        "last_load": null,
+        "last_memory": {
+          "type": "reply",
+          "profile": "ess_rs",
+          "id": 82,
+          "command": "memory",
+          "ok": true,
+          "valid": true,
+          "internal_free": 336848,
+          "internal_min": 331688,
+          "internal_largest": 278516,
+          "psram_free": 8380332,
+          "psram_min": 8380332,
+          "psram_largest": 8257524,
+          "stack_free_bytes": 5760
+        },
+        "ok": true,
+        "error": null
+      }
+    },
+    {
+      "path": "build/bench/platform_scope_timer_load_20261003.jsonl",
+      "sha256": "74754dca3046f9864e7b68f4044437dc44e768a55504aac0fbf6e8bb81a6fb2a",
+      "image": "first refactored image; build cache cleared by IDE metadata regeneration, no retained binary",
+      "result": {
+        "event": "summary",
+        "utc": "2026-10-03T18:59:45.678+00:00",
+        "elapsed_s": 2.875,
+        "mode": "load",
+        "iterations": 30,
+        "requested_count": 30,
+        "probes_attempted": 30,
+        "probes_passed": 30,
+        "probes_failed": 0,
+        "latency_us": {
+          "min": 14756,
+          "max": 17014,
+          "mean": 15817.166666666666
+        },
+        "load_settings": [
+          2000,
+          5000,
+          128
+        ],
+        "last_load": {
+          "type": "reply",
+          "profile": "ess_rs",
+          "id": 153,
+          "command": "load",
+          "ok": true,
+          "result": "done",
+          "ready": true,
+          "capture_mode": "timer",
+          "workload_us": 2000,
+          "owner_delay_us": 5000,
+          "console_bytes": 128,
+          "elapsed_us": 2335915,
+          "work_us": 466356,
+          "work_iterations": 233,
+          "console_lines": 223,
+          "console_dropped": 10,
+          "capture_us": 471100,
+          "capture_samples": 118182,
+          "owner_gap_max_us": 8086,
+          "capture_gap_max_us": 52,
+          "work_stack_free_bytes": 2952,
+          "cpu_valid": true,
+          "cpu0_busy_pct": 0,
+          "cpu1_busy_pct": 31
+        },
+        "last_memory": {
+          "type": "reply",
+          "profile": "ess_rs",
+          "id": 152,
+          "command": "memory",
+          "ok": true,
+          "valid": true,
+          "internal_free": 336848,
+          "internal_min": 331688,
+          "internal_largest": 278516,
+          "psram_free": 8380332,
+          "psram_min": 8380332,
+          "psram_largest": 8257524,
+          "stack_free_bytes": 5728
+        },
+        "ok": true,
+        "error": null
+      }
+    },
+    {
+      "path": "build/bench/platform_scope_timer_final_20261003.jsonl",
+      "sha256": "5711dc43ef669c5deedb87f7e27fb43d92115a4006d7c66d2ad73fbd104a56e5",
+      "image": "first refactored image; build cache cleared by IDE metadata regeneration, no retained binary",
+      "result": {
+        "event": "summary",
+        "utc": "2026-10-03T18:59:46.486+00:00",
+        "elapsed_s": 0.75,
+        "mode": "load",
+        "iterations": 3,
+        "requested_count": 3,
+        "probes_attempted": 3,
+        "probes_passed": 3,
+        "probes_failed": 0,
+        "latency_us": {
+          "min": 5399,
+          "max": 5503,
+          "mean": 5439.333333333333
+        },
+        "load_settings": [
+          0,
+          0,
+          0
+        ],
+        "last_load": {
+          "type": "reply",
+          "profile": "ess_rs",
+          "id": 18,
+          "command": "load",
+          "ok": true,
+          "result": "done",
+          "ready": true,
+          "capture_mode": "timer",
+          "workload_us": 0,
+          "owner_delay_us": 0,
+          "console_bytes": 0,
+          "elapsed_us": 206983,
+          "work_us": 97,
+          "work_iterations": 21,
+          "console_lines": 0,
+          "console_dropped": 0,
+          "capture_us": 44406,
+          "capture_samples": 11202,
+          "owner_gap_max_us": 117,
+          "capture_gap_max_us": 43,
+          "work_stack_free_bytes": 2952,
+          "cpu_valid": true,
+          "cpu0_busy_pct": 0,
+          "cpu1_busy_pct": 19
+        },
+        "last_memory": {
+          "type": "reply",
+          "profile": "ess_rs",
+          "id": 17,
+          "command": "memory",
+          "ok": true,
+          "valid": true,
+          "internal_free": 336848,
+          "internal_min": 331688,
+          "internal_largest": 278516,
+          "psram_free": 8380332,
+          "psram_min": 8380332,
+          "psram_largest": 8257524,
+          "stack_free_bytes": 5728
+        },
+        "ok": true,
+        "error": null
+      }
+    },
+    {
+      "path": "build/bench/platform_scope_retained_probes_20261003.jsonl",
+      "sha256": "101deb935405baa2d65971707684eae4a067725d72f5f9247c3ccf0b35669456",
+      "image": "final retained firmware",
+      "result": {
+        "event": "summary",
+        "utc": "2026-10-03T19:10:49.069+00:00",
+        "elapsed_s": 1.265,
+        "mode": "stress",
+        "iterations": 10,
+        "requested_count": 10,
+        "probes_attempted": 10,
+        "probes_passed": 10,
+        "probes_failed": 0,
+        "latency_us": {
+          "min": 5378,
+          "max": 5424,
+          "mean": 5405.2
+        },
+        "load_settings": null,
+        "last_load": null,
+        "last_memory": {
+          "type": "reply",
+          "profile": "ess_rs",
+          "id": 42,
+          "command": "memory",
+          "ok": true,
+          "valid": true,
+          "internal_free": 336848,
+          "internal_min": 331688,
+          "internal_largest": 278516,
+          "psram_free": 8380332,
+          "psram_min": 8380332,
+          "psram_largest": 8257524,
+          "stack_free_bytes": 5764
+        },
+        "ok": true,
+        "error": null
+      }
+    },
+    {
+      "path": "build/bench/platform_scope_retained_load_20261003.jsonl",
+      "sha256": "9c6f6c0a59ccf4acbf0c67f79f651b6b35384b6037e46ec82c2b43f9fae4eb93",
+      "image": "final retained firmware",
+      "result": {
+        "event": "summary",
+        "utc": "2026-10-03T19:10:50.417+00:00",
+        "elapsed_s": 1.297,
+        "mode": "load",
+        "iterations": 10,
+        "requested_count": 10,
+        "probes_attempted": 10,
+        "probes_passed": 10,
+        "probes_failed": 0,
+        "latency_us": {
+          "min": 14757,
+          "max": 18148,
+          "mean": 15530.5
+        },
+        "load_settings": [
+          2000,
+          5000,
+          128
+        ],
+        "last_load": {
+          "type": "reply",
+          "profile": "ess_rs",
+          "id": 53,
+          "command": "load",
+          "ok": true,
+          "result": "done",
+          "ready": true,
+          "capture_mode": "timer",
+          "workload_us": 2000,
+          "owner_delay_us": 5000,
+          "console_bytes": 128,
+          "elapsed_us": 764082,
+          "work_us": 154129,
+          "work_iterations": 77,
+          "console_lines": 74,
+          "console_dropped": 3,
+          "capture_us": 154270,
+          "capture_samples": 38650,
+          "owner_gap_max_us": 8102,
+          "capture_gap_max_us": 51,
+          "work_stack_free_bytes": 2952,
+          "cpu_valid": true,
+          "cpu0_busy_pct": 1,
+          "cpu1_busy_pct": 32
+        },
+        "last_memory": {
+          "type": "reply",
+          "profile": "ess_rs",
+          "id": 52,
+          "command": "memory",
+          "ok": true,
+          "valid": true,
+          "internal_free": 336848,
+          "internal_min": 331688,
+          "internal_largest": 278516,
+          "psram_free": 8380332,
+          "psram_min": 8380332,
+          "psram_largest": 8257524,
+          "stack_free_bytes": 5760
+        },
+        "ok": true,
+        "error": null
+      }
+    },
+    {
+      "path": "build/bench/platform_scope_retained_final_20261003.jsonl",
+      "sha256": "f3d9dc878c64175b6d6c5e89f98f265f0c87bb5d14483e777773913fdc5d16d1",
+      "image": "final retained firmware",
+      "result": {
+        "event": "summary",
+        "utc": "2026-10-03T19:10:51.216+00:00",
+        "elapsed_s": 0.75,
+        "mode": "load",
+        "iterations": 3,
+        "requested_count": 3,
+        "probes_attempted": 3,
+        "probes_passed": 3,
+        "probes_failed": 0,
+        "latency_us": {
+          "min": 5386,
+          "max": 5433,
+          "mean": 5416.0
+        },
+        "load_settings": [
+          0,
+          0,
+          0
+        ],
+        "last_load": {
+          "type": "reply",
+          "profile": "ess_rs",
+          "id": 18,
+          "command": "load",
+          "ok": true,
+          "result": "done",
+          "ready": true,
+          "capture_mode": "timer",
+          "workload_us": 0,
+          "owner_delay_us": 0,
+          "console_bytes": 0,
+          "elapsed_us": 207971,
+          "work_us": 149,
+          "work_iterations": 21,
+          "console_lines": 0,
+          "console_dropped": 0,
+          "capture_us": 44391,
+          "capture_samples": 11251,
+          "owner_gap_max_us": 149,
+          "capture_gap_max_us": 44,
+          "work_stack_free_bytes": 2952,
+          "cpu_valid": true,
+          "cpu0_busy_pct": 0,
+          "cpu1_busy_pct": 19
+        },
+        "last_memory": {
+          "type": "reply",
+          "profile": "ess_rs",
+          "id": 17,
+          "command": "memory",
+          "ok": true,
+          "valid": true,
+          "internal_free": 336848,
+          "internal_min": 331688,
+          "internal_largest": 278516,
+          "psram_free": 8380332,
+          "psram_min": 8380332,
+          "psram_largest": 8257524,
+          "stack_free_bytes": 5760
+        },
+        "ok": true,
+        "error": null
+      }
+    }
+  ],
+  "firmware": {
+    "path": "build/bench/platform_scope_final_firmware.bin",
+    "size": 334320,
+    "sha256": "cfbfbdb2fc230312d65ca63b52251ad4ff1ba2bc129418b797c275aa9bbb925b",
+    "flash_usage": 328900,
+    "static_ram_usage": 29176
+  },
+  "original_backup": {
+    "path": "build/bench/co2control_com13_before.bin",
+    "sha256": "85c089bc3956b22037af7e6f0d7945f6ed778bb1a0526fb5b2ba3e8fea02d0c1",
+    "unchanged": true
+  },
+  "bootloader_readback": {
+    "status": "unresolved; no motor code executing during failure",
+    "tool": "esptool 5.3.0",
+    "request": "read-flash 0x10000 334320 via USB serial/JTAG at configured baud921600",
+    "completed_bytes_before_failure": 188416,
+    "trace_evidence": "host received4096 bytes of next SLIP packet, then three-second wait and packet-content timeout",
+    "logs": [
+      {
+        "path": "build/platform_scope_readback.log",
+        "sha256": "901662d49432389b5d1178a579c89b2fa7d271efee9018a8025a2b214d7e63c7"
+      },
+      {
+        "path": "build/platform_scope_readback_utf8.log",
+        "sha256": "2dd36c98e8f994fbc5a7e514151f809e2e15fedf48049315d84c1954130992d2"
+      },
+      {
+        "path": "build/platform_scope_readback_trace.log",
+        "sha256": "c8d0fd40a0b80af7651b45690bf7dd1bb24fbd352525a4d639d1fdc281fb8179"
+      },
+      {
+        "path": "build/platform_scope_readback_direct.log",
+        "sha256": "627e4f50827447fce0d3763563e6c8d053676b7255172da0585ac31a88e75b15"
+      },
+      {
+        "path": "build/platform_scope_final_build.log",
+        "sha256": "fa9a3f695b9262da61e4e3c33af611e7a700e6871b09ecab79393aac621cda4c"
+      },
+      {
+        "path": "build/platform_scope_final_upload.log",
+        "sha256": "70761088cd32246a8329c736d2ad159f4adad34ca72fc63e805d9110d439f03a"
+      }
+    ]
+  }
+}

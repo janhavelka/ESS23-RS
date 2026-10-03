@@ -7,7 +7,7 @@ Prerequisite: actual API/CLI behavior and correlation from earlier steps. Reuse 
 
 ## Read and reuse
 
-Inspect `scripts/bench_probe.py`, `test/bench_probe_test.py`, the current console inventory and FieldCore harness patterns read-only. Preserve one port owner, bounded input and exclusive evidence files.
+Inspect `scripts/bench_probe.py`, `test/bench_probe_test.py`, the current console inventory and native fake serial scenarios. Preserve one port owner, bounded input and exclusive evidence files.
 
 ## Implement
 

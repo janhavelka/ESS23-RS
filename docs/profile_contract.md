@@ -163,7 +163,7 @@ Track implementation and hardware qualification separately for each operation.
 | Motion commands | Write-only position, speed and homing starts; relative/absolute choice; ignore-versus-interrupt behavior; normal and emergency stop. Do not read a command as if it were configuration. | 13-14, 25, 70-71 |
 | Auxiliary actions | Explicit release, enable, alarm clear, current-position clear, factory restore and save-all preparations. Position clear changes device coordinates; it is not a host-origin setter. Save/restore require stopped state and can be ignored otherwise. | 26, 71 |
 | Homing and software limits | Read/write homing auxiliary options, method, search/return speed, acceleration/deceleration, offset pair, positive/negative limit pairs and collision-homing settings; expose method prerequisites and completion evidence. Account for the method diagrams. | 19-20, 28-29, 32-67, 72-73, 79 |
-| Digital inputs and outputs | Read/write polarity, X0-X3 function assignments, Y0/Y1 assignments and custom output values. Cover every documented function choice, including origin/limits, release, stops, position/speed/JOG inputs, homing, PT/PV triggers and segment-selection inputs. | 27-28, 73-74 |
+| Digital inputs and outputs | Read/write polarity, X0-X3 function assignments, Y0/Y1 assignments and custom output values. Include explicit no-function/disabled assignment and every documented choice: origin/limits, release, stops, position/speed/JOG inputs, homing, PT/PV triggers and segment-selection inputs. | 27-28, 73-74 |
 | Multisegment positioning | Read/write I/O relative/absolute mode and each of the 16 position records: paired pulse target, speed, acceleration and deceleration. Account for each reserved slot without assigning invented behavior. Execution is external-input-only. | 13, 20-24, 75-76 |
 | Multisegment speed | Read/write PV trigger level/edge selection and each of the 16 speed/acceleration/deceleration records; cover per-segment starting speeds shared by PT/PV. Execution is external-input-only. | 13, 20-24, 75-77 |
 | Operating algorithm, encoder and current | Read/write operating algorithm/open-loop selection, encoder resolution, maximum effective current, closed-loop maximum/base, open-loop maximum and lock-current percentages, and lock time. Keep model-specific limits explicit. | 77-78 |
@@ -194,6 +194,35 @@ signed ranges, request limits and unclear scaling must not become guessed
 API constants. Native raw values may be observable with a documented wire
 format while an engineering-unit conversion or write remains unavailable.
 
+### Unused and disabled terminals
+
+ESS function-manual pages 27-28 explicitly define function value `0` as
+"the terminal has no function". The ESS appendix on pages 73-74 assigns it to
+X0-X3 at `0x0041`-`0x0044` and Y0-Y1 at `0x004C`-`0x004D`. Existing
+`InputFunction::UNDEFINED` and `OutputFunction::UNDEFINED` represent this known
+no-function value, not an unknown decode. Typed I/O operations must expose it
+as an explicit disabled/none choice for each terminal. These enum values and
+raw codecs exist; typed configuration helpers and hardware qualification remain
+future work.
+
+Keep no-function assignment separate from level inversion (`0x0040`/`0x004B`),
+a custom output's inactive value (`0x004F`), and the application's report that
+a cable is absent. Function `0` establishes no assigned function; the manual
+does not establish its electrical output level or an immediate application
+deadline. Do not infer either, automatically save the change, or claim that a
+successful write echo verifies the physical state. Preserve partial/uncertain
+configuration results and read back the assignment where supported.
+
+Serial-only operation is a supported configuration goal. Require external
+inputs only for the selected method/mode that uses them. Disabled origin or
+limit functions cannot satisfy switch-based homing prerequisites; ESS external
+segment execution still needs its documented trigger/selection signals. Do not
+add a global requirement to wire these signals before ordinary serial motion.
+Enabling the drive through `0x002D` does not prove precedence over a configured
+release input: the reviewed ESS pages do not resolve that arbitration. A
+profile for another manufacturer must supply its own disable values, activation
+rules and input/serial precedence; ESS assignments are not generic RS485 rules.
+
 ## Two-profile design check
 
 This matrix tests the abstraction against different documented behavior; it
@@ -213,6 +242,7 @@ broader candidate scope.
 | Completion | Decode motion/arrival/homing observations separately from command acknowledgement (68). | Trigger readback distinguishes running, command completion and positioning completion. | Correlate fresh evidence to the operation; preserve accepted, executing, complete and uncertain outcomes separately. |
 | Stop | Normal stop uses preconfigured deceleration; emergency stop is described as direct stopping without deceleration (25). | Quick stop uses its configured deceleration time. | Request explicit stop behavior; do not translate similar labels into assumed identical behavior. |
 | Observation effects | Read flags with their documented polarity; do not infer side effects absent evidence. | Save-result status returns to its initial value after reading. | Declare destructive reads and one observation owner so background polling cannot consume another operation's evidence. |
+| Optional I/O | Function `0` disables assignment; input polarity is separate. Serial enable/release precedence over active inputs is unresolved (26-28, 73-74). | Input function, polarity and filtering share a parameter; software forced enable has documented priority over I/O enable (20, 23-24). | Keep wiring, assignment and observation separate. Use each profile's actual encoding, activation and enable rules; require external I/O only when the selected operation needs it. |
 
 The Leadshine jog timing prose and its shorter table wording differ; preserve
 that discrepancy in its future ledger and qualify cadence with the target

@@ -23,11 +23,12 @@ motor framework, another manufacturer's implementation, or CANopen support.
    hand-edit generated output. New handwritten operation types belong in a
    real, separately owned header when needed. Do not create placeholder APIs.
 5. Audit the actual changed code and its caller/test chain before and after
-   implementation. Reinspect relevant FieldCore module/owner/backend/CLI code
-   read-only, using the [source audit](../../reports/2026-10-03_promptset_audit.md)
-   as a starting map. Record conventions reused and intentional differences;
-   old reports do not substitute for current code. For blocks with no matching
-   FieldCore path, explain that scope instead of forcing an abstraction match.
+   implementation. Reinspect relevant FieldCore RS485 module/owner/backend/CLI
+   code read-only. Record useful conventions and deliberate differences; old
+   reports do not substitute for current code. No FieldCore motor device exists
+   yet: sensor modules are workflow examples, not the target motor API. Limit
+   this comparison to RS485 integration. Product composition and unrelated buses
+   do not belong in the motor library or its implementation requirements.
 
 All previous numbered steps must have a recorded disposition before the next
 is dispatched. Required software contracts must exist and pass their tests.
@@ -44,21 +45,24 @@ do not absorb an entire missing future subsystem into the selected block.
   framework-independent core. No Arduino/IDF/FreeRTOS/UART, clock, logging,
   heap allocation, retries or application health policy enters that core.
 - Keep queueing, transport, DE, timestamps, scheduling, caches and health in
-  the application. Reuse `RtuRunner`, `E2Uart`, the fake SDK/wire schedule,
+  the application. Reuse `RtuRunner`, `Esp32S3Uart`, the fake SDK/wire schedule,
   `ProbeConsole`, units, ledger and ESS codecs. Extend actual call paths rather
   than maintaining a second implementation just for tests.
-- FieldCore is read-only reference throughout this set. Follow its ownership
-  ideas without copying its task or creating another UART owner. Integration
-  there remains a separately scoped task, outside this sequence.
-  Borrow bounded admission/result reservation, exact request identity, passive
-  snapshots and cooperative module work. Do not copy both of its ingress/owner
-  queues into this single-owner example, its eight-byte TX limit, automatic
-  request-prefix echo stripping, float measurement payloads or sensor retries.
-  Its E2 bus abstraction is not this repository's physical E2 board label.
-- This is an RTU motion-owner reference. FieldCore also supports non-Modbus
-  framing, including VibWire ASCII; later integration extends its existing owner
-  and preserves those paths. Do not turn this runner into a universal engine.
-  Each admitted transaction retains its own validator and immutable context.
+- Use a standalone RS485 request/work/result workflow: a profile prepares a
+  transaction or wait; one application bus owner schedules it; the adapter
+  supplies transport evidence; the profile checks the response. FieldCore's
+  RS485 task is a read-only comparison for that workflow, not a dependency or
+  product architecture to reproduce. The final handoff maps the tested reference
+  onto its future motor device and existing RS485 owner.
+- Keep one bounded application queue and one UART owner. Do not import firmware
+  ingress layers, product registries, sensor-only payloads or retry policy. Each
+  admitted transaction retains its own validator and immutable context. The
+  present reference supports RTU; other serial framing requires a real profile
+  and separately scoped implementation, not a universal transport engine.
+- Board pins, UART selection, USB startup, load tasks, PSRAM and SDK details
+  belong only to the selected standalone adapter/bench configuration. An
+  ESP32-S3 bench does not restrict the installed library to that MCU or board.
+  Keep native tests and clean consumers independent of those settings.
 - Public operation/event types belong to the installed core. Applications map
   runner evidence into them; example `Rtu::Request`/`Result`, console caches and
   FieldCore types must not leak into public headers. Transaction serialization
@@ -69,6 +73,17 @@ do not absorb an entire missing future subsystem into the selected block.
   validation/state ownership when it simplifies the complete path. Do not
   add a registry, base-class hierarchy, generic event engine, template layer,
   compatibility alias or extra task merely for hypothetical future reuse.
+- Keep manufacturer-specific registers, limits, units, completion rules and
+  external-input behavior inside the selected profile. Check common contracts
+  against the reviewed Leadshine contrast; do not implement another profile
+  before actual hardware and need justify it. Profile selection must not change
+  the caller's motion vocabulary or force one manufacturer's optional features.
+- External motor I/O is optional. Serial-only use must support known unwired
+  inputs and documented disabled assignments. Unwired, disabled and unknown
+  are different states; an unwired terminal is not proof its function is off.
+  Require an input only for an operation that actually uses it. Never invent a
+  disable value, silently override limits/stop functions, or substitute cached
+  software state for the drive's actual input configuration.
 - Every native device feature goes through a typed public profile operation;
   common and CLI routes call that operation. Raw register writes do not count
   as typed coverage. Surface unsupported, unresolved and unimplemented reasons
@@ -77,9 +92,10 @@ do not absorb an entire missing future subsystem into the selected block.
   codec errors, alarms, acknowledgement, completion and execution uncertainty.
   Do not infer a stop from timeout, a ready axis from a probe, or non-execution
   from a lost acknowledgement. No automatic replay of uncertain motor writes.
-- Allocate fixed storage with explicit ownership. Put larger task buffers,
-  traces and retained results in PSRAM where valid. Keep required ISR/driver
-  memory and stacks internal. Record sizes and runtime watermarks after changes.
+- Allocate fixed storage with explicit ownership. On ESP32 applications, put
+  larger task buffers, traces and retained results in PSRAM where valid; keep
+  required ISR/driver memory and stacks internal. Other applications supply
+  their own bounded storage. Record sizes and relevant runtime watermarks.
 
 ## Subagents and final independent review
 
@@ -122,7 +138,7 @@ python test/bench_probe_test.py
 python scripts/generate_version.py check
 python scripts/generate_ess_registers.py --check
 python scripts/prepare_serial_contrasts.py --check
-.\scripts\pio.cmd run -e e2_s3_probe -e e2_s3_load_poll -e e2_s3_load_timer
+.\scripts\pio.cmd run -e bench_s3_probe -e bench_s3_load_poll -e bench_s3_load_timer
 git diff --check
 ```
 
@@ -134,7 +150,7 @@ verification entry point; it does not exist at this baseline. Do not copy
 FieldCore verification commands that have no counterpart here.
 
 Before live testing read [bench notes](../../hardware_bench.md), the current
-report and [probe guide](../../e2_probe.md). Inspect actual USB/firmware identity,
+report and [probe guide](../../esp32_probe.md). Inspect actual USB/firmware identity,
 pins, image and settings; COM13 and the recorded values are candidates until
 checked. Preserve the original firmware backup and record each uploaded image.
 Retain one-attempt read-only probes as a quick regression:

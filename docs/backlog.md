@@ -9,8 +9,15 @@ and sync that block under [the repository guidance](../AGENTS.md).
 
 ## Accepted design
 
-- [x] General framework-independent common axis API, drive profiles and
-  application integration; ESS first, Leadshine iEM-RS as the design contrast.
+- [x] General framework/platform-independent common axis API, drive profiles
+  and application integration; ESS first, Leadshine iEM-RS as design contrast.
+  ESP32-S3 is the available standalone bench, not a required platform or product.
+- [x] Scope the reference workflow to RS485 request/wait/result ownership.
+  FieldCore's future motor device does not exist yet; its RS485 task is read-only
+  integration reference. Other buses and product composition are outside scope.
+- [x] Accept optional external motor I/O: distinguish wiring from drive function
+  assignment, support explicit documented disable and require inputs only for
+  operations that use them. Typed I/O setters remain planned; this records the design decision.
 - [x] Keep CANopen in a separate future library, initially for the verified
   CL86-C subset; maintain one motion contract and independent bus ownership.
   Extract common units/types only after concrete reuse in both implementations.
@@ -39,7 +46,7 @@ The authoritative contracts are [architecture](architecture.md),
    checked replies, independent CRC/frame tests and raw word conversions.
    Probe reads model register 0x0000/one word. General FC10 limits and typed
    field meanings remain unresolved where documented; no hardware I/O occurred.
-2. **Read-only E2 bring-up:** runner, polling adapter, probe CLI, native tests
+2. **Read-only ESP32-S3 bench bring-up:** runner, polling adapter, probe CLI, native tests
    and a 100-probe bench run are complete. Existing CO2control flash was backed
    up before upload. Next verify the RX timing assumptions with an external
    TX/RX/DE trace and resolve raw model `0x4EEA`; add explicit identity/state
@@ -60,7 +67,7 @@ see the [rename steps](repository_rename.md). This does not change the API.
 
 ## Immediate next implementation block
 
-The independent native wire fixture, E2 load fixture and optional GPTimer
+The independent native wire fixture, ESP32-S3 load fixture and optional GPTimer
 capture are implemented and have bench evidence in the
 [capture/load audit](reports/2026-10-03_capture_load.md). External TX/RX/DE
 measurements, cache-off qualification and the production CPU budget remain open.
@@ -102,8 +109,16 @@ and then first motion/stop follow the reviewed transport and drive prerequisites
   host-origin mapping and configuration dependencies.
 - [ ] Define typed ESS identity, telemetry, motion, homing, stop, auxiliary,
   I/O, segment, limits, tuning, communications and persistence operations.
+- [ ] Implement explicit ESS input/output disable through documented function 0
+  (`UNDEFINED`: no function), sharing the typed function setter with API/CLI.
+  Preserve unknown output electrical state and serial/external-control precedence;
+  cable absence and polarity inversion are not disabling. Prompt 15 owns setters.
+- [ ] Verify serial-only operation with optional I/O unwired or explicitly
+  disabled, using readback prerequisites from 05 and admission tests in 08/09.
+  Never rewrite input functions implicitly during startup, probes or motion.
 - [ ] Preserve external-input-only segment execution and model-specific I/O
   counts; expose available serial configuration without fictional triggers.
+  Missing/disabled homing or trigger inputs block only dependent operations.
 - [ ] Map common operations to ESS with exact prerequisites, completion
   evidence, read side effects, partial-write outcomes and replay rules.
 - [ ] Complete the Leadshine design comparison before fixing common API
@@ -174,14 +189,15 @@ and then first motion/stop follow the reviewed transport and drive prerequisites
   map, debugging flow and current FieldCore integration gaps.
 - [x] Add real public headers/source, native tests, version/package metadata,
   CMake builds and an offline desktop/Arduino units preview.
-- [x] Audit FieldCore build settings and record the user-confirmed E2 HW2.0
-  RS485 pins TX47/RX48/DE21 separately from its current CO2control product profile.
+- [x] Record the standalone ESP32-S3 bench settings and RS485 pins TX47/RX48/DE21
+  in [bench configuration](reference/04_esp32_bench.md). Adapter configuration is
+  example-owned; no FieldCore product or other bus defines the motor API.
 - [ ] Implement common CLI inventory/dispatch and full native command coverage
   through public APIs, cached status/health and retained operation results.
 - [x] Implement example-owned RTU runner with fake callback tests: physical
   TX drain, wire-timed receive framing, explicit echo, exception length,
   cancellation, retained diagnostics and recovery admission.
-- [x] Implement the E2 UART adapter with physical TX-idle intervals, RX
+- [x] Implement the ESP32-S3 UART adapter with physical TX-idle intervals, RX
   capture intervals, UART error reporting and actual-source SDK fake tests.
 - [ ] Externally qualify RX FIFO/stop sampling and idle-watermark assumptions,
   DE setup/hold and load tolerance. Probe success is not full timing qualification.
@@ -190,7 +206,7 @@ and then first motion/stop follow the reviewed transport and drive prerequisites
   record free/minimum/largest-block memory and stack measurements.
 - [x] Add Python bounded probe/stress and cached health/memory watching with
   JSONL evidence, no retry/recovery and native fake serial tests.
-- [x] Audit the E2/console/harness path: fix RX silence races, fault-result
+- [x] Audit the adapter/console/harness path: fix RX silence races, fault-result
   availability, exception recovery policy, cached codec details and host
   evidence validation; test the actual application loop with shared SDK fakes.
   See the [0.5.1 audit](reports/2026-10-03_audit.md); external timing remains open.
@@ -203,19 +219,20 @@ and then first motion/stop follow the reviewed transport and drive prerequisites
 - [ ] Add later FieldCore adapter work in that repository: typed motor control,
   FC06 echo handling, larger TX frames, exception framing, exact integers,
   receive timing evidence, scheduling and stop priority. Standalone work must
-  not depend on this step. Recheck its current product composition as well as
-  the matching physical board pins.
+  not depend on this step. A future motor device and selected platform wiring
+  belong to that integration; the current test board does not define them.
 
-## Transport reference before FieldCore integration
+## Standalone RS485 workflow and later integrations
 
-FieldCore is read-only for the current session. Major transport development
-and testing belong here, with the public motor library remaining independent
-of the standalone bus owner. See the
+Major transport-reference development and testing belong here, with the public
+motor library independent of the application bus owner and platform adapter.
+FieldCore is a read-only RS485 workflow reference for the current session; the
+same core and request/wait/result pattern must also work for other consumers. See the
 [development route](reference/10_runner_platform_review.md#develop-the-integration-reference-here).
 
 - [x] Extend native fixtures for delayed task service and captured wire events;
   check lost timing, UART overflow, late replies and bounded terminal results.
-- [x] Add an E2 task/USB/load fixture and measure service gaps, CPU cost, errors,
+- [x] Add an ESP32-S3 task/USB/load fixture and measure service gaps, CPU cost, errors,
   transaction latency and memory. Implement GPTimer capture and physical DE
   release while the owner sleeps; retain atomic completion/release observations.
 - [ ] Independently qualify TX/RX/DE and RX publication/idle assumptions; measure
@@ -241,7 +258,8 @@ of the standalone bus owner. See the
   module and backend boundaries. Preserve its other serial framing modes in
   future integration regressions; do not clone the whole FieldCore task here.
 - [ ] Later, under separate authorization, adapt FieldCore's existing owner
-  and test real concurrency, sensor regressions and product load there.
+  and test real concurrency, sensor regressions and application load there.
+  Do not add its unrelated bus abstractions or product registry to this library.
 
 ## Verification and COM13 bench work
 
@@ -249,7 +267,7 @@ of the standalone bus owner. See the
   generated files, header isolation and package consumption. Require Python
   checks for repository/release validation; ordinary C++ consumers remain
   independent of Python. Record the supported compiler/platform matrix.
-- [x] Inspect COM13's CO2control firmware, preserve flash, build/upload the E2
+- [x] Inspect COM13's CO2control firmware, preserve flash, build/upload the standalone
   probe and establish communication at address 1, 115200 8N1, TX47/RX48/DE21.
 - [x] Record the first minimal model read, raw frames, interval evidence and
   explicit 304 us bench turnaround exception; complete repeated probe tests.
@@ -278,7 +296,7 @@ possible. This list is not a request for the user to answer everything now.
 | When does the GitHub repository URL change? | Metadata is prepared for `janhavelka/MotorControl-RS`; the user performs the GitHub rename, then updates the clone's origin. Folder/cache steps are in [the rename guide](repository_rename.md). Package/API identity is already complete. |
 | What motor/model/firmware is actually connected? | Read documented identity; compare model markings if identity is insufficient. The project's RS20 target is not a bench measurement. |
 | What firmware/host path is active on COM13? | Latest recorded bench: MotorControl-RS 0.6.0 JSONL probe/load console with timer capture, with original CO2control backup retained. Recheck identity at each new hardware session; it is not a raw RTU bridge. |
-| What are the board pins, DE/RE polarity, echo topology and bus wiring? | User confirms E2 HW2.0 TX47/RX48/DE21. Matching FieldCore HW200 source uses UART2/active-high DE. Live polarity, echo and wiring qualification remain. |
+| What are the board pins, DE/RE polarity, echo topology and bus wiring? | Bench pins are TX47/RX48/DE21, UART2/active-high DE; the selected example config owns them. Live polarity, echo and wiring qualification remain. |
 | Which address/baud/format is active despite reported defaults? | Replies are observed at node 1, 115200 8N1. Device configuration/DIP readback and bounded discovery remain pending. |
 | Is the selected ESS probe qualified on the connected firmware? | Repeated checked FC03 0x0000/one-word replies have bench evidence. Exact model/firmware, external timing and communication-watchdog interaction remain unqualified. |
 | Can discovery distinguish a manufacturer/model or only a responder? | Record exact reply evidence and retain ambiguous candidates; no guessed selection. |
@@ -287,6 +305,7 @@ possible. This list is not a request for the user to answer everything now.
 | What are the speed/ramp units and valid ranges? | Reconcile command prose and ESS appendix before physical-unit conversion. |
 | What are the exact FC10 limits and partial-write effects? | Vendor evidence plus bounded firmware qualification; do not use generic maximums as device facts. |
 | Which state/alarm/completion reads are non-consuming and correlated to a new operation? | Profile access ledger and controlled sequencing tests. |
+| Which optional inputs are wired, disabled or still assigned an active function? | Read exact drive function/polarity/state settings and record external wiring separately. ESS function 0 means no function; serial/external release precedence remains unresolved. Gate only dependent operations. |
 | What persists, applies immediately, waits for save or needs a power cycle? | Resolve access notation and test exact firmware; retain unknown application state after lost writes. |
 | How do collision-homing duplicate parameters and outside-map references apply? | Reconcile original pages/model scope; no guessed aliases or addresses. |
 | What happens on communication loss, release, restart and external shaft motion? | Qualify per profile; update stop/reference/keepalive contracts with observations. |
@@ -316,3 +335,13 @@ possible. This list is not a request for the user to answer everything now.
   ramps as declared capabilities rather than silent approximations.
 - [ ] Treat coordinated multi-axis timing/trajectories as a separate design
   with explicit bus and device guarantees.
+
+## Bench tooling issue from the platform-boundary audit
+
+- [ ] Resolve repeated esptool 5.3.0 USB bootloader flash-read truncation at
+  188,416 completed bytes of the tested application-region read. Traced and
+  direct-file reruns reproduce an incomplete SLIP packet; exact cause remains
+  open. Compare stub/ROM reads and capture USB at that packet before claiming
+  a fix. Motor firmware is not running during this failure. Final-image upload
+  verification and read-only RS485 regression pass independently; see the
+  [audit and evidence](reports/2026-10-03_platform_scope_audit.md).

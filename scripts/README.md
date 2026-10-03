@@ -31,4 +31,4 @@ generator tests use only the Python standard library.
 `bench_probe.py` runs finite read-only probe/stress campaigns or cached
 health/memory watching through the standalone JSONL console. A live port needs
 `pyserial`; its fake serial tests use the Python standard library. See the
-[E2 guide](../docs/e2_probe.md) for commands, evidence and failure behavior.
+[ESP32-S3 guide](../docs/esp32_probe.md) for commands, evidence and failure behavior.

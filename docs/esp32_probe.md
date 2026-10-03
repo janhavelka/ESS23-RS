@@ -1,4 +1,4 @@
-# E2 read-only probe bench
+# ESP32-S3 read-only probe bench
 
 This example connects the ESS codecs, standalone runner and a dedicated
 ESP32-S3 UART adapter. Its only motor command is the documented non-changing
@@ -13,16 +13,16 @@ or manufacturer/model identity.
 
 ## Load and sleeping-owner capture
 
-`e2_s3_probe` retains owner polling. Two optional build environments add the
-same small load fixture: `e2_s3_load_poll` for the baseline and
-`e2_s3_load_timer` for background capture. The latter samples UART2 with a
+`bench_s3_probe` retains owner polling. Two optional build environments add the
+same small load fixture: `bench_s3_load_poll` for the baseline and
+`bench_s3_load_timer` for background capture. The latter samples UART2 with a
 20-microsecond GPTimer alarm and releases DE after observed TX idle plus the
 configured hold. A sleeping owner later receives atomic TX/release evidence
-and the buffered RX timing records. Both modes share E2Uart, the runner,
+and the buffered RX timing records. Both modes share Esp32S3Uart, the runner,
 ESS codecs, console and Python harness.
 
 ```powershell
-.\scripts\pio.cmd run -e e2_s3_load_timer -t upload --upload-port COM13
+.\scripts\pio.cmd run -e bench_s3_load_timer -t upload --upload-port COM13
 python scripts/bench_probe.py --port COM13 --log build/bench/my_load.jsonl load --count 100 --interval 0.03 --work-us 2000 --owner-delay-us 5000 --console-bytes 128
 ```
 
@@ -41,7 +41,7 @@ owner service gap. Load changes require an idle owner and settled DE. `reset`
 and an explicit load change start a fresh fixture measurement window without
 clearing faults. `reset` keeps the selected workload and last probe result.
 
-[E2Load](../examples/probe_cli/E2Load.h) owns one priority-2 competing task on
+[Esp32Load](../examples/probe_cli/Esp32Load.h) owns one priority-2 competing task on
 the Arduino owner's core, a fixed 4096-byte internal stack and a USB output
 mutex. It has application lifetime. Diagnostic lines start with `# load `;
 the configured size is payload, with framing added. JSON and diagnostic lines
@@ -80,10 +80,10 @@ internal; the existing owner buffers, trace and console remain in PSRAM.
 From the repository root:
 
 ```powershell
-.\scripts\pio.cmd run -e e2_s3_probe
+.\scripts\pio.cmd run -e bench_s3_probe
 ```
 
-The environment is in [platformio.ini](../platformio.ini). It extends the E2
+The environment is in [platformio.ini](../platformio.ini). It extends the bench
 units example's pinned pioarduino platform `55.03.311`, Arduino framework,
 ESP32-S3 board definition, 16 MB flash, OPI PSRAM and USB CDC settings. This
 application uses the ESP-IDF UART setup and low-level register helpers shipped
@@ -91,7 +91,7 @@ with that framework. The reusable MotorControlRS library has no such dependency.
 
 | Connection | Example setting |
 | --- | --- |
-| Physical board | User-confirmed E2, revision 2.0.0 |
+| Physical board | User-confirmed ESP32-S3 bench, revision 2.0.0 |
 | UART owner | Exclusive UART2 adapter |
 | RS485 TX / RX | GPIO47 / GPIO48 |
 | DE/RE | GPIO21, high to transmit, low to receive |
@@ -102,14 +102,14 @@ with that framework. The reusable MotorControlRS library has no such dependency.
 The serial tuple is the documented ESS default used as a commissioning
 candidate. It is not readback of the connected motor. Board provenance and
 the previously running CO2control firmware are recorded in
-[the board review](reference/04_co2control_platform.md) and
+[the board review](reference/04_esp32_bench.md) and
 [bench notes](hardware_bench.md).
 
 After inspecting the current port and retaining the existing firmware/build
 information needed to restore it, the example can be uploaded explicitly:
 
 ```powershell
-.\scripts\pio.cmd run -e e2_s3_probe -t upload --upload-port COM13
+.\scripts\pio.cmd run -e bench_s3_probe -t upload --upload-port COM13
 .\scripts\pio.cmd device monitor -p COM13 -b 115200
 ```
 
@@ -124,7 +124,7 @@ query, scan, configuration write or motion command.
 | --- | --- |
 | [main.cpp](../examples/probe_cli/main.cpp) | Own the application buffers, runner, UART, console, retained probe result, memory snapshots and recovery policy. |
 | [ProbeConsole.h](../examples/probe_cli/ProbeConsole.h) / [ProbeConsole.cpp](../examples/probe_cli/ProbeConsole.cpp) | Parse bounded lines, validate arguments, dispatch the supported commands and format JSON records. Platform neutral. |
-| [E2Uart.h](../examples/common/E2Uart.h) / [E2Uart.cpp](../examples/common/E2Uart.cpp) | Set up UART2 and DE, sample the peripheral, preserve timing ranges and report capture/UART errors. ESP32-S3 specific. |
+| [Esp32S3Uart.h](../examples/common/Esp32S3Uart.h) / [Esp32S3Uart.cpp](../examples/common/Esp32S3Uart.cpp) | Set up UART2 and DE, sample the peripheral, preserve timing ranges and report capture/UART errors. ESP32-S3 specific. |
 | [RtuRunner.h](../examples/common/RtuRunner.h) / [RtuRunner.cpp](../examples/common/RtuRunner.cpp) | Apply bus admission, TX drain, DE hold, receive framing, deadlines and recovery interlocks using supplied observations. |
 | [Codec.h](../include/MotorControlRS/profiles/ess_rs/Codec.h) | Build the model read and check slave, function, length, count, CRC and exception response. |
 | [bench_probe.py](../scripts/bench_probe.py) | Correlate console requests, run finite campaigns and save JSONL evidence. |
@@ -133,7 +133,14 @@ The application is the only bus owner. The adapter configures UART2 without
 installing the IDF UART driver, ISR or driver receive ring. It polls low-level
 FIFO, state-machine and error registers directly. No `HardwareSerial`, IDF UART
 driver or second owner may use UART2 at the same time. Initialization rejects
-an already installed UART2 driver.
+an already installed UART2 driver. Use exactly one adapter instance for UART2;
+raw adapter instances cannot detect one another automatically.
+
+`Esp32S3Uart::begin(pins, baud)` receives TX, RX, DE and direction polarity
+from the application. It does not include the bench board header. The example
+passes its explicit `BoardPins.h` preset; another ESP32-S3 application can
+supply different valid pins. UART2 and 115200 8N1 remain the adapter's current
+limits. Alternate pins and active-low DE have native tests, not bench evidence.
 
 This is a focused bench implementation. Later FieldCore integration must use
 or improve FieldCore's existing bus owner; it must not start this adapter beside
@@ -301,8 +308,8 @@ and retained application state. Failure to allocate PSRAM reports a boot error;
 there is no silent large internal-RAM fallback. No per-command application
 allocation is added by the runner, codecs or console.
 
-The UART sampler and 64-entry capture working set remain internal (1680 bytes
-for the E2Uart object on ESP32-S3, including the 1536-byte ring).
+The UART sampler and 64-entry capture working set remain internal (1696 bytes
+for the Esp32S3Uart object on ESP32-S3, including the 1536-byte ring).
 FIFO submission copies at most 64 bytes to an internal stack array before its
 short critical section. Larger PSRAM storage is never read from that section.
 Task stacks remain under the framework's allocation rules. Memory snapshots

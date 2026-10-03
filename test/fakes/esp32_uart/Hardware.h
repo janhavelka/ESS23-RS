@@ -21,7 +21,8 @@ struct Hardware {
     bool driverInstalled = false;
     unsigned rxChecks = 0, publishOnCheck = 0;
     int levelResult = ESP_OK, directionResult = ESP_OK, configResult = ESP_OK;
-    int pinResult = ESP_OK, de = -1, txPin = -1, rxPin = -1;
+    int pinResult = ESP_OK, de = -1, dePin = -1, txPin = -1, rxPin = -1;
+    int transmitLevel = 1; // Physical fake transceiver polarity, independent of adapter settings.
     uart_config_t config = {};
     std::deque<uint8_t> rx;
     std::vector<uint8_t> tx;

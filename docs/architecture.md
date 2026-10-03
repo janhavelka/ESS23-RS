@@ -7,10 +7,22 @@ profiles, while typed profile extensions expose each drive's complete
 documented command set. Arduino, native ESP-IDF, desktop/native consumers and
 FieldCore are separate applications of the same library.
 
+The reference application demonstrates an RS485 transaction workflow, not a
+FieldCore product. Its future motor device is not defined here. MCU-specific
+UART/DE capture and memory choices stay in example adapters; the application
+supplies board pins explicitly. Other platforms can use the same core and
+portable runner with their own callbacks. Other manufacturers add profiles
+when real hardware and a concrete need justify them.
+
+External drive I/O is optional for operations that do not depend on it.
+Profiles must expose their documented disabled/no-function assignments.
+Unconnected wiring is separate from a disabled assignment; neither may be
+inferred from an inactive signal. See the [profile I/O contract](profile_contract.md).
+
 Implemented blocks supply pure units, an ESS register catalogue and checked
 wire codecs with a minimal model-register probe. An example-owned RTU runner
 is implemented and tested with a native fake adapter; see [runner.md](runner.md).
-The [E2 polling adapter and probe CLI](e2_probe.md) now have native and bench
+The [ESP32-S3 polling adapter and probe CLI](esp32_probe.md) now have native and bench
 evidence, with external timing qualification still open. Motion preparation,
 discovery orchestration, the full CLI and FieldCore adapters remain contracts
 for later blocks. See the root
@@ -264,8 +276,8 @@ diagnostics and native getters must not independently consume sequence
 evidence. Cached queries stay passive. Explicit consuming reads participate
 in operation coordination and retain the consumed observation for callers.
 
-For the standalone example, use application health labels compatible in
-meaning with FieldCore: `unknown`, `initializing`, `ok`, `degraded`, `fault`,
+For the standalone example, use application health labels
+`unknown`, `initializing`, `ok`, `degraded`, `fault`,
 `disabled`. `disabled` means monitoring/module selection is disabled, not
 that the motor windings are released. Track motor enabled/released state
 separately. Thresholds for stale data and consecutive failures are explicit
@@ -468,13 +480,13 @@ work is requested.
 ## Implementation stages and verification
 
 1. Completed foundation: pure units, the ESS register catalogue, native tests,
-   package/build metadata and the offline E2 preview. Metadata coverage is
+   package/build metadata and the offline ESP32-S3 preview. Metadata coverage is
    distinct from operational command coverage and hardware qualification.
 2. Completed codec block: bounded ESS FC03/FC06 and four reviewed FC10 windows,
    checked responses, raw exceptions, word helpers, minimal probe and native
    tests. General FC10 limits and typed field/motion ambiguities remain open.
    Wire support does not establish permission to write every register.
-3. The runner, E2 adapter and probe CLI have native tests and bench evidence.
+3. The runner, ESP32-S3 adapter and probe CLI have native tests and bench evidence.
    Finish external timing qualification and identity/settings/state reads;
    preserve explicit raw-model uncertainty and the observed turnaround exception.
 4. Implement checked target preparation, ESS motion/stop sequencing and the
@@ -517,6 +529,6 @@ no-echo FC06 acknowledgement, late/overlong frames, short exceptions, deadline
 wrap, DE failure and uncertain writes. CLI tests must prove diagnostic commands
 do not emit writes and startup/recovery do not replay motor commands.
 
-Native/build success is distinct from hardware qualification. The offline E2
+Native/build success is distinct from hardware qualification. The offline ESP32-S3
 Arduino preview has compiled; motor communication/motion, native ESP-IDF
 firmware and S2 builds remain unverified. See [recorded checks](verification.md).

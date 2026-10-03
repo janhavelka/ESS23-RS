@@ -7,13 +7,16 @@ next boundaries to establish. The [architecture contract](architecture.md)
 remains the detailed design baseline; names marked **planned** below are not
 callable APIs yet.
 
-The [standalone runner](runner.md), [E2 adapter and probe CLI](e2_probe.md), and
+The [standalone runner](runner.md), [ESP32-S3 adapter and probe CLI](esp32_probe.md), and
 Python bench tools now have native tests and recorded read-only communication.
 The [0.5.1 audit](reports/2026-10-03_audit.md) covers capture races, fault
 reporting and harness validation. External timing and motion qualification
 remain open. The [capture/load audit](reports/2026-10-03_capture_load.md) adds
 independent wire scheduling, sleeping-owner reception, bounded load measurements
 and the atomic TX/DE timing contract. The [roadmap](roadmap.md) records release gates.
+The [platform-boundary audit](reports/2026-10-03_platform_scope_audit.md)
+updates the example naming, explicit pin configuration and optional drive I/O
+contract. Earlier report names and source revisions remain historical evidence.
 
 ## 1. Assessment
 
@@ -56,11 +59,11 @@ checkout/GitHub name is `MotorControl-RS`; see [rename steps](repository_rename.
 | [rtu/Frame.h](../src/rtu/Frame.h) | Private byte packing, CRC and buffer-overlap helpers. Contains no UART or device register policy. |
 | [examples/units_preview/main.cpp](../examples/units_preview/main.cpp) | One offline program for desktop or Arduino USB console. Prints conversions and catalogue information. |
 | [examples/common/RtuRunner.h](../examples/common/RtuRunner.h), [RtuRunner.cpp](../examples/common/RtuRunner.cpp) | Bounded application transaction state, caller-owned buffers/traces, callback timing, framing, deadlines and recovery. |
-| [examples/common/E2Uart.h](../examples/common/E2Uart.h), [E2Uart.cpp](../examples/common/E2Uart.cpp) | Exclusive UART2/DE ownership and conservative polling or GPTimer capture on ESP32-S3. External timing qualification remains open. |
-| [examples/probe_cli/E2Load.h](../examples/probe_cli/E2Load.h), [E2Load.cpp](../examples/probe_cli/E2Load.cpp) | Optional competing task, console load, active-owner delay and measurement window. Lives only in the load example. |
+| [examples/common/Esp32S3Uart.h](../examples/common/Esp32S3Uart.h), [Esp32S3Uart.cpp](../examples/common/Esp32S3Uart.cpp) | Exclusive UART2/DE ownership and conservative polling or GPTimer capture on ESP32-S3. External timing qualification remains open. |
+| [examples/probe_cli/Esp32Load.h](../examples/probe_cli/Esp32Load.h), [Esp32Load.cpp](../examples/probe_cli/Esp32Load.cpp) | Optional competing task, console load, active-owner delay and measurement window. Lives only in the load example. |
 | [examples/probe_cli/](../examples/probe_cli/) | Platform-neutral bounded JSONL console and the Arduino application that owns its buffers, runner, cached results and policy. |
 | [examples/common/](../examples/common/) | Also contains board pins, console setting and flash partition file. |
-| [boards/e2_s3_n16r8.json](../boards/e2_s3_n16r8.json), [platformio.ini](../platformio.ini) | E2 ESP32-S3 Arduino build selection and pinned toolchain/platform settings. |
+| [boards/bench_s3_n16r8.json](../boards/bench_s3_n16r8.json), [platformio.ini](../platformio.ini) | ESP32-S3 Arduino build selection and pinned toolchain/platform settings. |
 | [CMakeLists.txt](../CMakeLists.txt), [library.json](../library.json) | Native build/test/install, ESP-IDF component registration and PlatformIO packaging. |
 | [test/](../test/) | Native units/catalogue/codec/runner/console tests; actual adapter and application loop built against shared SDK fakes; Python harness and register-gap checks. |
 | [scripts/](../scripts/README.md) | Generators, reference preservation and finite probe/stress/cached-watch campaigns. Development tools, not firmware dependencies. |
@@ -179,7 +182,7 @@ For a model-word probe, the implemented standalone path is:
    success it also publishes the raw model word. On failure, its model output
    is invalid; a checked exception retains its raw rejection code.
 
-Step 3 uses the example runner and E2 adapter. Neither a builder nor a parser
+Step 3 uses the example runner and ESP32-S3 adapter. Neither a builder nor a parser
 sends data by itself. The console serves cached diagnostics after a terminal
 fault even if DE cleanup is still pending; admission remains interlocked.
 
@@ -226,7 +229,7 @@ profile. CANopen remains a separate future library under the accepted scope.
 ## 7. Standalone testing application
 
 The existing preview exercises public units and catalogue APIs on a desktop
-or the E2 Arduino build. It does not initialize RS485, accept motor commands
+or the ESP32-S3 Arduino build. It does not initialize RS485, accept motor commands
 or test motor behavior. Its selected pins are TX47, RX48 and DE21; these
 remain example configuration. Core headers contain no board pins.
 
@@ -306,11 +309,10 @@ Relevant source files are the
 [DeviceMeasurement.h](../../FieldCore-node/include/TunnelMonitor/contracts/DeviceMeasurement.h)
 and [ShzkDeviceModule.cpp](../../FieldCore-node/src/rs485/ShzkDeviceModule.cpp).
 
-Physical board wiring and selected product functionality are separate.
-The retained TunnelMonitor HW2.0 board definition matches TX47/RX48/DE21,
-but the current CO2Control product has no RS485 device composition. A matching
-pinout does not establish an available firmware motor path. See the
-[board audit](reference/04_co2control_platform.md) for provenance.
+The future FieldCore motor device/product has not been defined. This handoff
+concerns its RS485 task and motor module only; it imposes no CO2control product
+or E2 sensor-bus requirement. The standalone bench uses its own explicit
+[wiring configuration](reference/04_esp32_bench.md).
 
 Library behavior must not be reduced to fit FieldCore's current sensor path.
 Qualify the small standalone read path first. Then make narrowly tested

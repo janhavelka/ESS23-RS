@@ -11,7 +11,7 @@ FakeSerial Serial;
 namespace {
 void fresh() {
     if (app) { app->~App(); std::free(app); app = nullptr; }
-    uart.~E2Uart(); new (&uart) E2Uart;
+    uart.~Esp32S3Uart(); new (&uart) Esp32S3Uart;
     resetHardware(); Serial = FakeSerial();
     setup();
     assert(app && uart.ready() && hardware.writes == 0);

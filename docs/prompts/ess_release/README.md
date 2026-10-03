@@ -2,7 +2,7 @@
 
 Prepared 2026-10-03 against MotorControl-RS `4ae0c4d` (0.6.0).
 **None of prompts 01–30 has been executed by preparing this set.**
-The current core, runner, E2 capture and probe/load tools are existing work;
+The current core, runner, ESP32-S3 capture and probe/load tools are existing work;
 do not rebuild them from an old prompt as if they were missing.
 
 Read [the execution contract](execution_contract.md) before every prompt.
@@ -11,11 +11,11 @@ The [roadmap](../../roadmap.md), [backlog](../../backlog.md) and current
 [profile](../../profile_contract.md), [CLI](../../cli_contract.md) and
 [discovery](../../discovery_contract.md) contracts remain authoritative.
 The [coverage map](coverage.md) connects those obligations to prompt owners.
-The [preparation/source audit](../../reports/2026-10-03_promptset_audit.md)
-records the inspected FieldCore conventions and corrections to this set.
-The [follow-up source audit](../../reports/2026-10-03_promptset_reaudit.md)
-checks the committed set against actual runner, application and FieldCore code;
-its fixes tighten deadlines, recovery, operation ownership and qualification.
+The historical [preparation/source audit](../../reports/2026-10-03_promptset_audit.md)
+and [follow-up source audit](../../reports/2026-10-03_promptset_reaudit.md)
+retain earlier source evidence. Names and board references in those reports
+predate the platform-boundary cleanup. Current paths and requirements below
+supersede their implementation instructions; timing observations remain evidence.
 
 ## Dispatch
 
@@ -40,7 +40,7 @@ Never mark all preceding physical work qualified just because code compiles.
 | --- | --- | --- | --- |
 | [01 — Bounded bus admission and retained results](01_bus_admission_and_results.md) | 3 | Prepared | — |
 | [02 — Fair scheduling, cancellation and urgent work](02_bus_scheduling_and_cancellation.md) | 3 | Prepared | — |
-| [03 — Connect the bus owner to the E2 console](03_e2_owner_and_responsive_console.md) | 3 | Prepared | — |
+| [03 — Connect the bus owner to the standalone console](03_standalone_owner_and_responsive_console.md) | 3 | Prepared | — |
 | [04 — Review capture cost and qualify available timing](04_capture_cost_and_timing_qualification.md) | 2 / 8 | Prepared | — |
 | [05 — Typed identity/configuration reads and coverage tracking](05_identity_configuration_and_coverage.md) | 4 | Prepared | — |
 | [06 — Typed state, feedback and separate health observations](06_state_feedback_and_health.md) | 4 | Prepared | — |
@@ -52,7 +52,7 @@ Never mark all preceding physical work qualified just because code compiles.
 | [12 — Resolve paired-register write support before expansion](12_paired_register_write_policy.md) | 7 prerequisite | Prepared | — |
 | [13 — Typed driver settings and software limits](13_driver_configuration_and_limits.md) | 7 | Prepared | — |
 | [14 — Homing methods and reference establishment](14_homing_and_reference_establishment.md) | 6 / 7 | Prepared | — |
-| [15 — Digital I/O and external-control configuration](15_digital_io_and_external_controls.md) | 7 | Prepared | — |
+| [15 — Optional digital I/O and external-control configuration](15_digital_io_and_external_controls.md) | 7 | Prepared | — |
 | [16 — Stored position/speed records and external triggers](16_stored_position_and_speed_segments.md) | 7 | Prepared | — |
 | [17 — Algorithm, encoder, current and lock settings](17_algorithm_encoder_current_and_lock.md) | 7 | Prepared | — |
 | [18 — Filters, tracking and tuning parameters](18_filters_tracking_and_tuning.md) | 7 | Prepared | — |
@@ -87,6 +87,11 @@ Never mark all preceding physical work qualified just because code compiles.
 - 12 must dispose every required paired-write uncertainty before 13–18 expose
   the corresponding setter. The four current FC10 windows are not permission
   for all paired writes. Unresolved fields stay unavailable with a reason.
+- 08–09 use serial-only control when the observed drive input configuration
+  permits it. They do not require external switches or rewrite I/O silently.
+  If explicit input disable/reassignment is needed, hold only dependent hardware
+  cases for 15, then revisit them. 14 likewise records input-dependent methods
+  for 15 to revisit; serial-only operation is not held behind an absent fixture.
 - 19 supports actual host tuples before 20 device communication changes and
   22 tuple-scanning discovery. 21 treats persistence explicitly; no step
   silently saves/restores a motor to make another test pass.
@@ -110,10 +115,16 @@ cases and four PlatformIO builds. Read-only COM13 probes and loaded timer captur
 have evidence; motion is not implemented. Historical test totals are not
 future acceptance criteria. Recheck the actual port/image every bench session.
 
-Keep the reusable core framework-independent. The bus owner, caches, timing,
-health and platform tasks remain application-owned. Keep the standalone usable
-without FieldCore; all FieldCore reads in this set are reference/audit only.
-The final handoff proposes the later integration but edits no FieldCore files.
+MotorControl-RS serves serial motors through a common axis API and explicit
+manufacturer profiles. The reusable core is framework/platform-independent.
+The standalone RS485 owner, caches, timing, health and platform tasks remain
+application-owned; ESP32-S3 is the current physical test platform only.
+
+The reference workflow deliberately uses bounded requests, yielded transactions
+and waits, and retained results so firmware such as FieldCore can adapt its
+RS485 task using tested examples. It does not recreate FieldCore products or
+other buses. Its future motor device is not implemented here or there. FieldCore
+reads are reference/audit only; the final handoff edits no FieldCore files.
 Other serial manufacturers wait for actual hardware/need. CANopen belongs in
 its separate future library. Publication of a tag/GitHub release is outside
 these implementation prompts; 30 produces a reviewable candidate and handoff.

@@ -9,7 +9,7 @@ See [repository and folder rename steps](docs/repository_rename.md).
 
 The implementation supplies **configurable units, the ESS register catalogue
 and checked ESS Modbus RTU codecs**. A [standalone transaction runner](docs/runner.md)
-has native fake-transport tests. The [E2 read-only probe](docs/e2_probe.md) adds
+has native fake-transport tests. The [ESP32-S3 read-only probe](docs/esp32_probe.md) adds
 polling and timer UART capture, a JSONL console and Python load/bench tools.
 The [release roadmap](docs/roadmap.md) records the delivery order and completion gates.
 The [numbered implementation prompts](docs/prompts/ess_release/README.md)
@@ -22,6 +22,11 @@ The core has no Arduino, ESP-IDF, FieldCore, UART, GPIO, clock, heap, retry or
 health-service dependency. Applications own those responsibilities. Common
 motion vocabulary and complete native profile access remain the accepted
 [architecture](docs/architecture.md).
+
+The standalone RS485 workflow is a working reference for any application,
+including a future FieldCore motor device. It does not depend on a FieldCore
+product or bus service. ESP32-S3 pins, SDK code and PSRAM allocation belong
+only to the bench example; another platform supplies its own transport.
 
 CANopen is planned as a separate future library, initially for the Lichuan
 CL86-C's verified capabilities. Both libraries will follow the same documented
@@ -139,7 +144,7 @@ deadlines that the manuals leave unspecified.
 The example-owned [RTU runner](examples/common/RtuRunner.h) exchanges frames
 through bounded callbacks with supplied wire timing. It owns no allocations
 and accepts caller-provided TX/RX and optional trace storage. Tests use a fake
-adapter; E2 hardware tests use the separate probe build below. See the
+adapter; ESP32-S3 hardware tests use the separate probe build below. See the
 [runner guide](docs/runner.md) for deadlines, echo/recovery rules and memory sizes.
 
 With CMake and a C++11 compiler, build and run the native tests and unit preview:
@@ -156,24 +161,24 @@ package and use `find_package(MotorControlRS CONFIG REQUIRED)`. The root CMake f
 also supports ESP-IDF `EXTRA_COMPONENT_DIRS`; native ESP-IDF firmware validation
 is still pending. Public headers require no framework headers.
 
-The same [unit preview](examples/units_preview/main.cpp) builds for the E2
-ESP32-S3 bench using the FieldCore N16R8 memory/platform baseline:
+The same [unit preview](examples/units_preview/main.cpp) builds for the
+ESP32-S3 bench with 16 MB flash and 8 MB PSRAM:
 
 ```powershell
-.\scripts\pio.cmd run -e e2_s3_units
+.\scripts\pio.cmd run -e bench_s3_units
 ```
 
-Build the read-only E2 console with `.\scripts\pio.cmd run -e e2_s3_probe`.
+Build the read-only standalone console with `.\scripts\pio.cmd run -e bench_s3_probe`.
 It sends nothing until an explicit `probe`/`ping` command. See the
-[guide](docs/e2_probe.md) for uploading, JSONL commands, Python stress/watch
+[guide](docs/esp32_probe.md) for uploading, JSONL commands, Python stress/watch
 tools, PSRAM placement and qualification limits, and the
 [bench report](docs/reports/2026-10-03_e2_probe.md) for measured results.
 
 This preview prints conversions to USB; it does not initialize the motor UART
 or send commands. Board pins are explicitly TX47, RX48, DE21 in
 [BoardPins.h](examples/common/BoardPins.h). See the
-[board audit](docs/reference/04_co2control_platform.md) for the physical-board
-versus current FieldCore product-profile distinction. Builds do not upload to
+[bench configuration](docs/reference/04_esp32_bench.md) for electrical and SDK
+details. Builds do not upload to
 COM13. Preserve the existing firmware before a later bench upload.
 
 Generated files are checked with:
@@ -190,8 +195,8 @@ python scripts/generate_ess_registers.py --check
 | `include/MotorControlRS/`, `src/` | Public common API and implementation |
 | `include/MotorControlRS/profiles/ess_rs/`, `src/profiles/ess_rs/` | ESS catalogue, raw codecs, probe and word conversion |
 | `src/rtu/` | Small private byte/CRC/frame helpers, without device policy |
-| `examples/common/` | Board/build settings, native-tested RTU runner and E2 UART adapter |
-| `examples/probe_cli/` | Read-only E2 console and platform-neutral JSONL command parser |
+| `examples/common/` | Board/build settings, native-tested RTU runner and ESP32-S3 UART adapter |
+| `examples/probe_cli/` | Read-only standalone console and platform-neutral JSONL command parser |
 | `examples/units_preview/` | Desktop/Arduino consumer of the current units API |
 | `test/` | Native units, catalogue and independent protocol verification |
 | `scripts/` | Reference preparation and deterministic generators |

@@ -14,7 +14,7 @@ register transcription; prompt 05 extends operational coverage linked to it.
 | Fairness, deadlines, cancellation, urgent/stop capacity, no automatic replay | 02, 08 | 03, 29 |
 | Absolute-deadline runner evidence, recovery queue disposition and retained outcomes | 01–03 | 28–29 |
 | Same-axis staging reservation and non-mutating rejected stop admission | 08–09 | 23, 28–29 |
-| Real E2 owner, responsive console, retained results and diagnostics | 03 | 23, 29 |
+| Standalone RS485 owner, responsive console, retained results and diagnostics | 03 | 23, 29 |
 | Observation time versus delayed delivery, cache age and recovery guard | 03, 06 | 24, 28 |
 | TX/RX/DE observations, interval/watermark truth, echo and cache policy | Existing runner/adapter; 04 | 26, 29 |
 | Short/long normal/exception frames and each supported write shape | 01, 04; typed feature prompts | 29 |
@@ -31,7 +31,7 @@ register transcription; prompt 05 extends operational coverage linked to it.
 | Additional paired write forms, signedness/order/access without bypasses | 12 | Every dependent family; 28 |
 | Direction, subdivision, word order, soft limits, over-limit/interruption | 13 | 23, 29 |
 | Homing methods/options, rates, offsets, collision prerequisites | 14, related collision fields in 18 | 23, 29 |
-| X0–X3/Y0/Y1 functions, polarity, actual state and custom outputs | 06, 15 | 23, fixture-dependent 29 |
+| Optional X0–X3/Y0/Y1: unwired/disabled disposition, functions, polarity and custom outputs | 05–06, 15 | 08–09 admission; 23, fixture-dependent 29 |
 | All stored position records, reserved words and external mode | 16 | 23, fixture-dependent 29 |
 | All stored speed records, PV policy and shared PT/PV starting speeds | 16 | 23, fixture-dependent 29 |
 | Algorithm/open-loop, encoder configuration, current and lock settings | 17 | 23, 29 |
@@ -44,8 +44,8 @@ register transcription; prompt 05 extends operational coverage linked to it.
 | Finite Python feature/stress/state checks and truthful evidence | Each feature; 24 | 26, 29 |
 | Arduino and real native ESP-IDF example parity; S2 portability disposition | 25–26 | 27, 30 |
 | Repeatable verification, CI, header isolation, clean package consumption | Existing CMake; 27 | 28, 30 |
-| Core/event isolation, C++11 and FieldCore C++17 without RTTI consumption | 05, 08, 27 | 30 |
-| FieldCore ASCII preservation, per-device tuple switching and logical context mapping | 19, 30 (read-only handoff) | Separate later FieldCore integration |
+| Platform-independent core/events; C++11 and C++17 without RTTI consumers | 05, 08, 27 | 30 |
+| Future RS485 integration: preserve existing framing, tuple switching and request context | 30 (read-only handoff) | Separate later FieldCore integration |
 | Whole-code audit, simplification, duplication/stale code removal | Each prompt; 28 | Fix review in 29–30 |
 | Fault/endurance, independent physical motion/stop, reconnect/restart | Each feature; 29 | 30 |
 | Supported release scope, exact evidence and later FieldCore adaptation map | 30 | Explicit candidate/release disposition |
@@ -63,7 +63,11 @@ register transcription; prompt 05 extends operational coverage linked to it.
   axis, power-control fixture or analyzer is NOT RUN. Pure conversions and
   native injections can still pass as software tests. Record external-input-only
   capabilities rather than inventing a serial command or missing hardware.
-- Additional manufacturers, CANopen, coordinated trajectories, speculative
+- Serial-only operation must not depend on external switches or loads. Mark
+  unsupported disabled assignments and operation-specific input requirements
+  explicitly; an unwired input is not automatically disabled. Physical checks
+  requiring external fixtures remain separate from serial-motion coverage.
+- Additional manufacturer implementations, CANopen, coordinated trajectories, speculative
   blending/streamed modes and edits to FieldCore are outside this sequence.
   Preserve explicit unsupported behavior for common optional operations.
 - Firmware build success, device acknowledgement, completed motion, unchanged

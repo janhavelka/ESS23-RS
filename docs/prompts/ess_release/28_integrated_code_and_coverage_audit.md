@@ -7,7 +7,7 @@ Prerequisite: 01–27 have recorded dispositions. This is a corrective audit of 
 
 ## Read and reuse
 
-Read all current contracts, coverage rows and predecessor requirement tables. Trace core API to profile operations, sequences, owner admission/result, platform I/O, CLI and Python. Reinspect relevant current FieldCore source/callers/tests and update the compatibility map.
+Read all current contracts, coverage rows and predecessor requirement tables. Trace core API to profile operations, sequences, owner admission/result, platform I/O, CLI and Python. Recheck the shared ownership contract and record platform/profile boundary violations.
 
 ## Audit and fix
 
@@ -15,7 +15,11 @@ Read all current contracts, coverage rows and predecessor requirement tables. Tr
 - Recheck ownership, request/result lifetimes, full-capacity urgent admission, deadline settlement, stop/cancel differences, generation invalidation and retained uncertain writes.
 - Recheck exact units/origins/limits, actual-vs-commanded feedback, consuming reads, command echo vs acknowledgement and new-event completion.
 - Find duplicated validation/dispatch/sequencing, stale fallback paths, unused abstractions, hidden framework dependencies and unbounded work. Refactor the smallest cohesive owner; do not create wrappers that merely rename existing complexity.
-- Review memory placement, public documentation, package exports and error vocabulary. Align useful FieldCore conventions without copying sensor-only assumptions, retry policy or two queue layers.
+- Audit platform and manufacturer boundaries: no board pins, unrelated bus or
+  product types in core/owner APIs; ESS details stay in the ESS profile. Confirm
+  serial-only operation with unwired/disabled optional I/O, with exact device
+  capability and per-operation prerequisites rather than a blanket I/O gate.
+- Review memory placement, public documentation, package exports and error vocabulary. Preserve bounded request/result ownership without sensor-only assumptions, hidden retry policy or duplicate queue layers.
 - Fix feasible scoped defects, add regressions that reproduce them and rerun affected native/firmware/hardware scenarios. A missing whole feature stays a named owning-prompt gap rather than a fictional complete audit.
 
 ## Verification and handoff

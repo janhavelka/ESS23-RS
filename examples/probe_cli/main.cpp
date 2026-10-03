@@ -4,10 +4,11 @@
 #include <esp_timer.h>
 #include <new>
 #include "ProbeConsole.h"
-#include "../common/E2Uart.h"
+#include "../common/Esp32S3Uart.h"
 #include "../common/BuildConfig.h"
+#include "../common/BoardPins.h"
 #if MOTORCONTROLRS_LOAD_FIXTURE
-#include "E2Load.h"
+#include "Esp32Load.h"
 #endif
 
 using namespace MotorControlRSExample;
@@ -16,9 +17,9 @@ constexpr uint32_t BAUD = 115200;
 constexpr uint32_t REPLY_GAP_US = 304;
 constexpr uint32_t RESPONSE_US = 200000; // Bench policy, not a vendor maximum.
 constexpr uint32_t RECOVER_US = 500000;  // Explicit read-only host recovery guard.
-E2Uart uart; // ISR capture state stays internal; application histories use PSRAM.
+Esp32S3Uart uart; // ISR capture state stays internal; application histories use PSRAM.
 #if MOTORCONTROLRS_LOAD_FIXTURE
-E2Load loadFixture;
+Esp32Load loadFixture;
 bool fixtureReady = false;
 uint64_t nextServiceUs = 0;
 #endif
@@ -98,7 +99,7 @@ Probe::Action probe(void* context, uint32_t id, uint8_t address) {
     request.bytes = bytes;
     request.length = MotorControlRS::ESS_RS::buildProbe(address, bytes, sizeof(bytes));
     request.replyLength = 7; request.responseTimeoutUs = RESPONSE_US;
-    // Observed E2 responder starts around 0.5 ms after TX. Explicit bench
+    // Observed bench motor starts around 0.5 ms after TX. Explicit bench
     // deviation from recommended high-baud t3.5=1750 us: allow 3.5 8N1 chars.
     // Host admission/final framing still use 1750 us. Not a family-wide guarantee.
     request.replyGapUs = REPLY_GAP_US;
@@ -195,7 +196,8 @@ void setup() {
         Serial.println("{\"type\":\"boot\",\"ok\":false,\"error\":\"psram_allocation\"}");
         return; // No silent large internal-RAM fallback.
     }
-    platformReady = uart.begin(BAUD);
+    platformReady = uart.begin({Board::kRs485TxPin, Board::kRs485RxPin,
+                                Board::kRs485DeRePin, Board::kRs485DeReActiveHigh}, BAUD);
 #if MOTORCONTROLRS_TIMER_CAPTURE
     platformReady = platformReady && uart.startCapture(20, timing().holdUs);
 #endif

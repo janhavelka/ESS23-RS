@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+- Remove product-specific naming from the standalone RS485 reference and
+  release prompts. Rename example environments to `bench_s3_*` and keep
+  FieldCore guidance limited to a future RS485 motor integration.
+- Rename the example adapter to `Esp32S3Uart`; applications now supply checked
+  TX/RX/DE pins and direction polarity. Native tests cover alternate wiring,
+  active-low direction and initialization failures. Core APIs are unchanged.
+- Specify optional/unconnected motor I/O and explicit ESS no-function assignment
+  in the contracts and prompts. Typed I/O setters remain planned work.
+
 ## 0.6.0
 
 - Separate scheduled wire arrivals from owner/capture service in native SDK

@@ -38,13 +38,12 @@ run the standalone test application. Preserve enough firmware/build
 information to reproduce or restore the bench setup.
 
 The USB console baud rate and the motor RS485 baud rate are separate facts.
-The user has identified the E2 revision 2.0.0 board and its DE21/TX47/RX48
-wiring. These match FieldCore's retained HW2.0 TunnelMonitor electrical
-profile. Its currently selected CO2control product board is a different pin
-profile; a product name alone does not select the bench pins. See the
-[board and build audit](reference/04_co2control_platform.md). UART/direction
-defaults from source still need live qualification, along with echo behavior,
-wiring/termination, power supply and current DIP positions.
+The user-confirmed revision 2.0.0 bench uses DE21/TX47/RX48. The standalone
+application selects those pins explicitly; its adapter has no board preset.
+See the [bench configuration](reference/04_esp32_bench.md). The original E2
+board label is historical identification, not a motor-bus requirement.
+Direction timing, echo behavior, wiring/termination, power supply and current
+DIP positions still need their own qualification.
 
 The ESS manual lists 115200 baud and 8N1 defaults, but address selection and
 actual settings require verification. Treat those values as candidate
@@ -83,6 +82,9 @@ completion and record changes to the setup for the next session.
 - Board now runs the MotorControl-RS 0.6.0 timer-capture load/probe console;
   workload is explicitly disabled at the end of testing. See the
   [capture/load audit](reports/2026-10-03_capture_load.md).
+- The [platform-boundary audit](reports/2026-10-03_platform_scope_audit.md)
+  rebuilt and flashed `bench_s3_load_timer` with explicit pin configuration.
+  Read-only probes and the loaded regression passed; motor settings were unchanged.
 - The [0.5.1 audit](reports/2026-10-03_audit.md) adds 20 checked probes and
   timeout/recovery/alias/reset evidence; the original flash backup is unchanged.
 - Repeated checked model reads succeed at node 1, 115200 8N1, TX47/RX48/DE21.
