@@ -11,6 +11,9 @@ and sync that block under [the repository guidance](../AGENTS.md).
 
 - [x] General framework-independent common axis API, drive profiles and
   application integration; ESS first, Leadshine iEM-RS as the design contrast.
+- [x] Keep CANopen in a separate future library, initially for the verified
+  CL86-C subset; maintain one motion contract and independent bus ownership.
+  Extract common units/types only after concrete reuse in both implementations.
 - [x] Stateless bounded codecs and optional caller-owned finite sequencing;
   application-owned transport, timing, scheduling, retry policy and health.
 - [x] Common step/count/angle/travel modes with explicit units, gearing,
@@ -29,6 +32,29 @@ and sync that block under [the repository guidance](../AGENTS.md).
 The authoritative contracts are [architecture](architecture.md),
 [axis API](axis_contract.md), [profiles](profile_contract.md),
 [discovery](discovery_contract.md) and [CLI](cli_contract.md).
+
+## Next implementation blocks
+
+1. **ESS protocol core:** bounded FC03/FC06/FC10 builders and checked parsers
+   where vendor evidence establishes the operation and limits. Verify CRC,
+   exact request/response expectations, exceptions, write echoes, capacities
+   and unchanged outputs on error using independent golden frames. Resolve
+   the minimal non-changing probe; preserve unresolved FC10 limits explicitly.
+   This block performs no hardware I/O.
+2. **Read-only E2 bring-up:** example-owned UART/DE/RE and RTU framing, then a
+   small CLI for probe, available identity/configuration/state reads and cached
+   diagnostics. Inspect COM13 and preserve current firmware before any test
+   upload. Record actual settings and distinguish identity from mere response.
+3. **First motion and stop:** target quantization/reference/limits, required
+   ESS setup and bounded operation sequencing, interrupting stop and uncertain
+   outcomes. Test failure events natively before qualifying small step/angle
+   moves and confirming the encoder/subdivision assumptions on the bench.
+4. **Expand and integrate:** velocity/homing and complete native ESS operations,
+   discovery scans and CLI parity; standalone Arduino/ESP-IDF qualification,
+   then FieldCore integration in its own repository.
+
+The name is open; retain `RS485Motion` until a replacement is selected, then
+update package, namespace, includes, builds, examples and docs together.
 
 ## ESS source and profile work
 
@@ -147,6 +173,7 @@ possible. This list is not a request for the user to answer everything now.
 
 | Question | Evidence or next action |
 | --- | --- |
+| What replaces the working name `RS485Motion`? | User selection pending; coordinate the package/namespace rename before more public APIs accumulate. |
 | What motor/model/firmware is actually connected? | Read documented identity; compare model markings if identity is insufficient. The project's RS20 target is not a bench measurement. |
 | Is COM13 a console, a usable RS485 bridge, or a board needing test firmware? | Inspect CO2control source/configuration and current interface before sending motor bytes. |
 | What are the board pins, DE/RE polarity, echo topology and bus wiring? | User confirms E2 HW2.0 TX47/RX48/DE21. Matching FieldCore HW200 source uses UART2/active-high DE. Live polarity, echo and wiring qualification remain. |
@@ -166,14 +193,17 @@ possible. This list is not a request for the user to answer everything now.
 ## Later extensions
 
 - [x] Assess adding selected CANopen/CiA 402 drives alongside Modbus RTU;
-  [feasibility review](reference/07_canopen_feasibility.md) records the proposed
-  boundary and the user's Lichuan CL86-C candidate. This is research only.
-- [ ] If the CANopen extension is accepted: obtain firmware-matched CL86-C
-  manual/EDS, qualify a CAN transport/stack adapter, extend event/state/stop
-  contracts, then implement a narrow identity/position/stop vertical slice.
-  Keep host-streamed cyclic modes and cross-bus synchronization separate.
+  [feasibility review](reference/07_canopen_feasibility.md) records the accepted
+  separate-library boundary and the user's Lichuan CL86-C candidate.
+- [ ] In the separate future CANopen library: obtain firmware-matched CL86-C
+  manual/EDS, qualify a CAN transport/stack adapter, define its event/state/stop
+  contracts, then implement identity/position/stop against the shared motion
+  vocabulary. Keep host-streamed cyclic modes and cross-bus synchronization separate.
   Manufacturer manual/EDS listings were found; direct downloads were unavailable
   during review, so exact object semantics and loss-of-controller behavior remain open.
+- [ ] Once the second library implements real operations, verify matching
+  motion semantics and extract genuinely shared units/types with independent
+  protocol dependencies. No speculative common package is needed now.
 
 - [ ] Qualify additional explicit families from the
   [manufacturer review](reference/03_multi_vendor_feasibility.md), with full

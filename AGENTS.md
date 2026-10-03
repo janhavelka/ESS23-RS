@@ -12,6 +12,14 @@ ESS first; design against Leadshine iEM-RS without claiming it is implemented
 or qualified. Preserve original downloaded references. The repository directory
 remains `ESS23-RS`.
 
+CANopen belongs in a separate future motion library, initially targeting the
+verified CL86-C subset. Keep one documented motion vocabulary and behavioral
+contract across the libraries, with independent protocol implementations and
+application bus owners. Extract shared units/types only after the second
+implementation demonstrates concrete reuse; do not add a universal transport
+engine or a speculative common framework here. `RS485Motion` remains the
+working name until the user selects its replacement.
+
 ## Delivery workflow
 
 The user requests a commit and sync after each prompt or completed logical

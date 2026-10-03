@@ -14,6 +14,12 @@ health-service dependency. Applications own those responsibilities. Common
 motion vocabulary and complete native profile access remain the accepted
 [architecture](docs/architecture.md).
 
+CANopen is planned as a separate future library, initially for the Lichuan
+CL86-C's verified capabilities. Both libraries will follow the same documented
+motion contract; shared units/types will be extracted only when the second
+implementation needs them. This repository continues with ESS and selected
+serial drive profiles. `RS485Motion` is the working name pending a replacement.
+
 ## Units API
 
 Position, velocity and acceleration preferences are independent. Supported

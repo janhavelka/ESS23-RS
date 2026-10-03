@@ -16,6 +16,13 @@ supported backend. See the [feasibility review](reference/03_multi_vendor_feasib
 for evidence and limitations. Common operations must never imply that every
 selected drive implements them.
 
+This is also the behavioral baseline for a separate future CANopen motion
+library. Share unit meaning, capability rejection, acknowledgement/completion
+distinctions, stop intent and observation validity. Protocol transactions,
+network state and native features remain specific to each library. Matching
+function names alone does not establish matching behavior. Extract common
+types/code only when both implementations demonstrate a concrete need.
+
 ## Callable surface and ownership
 
 Use the following function names as the planned common vocabulary. This is

@@ -1,15 +1,22 @@
 # CANopen and RS485 motion library feasibility
 
-Reviewed on 2026-10-02 and completed on 2026-10-03. This is a recommendation for the user's proposed
-CANopen extension, not an accepted implementation scope or a claim of device
-support. The requested concrete candidate is the Lichuan CL86-C. The existing
-ESS units/catalogue implementation remains unchanged by this review.
+Reviewed on 2026-10-02 and completed on 2026-10-03; the packaging decision was
+subsequently accepted on 2026-10-03. The requested concrete CANopen candidate
+is the Lichuan CL86-C. This report does not establish implemented device support.
+The existing ESS units/catalogue code remains unchanged by the decision.
 
-**Recommendation: keep one motion library repository, with a shared axis layer
-and separately selectable Modbus RTU and CANopen implementations.** Limit the
-CANopen side to explicitly supported CiA 402 drives and initially to trajectories
-executed inside the drive. This preserves useful reuse without becoming a
-universal motor/protocol framework.
+**Accepted direction: continue the serial motion library with ESS first;
+implement CANopen later in a separate library using the same documented motion
+contract.** Start that library with the verified CL86-C subset and trajectories
+executed inside the drive. Keep transports and platform integration explicit.
+Extract common units/types only when the second implementation demonstrates
+real reuse; no universal transport engine or speculative common framework.
+
+The original feasibility recommendation combined selectable implementations in
+one repository. That arrangement remains technically viable, but separate
+libraries better fit the user's priorities of focused dependencies, incremental
+work and maintainability. The accepted boundary supersedes that packaging
+recommendation without changing the protocol evidence below.
 
 The communication work is substantial. It would be misleading to describe
 CANopen as another UART adapter or claim that architecture/units account for
@@ -160,31 +167,39 @@ documents user scaling. These are N5 FIR-v1650 facts, not capabilities to infer
 for the CL86-C.
 [N5 manual V2.0.1, sections 5.3 and 6.1–6.9](https://www.nanotec.com/fileadmin/files/Handbuecher/Handbuecher_Archiv/Steuerungen/N5/N5_CANopen_Technical-Manual_V2.0.1.pdf?1656012597=)
 
-## Suggested organization and changes to current contracts
+## Accepted organization and contract boundaries
 
-Keep one repository with a small common layer, ESS and CL86-C drive modules,
-separate protocol implementations and platform examples. Select backends at
-build time so RS485 consumers do not acquire a CANopen stack dependency. No
-runtime plugin loader, universal register class or arbitrary protocol registry
-is needed. A bus-neutral package name would make sense if this expansion is
-accepted; renaming is not part of this analysis.
+Keep this repository focused on serial drive profiles, with ESS first and
+other reviewed families added for concrete needs. The later CANopen library
+has its own protocol/stack adapter, profiles, platform examples and release
+boundary. Separate repositories fit the existing sibling-library ecosystem;
+repository placement is independent of the essential package/dependency split.
+One application can consume both libraries through its own bus owners.
+
+Use the [axis contract](../axis_contract.md) as the common behavioral baseline:
+units, reference validity, capabilities, acknowledgement/completion/uncertainty,
+stop intent and observations must mean the same thing where supported. Keep
+native APIs and transaction/event representations specific to each protocol.
+Shared function names alone do not establish interchangeable behavior.
 
 ```mermaid
 flowchart TD
-  App[Standalone application or FieldCore] --> Axis[Shared axis API and units]
-  Axis --> ESS[ESS drive profile]
-  Axis --> CL[Lichuan CL86-C drive profile]
-  ESS --> RTU[Modbus RTU codecs and application RS485 owner]
-  CL --> CAN[CiA 402 sequencing and optional CANopen stack adapter]
-  CAN --> Owner[Application CAN owner and platform driver]
+  Contract[Documented common motion contract] -.-> Serial[Serial motion library: ESS first]
+  Contract -.-> CAN[Separate future CANopen motion library: CL86-C first]
+  App[Standalone application or FieldCore] --> Serial
+  App --> CAN
+  Serial --> RTU[Application RS485 owner and platform driver]
+  CAN --> Owner[Application CAN owner and stack/platform adapter]
 ```
 
-This is a proposed arrangement. The same upper-level move request selects the
-appropriate profile; it does not force the two branches to use identical
-transaction types or prove that all requested capabilities exist.
+This describes the accepted dependency direction, not implemented CAN support.
+Keep units/types here until a second real implementation justifies extracting
+them. Avoid copied conversion logic once both libraries depend on it; a small
+shared package can then carry tested common values without protocol dependencies.
 
-The current pure units and ESS catalogue need no conceptual rewrite. Before
-implementing the planned sequencing API, update these contract boundaries:
+The current pure units and ESS catalogue need no conceptual rewrite. The
+future CANopen library must account for these protocol-specific boundaries;
+they do not require a universal transaction engine in this serial library:
 
 1. A yielded RTU byte transaction and a CAN frame/service request must retain
    their distinct metadata. Do not represent CAN as a UART byte stream.
@@ -204,9 +219,17 @@ implementing the planned sequencing API, update these contract boundaries:
    start NMT, enable motion, reassign node IDs or configure heartbeat. An absent
    heartbeat is inconclusive if its producer is disabled.
 
-These are proposed amendments to [architecture](../architecture.md),
-[axis operations](../axis_contract.md) and [discovery](../discovery_contract.md),
-not silently adopted new runtime behavior.
+Preserve common behavioral meaning in the [architecture](../architecture.md),
+[axis operations](../axis_contract.md) and [discovery](../discovery_contract.md).
+CAN-specific network, event and transport contracts belong to the future
+library; this document adds no runtime behavior to either implementation.
+
+Separate packages isolate dependencies and releases, but require coordinated
+contract changes and later cross-library behavior tests. One combined package
+could produce an equally small serial-only binary if CAN code is excluded at
+build time. Splitting repositories alone does not save flash or RAM: active
+implementations, linked code, contexts and buffers determine those costs.
+No CANopen build exists here, so no measured size comparison is available.
 
 ## Reuse an existing communication stack where it fits
 
@@ -241,18 +264,18 @@ eventually need larger object transfers and additional documented services.
 
 These are relative engineering estimates, not measured time or reuse percentages.
 
-| Work item | Expected cost for this repository |
+| Work item | Expected cost across the two libraries |
 | --- | --- |
 | Keep current units and ESS metadata | Low; both already have a suitable boundary |
-| Adjust unimplemented axis/event contracts | Moderate, and cheaper before their first implementation |
+| Maintain a common axis contract and define CAN-specific events | Moderate; coordinated semantics, separate protocol ownership |
 | First CAN transport/stack integration | Substantial new work: ownership, build/port, sessions, events and recovery |
 | First CL86-C motion profile | Substantial new work: verified dictionary, units, drive transitions, handshakes, stopping and tests |
 | A later compatible CiA 402 model | Reuses the CAN backend and common drive behavior, but still needs a model audit and qualification |
 | Host-streamed or synchronized multi-axis motion | A separate major scope increase; defer |
 
 The main recurring maintenance cost is the test matrix: frameworks, two bus
-implementations, supported drive firmware and failure cases. Build selection
-and shared contract tests keep that manageable. An honest calendar estimate
+implementations, supported drive firmware and failure cases. Independent
+package checks and common behavior tests keep that manageable. An honest calendar estimate
 needs the exact CL86-C documents and a working CAN observation/stop prototype;
 the current evidence does not support a reliable percentage or day count.
 
@@ -284,11 +307,12 @@ actual pinned SDK. This finding does not claim that an adapter exists here.
 
 1. Finish ESS codecs, non-changing probe/readback and small-motion qualification
    using the current E2 bench.
-2. Obtain the CL86-C firmware-matched manual and EDS; audit actual modes, units,
-   PDO mapping, state/stop behavior and communication-loss response.
+2. In the separate future CANopen project, obtain the CL86-C firmware-matched
+   manual and EDS; audit actual modes, units, PDO mapping, state/stop behavior
+   and communication-loss response.
 3. Qualify CAN identity/state observation, then one simple position move and
-   an interrupting stop through the common API. Use that vertical slice to
-   confirm the ownership and event contracts.
+   an interrupting stop against the common motion contract. Use that working
+   implementation to confirm ownership/events and identify real shared code.
 4. Expand velocity/homing and complete documented native object access,
    preserving unsupported/unknown capabilities. Add another CiA 402 family
    only when it has a concrete use and its own evidence.
@@ -299,8 +323,8 @@ it cannot establish the connected drive's current settings or replace the
 behavioral manual and bench evidence.
 [CiA electronic device description](https://www.can-cia.org/can-knowledge/cia-306-series-electronic-device-description-edd)
 
-The engineering judgment is **yes to a limited shared motion library, with
-CANopen as a real second backend**. The benefit is a consistent upper firmware
-API and reused conversion/operation policy. The cost is a separate network and
-drive-state implementation plus its qualification; this is appreciably more
-work than adding another Modbus register map.
+The accepted engineering direction is **two focused protocol libraries with
+one documented motion contract**, sharing small proven components when both
+need them. CANopen still requires a substantial network/drive-state
+implementation and qualification. Separating it keeps that work contained
+while preserving consistent upper-firmware behavior.

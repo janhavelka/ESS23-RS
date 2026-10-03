@@ -33,6 +33,14 @@ remains `ESS23-RS`; no repository rename or registry-name availability is
 implied. The ESS family lives under `RS485Motion::ESS_RS`. There is no released
 API requiring compatibility aliases for the previous ESS-only design.
 
+The accepted CANopen direction is a separate future library, initially for the
+verified Lichuan CL86-C subset. Both libraries follow the documented axis
+semantics, while retaining independent protocol engines, native APIs and
+application-owned transports. Extract shared units/types when the second
+implementation demonstrates reuse; do not add a universal transport engine
+or CANopen dependency here. See the [decision and evidence](reference/07_canopen_feasibility.md).
+The current name remains provisional until a replacement is selected.
+
 Implement ESS23-RS20 first and account for ESS23-RS10 using their shared
 hardware manual. Design the common contracts against Leadshine iEM-RS as the
 contrasting family before freezing the API. Leadshine is a documented design
@@ -120,10 +128,11 @@ contexts are reentrant; applications synchronize shared buffers and contexts.
 
 ## Planned file responsibilities
 
-Only the existing empty code directories are retained at this stage. The
-following files are an implementation layout, not a request to create stubs.
+The units, status, entry/version headers and ESS catalogue already exist.
+The following layout also includes planned files; it is not a request to
+create stubs. See the root README for the current callable surface.
 
-| Future path | Responsibility |
+| Current or planned path | Responsibility |
 | --- | --- |
 | `include/RS485Motion/RS485Motion.h` | Common public entry point, without forcing all profile headers into every consumer |
 | `include/RS485Motion/Axis.h` | Common command intent, capabilities and observations |
@@ -420,22 +429,26 @@ work is requested.
 
 ## Implementation stages and verification
 
-1. Finish the full ESS command inventory and resolve the first implementable
-   register contracts from the original PDFs. Preserve every unresolved
-   field and hardware question. Challenge the common API with the documented
-   Leadshine iEM-RS sequences and timing before fixing signatures.
-2. When implementation is requested, implement the stateless ESS core, public
-   units/conversion API and bounded profile sequences with native tests and
-   package metadata. Provide complete native ESS coverage incrementally;
-   publish actual coverage and do not claim completion while gaps remain.
-3. Implement independent standalone ESP32-S2/S3 Arduino and native ESP-IDF
-   consumers with shared console semantics and example-owned transport.
-   Establish read-only bring-up before motion. The entire core must also
-   compile and run native protocol/unit/sequence tests without either framework.
-4. Qualify motor workflows, conversions and full native commands on hardware;
-   record exact model/firmware, serial tuple, word order, scale, board and
-   transceiver. Obtain contrasting hardware before advertising that profile.
-5. Integrate into FieldCore when requested, through its own contract/owner
+1. Completed foundation: pure units, the ESS register catalogue, native tests,
+   package/build metadata and the offline E2 preview. Metadata coverage is
+   distinct from operational command coverage and hardware qualification.
+2. Next, implement bounded ESS codecs with checked responses and native tests.
+   Resolve relevant widths/counts/word order from the original PDFs, preserve
+   uncertainties and select a documented non-changing probe. Wire support for
+   a write function does not establish permission to write every register.
+3. Add example-owned RS485 transport and a small read-only CLI slice on the E2
+   bench. Inspect/preserve the existing firmware before a test-firmware upload;
+   record actual identity, settings, raw frames, timing and echo behavior.
+4. Implement checked target preparation, ESS motion/stop sequencing and the
+   corresponding common/native commands in small tested blocks. Challenge
+   signatures against the documented Leadshine contrast. Qualify stop handling
+   alongside the first small moves, then velocity and supported homing.
+5. Expand full native ESS coverage and standalone Arduino S2/S3 and native
+   ESP-IDF consumers with equivalent semantics for equivalent features. Keep
+   protocol/unit/sequence tests runnable without either framework. Record
+   model/firmware-specific qualification and obtain contrasting hardware
+   before advertising another supported profile.
+6. Integrate into FieldCore when requested, through its own contract/owner
    changes and tests. Standalone functionality does not depend on this step.
 
 The initial pure units/catalogue tests use CMake/CTest standalone executables
@@ -466,5 +479,6 @@ no-echo FC06 acknowledgement, late/overlong frames, short exceptions, deadline
 wrap, DE failure and uncertain writes. CLI tests must prove diagnostic commands
 do not emit writes and startup/recovery do not replay motor commands.
 
-Native/build success is distinct from hardware qualification. This design
-stage has performed neither motor tests nor firmware builds.
+Native/build success is distinct from hardware qualification. The offline E2
+Arduino preview has compiled; motor communication/motion, native ESP-IDF
+firmware and S2 builds remain unverified. See [recorded checks](verification.md).
