@@ -178,7 +178,8 @@ python scripts/generate_ess_registers.py --check
 | `docs/reference/` | Register inventory, source evidence and implementation questions |
 | `docs/vendor/`, `docs/standards/`, `docs/pdf-extracted-md/` | Preserved original references and searchable extracts |
 
-Start with [documentation](docs/README.md), [remaining work](docs/backlog.md),
+Start with the [current architecture report](docs/architecture_report.md),
+[documentation](docs/README.md), [remaining work](docs/backlog.md),
 [bench notes](docs/hardware_bench.md) and [engineering guidance](AGENTS.md).
 The [axis](docs/axis_contract.md), [profiles](docs/profile_contract.md),
 [discovery](docs/discovery_contract.md) and [CLI](docs/cli_contract.md) contracts

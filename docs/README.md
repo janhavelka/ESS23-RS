@@ -8,6 +8,9 @@ The contracts below also describe future transport, typed commands, motion
 workflows, discovery orchestration and CLI. See the [root README](../README.md)
 for current code and builds.
 
+- [Current architecture report](architecture_report.md): source-based review
+  of what exists, file and dependency map, transaction flow, standalone and
+  FieldCore ownership, debugging and remaining integration work.
 - [Architecture and ownership](architecture.md): intended core layout,
   function names, buffer/status contracts, motor workflows and implementation
   stages, with current implementation distinguished from planned behavior.

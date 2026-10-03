@@ -13,6 +13,10 @@ transport, discovery orchestration, CLI and FieldCore adapters remain contracts
 for later blocks. See the root
 README for current callable APIs and build commands. No motor behavior has
 been qualified on hardware.
+The [current architecture report](architecture_report.md) maps existing files
+and dependencies, walks through a transaction and records the latest source
+review of standalone and FieldCore integration. The planned layout below is
+a design guide, not a list of implemented files.
 
 The [axis contract](axis_contract.md) defines common operations and units;
 the [profile contract](profile_contract.md) defines native command coverage;

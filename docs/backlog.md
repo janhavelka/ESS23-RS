@@ -146,6 +146,9 @@ The checkout and GitHub URL remain `ESS23-RS` pending the user's remote rename.
 
 ## Standalone examples packaging and integration
 
+- [x] Revisit current ownership and dependency boundaries and record the
+  [architecture report](architecture_report.md), including the actual file
+  map, debugging flow and current FieldCore integration gaps.
 - [x] Add real public headers/source, native tests, version/package metadata,
   CMake builds and an offline desktop/Arduino units preview.
 - [x] Audit FieldCore build settings and record the user-confirmed E2 HW2.0
@@ -161,10 +164,16 @@ The checkout and GitHub URL remain `ESS23-RS` pending the user's remote rename.
   Embedded package consumers beyond the compiled Arduino preview remain future work.
 - [ ] Add later FieldCore adapter work in that repository: typed motor control,
   FC06 echo handling, larger TX frames, exception framing, exact integers,
-  scheduling and stop priority. Standalone work must not depend on this step.
+  receive timing evidence, scheduling and stop priority. Standalone work must
+  not depend on this step. Recheck its current product composition as well as
+  the matching physical board pins.
 
 ## Verification and COM13 bench work
 
+- [ ] Add one repeatable full verification command and CI for native suites,
+  generated files, header isolation and package consumption. Require Python
+  checks for repository/release validation; ordinary C++ consumers remain
+  independent of Python. Record the supported compiler/platform matrix.
 - [ ] Inspect COM13's current CO2control firmware and available console/bridge;
   establish actual board, pins, direction control and serial settings.
 - [ ] Run the first minimal probe/identity read and record raw frames/timing,
