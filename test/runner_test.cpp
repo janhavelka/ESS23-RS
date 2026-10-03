@@ -663,12 +663,16 @@ void testStaleBytesAndLongClock() {
     {
         Rig rig;
         rig.fake.bytes(REPLY, sizeof(REPLY), 100); // Old complete frame before start.
+        for (auto& byte : rig.fake.input) byte.uncertaintyUs = 10;
         rig.start(); rig.send(); rig.receive();
         assert(rig.runner.stats().discarded == sizeof(REPLY));
         assert(rig.runner.result().rxLength == 0);
         rig.fake.bytes(REPLY, sizeof(REPLY), 2510);
         rig.poll(3560);
         assert(rig.runner.result().reason == Reason::FRAME);
+        assert(rig.runner.result().firstRxStartUs == 2510);
+        assert(rig.runner.result().maxRxUncertaintyUs == 0);
+        assert(rig.runner.result().txEndUs == rig.fake.txEnd);
     }
     {
         Rig rig;

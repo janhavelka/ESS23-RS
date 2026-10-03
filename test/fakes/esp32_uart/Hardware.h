@@ -17,6 +17,7 @@ struct WireEvent {
 struct Hardware {
     uint64_t time = 1000;
     uint64_t writeStarted = 0;
+    uint64_t deReleasedAt = 0; ///< Physical receive-mode GPIO write, independent of owner service.
     unsigned clockStep = 1, criticalDepth = 0, writes = 0, rxResets = 0;
     bool driverInstalled = false;
     unsigned rxChecks = 0, publishOnCheck = 0;

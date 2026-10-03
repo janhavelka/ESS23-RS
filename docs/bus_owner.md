@@ -5,7 +5,7 @@
 the installed library. It owns bounded admission, one active Runner transaction
 and retained completions in one cooperative context. Construction initializes
 caller-supplied slots without I/O. Logical producers use that context; calls
-are not thread-safe. Prompts 01–02 implement this owner; 03 connects the console.
+are not thread-safe. Prompts 01–03 implement and connect this owner to the console.
 
 ## Admission and lifetime
 
@@ -237,15 +237,15 @@ Measured `sizeof` with native 64-bit MinGW and ESP32-S3 Xtensa:
 | --- | ---: | ---: |
 | BusOwner / BusRequest | 216 / 128 | 144 / 96 |
 | PendingSlot (256 frame bytes included) | 392 | 360 |
-| Completion (256 raw bytes included) | 472 | 440 |
-| ResultSlot (Completion included) | 488 | 456 |
+| Completion (256 raw bytes included) | 496 | 464 |
+| ResultSlot (Completion included) | 512 | 480 |
 | ProducerSlot / SequenceId | 24 / 24 | 24 / 16 |
 | RecoveryResult (included in owner) | 64 | 56 |
-| Runner / Result | 360 / 56 | 296 / 56 |
+| Runner / Result | 384 / 80 | 320 / 80 |
 
 Owner/slots consume `sizeof(BusOwner) + Q*sizeof(PendingSlot) +
 R*sizeof(ResultSlot) + P*sizeof(ProducerSlot)`, separately from Runner and TX/RX/trace.
-Four pending, six retained and three producer slots use 4784 native or 4392
+Four pending, six retained and three producer slots use 4928 native or 4536
 ESP32-S3 bytes. These are static sizes, not runtime peaks. Xtensa `-Os -fstack-usage`
 reports 544-byte constructor, 512-byte admission, 64-byte service/group cancellation,
 128-byte recovery, 32-byte collect and 96-byte ESS
@@ -258,7 +258,15 @@ The [fresh prompt 01 audit](reports/ess_release_01_audit_2026-10-03.md) corrects
 timeout precedence and relative byte-expiry closure evidence.
 The [prompt 02 report](reports/ess_release_02_2026-10-03.md) and
 [scheduling tests](../test/bus_scheduling_test.cpp) hand these actual APIs and
-lifetime/deadline/parser contracts to prompt 03. The console exposes owner
-commands only after prompt 03.
+lifetime/deadline/parser contracts to prompt 03. The console now exposes `drv`,
+`result`, `release`, `cancel` and asynchronous `recover`; see [the probe guide](esp32_probe.md).
+
+Prompt 03 retains TX end/uncertainty and first RX start/maximum uncertainty in
+`Result`, so later dispatch cannot overwrite diagnostic evidence. WAIT_BUS
+discards are excluded. These diagnostics do not require optional trace storage.
+`service(nowUs, recoveryReady=false)` still settles/collects active TX and
+enforces the recovery deadline, while postponing drain/reinitialization until
+the application completes safe adapter cleanup. The standalone application
+uses this gate for explicit 500-ms recovery settlement; no automatic recovery.
 The [fresh prompt 02 audit](reports/ess_release_02_audit_2026-10-03.md) corrects
 delayed cancellation cutoff precedence and recovery evidence across drain passes.

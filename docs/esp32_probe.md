@@ -1,6 +1,6 @@
 # ESP32-S3 read-only probe bench
 
-This example connects the ESS codecs, standalone runner and a dedicated
+This example connects the ESS codecs, application BusOwner, standalone runner and a dedicated
 ESP32-S3 UART adapter. Its only motor command is the documented non-changing
 model-register read. It provides a small console and finite Python campaigns
 for developing and checking that path before adding motion.
@@ -42,17 +42,18 @@ and an explicit load change start a fresh fixture measurement window without
 clearing faults. `reset` keeps the selected workload and last probe result.
 
 [Esp32Load](../examples/probe_cli/Esp32Load.h) owns one priority-2 competing task on
-the Arduino owner's core, a fixed 4096-byte internal stack and a USB output
-mutex. It has application lifetime. Diagnostic lines start with `# load `;
-the configured size is payload, with framing added. JSON and diagnostic lines
-are serialized. Each output begins on a fresh line to separate earlier partial
-writes. The load build allocates a 1024-byte internal USB TX ring once before
-USB startup, allowing the largest diagnostic line to fit. Driver enqueue waits
-are bounded; disconnected/back-pressured output can still be lost or partial.
+the Arduino owner's core, a fixed 4096-byte internal stack and one protected
+265-byte diagnostic ingress slot. It never calls the bus owner or writes USB.
+Diagnostic lines start with `# load `; the configured size is payload.
+The owner copies these into its bounded output queue when two slots remain
+available for command records. All builds allocate a 1024-byte internal USB TX
+ring before startup and use SDK timeout zero. One owner writes at most 64 bytes
+per loop, retaining partial enqueue offsets and serializing complete lines.
+USB enqueue evidence does not prove host receipt after a disconnect.
 The harness stops on command/framing failure and never replays a probe.
 
-`console_lines` counts full lines accepted by the USB write call, not confirmed
-host receipt; `console_dropped` counts skipped/short fixture writes. A load run
+`console_lines` counts full fixture lines admitted to the owner output queue,
+not confirmed host receipt; `console_dropped` counts occupied ingress slots. A load run
 must check these counters before claiming it exercised console traffic.
 The Python campaign fails if requested work had no competing task iterations
 or requested console output produced no complete lines.
@@ -175,17 +176,18 @@ byte consumed in that sample. Recovery requires a fresh sample before it can
 provide silence evidence. A snapshot spanning a full minimum character time
 fails because the checks could miss an entire character.
 
-The basic polling application avoids console parsing, JSON formatting, USB output
-and sleeps while a probe is active. The optional load fixture deliberately adds
-competing task/USB activity and owner sleeps, as described below. Commands received then wait in the USB input path and
-are processed after its terminal result. A TX or direction fault can leave DE
-asserted or uncertain; the application still publishes the failure and serves
-cached commands while the runner continues cleanup. `transmit_enabled` reports
-that state, and new probes/recovery remain interlocked until cleanup permits
-them. This keeps the first bench implementation small;
-it is not the future priority-stop or fully concurrent console design. A long
-scheduler interruption may cause a correctly reported capture failure. It must
-not be hidden by a guessed receive timestamp or automatic retry.
+The owner services at most 32 console bytes while TX/RX is active, including
+iterations deferred by the load fixture. Output never waits for USB capacity.
+Eight PSRAM output lines plus one pending Console line preserve terminal output.
+When that pending slot is blocked, only local `cancel` is executed; other complete
+input lines are dropped without side effects and counted in `drv.input_dropped`.
+A cancel acknowledgement may also be dropped, but its original terminal result
+remains reserved. This keeps local cancellation admissible under USB pressure;
+no physical stop is implemented. New bus/recovery admissions wait for output
+capacity. The host fails closed after missing/framing records and never replays.
+Polling capture can still fail explicitly when formatting or scheduler gaps
+lose wire evidence. Timer capture is the measured loaded reference; external
+timing qualification remains open.
 
 Current application timing choices are:
 
@@ -198,8 +200,9 @@ Current application timing choices are:
 | TX deadline | 20 milliseconds |
 | Capture-lag deadline | 10 milliseconds |
 | Probe response deadline | 200 milliseconds, including final frame gap |
-| Explicit recovery guard | 500 milliseconds after the previous result |
-| Presence freshness threshold | 5000 milliseconds after the completed probe |
+| Absolute admitted probe deadline | 500 milliseconds, including queue/setup/TX/final closure |
+| Explicit recovery guard / deadline | 500 milliseconds after physical TX/DE settlement and recovery admission / 2 seconds from admission |
+| Presence freshness threshold | 5000 milliseconds from qualified frame-closure earliest bound |
 
 These deadlines are host policy, not measured or vendor-guaranteed upper bounds.
 The first-reply override is deliberately separate from the recommended 1750
@@ -230,6 +233,10 @@ There are no raw writes, motion operations or automatic scans in this build.
 | `stats` | Show local runner and capture counters, including maximum observed poll gap. |
 | `reset` / `stats reset` | Clear local counters only. Preserve the result and recovery interlock. |
 | `recover` | Explicit host-only RX/error recovery after the configured guard; no motor command. |
+| `drv` | Phase, queued/reserved/retained counts, capacities, absolute deadline, capture mode, input/output dispositions and timing bounds. |
+| `result [operation-id]` | Non-consuming pending or terminal view; omitted ID selects latest admission. |
+| `cancel [operation-id]` | Local cancellation of selected/latest probe; physical TX settles; no motor stop. |
+| `release <operation-id>` | Explicit release of an already delivered retained terminal; stale IDs fail. |
 | `memory` | Report free/minimum/largest internal and PSRAM blocks and task-stack free high-water mark, in bytes. |
 
 An explicit probe address applies to that request. A later bare `probe` still
@@ -237,8 +244,28 @@ uses the default address 1. Cached status and health label the address of their
 retained observation with `probe_address`; it is null before an observation is
 available. Neither command performs a fresh read.
 `ping` uses the canonical command name `probe` in both admission and terminal
-records. Successful synchronous `reset`, `stats reset` and `recover` return
-`result:"done"`; they do not emit a later completion record.
+records. Synchronous `reset` and `stats reset` return `result:"done"`.
+Recovery emits an accepted reply and one separate `type:"recovery"` terminal.
+It cancels all old queued work at admission, retains interrupted results,
+waits for physical TX/DE and the guard, explicitly clears the adapter, then
+lets BusOwner discard stale traffic and establish fresh idle evidence.
+Recovery failure never resumes old work; recovery has its own retained slot.
+
+Protocol 2 separates `@id` command correlation from monotonically increasing
+`operation_id` (no wrap/reuse within an App lifetime). Four ordinary queued
+requests plus one active share eight reserved/retained result slots; a ninth
+correlation and separate result belong to recovery. One urgent pending/result
+reservation remains unavailable to ordinary probes; no stop handler exposes it.
+Every admitted probe/recovery produces one automatic terminal. `result` does
+not consume or regenerate that event; `release` explicitly frees storage.
+Unread results never expire or get overwritten. Duplicate outstanding command
+IDs fail before admission; callers wait for the terminal before reusing IDs.
+
+Cache age uses immutable qualified closure bounds, separately from terminal
+delivery and recovery settlement. Unsent cancellation does not change a cached
+observation. A transmitted failure without qualified closure has null age.
+Successful recovery invalidates confidence once, independently of output, and
+an unread recovery result does not erase newer observations.
 
 Every reply is one JSON object per line. A human can enter `probe`; automation
 prefixes a decimal correlation ID from 1 through 4294967295:
@@ -254,7 +281,7 @@ prefixes a decimal correlation ID from 1 through 4294967295:
 For example, admission produces:
 
 ```json
-{"type":"reply","profile":"ess_rs","id":42,"command":"probe","ok":true,"result":"accepted","address":1}
+{"type":"reply","profile":"ess_rs","id":42,"command":"probe","ok":true,"result":"accepted","address":1,"operation_id":1}
 ```
 
 An accepted probe later emits one `type:"probe"` terminal record with the same
@@ -269,7 +296,7 @@ reply establishes `identity:"responder_only"`, not a confirmed ESS model.
 external measurement. Those statements are different. A bad CRC can have a
 transport result of `FRAME` and a codec result of `CRC_ERROR`.
 
-There is one outstanding probe and no automatic retry. Transport/capture faults
+There is one active bus transaction and bounded queued probes, with no automatic retry. Transport/capture faults
 and corrupt or mismatched frames require explicit host recovery before another
 request. A fully checked Modbus exception is a completed device rejection: its
 code remains visible, but it does not require host recovery. Recovery resets
@@ -293,6 +320,13 @@ addresses, successful transport/codec/model/length/timing evidence, JSON shape,
 line and byte bounds, deadlines, reset/fault messages and uptime regression.
 The first error stops a campaign without replay or automatic recovery.
 
+`Console.begin("probe")` returns an admitted handle; local queries and other
+admitted handles can interleave. `wait(handle)` retains the terminal by default.
+`command("probe")` and `command("recover")` wait and send a separate correlated
+`release` acknowledgement. Inspection/cancellation/release take `operation_id`;
+they do not reuse the command correlation ID. The host tracks at most ten
+handles and eight request plus one recovery result; mismatches poison the session.
+
 `probe` performs one explicit model read. `stress` repeats that same read a
 finite number of times, with status/health/memory observations between reads.
 `watch` only reads cached host reports and creates no motor bus traffic; presence
@@ -303,8 +337,12 @@ implementation block.
 ## Memory and verification
 
 The example allocates its `App` once in PSRAM during startup. It contains the
-32-byte TX buffer, 64-byte RX buffer, 128-entry trace, runner, console buffers
-and retained application state. Failure to allocate PSRAM reports a boot error;
+32-byte TX buffer, 64-byte RX buffer, 128-entry trace, runner, owner, five pending
+slots, nine result slots, eight correlation records, console buffers and eight
+1537-byte output lines. It uses 27128 bytes on ESP32-S3 (27936 native), including
+all that storage. Driver capture state (1696 bytes), load fixture (4816 bytes,
+including its 4096-byte stack), SDK buffers and owner stack remain internal.
+Failure to allocate PSRAM reports a boot error;
 there is no silent large internal-RAM fallback. No per-command application
 allocation is added by the runner, codecs or console.
 
@@ -314,7 +352,7 @@ FIFO submission copies at most 64 bytes to an internal stack array before its
 short critical section. Larger PSRAM storage is never read from that section.
 Task stacks remain under the framework's allocation rules. Memory snapshots
 include largest available blocks as well as free/minimum totals so fragmented
-heaps are visible. Console output is capped at 1024 bytes; retained hex is capped
+heaps are visible. Console JSON output is capped at 1536 bytes; retained hex is capped
 at eight TX and 64 RX bytes with an explicit truncation flag.
 
 Native verification covers runner framing/failure cases, adapter snapshot races,

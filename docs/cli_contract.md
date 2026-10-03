@@ -4,6 +4,10 @@ This defines the planned standalone console for the general `MotorControlRS`
 library and its family profiles, beginning with `MotorControlRS::ESS_RS`.
 The [probe/load console](esp32_probe.md) implements the current read-only subset;
 the full command surface below remains a contract for later implementation.
+The current protocol-2 subset also implements `drv`, non-consuming `result`,
+explicit `release`, local `cancel [operation-id]` and asynchronous host recovery.
+Finite admission/retention/output limits and measured evidence are in the
+[probe guide](esp32_probe.md) and [prompt 03 report](reports/ess_release_03_2026-10-03.md).
 Checkout naming is independent of the CLI. The [architecture](architecture.md),
 [axis contract](axis_contract.md) and [profile contract](profile_contract.md)
 define the public operations that the console exposes.

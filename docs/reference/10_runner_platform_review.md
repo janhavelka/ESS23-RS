@@ -15,7 +15,7 @@ Release prompt 01 has now delivered the [bounded application bus owner](../bus_o
 Its [handoff](../reports/ess_release_01_2026-10-03.md) records the newer read-only
 FieldCore source review, copied/reserved ownership and intentional deadline/
 parser differences. Later-step guidance below remains historical context;
-fairness/cancellation and console integration are still prompts 02 and 03.
+fairness/cancellation and console integration are delivered by prompts 02–03.
 
 ## Reuse that saves work
 

@@ -305,12 +305,12 @@ void BusOwner::serviceRecovery(uint64_t nowUs, bool mayDrain) noexcept {
     finishRecovery(runner_.recover(nowUs) ? RecoveryOutcome::RECOVERED : RecoveryOutcome::TRANSPORT_ERROR, nowUs);
 }
 
-void BusOwner::service(uint64_t nowUs) noexcept {
+void BusOwner::service(uint64_t nowUs, bool recoveryReady) noexcept {
     if (!valid_ || !clock(nowUs)) return;
     const bool hadActive = active_ != NONE;
     runner_.poll(nowUs);
     if (active_ != NONE && !runner_.busy()) collect();
-    if (recovering()) { serviceRecovery(nowUs, !hadActive); return; }
+    if (recovering()) { serviceRecovery(nowUs, !hadActive && recoveryReady); return; }
     const std::size_t before = count_; std::size_t kept = 0;
     for (std::size_t i = 0; i < before; ++i) {
         PendingSlot& pending = queued(i);

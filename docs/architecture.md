@@ -30,7 +30,8 @@ README for current callable APIs and build commands. No motor behavior has
 been qualified beyond the recorded model-register probes.
 The [application bus reference](bus_owner.md) adds copied admission, per-producer
 FIFO/cyclic fairness, immutable deadlines, reserved urgent/results storage,
-cancellation and explicit recovery. Console integration remains release prompt 03.
+cancellation and explicit recovery. Release prompt 03 connects the responsive
+console, retained results and qualified observation ages to this owner.
 The [current architecture report](architecture_report.md) maps existing files
 and dependencies, walks through a transaction and records the latest source
 review of standalone and FieldCore integration. The planned layout below is

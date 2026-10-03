@@ -1,0 +1,1017 @@
+{
+  "date": "2026-10-03",
+  "baseline": "204c0e9b5c289fb29ab6e58b058bde4e6ed27646",
+  "final_commit": "commit introducing this report",
+  "firmware": {
+    "path": "build/bench/prompt03_release_timer_firmware.bin",
+    "sha256": "a254b29ae2f1cc0f3b0ff3283a84ce6885d5ec4e793ec839c7e19609ec4ba1e0",
+    "environment": "bench_s3_load_timer",
+    "usb": "COM13 303A:1001 3C:0F:02:CD:6B:98",
+    "rs485": "UART2 TX47/RX48/DE21 active-high, node1,1152008N1",
+    "model_raw": "0x4EEA"
+  },
+  "verification": {
+    "ctest": 16,
+    "generator_cases": 8,
+    "python_cases": 66,
+    "pio": [
+      "bench_s3_probe",
+      "bench_s3_load_poll",
+      "bench_s3_load_timer"
+    ],
+    "native_sdk_app_shared_groups": 14,
+    "additional_load_groups": 2
+  },
+  "sizes": {
+    "App": {
+      "native": 27936,
+      "xtensa": 27128
+    },
+    "Runner": {
+      "native": 384,
+      "xtensa": 320
+    },
+    "Result": 80,
+    "BusOwner": {
+      "native": 216,
+      "xtensa": 144
+    },
+    "PendingSlot": {
+      "native": 392,
+      "xtensa": 360
+    },
+    "Completion": {
+      "native": 496,
+      "xtensa": 464
+    },
+    "ResultSlot": {
+      "native": 512,
+      "xtensa": 480
+    },
+    "Console": {
+      "native": 3392,
+      "xtensa": 3344
+    },
+    "internal_uart_actual": 1696,
+    "internal_load_actual_with_stack": 4816,
+    "owner_output_lines": 8,
+    "max_input_bytes_per_loop": 32,
+    "max_usb_write_bytes_per_loop": 64
+  },
+  "campaigns": {
+    "unloaded": {
+      "log": "build\\bench\\prompt03_release_unloaded.jsonl",
+      "probe_count": 10,
+      "probe_successes": 10,
+      "probe_duration_us": [
+        5437,
+        5426,
+        5455,
+        5510,
+        5433,
+        5430,
+        5424,
+        5434,
+        5479,
+        5569
+      ],
+      "command_send_count": 53,
+      "structured_lines": 63,
+      "fixture_lines_received": 0,
+      "local_command_latency_us": [
+        16000,
+        16000,
+        15000,
+        16000,
+        0,
+        16000,
+        0,
+        15000,
+        16000,
+        0
+      ],
+      "iterations": [
+        {
+          "event": "iteration",
+          "utc": "2026-10-03T21:43:58.331+00:00",
+          "elapsed_s": 0.531,
+          "number": 1,
+          "mode": "stress"
+        },
+        {
+          "event": "iteration",
+          "utc": "2026-10-03T21:43:58.431+00:00",
+          "elapsed_s": 0.641,
+          "number": 2,
+          "mode": "stress"
+        },
+        {
+          "event": "iteration",
+          "utc": "2026-10-03T21:43:58.531+00:00",
+          "elapsed_s": 0.734,
+          "number": 3,
+          "mode": "stress"
+        },
+        {
+          "event": "iteration",
+          "utc": "2026-10-03T21:43:58.631+00:00",
+          "elapsed_s": 0.844,
+          "number": 4,
+          "mode": "stress"
+        },
+        {
+          "event": "iteration",
+          "utc": "2026-10-03T21:43:58.731+00:00",
+          "elapsed_s": 0.937,
+          "number": 5,
+          "mode": "stress"
+        },
+        {
+          "event": "iteration",
+          "utc": "2026-10-03T21:43:58.831+00:00",
+          "elapsed_s": 1.031,
+          "number": 6,
+          "mode": "stress"
+        },
+        {
+          "event": "iteration",
+          "utc": "2026-10-03T21:43:58.931+00:00",
+          "elapsed_s": 1.141,
+          "number": 7,
+          "mode": "stress"
+        },
+        {
+          "event": "iteration",
+          "utc": "2026-10-03T21:43:59.031+00:00",
+          "elapsed_s": 1.234,
+          "number": 8,
+          "mode": "stress"
+        },
+        {
+          "event": "iteration",
+          "utc": "2026-10-03T21:43:59.130+00:00",
+          "elapsed_s": 1.328,
+          "number": 9,
+          "mode": "stress"
+        },
+        {
+          "event": "iteration",
+          "utc": "2026-10-03T21:43:59.230+00:00",
+          "elapsed_s": 1.437,
+          "number": 10,
+          "mode": "stress"
+        }
+      ],
+      "load_measurement": null,
+      "ending_load": null,
+      "ending_drv": null,
+      "last_memory": {
+        "type": "reply",
+        "profile": "ess_rs",
+        "id": 52,
+        "command": "memory",
+        "ok": true,
+        "valid": true,
+        "internal_free": 336672,
+        "internal_min": 331512,
+        "internal_largest": 278516,
+        "psram_free": 8358444,
+        "psram_min": 8358444,
+        "psram_largest": 8257524,
+        "stack_free_bytes": 5220
+      },
+      "summary": {
+        "event": "summary",
+        "utc": "2026-10-03T21:43:59.284+00:00",
+        "elapsed_s": 1.484,
+        "mode": "stress",
+        "iterations": 10,
+        "requested_count": 10,
+        "probes_attempted": 10,
+        "probes_passed": 10,
+        "probes_failed": 0,
+        "latency_us": {
+          "min": 5424,
+          "max": 5569,
+          "mean": 5459.7
+        },
+        "load_settings": null,
+        "last_load": null,
+        "last_memory": {
+          "type": "reply",
+          "profile": "ess_rs",
+          "id": 52,
+          "command": "memory",
+          "ok": true,
+          "valid": true,
+          "internal_free": 336672,
+          "internal_min": 331512,
+          "internal_largest": 278516,
+          "psram_free": 8358444,
+          "psram_min": 8358444,
+          "psram_largest": 8257524,
+          "stack_free_bytes": 5220
+        },
+        "ok": true,
+        "error": null
+      }
+    },
+    "loaded": {
+      "log": "build\\bench\\prompt03_release_loaded.jsonl",
+      "probe_count": 10,
+      "probe_successes": 10,
+      "probe_duration_us": [
+        17602,
+        17570,
+        14565,
+        15522,
+        16587,
+        17563,
+        17590,
+        15543,
+        14548,
+        17582
+      ],
+      "command_send_count": 64,
+      "structured_lines": 74,
+      "fixture_lines_received": 139,
+      "local_command_latency_us": [
+        16000,
+        15000,
+        16000,
+        16000,
+        15000,
+        15000,
+        16000,
+        15000,
+        16000,
+        31000
+      ],
+      "iterations": [
+        {
+          "event": "iteration",
+          "utc": "2026-10-03T21:43:59.894+00:00",
+          "elapsed_s": 0.563,
+          "number": 1,
+          "mode": "load"
+        },
+        {
+          "event": "iteration",
+          "utc": "2026-10-03T21:44:00.033+00:00",
+          "elapsed_s": 0.703,
+          "number": 2,
+          "mode": "load"
+        },
+        {
+          "event": "iteration",
+          "utc": "2026-10-03T21:44:00.176+00:00",
+          "elapsed_s": 0.844,
+          "number": 3,
+          "mode": "load"
+        },
+        {
+          "event": "iteration",
+          "utc": "2026-10-03T21:44:00.321+00:00",
+          "elapsed_s": 1.0,
+          "number": 4,
+          "mode": "load"
+        },
+        {
+          "event": "iteration",
+          "utc": "2026-10-03T21:44:00.460+00:00",
+          "elapsed_s": 1.141,
+          "number": 5,
+          "mode": "load"
+        },
+        {
+          "event": "iteration",
+          "utc": "2026-10-03T21:44:00.593+00:00",
+          "elapsed_s": 1.266,
+          "number": 6,
+          "mode": "load"
+        },
+        {
+          "event": "iteration",
+          "utc": "2026-10-03T21:44:00.727+00:00",
+          "elapsed_s": 1.406,
+          "number": 7,
+          "mode": "load"
+        },
+        {
+          "event": "iteration",
+          "utc": "2026-10-03T21:44:00.881+00:00",
+          "elapsed_s": 1.563,
+          "number": 8,
+          "mode": "load"
+        },
+        {
+          "event": "iteration",
+          "utc": "2026-10-03T21:44:01.020+00:00",
+          "elapsed_s": 1.688,
+          "number": 9,
+          "mode": "load"
+        },
+        {
+          "event": "iteration",
+          "utc": "2026-10-03T21:44:01.154+00:00",
+          "elapsed_s": 1.828,
+          "number": 10,
+          "mode": "load"
+        }
+      ],
+      "load_measurement": {
+        "type": "reply",
+        "profile": "ess_rs",
+        "id": 63,
+        "command": "load",
+        "ok": true,
+        "result": "done",
+        "ready": true,
+        "capture_mode": "timer",
+        "workload_us": 2000,
+        "owner_delay_us": 5000,
+        "console_bytes": 128,
+        "elapsed_us": 1378906,
+        "work_us": 274226,
+        "work_iterations": 137,
+        "console_lines": 137,
+        "console_dropped": 0,
+        "capture_us": 274471,
+        "capture_samples": 69877,
+        "owner_gap_max_us": 8031,
+        "capture_gap_max_us": 55,
+        "work_stack_free_bytes": 3268,
+        "cpu_valid": true,
+        "cpu0_busy_pct": 0,
+        "cpu1_busy_pct": 31
+      },
+      "ending_load": {
+        "type": "reply",
+        "profile": "ess_rs",
+        "id": 63,
+        "command": "load",
+        "ok": true,
+        "result": "done",
+        "ready": true,
+        "capture_mode": "timer",
+        "workload_us": 2000,
+        "owner_delay_us": 5000,
+        "console_bytes": 128,
+        "elapsed_us": 1378906,
+        "work_us": 274226,
+        "work_iterations": 137,
+        "console_lines": 137,
+        "console_dropped": 0,
+        "capture_us": 274471,
+        "capture_samples": 69877,
+        "owner_gap_max_us": 8031,
+        "capture_gap_max_us": 55,
+        "work_stack_free_bytes": 3268,
+        "cpu_valid": true,
+        "cpu0_busy_pct": 0,
+        "cpu1_busy_pct": 31
+      },
+      "ending_drv": null,
+      "last_memory": {
+        "type": "reply",
+        "profile": "ess_rs",
+        "id": 62,
+        "command": "memory",
+        "ok": true,
+        "valid": true,
+        "internal_free": 336672,
+        "internal_min": 331512,
+        "internal_largest": 278516,
+        "psram_free": 8358444,
+        "psram_min": 8358444,
+        "psram_largest": 8257524,
+        "stack_free_bytes": 5184
+      },
+      "summary": {
+        "event": "summary",
+        "utc": "2026-10-03T21:44:01.284+00:00",
+        "elapsed_s": 1.953,
+        "mode": "load",
+        "iterations": 10,
+        "requested_count": 10,
+        "probes_attempted": 10,
+        "probes_passed": 10,
+        "probes_failed": 0,
+        "latency_us": {
+          "min": 14548,
+          "max": 17602,
+          "mean": 16467.2
+        },
+        "load_settings": [
+          2000,
+          5000,
+          128
+        ],
+        "last_load": {
+          "type": "reply",
+          "profile": "ess_rs",
+          "id": 63,
+          "command": "load",
+          "ok": true,
+          "result": "done",
+          "ready": true,
+          "capture_mode": "timer",
+          "workload_us": 2000,
+          "owner_delay_us": 5000,
+          "console_bytes": 128,
+          "elapsed_us": 1378906,
+          "work_us": 274226,
+          "work_iterations": 137,
+          "console_lines": 137,
+          "console_dropped": 0,
+          "capture_us": 274471,
+          "capture_samples": 69877,
+          "owner_gap_max_us": 8031,
+          "capture_gap_max_us": 55,
+          "work_stack_free_bytes": 3268,
+          "cpu_valid": true,
+          "cpu0_busy_pct": 0,
+          "cpu1_busy_pct": 31
+        },
+        "last_memory": {
+          "type": "reply",
+          "profile": "ess_rs",
+          "id": 62,
+          "command": "memory",
+          "ok": true,
+          "valid": true,
+          "internal_free": 336672,
+          "internal_min": 331512,
+          "internal_largest": 278516,
+          "psram_free": 8358444,
+          "psram_min": 8358444,
+          "psram_largest": 8257524,
+          "stack_free_bytes": 5184
+        },
+        "ok": true,
+        "error": null
+      }
+    },
+    "interleaved": {
+      "log": "build\\bench\\prompt03_release_interleaved.jsonl",
+      "probe_count": 11,
+      "probe_successes": 11,
+      "probe_duration_us": [
+        16569,
+        17599,
+        17543,
+        15585,
+        16586,
+        14546,
+        16606,
+        16578,
+        18589,
+        14520,
+        5477
+      ],
+      "command_send_count": 68,
+      "structured_lines": 79,
+      "fixture_lines_received": 138,
+      "local_command_latency_us": [
+        15000,
+        31000,
+        15000,
+        16000,
+        15000,
+        32000,
+        15000,
+        16000,
+        0,
+        31000,
+        16000,
+        15000,
+        0,
+        32000,
+        15000,
+        16000,
+        16000,
+        16000,
+        0,
+        16000,
+        16000,
+        15000,
+        15000,
+        16000,
+        16000,
+        15000
+      ],
+      "iterations": [
+        {
+          "event": "iteration",
+          "utc": "2026-10-03T21:44:01.843+00:00",
+          "elapsed_s": 0.485,
+          "index": 0,
+          "probe_operation": 21,
+          "status_busy": true,
+          "drv_busy": true
+        },
+        {
+          "event": "iteration",
+          "utc": "2026-10-03T21:44:01.930+00:00",
+          "elapsed_s": 0.579,
+          "index": 1,
+          "probe_operation": 22,
+          "status_busy": true,
+          "drv_busy": true
+        },
+        {
+          "event": "iteration",
+          "utc": "2026-10-03T21:44:02.027+00:00",
+          "elapsed_s": 0.672,
+          "index": 2,
+          "probe_operation": 23,
+          "status_busy": true,
+          "drv_busy": true
+        },
+        {
+          "event": "iteration",
+          "utc": "2026-10-03T21:44:02.120+00:00",
+          "elapsed_s": 0.766,
+          "index": 3,
+          "probe_operation": 24,
+          "status_busy": true,
+          "drv_busy": true
+        },
+        {
+          "event": "iteration",
+          "utc": "2026-10-03T21:44:02.217+00:00",
+          "elapsed_s": 0.86,
+          "index": 4,
+          "probe_operation": 25,
+          "status_busy": true,
+          "drv_busy": true
+        },
+        {
+          "event": "iteration",
+          "utc": "2026-10-03T21:44:02.310+00:00",
+          "elapsed_s": 0.954,
+          "index": 5,
+          "probe_operation": 26,
+          "status_busy": true,
+          "drv_busy": true
+        },
+        {
+          "event": "iteration",
+          "utc": "2026-10-03T21:44:02.397+00:00",
+          "elapsed_s": 1.047,
+          "index": 6,
+          "probe_operation": 27,
+          "status_busy": true,
+          "drv_busy": true
+        },
+        {
+          "event": "iteration",
+          "utc": "2026-10-03T21:44:02.485+00:00",
+          "elapsed_s": 1.125,
+          "index": 7,
+          "probe_operation": 28,
+          "status_busy": true,
+          "drv_busy": true
+        },
+        {
+          "event": "iteration",
+          "utc": "2026-10-03T21:44:02.572+00:00",
+          "elapsed_s": 1.219,
+          "index": 8,
+          "probe_operation": 29,
+          "status_busy": true,
+          "drv_busy": true
+        },
+        {
+          "event": "iteration",
+          "utc": "2026-10-03T21:44:02.659+00:00",
+          "elapsed_s": 1.297,
+          "index": 9,
+          "probe_operation": 30,
+          "status_busy": true,
+          "drv_busy": true
+        }
+      ],
+      "load_measurement": {
+        "type": "reply",
+        "profile": "ess_rs",
+        "id": 57,
+        "command": "load",
+        "ok": true,
+        "result": "done",
+        "ready": true,
+        "capture_mode": "timer",
+        "workload_us": 2000,
+        "owner_delay_us": 5000,
+        "console_bytes": 128,
+        "elapsed_us": 919922,
+        "work_us": 184164,
+        "work_iterations": 92,
+        "console_lines": 91,
+        "console_dropped": 0,
+        "capture_us": 182668,
+        "capture_samples": 46586,
+        "owner_gap_max_us": 8025,
+        "capture_gap_max_us": 53,
+        "work_stack_free_bytes": 3268,
+        "cpu_valid": true,
+        "cpu0_busy_pct": 0,
+        "cpu1_busy_pct": 33
+      },
+      "ending_load": {
+        "type": "reply",
+        "profile": "ess_rs",
+        "id": 65,
+        "command": "load",
+        "ok": true,
+        "result": "done",
+        "ready": true,
+        "capture_mode": "timer",
+        "workload_us": 0,
+        "owner_delay_us": 0,
+        "console_bytes": 0,
+        "elapsed_us": 39965,
+        "work_us": 25,
+        "work_iterations": 4,
+        "console_lines": 0,
+        "console_dropped": 0,
+        "capture_us": 8498,
+        "capture_samples": 2190,
+        "owner_gap_max_us": 110,
+        "capture_gap_max_us": 45,
+        "work_stack_free_bytes": 3268,
+        "cpu_valid": false,
+        "cpu0_busy_pct": null,
+        "cpu1_busy_pct": null
+      },
+      "ending_drv": {
+        "type": "reply",
+        "profile": "ess_rs",
+        "id": 67,
+        "command": "drv",
+        "ok": true,
+        "phase": "DONE",
+        "busy": false,
+        "transmit_enabled": false,
+        "recovery_required": false,
+        "pending": 0,
+        "retained": 0,
+        "reserved": 0,
+        "pending_capacity": 4,
+        "result_capacity": 8,
+        "outstanding_capacity": 9,
+        "operation_id": 31,
+        "output_queued": 0,
+        "output_blocked": 0,
+        "output_short_writes": 0,
+        "input_bytes": 2132,
+        "input_lines": 184,
+        "input_dropped": 0,
+        "recovery_guard_until_us": 47571871,
+        "request_deadline_us": 0,
+        "capture_mode": "timer",
+        "read_budget": 64,
+        "observed_earliest_us": 47074553,
+        "observed_latest_us": 47074587,
+        "delivered_us": 47074770
+      },
+      "last_memory": {
+        "type": "reply",
+        "profile": "ess_rs",
+        "id": 68,
+        "command": "memory",
+        "ok": true,
+        "valid": true,
+        "internal_free": 336672,
+        "internal_min": 331512,
+        "internal_largest": 278516,
+        "psram_free": 8358444,
+        "psram_min": 8358444,
+        "psram_largest": 8257524,
+        "stack_free_bytes": 4868
+      },
+      "summary": null
+    },
+    "delayed": {
+      "log": "build\\bench\\prompt03_release_delayed.jsonl",
+      "probe_count": 4,
+      "probe_successes": 4,
+      "probe_duration_us": [
+        24580,
+        25564,
+        24587,
+        5474
+      ],
+      "command_send_count": 30,
+      "structured_lines": 35,
+      "fixture_lines_received": 46,
+      "local_command_latency_us": [
+        0,
+        16000,
+        16000,
+        16000,
+        16000,
+        0,
+        16000,
+        16000,
+        15000,
+        16000,
+        0,
+        16000
+      ],
+      "iterations": [
+        {
+          "event": "freshness",
+          "utc": "2026-10-03T21:44:03.342+00:00",
+          "elapsed_s": 0.438,
+          "index": 0,
+          "delivery_lag_us": 7771,
+          "first_age_ms": 28,
+          "second_age_ms": 69,
+          "active_status": true
+        },
+        {
+          "event": "freshness",
+          "utc": "2026-10-03T21:44:03.471+00:00",
+          "elapsed_s": 0.563,
+          "index": 1,
+          "delivery_lag_us": 7770,
+          "first_age_ms": 22,
+          "second_age_ms": 67,
+          "active_status": true
+        },
+        {
+          "event": "freshness",
+          "utc": "2026-10-03T21:44:03.601+00:00",
+          "elapsed_s": 0.703,
+          "index": 2,
+          "delivery_lag_us": 7764,
+          "first_age_ms": 20,
+          "second_age_ms": 67,
+          "active_status": true
+        }
+      ],
+      "load_measurement": {
+        "type": "reply",
+        "profile": "ess_rs",
+        "id": 18,
+        "command": "load",
+        "ok": true,
+        "result": "done",
+        "ready": true,
+        "capture_mode": "timer",
+        "workload_us": 2000,
+        "owner_delay_us": 10000,
+        "console_bytes": 128,
+        "elapsed_us": 392929,
+        "work_us": 78147,
+        "work_iterations": 39,
+        "console_lines": 39,
+        "console_dropped": 0,
+        "capture_us": 78076,
+        "capture_samples": 19880,
+        "owner_gap_max_us": 11000,
+        "capture_gap_max_us": 48,
+        "work_stack_free_bytes": 3268,
+        "cpu_valid": true,
+        "cpu0_busy_pct": 0,
+        "cpu1_busy_pct": 31
+      },
+      "ending_load": {
+        "type": "reply",
+        "profile": "ess_rs",
+        "id": 27,
+        "command": "load",
+        "ok": true,
+        "result": "done",
+        "ready": true,
+        "capture_mode": "timer",
+        "workload_us": 0,
+        "owner_delay_us": 0,
+        "console_bytes": 0,
+        "elapsed_us": 546913,
+        "work_us": 109,
+        "work_iterations": 54,
+        "console_lines": 0,
+        "console_dropped": 0,
+        "capture_us": 110497,
+        "capture_samples": 28048,
+        "owner_gap_max_us": 124,
+        "capture_gap_max_us": 44,
+        "work_stack_free_bytes": 3268,
+        "cpu_valid": true,
+        "cpu0_busy_pct": 0,
+        "cpu1_busy_pct": 6
+      },
+      "ending_drv": {
+        "type": "reply",
+        "profile": "ess_rs",
+        "id": 29,
+        "command": "drv",
+        "ok": true,
+        "phase": "DONE",
+        "busy": false,
+        "transmit_enabled": false,
+        "recovery_required": false,
+        "pending": 0,
+        "retained": 0,
+        "reserved": 0,
+        "pending_capacity": 4,
+        "result_capacity": 8,
+        "outstanding_capacity": 9,
+        "operation_id": 36,
+        "output_queued": 0,
+        "output_blocked": 0,
+        "output_short_writes": 0,
+        "input_bytes": 2483,
+        "input_lines": 214,
+        "input_dropped": 0,
+        "recovery_guard_until_us": 49013884,
+        "request_deadline_us": 0,
+        "capture_mode": "timer",
+        "read_budget": 64,
+        "observed_earliest_us": 48516565,
+        "observed_latest_us": 48516592,
+        "delivered_us": 48516769
+      },
+      "last_memory": {
+        "type": "reply",
+        "profile": "ess_rs",
+        "id": 30,
+        "command": "memory",
+        "ok": true,
+        "valid": true,
+        "internal_free": 336672,
+        "internal_min": 331512,
+        "internal_largest": 278516,
+        "psram_free": 8358444,
+        "psram_min": 8358444,
+        "psram_largest": 8257524,
+        "stack_free_bytes": 4868
+      },
+      "summary": null
+    }
+  },
+  "artifacts": [
+    {
+      "path": "build\\bench\\prompt03_before.jsonl",
+      "bytes": 2797,
+      "sha256": "f84ad53dbe688dc95bc5d02078bb5965abf745499dfb40e258818c3262e1e1af"
+    },
+    {
+      "path": "build\\bench\\prompt03_build.txt",
+      "bytes": 27578,
+      "sha256": "d8c6a76dd7d247d5685ef4bb8fe5839bdb5b2dc7f8366541850702487853e081"
+    },
+    {
+      "path": "build\\bench\\prompt03_delay_boundary.py",
+      "bytes": 984,
+      "sha256": "d0eafa90a7e8dea1169f2f9d05594d64951d4e3f1aa953f1daf3a6ae6aef7ee3"
+    },
+    {
+      "path": "build\\bench\\prompt03_delay_boundary_reproduced.jsonl",
+      "bytes": 62626,
+      "sha256": "8cf745658880298c82ccc764001b6bb6d73e38e90395625b9f31be257c0b0113"
+    },
+    {
+      "path": "build\\bench\\prompt03_delayed.py",
+      "bytes": 1169,
+      "sha256": "9768c5ccbdae2f15545f566a02baa9cd2d0a601f42b174e41a84d64a651b9af0"
+    },
+    {
+      "path": "build\\bench\\prompt03_final_interleaved.jsonl",
+      "bytes": 7875,
+      "sha256": "ecada3f2b5549c1acbbc126878f229d470901f921d9d5767fd7ea73d9075cfcf"
+    },
+    {
+      "path": "build\\bench\\prompt03_final_loaded.jsonl",
+      "bytes": 119758,
+      "sha256": "884871fd64c307e4ba1f9da2a14bf5863aadb5b5d15aad0e9cf1652e9d1db69a"
+    },
+    {
+      "path": "build\\bench\\prompt03_final_timer_firmware.bin",
+      "bytes": 347536,
+      "sha256": "3bbd327c2ab510427d87213e24975ab3d1d35ebb6963bd13a72dc5a3d7be6be3"
+    },
+    {
+      "path": "build\\bench\\prompt03_final_unloaded.jsonl",
+      "bytes": 71105,
+      "sha256": "fa23579d18ac796389cb7d9880e06259c8cf4782bb2adc942325b053b3c6dcf6"
+    },
+    {
+      "path": "build\\bench\\prompt03_final_upload.txt",
+      "bytes": 17044,
+      "sha256": "d994778b171f8ed33de31b5c614db98769f5255c7a6631e6b0874fc603ad3990"
+    },
+    {
+      "path": "build\\bench\\prompt03_initial_load.jsonl",
+      "bytes": 120628,
+      "sha256": "3e9d490f903dee2e761db2f48f429662dffe4b27bcedae82ea4d0d6270bbf83a"
+    },
+    {
+      "path": "build\\bench\\prompt03_initial_timer_firmware.bin",
+      "bytes": 347136,
+      "sha256": "bd838a386bce9ec47f3438017ae907a08be5f3d088520c71871f8da4a2d8f9fb"
+    },
+    {
+      "path": "build\\bench\\prompt03_initial_unloaded.jsonl",
+      "bytes": 71097,
+      "sha256": "26d3bb6925ffac3fb0e47e846c08be0240e8c0ee3fcbc93603d7b1423d74febe"
+    },
+    {
+      "path": "build\\bench\\prompt03_interleaved.py",
+      "bytes": 1113,
+      "sha256": "d4631ad7889d7efd7e43ae7521d8423b39b542b8bafa7306f637ad3b4601008c"
+    },
+    {
+      "path": "build\\bench\\prompt03_interleaved_corrected_host.jsonl",
+      "bytes": 140759,
+      "sha256": "8acef875d4f30181935cfe630643457d0673b046f635eb10bbbdfeca95af5ca9"
+    },
+    {
+      "path": "build\\bench\\prompt03_release_build.txt",
+      "bytes": 26344,
+      "sha256": "a91e176f590853482f16f4fa4daf423cc71c60d66404b740bfd785f2d76a8ccd"
+    },
+    {
+      "path": "build\\bench\\prompt03_release_delayed.jsonl",
+      "bytes": 53276,
+      "sha256": "92cbc6483753d4786cd5a5911344b977532085336c10a7049cb0f44b28652843"
+    },
+    {
+      "path": "build\\bench\\prompt03_release_interleaved.jsonl",
+      "bytes": 140295,
+      "sha256": "f3696fc9bf8006e4fee6c1f2fb20adf177396f209fbedf2a707aab97a842d309"
+    },
+    {
+      "path": "build\\bench\\prompt03_release_loaded.jsonl",
+      "bytes": 119720,
+      "sha256": "2936fd9aef20177d04cc1622bc7a1d1538d1c36e093fce809ec6d4a0d7ce043e"
+    },
+    {
+      "path": "build\\bench\\prompt03_release_timer_firmware.bin",
+      "bytes": 347664,
+      "sha256": "a254b29ae2f1cc0f3b0ff3283a84ce6885d5ec4e793ec839c7e19609ec4ba1e0"
+    },
+    {
+      "path": "build\\bench\\prompt03_release_unloaded.jsonl",
+      "bytes": 71121,
+      "sha256": "203a2bab5ca8bd0bf36587cf10099d2cddb2766c9e312b17219f024255a3884e"
+    },
+    {
+      "path": "build\\bench\\prompt03_release_upload.txt",
+      "bytes": 12814,
+      "sha256": "b97822fd35a4b039020e6464132ee21bf2f8ca585bef93bc62bf37e5e0a33ce0"
+    },
+    {
+      "path": "build\\bench\\prompt03_report.py",
+      "bytes": 3801,
+      "sha256": "5800b75711bb60e2d4cf22b98492f1100d30a023544b4e3c9d2c303bb20f56f8"
+    },
+    {
+      "path": "build\\bench\\prompt03_verified_build.txt",
+      "bytes": 27196,
+      "sha256": "349016aeb964046107a585a92431f3178877ca23e73f4bc86c541e9ef971e90d"
+    },
+    {
+      "path": "build\\bench\\prompt03_verified_delayed.jsonl",
+      "bytes": 7402,
+      "sha256": "5bfbf81f5daa49578b152ee9d4166eea149ec7df101b3cd75d77f73f727e77c8"
+    },
+    {
+      "path": "build\\bench\\prompt03_verified_delayed_10ms.jsonl",
+      "bytes": 54051,
+      "sha256": "169c9b7029d16fd40d4fdceb4ce782217221e952f129701c8f1508206f4e6084"
+    },
+    {
+      "path": "build\\bench\\prompt03_verified_interleaved.jsonl",
+      "bytes": 140383,
+      "sha256": "a544106cdb644936f73b2e0df192905b323b898ed962c99cd5453a0700ff2be5"
+    },
+    {
+      "path": "build\\bench\\prompt03_verified_loaded.jsonl",
+      "bytes": 119868,
+      "sha256": "90128ab805e6ee5c19e0502f67e7049a28bd2c1997ea1d56c8ad56d91beb8240"
+    },
+    {
+      "path": "build\\bench\\prompt03_verified_timer_firmware.bin",
+      "bytes": 347600,
+      "sha256": "58e38c57d174c8845490cd80f835fec5bc61ac1a432c6e6055e1b206b40181df"
+    },
+    {
+      "path": "build\\bench\\prompt03_verified_unloaded.jsonl",
+      "bytes": 71237,
+      "sha256": "36ad4cc26d32a2360654fa0cd4208030558daa619f1839dd7af439fa03b36574"
+    },
+    {
+      "path": "build\\bench\\prompt03_verified_upload.txt",
+      "bytes": 12814,
+      "sha256": "ccc6fec2557968d6c2424594d42fe429e2259d09acc29f06838532cdc5e0aebc"
+    },
+    {
+      "path": "build\\bench\\co2control_com13_before.bin",
+      "bytes": 16777216,
+      "sha256": "85c089bc3956b22037af7e6f0d7945f6ed778bb1a0526fb5b2ba3e8fea02d0c1"
+    }
+  ]
+}

@@ -77,7 +77,8 @@ Release prompt 01 is implemented: [BusOwner](bus_owner.md) provides FIFO
 admission, copied frames/expectations, reserved retained results, stable IDs,
 checked parser settlement and absolute closure deadlines through the real Runner.
 Native tests pass; the rebuilt Runner passed read-only bench regression.
-Owner/absolute-deadline hardware checks await console integration in 03.
+Prompt 03 now connects the actual owner and has read-only timer bench evidence;
+absolute boundary/fault combinations remain explicitly native where not injected live.
 See [the prompt 01 handoff](reports/ess_release_01_2026-10-03.md).
 Its [fresh independent audit](reports/ess_release_01_audit_2026-10-03.md)
 corrected earlier-budget timeout precedence and retained final-gap evidence
@@ -88,7 +89,7 @@ reserved urgent admission/results, local cancellation, sequence invalidation and
 explicit recovery that cancels old queued work. Its separate recovery result
 survives full ordinary/urgent result pressure; old writes never resume.
 See [the prompt 02 handoff](reports/ess_release_02_2026-10-03.md). Owner hardware
-remains NOT RUN until prompt 03 connects the actual console path and measures it.
+is measured through the actual console in [prompt 03](reports/ess_release_03_2026-10-03.md).
 Its [fresh independent audit](reports/ess_release_02_audit_2026-10-03.md) fixes
 delayed cancellation versus later expiry and retains recovery timing evidence
 across drain passes; native regressions and firmware builds pass.
@@ -255,19 +256,20 @@ same core and request/wait/result pattern must also work for other consumers. Se
   Current 20-us capture is a measured reference, not a blanket timing guarantee.
 - [x] Build the bounded cooperative FIFO owner with copied requests, reserved
   retained results, exact generation IDs and checked parser settlement. Native
-  multi-request/failure tests pass; owner board integration is prompt 03.
+  multi-request/failure tests pass; owner board integration is delivered by prompt 03.
 - [x] Extend the owner with producer fairness, cancellation and urgent reservation
   (prompt 02); native mixed-producer/fault/pressure tests pass. No ESS stop yet.
-- [ ] Integrate the console and measure owner hardware behavior in prompt 03.
+- [x] Integrate the bounded responsive console, retained result/cancel/driver
+  commands and owner recovery policy; timer read-only/load/interleaved hardware
+  evidence is in [prompt 03](reports/ess_release_03_2026-10-03.md).
 - [x] Enforce immutable absolute deadlines through queue/setup/TX/closure without
   losing qualified on-time captured evidence; native evidence in prompts 01–02.
 - [x] Extend recovery/cancellation generation disposition: terminally cancel old
   queued work, invalidate continuations, preserve unread results, settle TX and
   boundedly discard stale traffic; no implicit queued writes after recovery.
-- [ ] Separate observation age from application delivery and recovery-settlement
-  time in the probe application. Current `finishedUs` makes delayed delivery look
-  newly observed; prompts 03/06 own the correction and regression. See the
-  [prompt/source re-audit](reports/2026-10-03_promptset_reaudit.md).
+- [x] Separate qualified observation age, delivery and recovery-settlement in
+  the probe application; delayed timer service and repeated cached queries keep
+  historical age. Unsent cancellation and retained recovery preserve new data.
 - [x] Exercise FC06 echo/identical acknowledgement, all four reviewed FC10 sizes,
   checked exceptions, malformed replies and deadline/late-capture behavior with
   fake responders through the actual owner/Runner (prompt 01).

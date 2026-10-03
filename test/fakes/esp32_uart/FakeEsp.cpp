@@ -92,7 +92,10 @@ esp_err_t uart_set_pin(uart_port_t port, int tx, int rx, int rts, int cts) {
 esp_err_t gpio_set_level(gpio_num_t pin, int value) {
     assert(GPIO_IS_VALID_OUTPUT_GPIO(pin));
     hardware.dePin = pin;
-    if (hardware.levelResult == ESP_OK) hardware.de = value;
+    if (hardware.levelResult == ESP_OK) {
+        hardware.de = value;
+        if (value != hardware.transmitLevel) hardware.deReleasedAt = hardware.time;
+    }
     return hardware.levelResult;
 }
 esp_err_t gpio_set_direction(gpio_num_t pin, int mode) {
@@ -107,6 +110,7 @@ int64_t esp_timer_get_time() {
 void gpio_ll_set_level(gpio_dev_t* gpio, unsigned pin, unsigned level) {
     assert(gpio == &GPIO && static_cast<int>(pin) == hardware.dePin && level <= 1);
     hardware.de = static_cast<int>(level);
+    if (hardware.de != hardware.transmitLevel) hardware.deReleasedAt = hardware.time;
 }
 void esp_rom_delay_us(uint32_t us) { advanceHardware(hardware.time + us); }
 void uart_ll_set_tx_idle_num(uart_dev_t* hw, unsigned idle) { assert(hw == &fakeUart && idle == 0); }

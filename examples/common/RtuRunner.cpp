@@ -341,6 +341,9 @@ bool Runner::onByte(const RxByte& byte, uint64_t nowUs) noexcept {
         return true;
     }
 
+    if (!result_.firstRxStartUs) result_.firstRxStartUs = byte.startUs;
+    if (byte.uncertaintyUs > result_.maxRxUncertaintyUs) result_.maxRxUncertaintyUs = byte.uncertaintyUs;
+
     // Local echo is admitted only in the known transmit interval. Timestamped
     // echo buffered until after DE release still qualifies; a real FC06 reply does not.
     if (echo_ == Echo::REQUIRED && result_.echoBytes < txLength_) {
@@ -534,6 +537,8 @@ void Runner::poll(uint64_t nowUs) noexcept {
             }
             txEndUs_ = end;
             txUncertaintyUs_ = width;
+            result_.txEndUs = end;
+            result_.txUncertaintyUs = width;
             result_.txComplete = result_.txAccepted == txLength_;
             if (phase_ == Phase::DRAIN)
                 record(Event::TX_DONE, txEndUs_, 0, result_.txAccepted, 0, txUncertaintyUs_);

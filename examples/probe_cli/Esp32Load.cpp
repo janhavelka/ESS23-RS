@@ -12,8 +12,6 @@ constexpr uint32_t PERIOD_MS = 10;
 
 bool Esp32Load::begin() {
     if (worker_) return false;
-    output_ = xSemaphoreCreateMutexStatic(&outputState_);
-    if (!output_) return false;
     epochUs_ = clockUs();
     idleStart_[0] = ulTaskGetIdleRunTimeCounterForCore(0);
     idleStart_[1] = ulTaskGetIdleRunTimeCounterForCore(1);
@@ -22,12 +20,13 @@ bool Esp32Load::begin() {
     return worker_ != nullptr;
 }
 
-void Esp32Load::writeLine(const char* text, std::size_t size) {
-    if (output_) xSemaphoreTake(output_, portMAX_DELAY);
-    Serial.write('\n'); // Resynchronize after a short diagnostic write/disconnect.
-    Serial.write(reinterpret_cast<const uint8_t*>(text), size);
-    Serial.write('\n');
-    if (output_) xSemaphoreGive(output_);
+bool Esp32Load::takeLine(char* text, std::size_t capacity, std::size_t& size) {
+    portENTER_CRITICAL(&mux_);
+    size = lineSize_;
+    if (!size || capacity < size) { portEXIT_CRITICAL(&mux_); return false; }
+    std::memcpy(text, line_, size); lineSize_ = 0; ++lines_;
+    portEXIT_CRITICAL(&mux_);
+    return true;
 }
 
 uint32_t Esp32Load::ownerDelayUs() {
@@ -50,6 +49,7 @@ void Esp32Load::resetStats(Esp32S3Uart& uart) {
     ++generation_;
     epochUs_ = clockUs();
     workUs_ = iterations_ = lines_ = dropped_ = 0;
+    lineSize_ = 0;
     idleStart_[0] = idle0; idleStart_[1] = idle1;
     portEXIT_CRITICAL(&mux_);
     ownerAt_ = ownerGap_ = 0;
@@ -108,25 +108,19 @@ void Esp32Load::run() {
         const uint64_t started = clockUs();
         while (clockUs() - started < settings.workUs) value = value * 1664525U + 1013904223U;
         const uint64_t elapsed = clockUs() - started;
-        bool written = false;
-        if (settings.consoleBytes && xSemaphoreTake(output_, 0) == pdTRUE) {
-            // One bounded whole line. Drop load text when USB is back-pressured;
-            // never intentionally corrupt an in-progress JSON response.
-            char line[265];
-            std::memcpy(line, "\n# load ", 8);
-            std::memset(line + 8, '.', settings.consoleBytes);
-            line[8 + settings.consoleBytes] = '\n';
-            const std::size_t size = 9 + settings.consoleBytes;
-            if (Serial.availableForWrite() >= static_cast<int>(size))
-                written = Serial.write(reinterpret_cast<const uint8_t*>(line), size) == size;
-            xSemaphoreGive(output_);
-        }
         portENTER_CRITICAL(&mux_);
         if (generation == generation_) {
             workUs_ += elapsed;
             ++iterations_;
-            if (written) ++lines_;
-            else if (settings.consoleBytes) ++dropped_;
+            if (settings.consoleBytes) {
+                if (lineSize_) ++dropped_;
+                else {
+                    // One bounded ingress slot; only the owner writes USB.
+                    std::memcpy(line_, "# load ", 7);
+                    std::memset(line_ + 7, '.', settings.consoleBytes);
+                    lineSize_ = 7 + settings.consoleBytes;
+                }
+            }
         }
         portEXIT_CRITICAL(&mux_);
     }

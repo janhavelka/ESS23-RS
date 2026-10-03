@@ -3,6 +3,7 @@
 
 #include <cassert>
 #include <cstdint>
+#include <cstdio>
 #include <limits>
 #include <string>
 #include <vector>
@@ -20,30 +21,40 @@ struct Fake {
     Probe::Action loadAction = Probe::Action::OK;
     unsigned snapshots = 0, probes = 0, recoveries = 0, resets = 0;
     unsigned loads = 0, loadChanges = 0;
-    uint32_t id = 0;
+    uint32_t id = 0, nextOperation = 100;
+    bool blocked = false;
+    unsigned resultQueries = 0, cancellations = 0, releases = 0;
+    Probe::ResultView view;
+    bool resultAvailable = true;
+    Probe::Action cancelAction = Probe::Action::OK, releaseAction = Probe::Action::OK;
     uint8_t address = 0;
     std::vector<std::string> lines;
 
-    static void emit(void* context, const char* line, std::size_t length) {
+    static bool emit(void* context, const char* line, std::size_t length) {
         Fake& self = *static_cast<Fake*>(context);
+        if (self.blocked) return false;
         assert(length < Probe::OUTPUT_CAPACITY);
         assert(length > 1 && line[0] == '{' && line[length - 1] == '}');
         self.lines.emplace_back(line, length);
         assert(self.lines.back().find('\n') == std::string::npos);
+        return true;
     }
     static void snapshot(void* context, Probe::Snapshot& output) {
         Fake& self = *static_cast<Fake*>(context);
         ++self.snapshots;
         output = self.data;
     }
-    static Probe::Action probe(void* context, uint32_t id, uint8_t address) {
+    static Probe::Action probe(void* context, uint32_t id, uint8_t address, uint32_t& operation) {
         Fake& self = *static_cast<Fake*>(context);
         ++self.probes; self.id = id; self.address = address;
+        if (self.probeAction == Probe::Action::OK) operation = self.nextOperation++;
         return self.probeAction;
     }
-    static Probe::Action recover(void* context) {
+    static Probe::Action recover(void* context, uint32_t, uint32_t& operation) {
         Fake& self = *static_cast<Fake*>(context);
-        ++self.recoveries; return self.recoverAction;
+        ++self.recoveries;
+        if (self.recoverAction == Probe::Action::OK) operation = self.nextOperation++;
+        return self.recoverAction;
     }
     static void reset(void* context) { ++static_cast<Fake*>(context)->resets; }
     static Probe::Action load(void* context, const Probe::LoadSettings* requested,
@@ -57,14 +68,29 @@ struct Fake {
         output = self.loadData;
         return self.loadAction;
     }
-    Probe::Host host(bool withLoad = false) {
+    static bool result(void* context, uint32_t operation, Probe::ResultView& out) {
+        Fake& self = *static_cast<Fake*>(context); ++self.resultQueries;
+        self.id = operation; out = self.view; return self.resultAvailable;
+    }
+    static Probe::Action cancel(void* context, uint32_t operation) {
+        Fake& self = *static_cast<Fake*>(context); ++self.cancellations; self.id = operation;
+        return self.cancelAction;
+    }
+    static Probe::Action release(void* context, uint32_t operation) {
+        Fake& self = *static_cast<Fake*>(context); ++self.releases; self.id = operation;
+        return self.releaseAction;
+    }
+    Probe::Host host(bool withLoad = false, bool withOwner = false) {
         Probe::Host result;
         result.context = this; result.emitLine = emit; result.snapshot = snapshot;
         result.startProbe = probe; result.recover = recover; result.resetStats = reset;
         if (withLoad) result.load = load;
+        if (withOwner) { result.result = Fake::result; result.cancel = cancel; result.release = release; }
         return result;
     }
     void contains(const char* fragment) const {
+        if (lines.empty() || lines.back().find(fragment) == std::string::npos)
+            std::fprintf(stderr, "Missing %s in %s\n", fragment, lines.empty() ? "<empty>" : lines.back().c_str());
         assert(!lines.empty() && lines.back().find(fragment) != std::string::npos);
     }
     void untouched() const { assert(probes == 0 && recoveries == 0 && resets == 0 && loadChanges == 0); }
@@ -74,6 +100,13 @@ void send(Probe::Console& console, const std::string& input) {
     for (char c : input) console.feed(c);
 }
 
+void report(Probe::Console& console, Fake& fake, uint32_t id, uint8_t address,
+            uint32_t operation, const Probe::ProbeResult& result) {
+    fake.nextOperation = operation;
+    send(console, "@" + std::to_string(id) + " probe " + std::to_string(address) + "\n");
+    assert(console.reportProbe(id, address, operation, result));
+}
+
 void testFramingAndIds() {
     Fake fake;
     Probe::Console console(fake.host());
@@ -81,7 +114,7 @@ void testFramingAndIds() {
     send(console, "@42 ver"); assert(fake.lines.empty());
     send(console, "sion\r\n"); assert(fake.lines.size() == 1);
     fake.contains("\"id\":42"); fake.contains("\"product\":\"MotorControl-RS\"");
-    fake.contains("\"protocol\":1"); fake.contains("\"profile\":\"ess_rs\"");
+    fake.contains("\"protocol\":2"); fake.contains("\"profile\":\"ess_rs\"");
     send(console, "@4294967295\tstatus\n"); fake.contains("\"id\":4294967295");
     send(console, "health\n"); fake.contains("\"id\":3");
     assert(fake.snapshots == 2); fake.untouched();
@@ -147,6 +180,7 @@ void testCachedHealthAndStatus() {
     send(console, "health\n"); fake.contains("\"communication\":\"failed\"");
     fake.data.recoveryRequired = false;
     fake.data.probeKnown = fake.data.probeOk = true;
+    fake.data.observedEarliestUs = fake.data.observedLatestUs = 1000;
     fake.data.probeAddress = 17;
     fake.data.rawModel = 60; fake.data.ageMs = 5000;
     send(console, "health\n"); fake.contains("\"communication\":\"current\"");
@@ -157,7 +191,9 @@ void testCachedHealthAndStatus() {
     fake.data.recoveryRequired = true;
     send(console, "health\n"); fake.contains("\"communication\":\"failed\"");
     fake.data.probeOk = false;
+    fake.data.observedEarliestUs = fake.data.observedLatestUs = 0;
     send(console, "status\n"); fake.contains("\"raw_model\":null"); fake.contains("\"last_probe_ok\":false");
+    fake.contains("\"age_ms\":null"); fake.contains("\"probe_address\":17");
     fake.data.probeOk = true; fake.data.busy = true; fake.data.timingQualified = false;
     fake.data.transmitEnabled = true;
     fake.data.codecChecked = true; fake.data.codec = MotorControlRS::Status(MotorControlRS::Err::EXCEPTION, 2, "");
@@ -190,7 +226,7 @@ void testHelpConfigMemoryAndStats() {
     send(console, "recover\n"); fake.contains("\"result\":\"busy\"");
     assert(fake.recoveries == 1 && fake.probes == 0);
     fake.recoverAction = Probe::Action::OK;
-    send(console, "recover\n"); fake.contains("\"result\":\"done\"");
+    send(console, "recover\n"); fake.contains("\"result\":\"accepted\"");
 }
 
 void testProbeResultEvidence() {
@@ -207,22 +243,22 @@ void testProbeResultEvidence() {
     result.codec = Ess::parseProbe(response, sizeof(response), 1, result.rawModel, &result.frameError);
     result.timingValid = true; result.txUncertaintyUs = 4; result.maxRxUncertaintyUs = 8;
     result.txEndUs = 2500; result.firstRxStartUs = 4500;
-    console.reportProbe(99, 1, result);
+    report(console, fake, 99, 1, 199, result);
     fake.contains("\"type\":\"probe\""); fake.contains("\"id\":99"); fake.contains("\"ok\":true");
     fake.contains("\"raw_model\":60"); fake.contains("\"duration_us\":4000");
     fake.contains("\"tx_hex\":\"010300000001840A\""); fake.contains("\"rx_hex\":\"010302003CB855\"");
     fake.contains("\"max_rx_uncertainty_us\":8"); fake.contains("\"timing_valid\":true");
     result.codec = MotorControlRS::Status(MotorControlRS::Err::EXCEPTION, 231, "untrusted text\"\n");
     result.frameError = Ess::FrameError::EXCEPTION;
-    console.reportProbe(100, 1, result);
+    report(console, fake, 100, 1, 200, result);
     fake.contains("\"ok\":false"); fake.contains("\"codec\":\"EXCEPTION\"");
     fake.contains("\"detail\":231"); fake.contains("\"raw_model\":null");
     assert(fake.lines.back().find("untrusted") == std::string::npos);
     result.codecChecked = false; result.transport.reason = Rtu::Reason::NO_RESPONSE;
-    console.reportProbe(101, 1, result);
+    report(console, fake, 101, 1, 201, result);
     fake.contains("\"codec\":\"NOT_CHECKED\""); fake.contains("\"ok\":false");
     fake.contains("\"detail\":0"); fake.contains("\"frame_error\":0");
-    assert(fake.snapshots == 0); fake.untouched();
+    assert(fake.snapshots == 3 && fake.probes == 3 && fake.recoveries == 0);
 }
 
 void testMaximumOutputAndRawBounds() {
@@ -230,6 +266,7 @@ void testMaximumOutputAndRawBounds() {
     const uint32_t max = std::numeric_limits<uint32_t>::max();
     const uint64_t max64 = std::numeric_limits<uint64_t>::max();
     fake.data.uptimeMs = max64; fake.data.ageMs = max64; fake.data.staleAfterMs = max;
+    fake.data.observedEarliestUs = fake.data.observedLatestUs = max64;
     fake.data.ready = fake.data.probeKnown = fake.data.probeOk = true;
     fake.data.rawModel = 65535; fake.data.maxPollGapUs = max64;
     fake.data.stats.started = fake.data.stats.frames = fake.data.stats.failed = max;
@@ -246,13 +283,19 @@ void testMaximumOutputAndRawBounds() {
     result.tx = result.rx = bytes; result.txLength = 9; result.rxLength = 65;
     result.txUncertaintyUs = result.maxRxUncertaintyUs = max;
     result.txEndUs = result.firstRxStartUs = max64;
-    console.reportProbe(max, 247, result); fake.contains("\"raw_truncated\":true");
+    result.observedEarliestUs = result.observedLatestUs = result.deliveredUs = max64;
+    result.outcome = Rtu::Outcome::DISPATCH_EXPIRED;
+    result.cancellation = Rtu::Cancellation::GENERATION;
+    result.executionUnknown = true;
+    report(console, fake, max, 247, max, result); fake.contains("\"raw_truncated\":true");
     fake.contains("18446744073709551615");
+    fake.contains("\"observed_latest_us\":18446744073709551615");
+    fake.contains("\"delivered_us\":18446744073709551615");
     result.txLength = 8; result.rxLength = 64; result.transport.rxTruncated = true;
-    console.reportProbe(max, 247, result); fake.contains("\"raw_truncated\":true");
+    report(console, fake, max, 247, max, result); fake.contains("\"raw_truncated\":true");
     result.tx = result.rx = nullptr;
-    console.reportProbe(max, 247, result); fake.contains("\"tx_hex\":\"\""); fake.contains("\"rx_hex\":\"\"");
-    fake.contains("\"raw_truncated\":true"); fake.untouched();
+    report(console, fake, max, 247, max, result); fake.contains("\"tx_hex\":\"\""); fake.contains("\"rx_hex\":\"\"");
+    fake.contains("\"raw_truncated\":true"); assert(fake.probes == 3);
 }
 
 void testLoadQueryAndSettings() {
@@ -343,6 +386,127 @@ void testLoadMaximumOutput() {
     fake.contains("\"cpu0_busy_pct\":null"); fake.contains("\"cpu1_busy_pct\":null");
 }
 
+void testCorrelationAndOutstandingLimit() {
+    Fake fake; Probe::Console console(fake.host());
+    send(console, "@2 ping\n");
+    fake.contains("\"operation_id\":100");
+    const unsigned snapshots = fake.snapshots;
+    send(console, "@2 status\n@2 reset\n@2 recover\n");
+    fake.contains("duplicate_id");
+    assert(fake.snapshots == snapshots && fake.resets == 0 && fake.recoveries == 0);
+    send(console, "health\n"); fake.contains("\"id\":6");
+    Probe::ProbeResult result;
+    assert(!console.reportProbe(2, 1, 101, result));
+    assert(!console.reportProbe(3, 1, 100, result));
+    assert(console.reportProbe(2, 1, 100, result));
+    assert(!console.reportProbe(2, 1, 100, result));
+    send(console, "@2 reset\n"); assert(fake.resets == 1);
+
+    Fake bounded; Probe::Console full(bounded.host());
+    for (unsigned i = 1; i <= Probe::OUTSTANDING_CAPACITY; ++i)
+        send(full, "@" + std::to_string(i) + " probe\n");
+    assert(bounded.probes == Probe::OUTSTANDING_CAPACITY);
+    send(full, "@100 probe\n@101 recover\n");
+    bounded.contains("\"result\":\"busy\"");
+    assert(bounded.probes == Probe::OUTSTANDING_CAPACITY && bounded.recoveries == 0);
+    send(full, "@102 health\n"); bounded.contains("\"command\":\"health\"");
+    assert(full.reportProbe(1, 1, 100, result));
+    send(full, "@103 probe\n"); assert(bounded.probes == Probe::OUTSTANDING_CAPACITY + 1);
+}
+
+void testOutputBackpressureOwnership() {
+    Fake fake; Probe::Console console(fake.host(false, true));
+    fake.blocked = true;
+    send(console, "@17 probe\n");
+    assert(fake.lines.empty() && fake.probes == 1 && console.outputPending());
+    send(console, "@18 probe\n@19 status\n@20 reset\n");
+    assert(fake.probes == 1 && fake.snapshots == 1 && fake.resets == 0);
+    assert(console.inputDropped() == 3 && !console.serviceOutput());
+    send(console, "@21 cancel 100\n");
+    assert(fake.cancellations == 1 && fake.id == 100 && console.inputDropped() == 4);
+    Probe::ProbeResult result;
+    assert(!console.reportProbe(17, 1, 100, result));
+    fake.blocked = false; assert(console.serviceOutput());
+    assert(fake.lines.size() == 1); fake.contains("\"result\":\"accepted\"");
+    fake.blocked = true;
+    assert(console.reportProbe(17, 1, 100, result)); // Ownership transfers even while sink is blocked.
+    assert(console.outputPending() && !console.reportProbe(17, 1, 100, result));
+    send(console, "@22 cancel 100\n@23 version\n");
+    assert(fake.cancellations == 2 && fake.resets == 0 && console.inputDropped() == 6);
+    fake.blocked = false; assert(console.serviceOutput());
+    assert(fake.lines.size() == 2); fake.contains("\"type\":\"probe\"");
+    assert(!console.reportProbe(17, 1, 100, result));
+    send(console, "@17 reset\n"); assert(fake.resets == 1);
+    assert(fake.lines.size() == 3);
+}
+
+void testOwnerControlsAndRetainedInspections() {
+    Fake fake; Probe::Console console(fake.host(false, true));
+    send(console, "help\n"); fake.contains("\"drv\""); fake.contains("\"result\"");
+    fake.contains("\"cancel\""); fake.contains("\"release\"");
+    send(console, "help cancel\n"); fake.contains("cancel_local_work_not_motor_stop");
+    fake.data.pending = 3; fake.data.retained = 4; fake.data.reserved = 5;
+    fake.data.pendingCapacity = 8; fake.data.resultCapacity = 8;
+    fake.data.operationId = 120; fake.data.recoveryGuardUntilUs = 500001;
+    fake.data.deadlineUs = 2000000; fake.data.timerCapture = true;
+    fake.data.observedEarliestUs = 100; fake.data.observedLatestUs = 120; fake.data.deliveredUs = 200;
+    send(console, "drv\n"); fake.contains("\"pending\":3"); fake.contains("\"retained\":4");
+    fake.contains("\"reserved\":5"); fake.contains("\"recovery_guard_until_us\":500001");
+    fake.contains("\"request_deadline_us\":2000000"); fake.contains("\"capture_mode\":\"timer\"");
+    fake.contains("\"read_budget\":64");
+    fake.contains("\"observed_latest_us\":120"); fake.contains("\"delivered_us\":200");
+    fake.view.commandId = 77; fake.view.operationId = 120; fake.view.address = 1; fake.view.pending = true;
+    send(console, "@4 result\n"); fake.contains("\"result\":\"pending\"");
+    fake.contains("\"id\":4"); fake.contains("\"command_id\":77"); fake.contains("\"operation_id\":120");
+    assert(fake.id == 0);
+    fake.view.pending = false;
+    fake.view.probe.outcome = Rtu::Outcome::CANCELLED;
+    fake.view.probe.executionUnknown = true; fake.view.probe.cancellation = Rtu::Cancellation::REQUEST;
+    send(console, "@5 result 120\n@6 result 120\n");
+    fake.contains("\"type\":\"reply\""); fake.contains("\"command\":\"result\"");
+    fake.contains("\"outcome\":\"cancelled\""); fake.contains("\"execution_unknown\":true");
+    assert(fake.resultQueries == 3 && fake.releases == 0 && fake.cancellations == 0);
+    fake.view.recovery = true; fake.view.recoveryResult.outcome = Rtu::RecoveryOutcome::RECOVERED;
+    send(console, "result 120\n"); fake.contains("\"outcome\":\"recovered\"");
+    send(console, "cancel 120\n"); fake.contains("\"result\":\"done\""); assert(fake.id == 120);
+    send(console, "cancel\n"); assert(fake.id == 0 && fake.cancellations == 2);
+    send(console, "release 120\n"); fake.contains("\"result\":\"done\""); assert(fake.releases == 1);
+    fake.resultAvailable = false;
+    send(console, "result 120\n"); fake.contains("\"result\":\"unavailable\"");
+    const char* invalid[] = {"result 0", "result -1", "result 4294967296", "result 1 2",
+        "cancel 0", "cancel +1", "cancel 1x", "cancel 1 2", "release", "release 0", "release 1 2"};
+    const unsigned before = fake.resultQueries + fake.cancellations + fake.releases;
+    for (const char* input : invalid) {
+        send(console, std::string(input) + "\n"); fake.contains("\"ok\":false");
+    }
+    assert(before == fake.resultQueries + fake.cancellations + fake.releases);
+    assert(fake.probes == 0 && fake.recoveries == 0 && fake.resets == 0);
+}
+
+void testRecoveryTerminalAndOptionalOwnerHooks() {
+    Fake fake; Probe::Console console(fake.host());
+    send(console, "@8 recover\n"); fake.contains("\"result\":\"accepted\"");
+    fake.contains("\"operation_id\":100");
+    Rtu::RecoveryResult result; result.outcome = Rtu::RecoveryOutcome::RECOVERED;
+    result.requestedUs = 1000; result.deadlineUs = 500000; result.finishedUs = 2500;
+    assert(console.reportRecovery(8, 100, result));
+    fake.contains("\"type\":\"recovery\""); fake.contains("\"command\":\"recover\"");
+    fake.contains("\"operation_id\":100"); fake.contains("\"outcome\":\"recovered\"");
+    fake.contains("\"finished_us\":2500");
+    assert(!console.reportRecovery(8, 100, result));
+    send(console, "@8 recover\n"); assert(fake.recoveries == 2);
+    result.outcome = Rtu::RecoveryOutcome::READ_ERROR; result.reason = Rtu::Reason::RX_ERROR;
+    assert(console.reportRecovery(8, 101, result)); fake.contains("\"ok\":false");
+    fake.contains("\"outcome\":\"read_error\""); fake.contains("\"transport\":\"RX_ERROR\"");
+    for (const char* command : {"result", "cancel", "release 1", "help result", "help cancel", "help release"}) {
+        send(console, std::string(command) + "\n"); fake.contains("\"result\":\"unavailable\"");
+    }
+    send(console, "help\n");
+    assert(fake.lines.back().find("\"result\"") == std::string::npos);
+    assert(fake.lines.back().find("\"cancel\"") == std::string::npos);
+    assert(fake.lines.back().find("\"release\"") == std::string::npos);
+}
+
 } // namespace
 
 int main() {
@@ -357,4 +521,8 @@ int main() {
     testLoadQueryAndSettings();
     testLoadValidationAndOptionalCallback();
     testLoadMaximumOutput();
+    testCorrelationAndOutstandingLimit();
+    testOutputBackpressureOwnership();
+    testOwnerControlsAndRetainedInspections();
+    testRecoveryTerminalAndOptionalOwnerHooks();
 }

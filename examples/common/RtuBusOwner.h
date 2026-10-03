@@ -163,8 +163,10 @@ public:
     /** Local cancellation only; physical TX drains. CANCELLED means accepted,
      * possibly pending. Captured on-time completion or earlier expiry can win. */
     Cancel cancel(const RequestId& id, uint64_t nowUs) noexcept;
-    /** One bounded service step; supplied monotonic microseconds share port epoch. */
-    void service(uint64_t nowUs) noexcept;
+    /** One bounded service step; supplied monotonic microseconds share port epoch.
+     * recoveryReady=false still polls/settles TX and enforces the recovery deadline,
+     * but postpones drain/reinitialization until application adapter cleanup is safe. */
+    void service(uint64_t nowUs, bool recoveryReady = true) noexcept;
     /** Non-consuming terminal view, valid until release/owner destruction;
      * nullptr for pending, active, released or foreign/stale IDs. No I/O. */
     const Completion* result(const RequestId& id) const noexcept;

@@ -19,6 +19,11 @@ def encoded(item):
 
 
 def reply(request_id, command, **fields):
+    if command in {"probe", "recover"} and (fields.get("result") == "accepted"
+                                           or fields.get("type") in {"probe", "recovery"}):
+        fields.setdefault("operation_id", request_id + 100)
+        if fields.get("type") in {"probe", "recovery"}:
+            fields.setdefault("command_id", request_id)
     return {"type": "reply", "id": request_id, "command": command,
             "profile": "ess_rs", "ok": True, **fields}
 
@@ -55,15 +60,25 @@ class Serial:
     def normal(request_id, command, args):
         if command == "version":
             return encoded(reply(request_id, command, product="MotorControl-RS",
-                                 protocol=1, version="0.test"))
+                                 protocol=2, version="0.test", outstanding_capacity=9))
         if command == "probe":
             address = int(args[0]) if args else 1
             return (encoded(reply(request_id, command, result="accepted", address=address))
                     + encoded(reply(request_id, command, type="probe", address=address,
                                     transport="FRAME", codec="OK", detail=0, raw_model=60,
+                                    outcome="success", execution_unknown=False,
                                     duration_us=12345, tx_bytes=8, rx_bytes=7,
                                     timing_valid=True, raw_truncated=False,
+                                    observed_earliest_us=13300, observed_latest_us=13345,
+                                    delivered_us=16000,
                                     identity="responder_only")))
+        if command in {"release", "cancel"}:
+            return encoded(reply(request_id, command, operation_id=int(args[0]), result="done"))
+        if command == "recover":
+            return (encoded(reply(request_id, command, result="accepted"))
+                    + encoded(reply(request_id, command, type="recovery", recovery=True,
+                                    outcome="recovered", transport="NONE", requested_us=1000,
+                                    deadline_us=50000, finished_us=1500)))
         if command == "status":
             return encoded(reply(request_id, command, busy=False, recovery_required=False,
                                  phase="DONE", transport="FRAME", last_probe_known=True,
@@ -134,7 +149,7 @@ class Framing(unittest.TestCase):
         result = console.command("probe", address=17, timeout_s=0.1)
         self.assertEqual(result["raw_model"], 60)
         self.assertEqual(result["identity"], "responder_only")
-        self.assertEqual(self.port.writes[-1], b"@2 probe 17\n")
+        self.assertEqual(self.port.writes[-2:], [b"@2 probe 17\n", b"@3 release 102\n"])
         health = console.command("health", timeout_s=0.1)
         self.assertEqual(health["readiness"], "unknown")
         accepts = [entry for entry in self.events if entry["event"] == "reply"
@@ -170,7 +185,7 @@ class Framing(unittest.TestCase):
 
     def test_only_whitelisted_commands_and_valid_addresses(self):
         console = self.session()
-        for command, address in (("probe\nreset", None), ("recover", None),
+        for command, address in (("probe\nreset", None), ("motor_reset", None),
                                  ("probe", 0), ("probe", 248), ("probe", True),
                                  ("status", 1)):
             with self.assertRaises(ValueError):
@@ -225,6 +240,7 @@ class Framing(unittest.TestCase):
 
     def test_probe_success_requires_consistent_evidence(self):
         for change in ({"transport": "NO_RESPONSE"}, {"codec": "EXCEPTION"},
+                       {"outcome": "transport"}, {"execution_unknown": True},
                        {"raw_model": None}, {"raw_model": True}, {"raw_model": 65536},
                        {"tx_bytes": 0}, {"rx_bytes": 5}, {"rx_bytes": 7.0},
                        {"duration_us": None}, {"duration_us": True}, {"duration_us": -1},
@@ -265,10 +281,10 @@ class Framing(unittest.TestCase):
         self.assertTrue(console.synchronized)
 
     def test_duplicate_reply_and_partial_trailer(self):
-        for tail in (encoded(reply(2, "status")), b'{"type":'):
+        for tail in (encoded(reply(2, "status", uptime_ms=1000)), b'{"type":'):
             with self.subTest(tail=tail):
                 console = self.session()
-                self.port.handler = lambda i, cmd, _: encoded(reply(i, cmd)) + tail
+                self.port.handler = lambda i, cmd, _: encoded(reply(i, cmd, uptime_ms=1000)) + tail
                 self.failed(lambda: console.command("status", timeout_s=0.1),
                             "duplicate|incomplete trailing")
 
@@ -320,6 +336,7 @@ class Framing(unittest.TestCase):
         self.assertEqual(commands.count(["probe", "7"]), 100)
         self.assertEqual(commands.count(["health"]), 100)
         self.assertEqual(commands.count(["memory"]), 100)
+        self.assertEqual(sum(parts[0] == "release" for parts in commands), 100)
         self.assertFalse(any(parts[0] in {"recover", "reset"} for parts in commands))
         self.assertEqual(self.events[-1]["event"], "summary")
 
@@ -345,8 +362,8 @@ class Framing(unittest.TestCase):
         self.port.handler = fail_probe
         with self.assertRaisesRegex(bench.BenchError, "probe failed"):
             bench.campaign(console, "stress", count=5, interval_s=0, timeout_s=0.1)
-        self.assertEqual(len(self.port.writes), 3)
-        self.assertEqual(self.port.writes[-1], b"@3 probe 1\n")
+        self.assertEqual(self.port.writes[-2:], [b"@3 probe 1\n", b"@4 release 103\n"])
+        self.assertEqual(len(self.port.writes), 4)
 
     def test_evidence_contains_memory_and_unknown_readiness(self):
         console = self.session()
@@ -366,9 +383,11 @@ class Framing(unittest.TestCase):
         bench.campaign(console, "load", count=3, interval_s=0, timeout_s=0.1,
                        load=(2000, 5000, 128))
         commands = [line.decode("ascii").strip().split()[1:] for line in self.port.writes]
-        self.assertEqual(commands, [["version"], ["load", "2000", "5000", "128"], ["stats"]]
-                         + [["probe", "1"], ["status"], ["health"], ["memory"], ["load"]] * 3
-                         + [["stats"]])
+        expected = [["version"], ["load", "2000", "5000", "128"], ["stats"]]
+        for operation in (104, 110, 116):
+            expected += [["probe", "1"], ["release", str(operation)], ["status"],
+                         ["health"], ["memory"], ["load"]]
+        self.assertEqual(commands, expected + [["stats"]])
         summary = self.events[-1]
         self.assertTrue(summary["ok"])
         self.assertEqual(summary["probes_attempted"], 3)
@@ -386,7 +405,7 @@ class Framing(unittest.TestCase):
             bench.campaign(console, "load", count=100, interval_s=0, timeout_s=0.1,
                            load=(2000, 5000, 128))
         commands = [line.decode("ascii").strip().split()[1] for line in self.port.writes]
-        self.assertEqual(commands, ["version", "load", "stats", "probe", "status",
+        self.assertEqual(commands, ["version", "load", "stats", "probe", "release", "status",
                                     "health", "memory", "load", "stats"])
         summary = self.events[-1]
         self.assertFalse(summary["ok"])
@@ -571,6 +590,336 @@ class Framing(unittest.TestCase):
                 with self.assertRaises(SystemExit) as exit_status:
                     bench.arguments(prefix + options)
                 self.assertEqual(exit_status.exception.code, 2)
+
+    def test_interleaved_local_reply_and_probe_terminal(self):
+        for terminal_first in (False, True):
+            with self.subTest(terminal_first=terminal_first):
+                probe_id = None
+
+                def handler(i, command, args):
+                    nonlocal probe_id
+                    if command == "probe":
+                        probe_id = i
+                        return encoded(reply(i, command, result="accepted", address=17))
+                    if command == "status":
+                        terminal = Serial.normal(probe_id, "probe", ["17"]).splitlines()[1] + b"\n"
+                        status = Serial.normal(i, command, args)
+                        return terminal + status if terminal_first else status + terminal
+                    return Serial.normal(i, command, args)
+
+                console = self.session(handler)
+                handle = console.begin("probe", address=17, timeout_s=0.1)
+                self.assertTrue(handle.accepted)
+                self.assertIsNone(handle.terminal)
+                status = console.command("status", timeout_s=0.1)
+                self.assertEqual(status["id"], 3)
+                terminal = console.wait(handle)
+                self.assertEqual((terminal["id"], terminal["command_id"], terminal["operation_id"]),
+                                 (2, 2, 102))
+                self.assertEqual(terminal["address"], 17)
+                self.assertEqual([line.split()[1] for line in self.port.writes],
+                                 [b"version", b"probe", b"status"])
+                console.command("release", operation_id=102, timeout_s=0.1)
+                self.assertTrue(handle.released)
+                self.assertFalse(console.operations)
+
+    def test_two_operations_complete_out_of_command_order(self):
+        probes = []
+
+        def handler(i, command, args):
+            if command == "probe":
+                probes.append((i, args))
+                return Serial.normal(i, command, args).splitlines()[0] + b"\n"
+            if command == "drv":
+                terminals = [Serial.normal(p, "probe", a).splitlines()[1] + b"\n"
+                             for p, a in reversed(probes)]
+                return terminals[0] + Serial.normal(i, command, args) + terminals[1]
+            return Serial.normal(i, command, args)
+
+        console = self.session(handler, fragment=17)
+        first = console.begin("probe", address=7, timeout_s=0.1)
+        second = console.begin("probe", address=8, timeout_s=0.1)
+        console.command("drv", timeout_s=0.1)
+        self.assertEqual(console.wait(first)["address"], 7)
+        self.assertEqual(console.wait(second)["address"], 8)
+        self.assertEqual(set(console.operations), {102, 103})
+        self.assertEqual(sum(line.split()[1] == b"probe" for line in self.port.writes), 2)
+
+    def test_result_inspection_keeps_original_operation_context(self):
+        pending = True
+
+        def handler(i, command, args):
+            if command == "probe":
+                return encoded(reply(i, command, result="accepted", address=1))
+            if command == "result":
+                if pending:
+                    return encoded(reply(i, command, command_id=2, operation_id=102,
+                                         result="pending", recovery=False))
+                item = json.loads(Serial.normal(2, "probe", ["1"]).splitlines()[1])
+                return encoded({**item, "type": "reply", "id": i, "command": "result"})
+            return Serial.normal(i, command, args)
+
+        console = self.session(handler)
+        handle = console.begin("probe", timeout_s=0.1)
+        report = console.command("result", operation_id=102, timeout_s=0.1)
+        self.assertEqual(report["result"], "pending")
+        self.assertIsNone(handle.terminal)
+        self.port.input.extend(Serial.normal(2, "probe", ["1"]).splitlines()[1] + b"\n")
+        terminal = console.wait(handle)
+        pending = False
+        for _ in range(3):
+            view = console.command("result", operation_id=102, timeout_s=0.1)
+            self.assertEqual(view["command_id"], terminal["command_id"])
+            self.assertEqual(view["observed_latest_us"], terminal["observed_latest_us"])
+        self.assertFalse(handle.released)
+        console.command("release", operation_id=102, timeout_s=0.1)
+        self.assertTrue(handle.released)
+        self.assertEqual(sum(line.split()[1] == b"probe" for line in self.port.writes), 1)
+
+    def test_cancel_is_explicit_local_work_with_original_terminal(self):
+        def handler(i, command, args):
+            if command == "probe":
+                return encoded(reply(i, command, result="accepted", address=1))
+            if command == "cancel":
+                return (Serial.normal(i, command, args)
+                        + encoded(reply(2, "probe", type="probe", address=1, ok=False,
+                                        transport="CANCELLED", codec="NOT_CHECKED")))
+            return Serial.normal(i, command, args)
+
+        console = self.session(handler)
+        handle = console.begin("probe", timeout_s=0.1)
+        self.assertTrue(console.command("cancel", operation_id=102, timeout_s=0.1)["ok"])
+        terminal = console.wait(handle)
+        self.assertEqual((terminal["id"], terminal["operation_id"], terminal["transport"]),
+                         (2, 102, "CANCELLED"))
+        self.assertFalse(terminal["ok"])
+        console.command("release", operation_id=102, timeout_s=0.1)
+        self.assertEqual([line.split()[1] for line in self.port.writes],
+                         [b"version", b"probe", b"cancel", b"release"])
+
+    def test_recovery_explicitly_waits_and_releases_distinct_result(self):
+        console = self.session(fragment=1)
+        terminal = console.command("recover", timeout_s=0.1)
+        self.assertEqual((terminal["type"], terminal["command"], terminal["outcome"]),
+                         ("recovery", "recover", "recovered"))
+        self.assertEqual(terminal["operation_id"], 102)
+        self.assertEqual(self.port.writes, [b"@1 version\n", b"@2 recover\n", b"@3 release 102\n"])
+        self.assertFalse(console.operations)
+
+    def test_recovery_can_settle_interrupted_probe_before_its_own_terminal(self):
+        def handler(i, command, args):
+            if command == "probe":
+                return encoded(reply(i, command, result="accepted", address=1))
+            if command == "recover":
+                return (encoded(reply(2, "probe", type="probe", address=1, ok=False,
+                                      transport="CANCELLED", codec="NOT_CHECKED"))
+                        + Serial.normal(i, command, args))
+            return Serial.normal(i, command, args)
+
+        console = self.session(handler)
+        probe = console.begin("probe", timeout_s=0.1)
+        recovery = console.begin("recover", timeout_s=0.1)
+        self.assertEqual(console.wait(probe)["operation_id"], 102)
+        self.assertEqual(console.wait(recovery)["operation_id"], 103)
+        self.assertEqual(set(console.operations), {102, 103})
+        console.command("release", operation_id=102, timeout_s=0.1)
+        console.command("release", operation_id=103, timeout_s=0.1)
+        self.assertFalse(console.operations)
+
+    def test_wrong_terminal_operation_or_original_command_id_stops(self):
+        for fields in ({"operation_id": 103}, {"operation_id": True}, {"operation_id": None},
+                       {"operation_id": 0}, {"command_id": 3}, {"command_id": True}):
+            with self.subTest(fields=fields):
+                console = self.session()
+
+                def malformed(i, command, args):
+                    accepted, terminal = [json.loads(line) for line in Serial.normal(i, command, args).splitlines()]
+                    return encoded(accepted) + encoded({**terminal, **fields})
+
+                self.port.handler = malformed
+                self.failed(lambda: console.command("probe", timeout_s=0.1), "does not match acceptance")
+                self.assertEqual(len(self.port.writes), 2)
+
+    def test_missing_or_invalid_admission_operation_id_stops(self):
+        for operation in (None, True, 0, -1, 0x100000000):
+            with self.subTest(operation=operation):
+                console = self.session()
+                self.port.handler = lambda i, command, args: encoded(reply(
+                    i, command, result="accepted", address=1, operation_id=operation))
+                self.failed(lambda: console.begin("probe", timeout_s=0.1), "operation ID")
+                self.assertEqual(len(self.port.writes), 2)
+
+    def test_duplicate_terminal_never_causes_release_or_retry(self):
+        console = self.session()
+
+        def duplicated(i, command, args):
+            accepted, terminal = Serial.normal(i, command, args).splitlines()
+            return accepted + b"\n" + terminal + b"\n" + terminal + b"\n"
+
+        self.port.handler = duplicated
+        self.failed(lambda: console.command("probe", timeout_s=0.1), "duplicate|incomplete trailing")
+        self.assertEqual(len(self.port.writes), 2)
+
+    def test_delayed_duplicate_detected_before_new_send(self):
+        console = self.session()
+        terminal = console.command("probe", timeout_s=0.1)
+        self.port.input.extend(encoded(terminal))
+        before = len(self.port.writes)
+        self.failed(lambda: console.command("status", timeout_s=0.1), "unsolicited")
+        self.assertEqual(len(self.port.writes), before)
+
+    def test_interleaved_bad_operation_poisoning_prevents_further_commands(self):
+        def handler(i, command, args):
+            if command == "probe":
+                return encoded(reply(i, command, result="accepted", address=1))
+            if command == "status":
+                terminal = json.loads(Serial.normal(2, "probe", ["1"]).splitlines()[1])
+                return encoded({**terminal, "operation_id": 999}) + Serial.normal(i, command, args)
+            return Serial.normal(i, command, args)
+
+        console = self.session(handler)
+        console.begin("probe", timeout_s=0.1)
+        self.failed(lambda: console.command("status", timeout_s=0.1), "does not match acceptance")
+        self.assertEqual([line.split()[1] for line in self.port.writes], [b"version", b"probe", b"status"])
+
+    def test_result_release_and_cancel_require_strict_operation_echo(self):
+        for command in ("result", "release", "cancel"):
+            with self.subTest(command=command):
+                console = self.session()
+                self.port.handler = lambda i, name, args: encoded(reply(i, name, operation_id=999))
+                self.failed(lambda: console.command(command, operation_id=17, timeout_s=0.1),
+                            "operation ID does not match")
+
+    def test_release_rejection_poisons_convenience_command(self):
+        console = self.session()
+
+        def reject_release(i, command, args):
+            if command == "release":
+                return encoded(reply(i, command, ok=False, result="busy", operation_id=int(args[0])))
+            return Serial.normal(i, command, args)
+
+        self.port.handler = reject_release
+        self.failed(lambda: console.command("probe", timeout_s=0.1), "release was rejected")
+        self.assertEqual([line.split()[1] for line in self.port.writes], [b"version", b"probe", b"release"])
+
+    def test_recovery_terminal_requires_checked_outcome_and_deadlines(self):
+        for fields in ({"outcome": "unknown"}, {"outcome": []}, {"ok": False}, {"recovery": False},
+                       {"finished_us": None}, {"deadline_us": True}, {"requested_us": 50000},
+                       {"finished_us": 50000}, {"transport": None}, {"transport": "FRAME"}):
+            with self.subTest(fields=fields):
+                console = self.session()
+
+                def malformed(i, command, args):
+                    accepted, terminal = [json.loads(line) for line in Serial.normal(i, command, args).splitlines()]
+                    return encoded(accepted) + encoded({**terminal, **fields})
+
+                self.port.handler = malformed
+                self.failed(lambda: console.command("recover", timeout_s=0.1), "recovery")
+                self.assertEqual(len(self.port.writes), 2)
+
+    def test_probe_observation_bounds_are_separate_from_delivery(self):
+        for fields in ({"observed_latest_us": None}, {"delivered_us": True},
+                       {"observed_earliest_us": 14000}, {"delivered_us": 12000}):
+            with self.subTest(fields=fields):
+                console = self.session()
+
+                def malformed(i, command, args):
+                    accepted, terminal = [json.loads(line) for line in Serial.normal(i, command, args).splitlines()]
+                    return encoded(accepted) + encoded({**terminal, **fields})
+
+                self.port.handler = malformed
+                self.failed(lambda: console.command("probe", timeout_s=0.1), "probe")
+
+    def test_original_host_deadline_is_not_renewed_by_local_commands(self):
+        def handler(i, command, args):
+            if command == "probe":
+                return encoded(reply(i, command, result="accepted", address=1))
+            return Serial.normal(i, command, args)
+
+        console = self.session(handler)
+        handle = console.begin("probe", timeout_s=0.02)
+        self.clock.sleep(0.01)
+        console.command("status", timeout_s=0.1)
+        self.assertEqual(handle.deadline, 0.02)
+        self.clock.sleep(0.01)
+        self.failed(lambda: console.command("status", timeout_s=0.1), "deadline expired")
+        self.assertEqual(len(self.port.writes), 3)
+
+    def test_host_handles_have_a_fixed_limit_and_wait_frees_capacity(self):
+        console = self.session()
+        handles = [console.begin("stats", timeout_s=0.1) for _ in range(bench.MAX_COMMANDS)]
+        before = len(self.port.writes)
+        with self.assertRaisesRegex(bench.BenchError, "outstanding command limit"):
+            console.begin("stats", timeout_s=0.1)
+        self.assertTrue(console.synchronized)
+        self.assertEqual(len(self.port.writes), before)
+        console.wait(handles[0])
+        console.command("stats", timeout_s=0.1)
+        self.assertEqual(len(console.pending), bench.MAX_COMMANDS - 1)
+
+    def test_retained_probe_quota_requires_release_and_does_not_replay(self):
+        console = self.session()
+        handles = []
+        for _ in range(bench.MAX_PROBES):
+            handle = console.begin("probe", timeout_s=0.1)
+            console.wait(handle)
+            handles.append(handle)
+        self.assertEqual(len(console.operations), bench.MAX_PROBES)
+        recovery = console.begin("recover", timeout_s=0.1)
+        console.wait(recovery)
+        self.assertEqual(len(console.operations), bench.MAX_OPERATIONS)
+        self.port.handler = lambda i, command, args: encoded(reply(i, command, ok=False, result="results_full"))
+        rejection = console.command("probe", timeout_s=0.1)
+        self.assertFalse(rejection["ok"])
+        self.assertEqual(len(console.operations), bench.MAX_OPERATIONS)
+        self.port.handler = Serial.normal
+        console.command("release", operation_id=handles[0].operation_id, timeout_s=0.1)
+        replacement = console.begin("probe", timeout_s=0.1)
+        self.assertGreater(replacement.operation_id, recovery.operation_id)
+        console.wait(replacement, release=True)
+
+    def test_operation_ids_never_reuse_after_explicit_release(self):
+        console = self.session()
+        console.command("probe", timeout_s=0.1)
+
+        def reused(i, command, args):
+            acceptance = json.loads(Serial.normal(i, command, args).splitlines()[0])
+            return encoded({**acceptance, "operation_id": 102})
+
+        self.port.handler = reused
+        self.failed(lambda: console.begin("probe", timeout_s=0.1), "not monotonic")
+
+    def test_invalid_control_arguments_never_send(self):
+        console = self.session()
+        for command in ("result", "release", "cancel"):
+            for operation_id in (None, True, 0, -1, 0x100000000, "1"):
+                with self.subTest(command=command, operation_id=operation_id):
+                    with self.assertRaises(ValueError):
+                        console.command(command, operation_id=operation_id)
+        with self.assertRaises(ValueError):
+            console.command("probe", operation_id=17)
+        self.assertEqual(len(self.port.writes), 1)
+
+    def test_protocol_one_cannot_hide_missing_operation_correlation(self):
+        console = self.session(identify=False)
+        self.port.handler = lambda i, command, args: encoded(reply(i, command, product="MotorControl-RS",
+                                                                  protocol=1, outstanding_capacity=9))
+        self.failed(lambda: console.identify(timeout_s=0.1), "not the supported")
+
+    def test_begin_rejects_admission_received_after_its_original_deadline(self):
+        console = self.session()
+        self.port.handler = lambda i, command, args: encoded(reply(i, command, result="accepted", address=1))
+        original_read = self.port.read
+
+        def late_read(limit):
+            data = original_read(limit)
+            if data:
+                self.clock.sleep(0.2)
+            return data
+
+        self.port.read = late_read
+        self.failed(lambda: console.begin("probe", timeout_s=0.1), "deadline expired")
+        self.assertEqual(len(self.port.writes), 2)
 
 
 if __name__ == "__main__":

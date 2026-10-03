@@ -6,6 +6,9 @@ host reports. A lost or malformed reply stops the run; nothing is replayed and
 host recovery is never automatic. Python 3.10+; pyserial is needed only for a
 real port. See ``--help`` for finite probe, stress, watch and load runs. Load
 settings change the host fixture only; they never change motor settings.
+The Console API also exposes explicit result/release/cancel/recover/reset host
+controls. Sequential probes release their retained result with a logged command;
+begin/wait permit bounded interleaving and caller-controlled result retention.
 """
 
 from __future__ import annotations
@@ -23,7 +26,11 @@ import time
 
 MAX_LINE = 4096
 MAX_INPUT = 32768
-COMMANDS = frozenset({"version", "probe", "status", "health", "memory", "stats", "load"})
+COMMANDS = frozenset({"version", "probe", "status", "health", "memory", "stats", "load",
+                      "drv", "result", "release", "cancel", "recover", "reset"})
+MAX_COMMANDS = 10  # Eight probes, one recovery and one interleaved local report.
+MAX_OPERATIONS = 9  # Firmware retains eight ordinary results plus one recovery.
+MAX_PROBES = 8
 LOAD_FIELDS = ("workload_us", "owner_delay_us", "console_bytes")
 LOAD_LIMITS = (5000, 20000, 256)
 LOAD_COUNTERS = (
@@ -116,8 +123,26 @@ class Evidence:
         self.stream.flush()
 
 
+class Command:
+    """One bounded Console.begin/wait handle; IDs are host correlation only."""
+
+    def __init__(self, owner, request_id, command, started, deadline, address, load, operation_id):
+        self.owner = owner
+        self.id = request_id
+        self.command = command
+        self.started = started
+        self.deadline = deadline
+        self.address = address
+        self.load = load
+        self.operation_id = operation_id
+        self.accepted = False
+        self.terminal = None
+        self.input_bytes = 0
+        self.released = False
+
+
 class Console:
-    """One owner, one command at a time, correlated replies, fixed input bounds.
+    """One cooperative owner, bounded interleaved commands, strict correlation.
 
     The port must supply nonblocking ``read(size)`` and a bounded ``write``.
     Once command framing fails this object cannot issue another command. Open
@@ -142,6 +167,9 @@ class Console:
         self.synchronized = True
         self.identified = False
         self.uptime_ms: int | None = None
+        self.pending: dict[int, Command] = {}
+        self.operations: dict[int, Command] = {}
+        self.last_operation_id = 0
 
     def _lines(self, data: bytes) -> list[bytes]:
         self.buffer.extend(data)
@@ -215,33 +243,196 @@ class Console:
         return bool(self.buffer) and (prefix.startswith(self.buffer)
                                       or self.buffer.startswith(prefix))
 
+    def _check_deadlines(self) -> None:
+        for handle in self.pending.values():
+            if handle.terminal is None and self.clock() >= handle.deadline:
+                raise BenchError("command response deadline expired; command was not replayed")
+
+    @staticmethod
+    def _operation_id(value) -> bool:
+        return type(value) is int and 1 <= value <= 0xFFFFFFFF
+
+    @staticmethod
+    def _check_probe(item: dict, address: int | None) -> None:
+        actual = item.get("address")
+        if (type(actual) is not int or not 1 <= actual <= 247
+                or (address is not None and actual != address)):
+            raise BenchError("probe terminal address does not match acceptance")
+        if not item["ok"]:
+            return
+        model = item.get("raw_model")
+        if (item.get("transport") != "FRAME" or item.get("codec") != "OK"
+                or item.get("outcome") != "success" or item.get("execution_unknown") is not False
+                or type(model) is not int or not 0 <= model <= 65535
+                or type(item.get("tx_bytes")) is not int or item["tx_bytes"] != 8
+                or type(item.get("rx_bytes")) is not int or item["rx_bytes"] != 7
+                or type(item.get("duration_us")) is not int
+                or not 0 <= item["duration_us"] <= 0xFFFFFFFFFFFFFFFF
+                or item.get("timing_valid") is not True
+                or item.get("raw_truncated") is not False):
+            raise BenchError("successful probe lacks consistent result evidence")
+        check_counts(item, ("observed_earliest_us", "observed_latest_us", "delivered_us"), "probe")
+        if not item["observed_earliest_us"] <= item["observed_latest_us"] <= item["delivered_us"]:
+            raise BenchError("probe observation and delivery bounds are inconsistent")
+
+    @staticmethod
+    def _check_recovery(item: dict) -> None:
+        outcome = item.get("outcome")
+        if (item.get("recovery") is not True
+                or outcome not in ("recovered", "expired", "read_error", "transport_error")
+                or item["ok"] != (outcome == "recovered")
+                or not isinstance(item.get("transport"), str)
+                or (item["ok"] and item["transport"] != "NONE")):
+            raise BenchError("recovery terminal lacks consistent result evidence")
+        check_counts(item, ("requested_us", "deadline_us", "finished_us"), "recovery")
+        if (item["requested_us"] >= item["deadline_us"]
+                or item["finished_us"] < item["requested_us"]
+                or (item["ok"] and item["finished_us"] >= item["deadline_us"])):
+            raise BenchError("recovery terminal deadlines are inconsistent")
+
+    def _complete(self, handle: Command, item: dict) -> None:
+        if self.clock() >= handle.deadline:
+            raise BenchError("command response deadline expired; command was not replayed")
+        if handle.command == "load" and item["ok"]:
+            check_load_reply(item, handle.load)
+        if handle.command == "memory" and item["ok"]:
+            if item.get("valid") is not True:
+                raise BenchError("memory measurements are unavailable")
+            check_counts(item, MEMORY_FIELDS, "memory")
+        if handle.command == "status" and item["ok"]:
+            uptime = item.get("uptime_ms")
+            if type(uptime) is not int or not 0 <= uptime <= 0xFFFFFFFFFFFFFFFF:
+                raise BenchError("status lacks a valid monotonic uptime")
+            if self.uptime_ms is not None and uptime < self.uptime_ms:
+                raise BenchError("device uptime regressed; possible reset")
+            self.uptime_ms = uptime
+        if handle.command == "release" and item["ok"]:
+            original = self.operations.get(handle.operation_id)
+            if original is not None:
+                if original.terminal is None:
+                    raise BenchError("release succeeded before operation terminal")
+                original.released = True
+                del self.operations[handle.operation_id]
+        handle.terminal = item
+        self.emit("complete", id=handle.id, command=handle.command,
+                  operation_id=handle.operation_id,
+                  duration_s=round(self.clock() - handle.started, 6), ok=item["ok"])
+
+    def _dispatch(self, item: dict) -> None:
+        request_id = item.get("id")
+        handle = self.pending.get(request_id) if type(request_id) is int else None
+        if (handle is None or item.get("command") != handle.command
+                or item.get("profile") != "ess_rs" or type(item.get("ok")) is not bool):
+            raise BenchError("unsolicited reply ID, command, profile or result does not match request")
+        if handle.terminal is not None:
+            raise BenchError("duplicate or unsolicited terminal response")
+        if self.clock() >= handle.deadline:
+            raise BenchError("command response deadline expired; command was not replayed")
+        self.emit("reply", response=item)
+        asynchronous = handle.command in ("probe", "recover")
+        if asynchronous:
+            if item.get("type") == "reply" and not handle.accepted:
+                if not item["ok"]:
+                    self._complete(handle, item)
+                    return
+                if item.get("result") != "accepted":
+                    raise BenchError(f"{handle.command} acceptance is not explicit")
+                if handle.command == "probe":
+                    address = item.get("address")
+                    if (type(address) is not int or not 1 <= address <= 247
+                            or (handle.address is not None and address != handle.address)):
+                        raise BenchError("probe acceptance address does not match request")
+                    handle.address = address
+                operation_id = item.get("operation_id")
+                if not self._operation_id(operation_id) or operation_id <= self.last_operation_id:
+                    raise BenchError("accepted operation ID is missing, reused or not monotonic")
+                if len(self.operations) == MAX_OPERATIONS:
+                    raise BenchError("accepted operation exceeds retained result limit")
+                same_kind = sum(original.command == handle.command for original in self.operations.values())
+                if same_kind >= (MAX_PROBES if handle.command == "probe" else 1):
+                    raise BenchError("accepted operation exceeds its retained result quota")
+                handle.operation_id = operation_id
+                handle.accepted = True
+                self.operations[operation_id] = handle
+                self.last_operation_id = operation_id
+                return
+            expected_type = "probe" if handle.command == "probe" else "recovery"
+            if item.get("type") != expected_type or not handle.accepted:
+                raise BenchError(f"{handle.command} response sequence is invalid")
+            if (not self._operation_id(item.get("operation_id"))
+                    or item["operation_id"] != handle.operation_id
+                    or type(item.get("command_id")) is not int or item["command_id"] != handle.id):
+                raise BenchError("terminal operation ID or original command ID does not match acceptance")
+            if handle.command == "probe":
+                self._check_probe(item, handle.address)
+            else:
+                self._check_recovery(item)
+        else:
+            if item.get("type") != "reply":
+                raise BenchError("unexpected structured console event")
+            if handle.command in ("result", "release", "cancel"):
+                operation_id = item.get("operation_id")
+                if (item["ok"] or operation_id is not None) and (
+                        not self._operation_id(operation_id) or operation_id != handle.operation_id):
+                    raise BenchError("host control operation ID does not match request")
+                if handle.command == "result" and operation_id is not None:
+                    original = self.operations.get(operation_id)
+                    original_id = item.get("command_id")
+                    if (not self._operation_id(original_id)
+                            or (original is not None and original_id != original.id)):
+                        raise BenchError("result original command ID does not match retained operation")
+                    if item.get("result") == "pending":
+                        if item["ok"] is not True or type(item.get("recovery")) is not bool:
+                            raise BenchError("pending result lacks a valid lifecycle")
+                    elif item.get("recovery") is True:
+                        self._check_recovery(item)
+                    else:
+                        self._check_probe(item, original.address if original else None)
+        self._complete(handle, item)
+
+    def _consume(self, data: bytes) -> None:
+        for handle in self.pending.values():
+            if handle.terminal is None:
+                handle.input_bytes += len(data)
+                if handle.input_bytes > MAX_INPUT:
+                    raise BenchError("command response exceeds input limit")
+        for raw in self._lines(data):
+            item = self._decode(raw)
+            if item is not None:
+                self._dispatch(item)
+
     def _check_pending(self, deadline: float) -> None:
         total = 0
         while True:
             if self.clock() >= deadline:
                 raise BenchError("command deadline expired while collecting pending diagnostics")
+            self._check_deadlines()
             data = self._read()
             total += len(data)
             if total > MAX_INPUT:
                 raise BenchError("pending diagnostics exceed input limit")
-            for raw in self._lines(data):
-                if self._decode(raw) is not None:
-                    raise BenchError("unsolicited structured reply before command")
+            self._consume(data)
             if not data:
-                if self._load_line_pending() and self.clock() < deadline:
+                active = any(handle.terminal is None for handle in self.pending.values())
+                if self._load_line_pending() and not active:
                     self.sleep(0.005)
                     continue
-                break
-        if self.buffer:
-            raise BenchError("incomplete pending line before command")
+                if self.buffer and not active:
+                    raise BenchError("incomplete pending line before command")
+                return
 
-    def command(self, command: str, *, timeout_s: float = 3.0,
-                address: int | None = None,
-                load: tuple[int, int, int] | None = None) -> dict:
-        """Send exactly once and return the terminal response, logging acceptance."""
+    def begin(self, command: str, *, timeout_s: float = 3.0,
+              address: int | None = None, load: tuple[int, int, int] | None = None,
+              operation_id: int | None = None) -> Command:
+        """Send once and collect admission/local reply; bus completion can stay pending.
+
+        Up to ten handles (eight probes, one recovery and one local query) may be
+        outstanding. Accepted operation IDs stay retained until explicit release.
+        No command, including recovery, is retried after any framing failure.
+        """
         positive(timeout_s, "command timeout")
         if command not in COMMANDS:
-            raise ValueError("command is not in the read-only harness inventory")
+            raise ValueError("command is not in the read-only/host-control harness inventory")
         if address is not None and (command != "probe" or type(address) is not int
                                     or not 1 <= address <= 247):
             raise ValueError("an ESS probe address must be an integer within 1..247")
@@ -249,118 +440,100 @@ class Console:
             if command != "load":
                 raise ValueError("load settings are only valid for the load command")
             check_load(load)
+        controls = command in ("result", "release", "cancel")
+        if controls != (operation_id is not None) or (controls and not self._operation_id(operation_id)):
+            raise ValueError("result/release/cancel require an integer operation ID within 1..4294967295")
         if not self.synchronized:
             raise BenchError("console framing failed; session cannot be reused")
         if not self.identified and command != "version":
             raise BenchError("identify the standalone firmware before issuing commands")
+        if len(self.pending) == MAX_COMMANDS:
+            raise BenchError("outstanding command limit reached; wait for a retained handle")
         if self.next_id > 0xFFFFFFFF:
             raise BenchError("request IDs exhausted; start a new inspected session")
         request_id = self.next_id
         self.next_id += 1
-        self.synchronized = False
         started = self.clock()
         deadline = started + timeout_s
         try:
             self._check_pending(deadline)
             if self.clock() >= deadline:
                 raise BenchError("command deadline expired before transmission")
+            handle = Command(self, request_id, command, started, deadline, address, load, operation_id)
+            self.pending[request_id] = handle
             suffix = "" if address is None else f" {address}"
             if load is not None:
                 suffix = " " + " ".join(str(value) for value in load)
+            if operation_id is not None:
+                suffix = f" {operation_id}"
             payload = f"@{request_id} {command}{suffix}\n".encode("ascii")
-            self.emit("send", id=request_id, command=command, address=address, load=load)
+            self.emit("send", id=request_id, command=command, address=address,
+                      load=load, operation_id=operation_id)
             if self.port.write(payload) != len(payload):
                 raise BenchError("short serial command write; command was not replayed")
-            total = 0
-            accepted = False
-            probe_address = None
-            terminal = None
-            while self.clock() < deadline:
+            while not handle.accepted and handle.terminal is None:
+                self._check_deadlines()
                 data = self._read()
-                total += len(data)
-                if total > MAX_INPUT:
-                    raise BenchError("command response exceeds input limit")
-                for raw in self._lines(data):
-                    item = self._decode(raw)
-                    if item is None:
-                        continue
-                    if terminal is not None:
-                        raise BenchError("duplicate or unsolicited terminal response")
-                    if (type(item.get("id")) is not int or item["id"] != request_id
-                            or item.get("command") != command
-                            or item.get("profile") != "ess_rs"
-                            or type(item.get("ok")) is not bool):
-                        raise BenchError("reply ID, command, profile or result does not match request")
-                    self.emit("reply", response=item)
-                    if command == "probe":
-                        if item.get("type") == "reply" and not accepted:
-                            if item["ok"]:
-                                if item.get("result") != "accepted":
-                                    raise BenchError("probe acceptance is not explicit")
-                                probe_address = item.get("address")
-                                if (type(probe_address) is not int or not 1 <= probe_address <= 247
-                                        or (address is not None and probe_address != address)):
-                                    raise BenchError("probe acceptance address does not match request")
-                                accepted = True
-                                continue
-                            terminal = item
-                        elif item.get("type") == "probe" and accepted:
-                            if (type(item.get("address")) is not int
-                                    or item["address"] != probe_address):
-                                raise BenchError("probe terminal address does not match acceptance")
-                            if item["ok"]:
-                                model = item.get("raw_model")
-                                if (item.get("transport") != "FRAME" or item.get("codec") != "OK"
-                                        or type(model) is not int or not 0 <= model <= 65535
-                                        or type(item.get("tx_bytes")) is not int or item["tx_bytes"] != 8
-                                        or type(item.get("rx_bytes")) is not int or item["rx_bytes"] != 7
-                                        or type(item.get("duration_us")) is not int
-                                        or not 0 <= item["duration_us"] <= 0xFFFFFFFFFFFFFFFF
-                                        or item.get("timing_valid") is not True
-                                        or item.get("raw_truncated") is not False):
-                                    raise BenchError("successful probe lacks consistent result evidence")
-                            terminal = item
-                        else:
-                            raise BenchError("probe response sequence is invalid")
-                    elif item.get("type") == "reply":
-                        terminal = item
-                    else:
-                        raise BenchError("unexpected structured console event")
-                if terminal is not None:
-                    if self.clock() >= deadline:
-                        raise BenchError("command response deadline expired; command was not replayed")
-                    if self.buffer and not self._load_line_pending():
-                        raise BenchError("terminal response has an incomplete trailing line")
-                    if command == "load" and terminal["ok"]:
-                        check_load_reply(terminal, load)
-                    if command == "memory" and terminal["ok"]:
-                        if terminal.get("valid") is not True:
-                            raise BenchError("memory measurements are unavailable")
-                        check_counts(terminal, MEMORY_FIELDS, "memory")
-                    if command == "status" and terminal["ok"]:
-                        uptime = terminal.get("uptime_ms")
-                        if type(uptime) is not int or uptime < 0:
-                            raise BenchError("status lacks a valid monotonic uptime")
-                        if self.uptime_ms is not None and uptime < self.uptime_ms:
-                            raise BenchError("device uptime regressed; possible reset")
-                        self.uptime_ms = uptime
-                    self.synchronized = True
-                    self.emit("complete", id=request_id, command=command,
-                              duration_s=round(self.clock() - started, 6),
-                              ok=terminal["ok"])
-                    return terminal
+                self._consume(data)
                 if not data:
                     self.sleep(0.005)
-            raise BenchError("command response deadline expired; command was not replayed")
+            self._trailing()
+            return handle
         except Exception:
             self.synchronized = False
             raise
+
+    def _trailing(self) -> None:
+        active = any(handle.terminal is None for handle in self.pending.values())
+        if self.buffer and not active and not self._load_line_pending():
+            raise BenchError("terminal response has an incomplete trailing line")
+
+    def wait(self, handle: Command, *, release: bool = False) -> dict:
+        """Collect a handle's original terminal while routing other admitted records.
+
+        Default retention supports result/cancel/release scenarios. release=True
+        sends one separate correlated release after completion, never motor I/O.
+        """
+        if not isinstance(handle, Command) or handle.owner is not self:
+            raise ValueError("command handle belongs to another console")
+        if not self.synchronized:
+            raise BenchError("console framing failed; session cannot be reused")
+        try:
+            while handle.terminal is None:
+                self._check_deadlines()
+                data = self._read()
+                self._consume(data)
+                if not data:
+                    self.sleep(0.005)
+            self._trailing()
+            self.pending.pop(handle.id, None)
+            if release and handle.accepted and not handle.released:
+                remaining = handle.deadline - self.clock()
+                if remaining <= 0:
+                    raise BenchError("command deadline expired before result release")
+                acknowledgement = self.command("release", operation_id=handle.operation_id, timeout_s=remaining)
+                if not acknowledgement["ok"]:
+                    raise BenchError("explicit result release was rejected")
+            return handle.terminal
+        except Exception:
+            self.synchronized = False
+            raise
+
+    def command(self, command: str, *, timeout_s: float = 3.0,
+                address: int | None = None, load: tuple[int, int, int] | None = None,
+                operation_id: int | None = None) -> dict:
+        """Send once, wait for its terminal, then explicitly release admitted results."""
+        handle = self.begin(command, timeout_s=timeout_s, address=address, load=load,
+                            operation_id=operation_id)
+        return self.wait(handle, release=True)
 
     def identify(self, *, timeout_s: float = 3.0) -> dict:
         response = self.command("version", timeout_s=timeout_s)
         if (not response["ok"] or response.get("product") != "MotorControl-RS"
                 or type(response.get("protocol")) is not int
-                or response["protocol"] != 1):
+                or response["protocol"] != 2
+                or type(response.get("outstanding_capacity")) is not int
+                or response["outstanding_capacity"] != MAX_OPERATIONS):
             self.synchronized = False
             raise BenchError("port is not the supported MotorControl-RS probe console")
         self.identified = True

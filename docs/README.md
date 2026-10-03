@@ -2,6 +2,10 @@
 
 ## Architecture baseline
 
+Release prompts 01–03 deliver the application owner and responsive console;
+[the current handoff](reports/ess_release_03_2026-10-03.md) records native/build,
+read-only timer bench evidence and explicit service/qualification limits.
+
 Implemented blocks are pure unit conversion, an ESS register catalogue,
 checked wire codecs with a minimal probe and standalone build foundations.
 The standalone RTU runner and ESP32-S3 adapter have native fake tests. The read-only

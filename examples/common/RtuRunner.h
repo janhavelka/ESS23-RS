@@ -123,6 +123,8 @@ struct Result {
     uint64_t closureEarliestUs = 0; ///< Last stop lower bound plus final t3.5.
     uint64_t closureLatestUs = 0;   ///< Last stop upper bound plus final t3.5.
     bool closureQualified = false; ///< Watermark/next frame proves the entire idle gap.
+    uint64_t txEndUs = 0, firstRxStartUs = 0; ///< Retained wire evidence; zero when absent.
+    uint32_t txUncertaintyUs = 0, maxRxUncertaintyUs = 0;
 };
 
 enum class Event : uint8_t { START, PHASE, TX, TX_DONE, DIRECTION, RX, ECHO, DISCARD, END, RECOVER, CLOCK_ERROR };

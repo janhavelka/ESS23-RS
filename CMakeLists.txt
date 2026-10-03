@@ -60,7 +60,24 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
             target_include_directories(${suite}_test PRIVATE test/fakes/esp32_uart)
             target_compile_definitions(${suite}_test PRIVATE CONFIG_IDF_TARGET_ESP32S3=1)
         endforeach()
-        target_sources(probe_app_test PRIVATE examples/probe_cli/ProbeConsole.cpp)
+        target_sources(probe_app_test PRIVATE examples/probe_cli/ProbeConsole.cpp
+            examples/common/RtuBusOwner.cpp examples/common/EssRtuValidator.cpp)
+        add_executable(probe_app_load_test test/probe_app_test.cpp
+            examples/probe_cli/ProbeConsole.cpp examples/probe_cli/Esp32Load.cpp
+            examples/common/RtuRunner.cpp examples/common/RtuBusOwner.cpp
+            examples/common/EssRtuValidator.cpp examples/common/Esp32S3Uart.cpp
+            test/fakes/esp32_uart/FakeEsp.cpp)
+        target_link_libraries(probe_app_load_test PRIVATE MotorControlRS)
+        set_target_properties(probe_app_load_test PROPERTIES CXX_STANDARD 11 CXX_STANDARD_REQUIRED YES CXX_EXTENSIONS OFF)
+        target_include_directories(probe_app_load_test PRIVATE test/fakes/esp32_uart)
+        target_compile_definitions(probe_app_load_test PRIVATE CONFIG_IDF_TARGET_ESP32S3=1
+            MOTORCONTROLRS_LOAD_FIXTURE=1 MOTORCONTROLRS_TIMER_CAPTURE=1)
+        if(MSVC)
+            target_compile_options(probe_app_load_test PRIVATE /UNDEBUG)
+        else()
+            target_compile_options(probe_app_load_test PRIVATE -UNDEBUG -Wall -Wextra -Wpedantic)
+        endif()
+        add_test(NAME probe_app_load COMMAND probe_app_load_test)
         if(TARGET units_preview)
             add_test(NAME units_preview COMMAND units_preview)
         endif()

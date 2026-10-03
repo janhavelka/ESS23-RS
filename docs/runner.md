@@ -8,7 +8,7 @@ provide a fake UART with independent wire times. The [ESP32-S3 probe](esp32_prob
 now adds a hardware adapter and read-only console with explicit qualification limits.
 The [bounded bus owner](bus_owner.md) adds fair admission, copied requests,
 reserved retained results and synchronous checked-parser settlement around this
-same Runner. Console integration follows in release prompt 03.
+same Runner. Release prompt 03 connects it to the responsive standalone console.
 
 ## Boundary and responsibilities
 

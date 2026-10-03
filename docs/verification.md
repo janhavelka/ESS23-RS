@@ -1,5 +1,16 @@
 # Software verification
 
+## Release prompt 03 owner/console integration
+
+Strict C++11 Release build with assertions and warnings as errors: 16/16 CTest
+suites, 8 generator cases and 66 Python cases pass. All three probe/load firmware
+environments build. Final timer-image COM13 campaigns passed 35 checked reads,
+including active console queries, competing load, retained results, delayed
+observation ages and explicit recovery. The deliberate upper 20-ms setup-delay
+failure is retained and reproduced; no timeout or retry policy was weakened.
+See [prompt 03 evidence](reports/ess_release_03_2026-10-03.md). Electrical,
+cache-off, motion/stop and extended soak qualification remain open.
+
 ## Platform boundary and optional I/O audit
 
 The current standalone environments are `bench_s3_units`, `bench_s3_probe`,

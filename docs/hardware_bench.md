@@ -77,6 +77,12 @@ completion and record changes to the setup for the next session.
 
 ## Current status
 
+- Prompt 03 connects the real BusOwner and responsive console. Current timer
+  unloaded/load/interleaved and delayed-observation evidence, exact image and
+  the reproduced 20-ms setup-budget boundary are in
+  [the prompt 03 report](reports/ess_release_03_2026-10-03.md). Workload is disabled
+  at cleanup; no motor writes or motion occurred.
+
 - The [fresh prompt 01 audit](reports/ess_release_01_audit_2026-10-03.md) uploaded
   the corrected Runner and passed 10 unloaded, 10 loaded and 3 final checked
   read-only probes; workload is disabled. Exact current-image evidence is there.

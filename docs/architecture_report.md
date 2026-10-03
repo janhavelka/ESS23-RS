@@ -26,8 +26,13 @@ Runner now supports absolute deadlines and retained closure bounds. Its
 Prompt 02 adds per-producer FIFO/cyclic fairness, reserved urgent admission,
 cancellation, sequence invalidation and a separate retained recovery outcome;
 15 CTest suites pass. Its [handoff](reports/ess_release_02_2026-10-03.md) records
-mixed-validator tests and conditional latency bounds. The console still uses
-direct Runner admission until prompt 03. Earlier observations retain their provenance.
+mixed-validator tests and conditional latency bounds. Prompt 03 now connects
+BusOwner to the actual Console/UART/load paths: bounded active input, one
+nonblocking USB writer, retained operation correlation, explicit release/cancel,
+separate qualified observation/delivery/recovery times and guarded host cleanup.
+Its [handoff](reports/ess_release_03_2026-10-03.md) records 16 native suites,
+current-image timer bench results and limits. Earlier observations below retain
+their provenance; prompt 03 supersedes direct Runner admission and blocking output.
 
 ## 1. Assessment
 
