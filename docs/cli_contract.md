@@ -1,5 +1,7 @@
 # MotorControl-RS standalone CLI contract
 
+Prompt 05 implements the bounded [typed identity/configuration read API](ess_reads.md), common/profile read routes and minimal read capabilities. The [linked inventory](reference/ess_rs_operations.json) keeps read/write/action and native/hardware evidence separate. Model/firmware compatibility, state and motion remain unqualified; these reads perform no writes.
+
 This defines the planned standalone console for the general `MotorControlRS`
 library and its family profiles, beginning with `MotorControlRS::ESS_RS`.
 The [probe/load console](esp32_probe.md) implements the current read-only subset;
@@ -89,17 +91,17 @@ implemented. Aliases have identical effects on every platform.
 | `version` / `ver` | Library/build, profile and platform identity | None |
 | `profile list` | Compiled profiles, scope, implementation and qualification | None |
 | `profile select <profile>` | Explicit idle-only local profile binding | None |
-| `caps` | `getCapabilities`; supported operations and structured gaps | None |
+| `caps` | Implemented `readCapabilities`; probe/identity/config support, later capabilities remain planned | None |
 | `useaddr <profile-address>` | Idle-only local target selection using the profile address rules | None |
 | `config` / `settings` | Host settings, `getAxisConfig` and cached device settings, separately labelled | None |
 | `host [baud <rate> \| fmt <format>]` | Show/change host serial tuple when idle, subject to adapter capability | None |
 | `axis config show` | `getAxisConfig`, including scale/reference sources and missing fields | None |
 | `axis config set <fields...>` | Build a complete candidate, `validateAxisConfig`, then idle-only `configureAxis` | None |
 | `ping` / `probe` | `prepareProbe`; smallest supported non-changing presence query, with explicit identity confidence | Minimal query |
-| `read identity` | `prepareReadIdentity`; supported raw identity fields and compatibility evidence | Reads |
+| `read identity` | Implemented `ESS_RS::prepareIdentity`/`getIdentity`; raw identity with unresolved model/firmware mapping | Reads |
 | `discover [manufacturer <id> \| profile <id>] [bounds...]` | Application-owned bounded scan through reviewed probe/identity operations | Non-changing queries |
 | `read state` / `read status` | `prepareReadState`; explicitly requested supported, non-consuming state fields | Reads |
-| `read config` | `prepareReadConfiguration`; supported device configuration | Reads |
+| `read config` | Implemented `ESS_RS::prepareConfig`/`getConfig`; bounded read-only motion-prerequisite subset | Reads |
 | `status` | Cached host, transport, motor and operation state with ages | None |
 | `health` | Cached presence/freshness and motor-readiness assessment | None |
 | `health check` | Bounded identity/state refresh, then assessment | Reads |

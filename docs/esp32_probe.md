@@ -1,8 +1,9 @@
 # ESP32-S3 read-only probe bench
 
+Prompt 05 implements the bounded [typed identity/configuration read API](ess_reads.md), common/profile read routes and minimal read capabilities. The [linked inventory](reference/ess_rs_operations.json) keeps read/write/action and native/hardware evidence separate. Model/firmware compatibility, state and motion remain unqualified; these reads perform no writes.
+
 This example connects the ESS codecs, application BusOwner, standalone runner and a dedicated
-ESP32-S3 UART adapter. Its motor commands are the documented non-changing
-model-register read and a fixed sixteen-word capture qualification read. It provides a small console and finite Python campaigns
+ESP32-S3 UART adapter. Its motor commands are documented non-changing model/identity/configuration reads and a fixed sixteen-word capture qualification read. It provides a small console and finite Python campaigns
 for developing and checking that path before adding motion.
 
 The adapter records bounded timing observations. It does not claim exact UART
@@ -411,3 +412,15 @@ The [2026-10-03 bench report](reports/2026-10-03_e2_probe.md) records actual
 probes, raw model, timing exception, fault checks, memory and firmware backup.
 DE assertion also applies a bounded 20 us adapter guard from the actual GPIO
 write before returning; the runner's separate setup wait cannot shorten it.
+
+## Typed identity/configuration subset
+
+Use `read identity [address]`, `read config [address]`, `profile ess_rs identity [address]`, `profile ess_rs config [address]`, `caps` or `profile ess_rs caps`. The [public read API](ess_reads.md) supplies every preparation/event/decoder; the CLI has no private raw-register sequence. Each admitted frontend read retains one terminal `type:read` record, with original command correlation, a separate operation ID, raw decoded codes and copied per-window TX/RX/closure evidence. `result` is non-consuming and `release` explicit. Eight retained/admitted read/probe operations share the existing frontend quota; a separate recovery record remains available. One 500-ms absolute deadline covers all five configuration windows.
+
+The JSON output capacity is 4096 bytes. The tested full-width configuration record is3382 bytes; input remains96 bytes/six tokens,32 input characters and64 output bytes per loop. Larger operation/cached/console buffers belong to the PSRAM App; the UART capture and worker stack remain internal. `config` shows cached observation IDs, targets and binding generations separately from the active host tuple. Cached identity/configuration evidence survives failed reads and explicit result release; cached probe health remains a separately labelled observation.
+
+```powershell
+python scripts/bench_probe.py --port COM13 --log build/bench/my_typed_reads.jsonl typed-read --kind both
+```
+
+This finite scenario checks capabilities, each read once, immutable result inspection, release and local diagnostics. It never retries or recovers automatically. Actual raw configuration, current image and resource/latency measurements are in [prompt05](reports/ess_release_05_2026-10-04.md); configured encoder4000 and unknown algorithm3 do not establish motion readiness.

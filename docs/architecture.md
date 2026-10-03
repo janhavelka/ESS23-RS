@@ -1,5 +1,7 @@
 # MotorControl-RS architecture
 
+Prompt 05 implements the bounded [typed identity/configuration read API](ess_reads.md), common/profile read routes and minimal read capabilities. The [linked inventory](reference/ess_rs_operations.json) keeps read/write/action and native/hardware evidence separate. Model/firmware compatibility, state and motion remain unqualified; these reads perform no writes.
+
 This is the accepted design baseline for a general, framework-independent
 serial motion library. ESS23-RS is its first implementation target. A common
 axis interface provides the same motion vocabulary across selected drive
@@ -26,8 +28,7 @@ The [ESP32-S3 polling adapter and probe CLI](esp32_probe.md) now have native and
 evidence, with external timing qualification still open. Motion preparation,
 discovery orchestration, the full CLI and FieldCore adapters remain contracts
 for later blocks. See the root
-README for current callable APIs and build commands. No motor behavior has
-been qualified beyond the recorded model-register probes.
+README for current callable APIs and build commands. Recorded probes and typed identity/configuration reads have response evidence; no motion or electrical qualification is implied.
 The [application bus reference](bus_owner.md) adds copied admission, per-producer
 FIFO/cyclic fairness, immutable deadlines, reserved urgent/results storage,
 cancellation and explicit recovery. Release prompt 03 connects the responsive

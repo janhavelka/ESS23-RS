@@ -1,0 +1,592 @@
+{
+  "date": "2026-10-04",
+  "timezone": "Europe/Prague",
+  "baseline": "87e28f7",
+  "prerequisite_commits": [
+    "16b3481",
+    "87e28f7"
+  ],
+  "final_commit": "commit introducing this report",
+  "fieldcore_read_only_head": "6730003f001b0c5f953ea73b5d430d7e971307df",
+  "firmware": {
+    "environment": "bench_s3_load_timer",
+    "sha256": "33d46cb038f13162ca458532af38fa3cf49ba856aae17107197cd4c8af4d5b2a",
+    "bytes": 360816,
+    "archive_path": "firmware/firmware.bin"
+  },
+  "bench": {
+    "port": "COM13",
+    "usb": "303A:1001",
+    "serial": "3C:0F:02:CD:6B:98",
+    "tx": 47,
+    "rx": 48,
+    "de": 21,
+    "active_high": true,
+    "node": 1,
+    "baud": 115200,
+    "format": "8N1",
+    "timer_us": 20,
+    "reply_gap_us": 304,
+    "final_gap_us": 1750,
+    "request_deadline_us": 500000,
+    "response_timeout_us": 200000,
+    "timing_qualified": false,
+    "cache_off_supported": false
+  },
+  "verification": {
+    "ctest_suites": 19,
+    "python_tests": 91,
+    "generator_tests": 8,
+    "inventory_tests": 11,
+    "reads_groups": 11,
+    "application_groups": 30,
+    "application_load_groups": 32,
+    "console_groups": 18,
+    "installed_consumer": "PASS C++11 -Werror exported includes only",
+    "pio": [
+      "bench_s3_units",
+      "bench_s3_probe",
+      "bench_s3_load_poll",
+      "bench_s3_load_timer"
+    ],
+    "typed_identity_operations": 5,
+    "typed_config_operations": 5,
+    "probe_reads": 13,
+    "capture_reads": 1,
+    "transactions": 44,
+    "rx_bytes": 468,
+    "failures": 0
+  },
+  "storage_bytes": {
+    "native": {
+      "App": 62304,
+      "Record": 872,
+      "Console": 9672,
+      "ReadContext": 808,
+      "PreparedRead": 48,
+      "IdentityObservation": 192,
+      "ConfigObservation": 952
+    },
+    "xtensa": {
+      "App": 59768,
+      "Record": 696,
+      "Console": 9424,
+      "ReadContext": 640,
+      "PreparedRead": 48,
+      "IdentityObservation": 160,
+      "ConfigObservation": 792
+    }
+  },
+  "identity": {
+    "raw_model": 20202,
+    "raw_version": 41,
+    "raw_active_node": 1,
+    "raw_dip": 0,
+    "active_node_known": true,
+    "active_node": 1,
+    "model_resolution": 2,
+    "version_resolution": 3,
+    "dip_resolution": 4,
+    "dip_issues": 320,
+    "model": "mapping_unresolved",
+    "firmware": "mapping_unresolved",
+    "dip": "mapping_conflict_unresolved"
+  },
+  "configuration": {
+    "raw": {
+      "direction": 0,
+      "subdivision": 1000,
+      "custom_node": 0,
+      "baud": 0,
+      "format": 0,
+      "over_limit_stop": 0,
+      "soft_limit_enable": 0,
+      "word_order": 0,
+      "input_polarity": 0,
+      "algorithm": 3,
+      "encoder_resolution": 4000
+    },
+    "known": {
+      "direction": true,
+      "baud": true,
+      "format": true,
+      "over_limit_stop": true,
+      "soft_limit_enable": true,
+      "word_order": true,
+      "algorithm": false
+    },
+    "unknown_polarity_bits": 0,
+    "subdivision_resolution": 5,
+    "encoder_resolution": 0,
+    "subdivision_issues": 4,
+    "custom_node_issues": 64,
+    "over_limit_stop_issues": 1024,
+    "soft_limit_issues": 256,
+    "encoder_scale_source": 3,
+    "inputs": [
+      {
+        "function": 1,
+        "known": true,
+        "inverted": false,
+        "wiring": 0,
+        "level_known": false,
+        "level": null
+      },
+      {
+        "function": 2,
+        "known": true,
+        "inverted": false,
+        "wiring": 0,
+        "level_known": false,
+        "level": null
+      },
+      {
+        "function": 3,
+        "known": true,
+        "inverted": false,
+        "wiring": 0,
+        "level_known": false,
+        "level": null
+      },
+      {
+        "function": 0,
+        "known": true,
+        "inverted": false,
+        "wiring": 0,
+        "level_known": false,
+        "level": null
+      }
+    ],
+    "stored_serial": {
+      "baud_code": 0,
+      "format_code": 0,
+      "activation": "power_cycle_required"
+    },
+    "units": "command_scale_unresolved_encoder_readback_only"
+  },
+  "latency": {
+    "identity": {
+      "application_us_min": 7378,
+      "application_us_max": 22702,
+      "host_ms_min": 16,
+      "host_ms_max": 47
+    },
+    "config": {
+      "application_us_min": 34875,
+      "application_us_max": 104457,
+      "host_ms_min": 94,
+      "host_ms_max": 188
+    }
+  },
+  "loaded": {
+    "type": "reply",
+    "profile": "ess_rs",
+    "id": 42,
+    "command": "load",
+    "ok": true,
+    "result": "done",
+    "ready": true,
+    "capture_mode": "timer",
+    "workload_us": 2000,
+    "owner_delay_us": 5000,
+    "console_bytes": 128,
+    "elapsed_us": 1554980,
+    "work_us": 312354,
+    "work_iterations": 156,
+    "console_lines": 150,
+    "console_dropped": 5,
+    "capture_us": 313551,
+    "capture_samples": 78727,
+    "timer_callbacks": 77741,
+    "sample_gap_limit_us": 85,
+    "sample_gap_exceeded": false,
+    "capture_high_water": 15,
+    "owner_gap_max_us": 8023,
+    "capture_gap_max_us": 49,
+    "work_stack_free_bytes": 3268,
+    "cpu_valid": true,
+    "cpu0_busy_pct": 0,
+    "cpu1_busy_pct": 31
+  },
+  "ending": {
+    "config": {
+      "type": "reply",
+      "profile": "ess_rs",
+      "id": 2,
+      "command": "config",
+      "ok": true,
+      "address": 1,
+      "baud": 115200,
+      "format": "8N1",
+      "response_timeout_us": 200000,
+      "reply_gap_us": 304,
+      "gap15_us": 750,
+      "gap35_us": 1750,
+      "stale_after_ms": 5000,
+      "ready": true,
+      "timing_qualified": false,
+      "device_settings": "cached",
+      "cache_off_supported": false,
+      "sample_gap_limit_us": 85,
+      "cached_identity_id": 19,
+      "cached_identity_address": 1,
+      "cached_identity_generation": 1,
+      "cached_config_id": 20,
+      "cached_config_address": 1,
+      "cached_config_generation": 1,
+      "binding_generation": 1
+    },
+    "load": {
+      "type": "reply",
+      "profile": "ess_rs",
+      "id": 3,
+      "command": "load",
+      "ok": true,
+      "result": "done",
+      "ready": true,
+      "capture_mode": "timer",
+      "workload_us": 0,
+      "owner_delay_us": 0,
+      "console_bytes": 0,
+      "elapsed_us": 382670954,
+      "work_us": 291892,
+      "work_iterations": 38267,
+      "console_lines": 0,
+      "console_dropped": 0,
+      "capture_us": 77739147,
+      "capture_samples": 19517589,
+      "timer_callbacks": 19133542,
+      "sample_gap_limit_us": 85,
+      "sample_gap_exceeded": false,
+      "capture_high_water": 1,
+      "owner_gap_max_us": 142,
+      "capture_gap_max_us": 53,
+      "work_stack_free_bytes": 3268,
+      "cpu_valid": true,
+      "cpu0_busy_pct": 0,
+      "cpu1_busy_pct": 5
+    },
+    "drv": {
+      "type": "reply",
+      "profile": "ess_rs",
+      "id": 4,
+      "command": "drv",
+      "ok": true,
+      "phase": "DONE",
+      "busy": false,
+      "transmit_enabled": false,
+      "recovery_required": false,
+      "pending": 0,
+      "retained": 0,
+      "reserved": 0,
+      "pending_capacity": 4,
+      "result_capacity": 8,
+      "outstanding_capacity": 9,
+      "operation_id": 24,
+      "output_queued": 0,
+      "output_blocked": 0,
+      "output_short_writes": 0,
+      "input_bytes": 1929,
+      "input_lines": 159,
+      "input_dropped": 0,
+      "recovery_guard_until_us": 519032864,
+      "request_deadline_us": 0,
+      "capture_mode": "timer",
+      "read_budget": 64,
+      "model_address": 1,
+      "model_operation_id": 24,
+      "observed_earliest_us": 518535517,
+      "observed_latest_us": 518535546,
+      "delivered_us": 518535783
+    },
+    "memory": {
+      "type": "reply",
+      "profile": "ess_rs",
+      "id": 5,
+      "command": "memory",
+      "ok": true,
+      "valid": true,
+      "internal_free": 336656,
+      "internal_min": 331496,
+      "internal_largest": 278516,
+      "psram_free": 8325676,
+      "psram_min": 8325676,
+      "psram_largest": 8257524,
+      "stack_free_bytes": 4340
+    },
+    "stats": {
+      "type": "reply",
+      "profile": "ess_rs",
+      "id": 6,
+      "command": "stats",
+      "ok": true,
+      "started": 44,
+      "frames": 44,
+      "failed": 0,
+      "timeouts": 0,
+      "cancelled": 0,
+      "rx_bytes": 468,
+      "discarded": 0,
+      "echo_bytes": 0,
+      "trace_overwritten": 780,
+      "max_poll_gap_us": 53,
+      "capture_faults": 0,
+      "rx_errors": 0,
+      "sample_gap_exceeded": false
+    },
+    "health": {
+      "type": "reply",
+      "profile": "ess_rs",
+      "id": 7,
+      "command": "health",
+      "ok": true,
+      "communication": "stale",
+      "probe_address": 1,
+      "model_address": 1,
+      "age_ms": 16943,
+      "stale_after_ms": 5000,
+      "readiness": "unknown",
+      "alarms": "unknown",
+      "state": "unknown",
+      "identity": "responder_only"
+    }
+  },
+  "remaining": [
+    "Model4EEA/version0029/DIP mapping unqualified; physical label/firmware identification missing",
+    "Algorithm3 outside documented1/2 enum; no guessed interpretation",
+    "Subdivision physical command scale unresolved",
+    "Configured encoder4000 does not identify IC or prove physical resolution",
+    "Input wiring and observed levels unknown; state reads belong to06; typed I/O changes15",
+    "External TX/RX/DE electrical timing and cache-off qualification NOT_RUN/unsupported",
+    "No writes, actions, motion or persistence qualification performed"
+  ],
+  "artifacts": [
+    {
+      "path": "build/bench/ess05_capture_regression_20261004.jsonl",
+      "bytes": 11174,
+      "sha256": "5e525f08caac43a45777b294b325658161e03a2bd8f90856cea82d259a67258d"
+    },
+    {
+      "path": "build/bench/ess05_cleanup_20261004.jsonl",
+      "bytes": 9444,
+      "sha256": "bdca7c1d3726a03e71378ec575847031f81d3ba62a0360730344bcc5ceb59e67"
+    },
+    {
+      "path": "build/bench/ess05_final_regression_20261004.jsonl",
+      "bytes": 24875,
+      "sha256": "60d5d0edb1341e2d653fb4c3d2bb5f144c2769424508f524c9219c500cbb517a"
+    },
+    {
+      "path": "build/bench/ess05_preflight_20261004.jsonl",
+      "bytes": 9086,
+      "sha256": "08fe5f7ae1cf8eb5f828a4ac0369d0a0c1369c93d4611848f9da6894a4498bd5"
+    },
+    {
+      "path": "build/bench/ess05_profile_routes_20261004.jsonl",
+      "bytes": 1793,
+      "sha256": "4a142df16bcbff07d971afb53866afd27a3c46b124971835b62f3ad80e2715c4"
+    },
+    {
+      "path": "build/bench/ess05_profile_routes_fixed_20261004.jsonl",
+      "bytes": 35897,
+      "sha256": "8502dff6629d1828693948980017e72890b03110cd5e72791651377b8ed99d25"
+    },
+    {
+      "path": "build/bench/ess05_regression_20261004.jsonl",
+      "bytes": 73336,
+      "sha256": "0a7d369aed8f4573935115798da13f6394ba2dd3d68c185fbfdaf45276405fca"
+    },
+    {
+      "path": "build/bench/ess05_typed_initial_20261004.jsonl",
+      "bytes": 32598,
+      "sha256": "0758b8585d96495e9d40cd05b572db154eb2996b65d2e72d182b4b75d6123a12"
+    },
+    {
+      "path": "build/bench/ess05_typed_loaded_20261004.jsonl",
+      "bytes": 138675,
+      "sha256": "82ec751420777f9480f3fc63083f44a5d5a7895cbc98d2a4a22c33ff3f495af9"
+    }
+  ],
+  "archive_manifest": [
+    {
+      "path": "build/bench/ess05_capture_regression_20261004.jsonl",
+      "bytes": 11174,
+      "sha256": "5e525f08caac43a45777b294b325658161e03a2bd8f90856cea82d259a67258d"
+    },
+    {
+      "path": "build/bench/ess05_cleanup_20261004.jsonl",
+      "bytes": 9444,
+      "sha256": "bdca7c1d3726a03e71378ec575847031f81d3ba62a0360730344bcc5ceb59e67"
+    },
+    {
+      "path": "build/bench/ess05_final_regression_20261004.jsonl",
+      "bytes": 24875,
+      "sha256": "60d5d0edb1341e2d653fb4c3d2bb5f144c2769424508f524c9219c500cbb517a"
+    },
+    {
+      "path": "build/bench/ess05_preflight_20261004.jsonl",
+      "bytes": 9086,
+      "sha256": "08fe5f7ae1cf8eb5f828a4ac0369d0a0c1369c93d4611848f9da6894a4498bd5"
+    },
+    {
+      "path": "build/bench/ess05_profile_routes_20261004.jsonl",
+      "bytes": 1793,
+      "sha256": "4a142df16bcbff07d971afb53866afd27a3c46b124971835b62f3ad80e2715c4"
+    },
+    {
+      "path": "build/bench/ess05_profile_routes_fixed_20261004.jsonl",
+      "bytes": 35897,
+      "sha256": "8502dff6629d1828693948980017e72890b03110cd5e72791651377b8ed99d25"
+    },
+    {
+      "path": "build/bench/ess05_regression_20261004.jsonl",
+      "bytes": 73336,
+      "sha256": "0a7d369aed8f4573935115798da13f6394ba2dd3d68c185fbfdaf45276405fca"
+    },
+    {
+      "path": "build/bench/ess05_typed_initial_20261004.jsonl",
+      "bytes": 32598,
+      "sha256": "0758b8585d96495e9d40cd05b572db154eb2996b65d2e72d182b4b75d6123a12"
+    },
+    {
+      "path": "build/bench/ess05_typed_loaded_20261004.jsonl",
+      "bytes": 138675,
+      "sha256": "82ec751420777f9480f3fc63083f44a5d5a7895cbc98d2a4a22c33ff3f495af9"
+    },
+    {
+      "path": "firmware/bootloader.bin",
+      "bytes": 19968,
+      "sha256": "31b3c1be45dc5a76aa85c82540d6787b675e711eaf11021a5eea7e36f469c6de"
+    },
+    {
+      "path": "firmware/firmware.bin",
+      "bytes": 360816,
+      "sha256": "33d46cb038f13162ca458532af38fa3cf49ba856aae17107197cd4c8af4d5b2a"
+    },
+    {
+      "path": "firmware/firmware.elf",
+      "bytes": 7463848,
+      "sha256": "0554b7586d7e9c1d001ad5fe533f3be6e86ea7c097705092fcd46ebcc1b0fe95"
+    },
+    {
+      "path": "firmware/partitions.bin",
+      "bytes": 3072,
+      "sha256": "189e7a65e0af3f23b5b79808a37184a4cdcab247e9cea49c8169b435b72f703a"
+    },
+    {
+      "path": "source/examples/probe_cli/ProbeConsole.cpp",
+      "bytes": 46943,
+      "sha256": "bad1b48dd4acb3343d5ddd40c2f818cb171a3477d9fecee4c6051dcba215e817"
+    },
+    {
+      "path": "source/examples/probe_cli/ProbeConsole.h",
+      "bytes": 12169,
+      "sha256": "fd484a517741584eb4cfbee079c5183e0b5213a13fa761878fed7aa451d91e9d"
+    },
+    {
+      "path": "source/examples/probe_cli/main.cpp",
+      "bytes": 29996,
+      "sha256": "9bc35b3fd75d756a2cd753996681c3580722079b257cb9f56635db355cdee1c1"
+    },
+    {
+      "path": "source/include/MotorControlRS/ReadOperation.h",
+      "bytes": 3097,
+      "sha256": "78765bc3634e55b59df0b2785a240a2d6b9fccb82f044cb2fbe7b384b5287ae0"
+    },
+    {
+      "path": "source/include/MotorControlRS/profiles/ess_rs/Reads.h",
+      "bytes": 7440,
+      "sha256": "8a18573867000cc362aa3fb299c5bcdd5a1d842ba8b58adbeadedb2574965bf6"
+    },
+    {
+      "path": "source/platformio.ini",
+      "bytes": 1660,
+      "sha256": "8e01f16458783b764f78850efa052b51623bd68b3da75817d24db689fafffbae"
+    },
+    {
+      "path": "source/scripts/bench_probe.py",
+      "bytes": 59257,
+      "sha256": "297ad6b3b5050b6da43524fc21bc8ea68fd0edaa303e606d6958c616988d7300"
+    },
+    {
+      "path": "source/src/profiles/ess_rs/Reads.cpp",
+      "bytes": 14051,
+      "sha256": "60f940435ff37ed61adf0bd019408242e1fb31bffb1494d35cc156f6d401e059"
+    },
+    {
+      "path": "verification/ctest_final.txt",
+      "bytes": 2121,
+      "sha256": "0da5df24735a5b3f8d99a00e92b9df60cf65cffd081ea26a2bc4d38372510bcb"
+    },
+    {
+      "path": "verification/installed/consumer_build.txt",
+      "bytes": 580,
+      "sha256": "0b19969720894203f710f2014fd10323d5f1bd14b8784e606c69ccbc1bcaebdf"
+    },
+    {
+      "path": "verification/installed/consumer_commands.txt",
+      "bytes": 2150,
+      "sha256": "01c5d35ec5b353f248fecbb83cd75a0242893fe89e18dae26423fd938c639d51"
+    },
+    {
+      "path": "verification/installed/consumer_configure.txt",
+      "bytes": 1130,
+      "sha256": "c69069f1d71f657a2e619fcc76fcd935cea50f8d555cb27d6d9771faf9eb7b83"
+    },
+    {
+      "path": "verification/installed/consumer_test.txt",
+      "bytes": 566,
+      "sha256": "4e2fa90f3f6c93ac0aa5f28aeb6c6f4133c4d6e03c4d9fc9ccc91e1765fc5efd"
+    },
+    {
+      "path": "verification/installed/core_build.txt",
+      "bytes": 48,
+      "sha256": "e58361b03434fbb24ffb52f6a2c137f2ec07e3f1902f74561b67983c92ecacdb"
+    },
+    {
+      "path": "verification/installed/core_commands.txt",
+      "bytes": 5852,
+      "sha256": "d8e7f8c4c556344e84e79c06e989d64b8939cabe9dd38c6bc963634b51f3675d"
+    },
+    {
+      "path": "verification/installed/core_configure.txt",
+      "bytes": 1122,
+      "sha256": "ee060fb437f01406be0ef4b45e0fa014144ff572d9b7ed2c13d3e686a4e50b61"
+    },
+    {
+      "path": "verification/installed/core_install.txt",
+      "bytes": 4218,
+      "sha256": "2e895da40321871090f1c45383b6c350a5a81f4dc704930c1179d15843103a4a"
+    },
+    {
+      "path": "verification/pio_final_build.txt",
+      "bytes": 33438,
+      "sha256": "36912bb26d68eab84b4429538da9a56402f3f36d3a03da84c29de33feb8aa95e"
+    },
+    {
+      "path": "verification/pio_upload.txt",
+      "bytes": 12814,
+      "sha256": "c78102c07af0b028f610008a7f825bed020f7c0cfb8a51b6844b1cdc66c2ee72"
+    },
+    {
+      "path": "verification/pio_verified_build.txt",
+      "bytes": 9166,
+      "sha256": "f581e9868b04630ddd486ebe9782f408fbf71b8ef2c1907a099c4a565b1d5e1b"
+    },
+    {
+      "path": "verification/sizes.cpp",
+      "bytes": 486,
+      "sha256": "8c0bebcef7664cc2aca9c19af4c5a8e9c591e27fd56d632e73ee882559de1f10"
+    },
+    {
+      "path": "verification/target_sizes.txt",
+      "bytes": 338,
+      "sha256": "d35bfeefd514d98bbd1b7c2bf4c7f25489ddacf57bd2e3c5cacc01e2bf8f815d"
+    }
+  ],
+  "evidence_archive": {
+    "path": "docs/reports/ess_release_05_2026-10-04_evidence.zip",
+    "bytes": 2946008,
+    "sha256": "828d39f18c6d8f95c36a5b3aeb2aa438bde80c4a0681c6ce12107a2ecca00faa"
+  }
+}

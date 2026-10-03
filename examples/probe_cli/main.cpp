@@ -14,6 +14,9 @@
 #include "Esp32Load.h"
 #endif
 using namespace MotorControlRSExample;
+namespace ESS = MotorControlRS::ESS_RS;
+using MotorControlRS::ReadState;
+using MotorControlRS::ReadEventKind;
 namespace {
 constexpr uint32_t BAUD = 115200, REPLY_GAP_US = 304;
 constexpr uint32_t RESPONSE_US = 200000, REQUEST_US = 500000, RECOVER_US = 500000;
@@ -59,6 +62,9 @@ struct App {
         uint64_t deliveredUs = 0;
         uint64_t deadlineUs = 0;
         bool observed = false, delivered = false, captureRead = false;
+        bool typedRead = false;
+        bool cancelContinuation = false; ///< Cancel the operation after its current frame settles.
+        ESS::ReadContext read;
     } records[REQUEST_CAPACITY];
     struct Recovery {
         uint32_t operationId = 0, commandId = 0;
@@ -74,6 +80,9 @@ struct App {
     uint16_t model = 0;
     bool known = false, ok = false, modelKnown = false, codecChecked = false;
     MotorControlRS::Status codec;
+    ESS::IdentityObservation identity;
+    ESS::ConfigObservation configuration;
+    uint32_t bindingGeneration = 1;
     MotorControlRS::ESS_RS::FrameError frameError = MotorControlRS::ESS_RS::FrameError::NONE;
     App() : runner(uart.port(), storage(tx, rx, trace), timing()),
         owner(runner, busStorage(pending, results, producers)), console(host(this)) {}
@@ -101,13 +110,26 @@ App::Record* findRecord(App& a, uint32_t operation) {
     for (auto& record : a.records) if (record.operationId && record.operationId == operation) return &record;
     return nullptr;
 }
+bool terminal(const App& a, const App::Record& record) {
+    return record.typedRead ? record.read.state != ReadState::ACTIVE : a.owner.result(record.requestId) != nullptr;
+}
+bool reading(const App& a) {
+    for (const auto& record : a.records)
+        if (record.operationId && record.typedRead && record.read.state == ReadState::ACTIVE) return true;
+    return false;
+}
 void snapshot(void* context, Probe::Snapshot& s) {
     App& a = *static_cast<App*>(context);
     s = Probe::Snapshot();
+    s.bindingGeneration = a.bindingGeneration;
+    s.cachedIdentityId = a.identity.operationId; s.cachedIdentityAddress = a.identity.target.address;
+    s.cachedIdentityGeneration = a.identity.target.generation;
+    s.cachedConfigId = a.configuration.operationId; s.cachedConfigAddress = a.configuration.target.address;
+    s.cachedConfigGeneration = a.configuration.target.generation;
     s.address = 1; s.probeAddress = a.address; s.baud = BAUD; s.responseTimeoutUs = RESPONSE_US;
     s.replyGapUs = REPLY_GAP_US; s.gap15Us = timing().gap15Us; s.gap35Us = timing().gap35Us;
     s.uptimeMs = nowUs() / 1000; s.ready = platformReady; s.timingQualified = false;
-    s.busy = a.owner.active() || a.owner.pending() || a.owner.recovering();
+    s.busy = a.owner.active() || a.owner.pending() || a.owner.recovering() || reading(a);
     s.recoveryRequired = a.owner.needsRecovery() || uart.needsRecovery();
     s.phase = a.runner.phase(); s.transport = a.runner.result().reason; s.transmitEnabled = a.runner.transmitEnabled();
     s.codecChecked = a.codecChecked; s.codec = a.codec; s.frameError = a.frameError;
@@ -119,13 +141,13 @@ void snapshot(void* context, Probe::Snapshot& s) {
     s.deliveredUs = a.deliveredUs; s.recoveryGuardUntilUs = a.recoveryGuardUntilUs;
     s.operationId = a.latestOperationId; s.pending = a.owner.pending(); s.pendingCapacity = 4; s.resultCapacity = REQUEST_CAPACITY;
     for (const auto& record : a.records) if (record.operationId) {
-        if (a.owner.result(record.requestId)) ++s.retained; else ++s.reserved;
+        if (terminal(a, record)) ++s.retained; else ++s.reserved;
     }
     s.outputQueued = a.outputCount; s.outputBlocked = a.outputBlocked; s.outputShortWrites = a.outputShortWrites;
     s.inputBytes = a.inputBytes; s.inputLines = a.inputLines; s.stats = a.runner.stats();
     s.inputDropped = a.console.inputDropped();
     s.timerCapture = uart.stats().timer;
-    for (const auto& record : a.records) if (record.operationId && !a.owner.result(record.requestId)) {
+    for (const auto& record : a.records) if (record.operationId && !terminal(a, record)) {
         if (!s.deadlineUs || record.deadlineUs < s.deadlineUs) s.deadlineUs = record.deadlineUs;
     }
     if (a.owner.recovering() && (!s.deadlineUs || a.recovery.deadlineUs < s.deadlineUs))
@@ -166,7 +188,7 @@ Probe::Action startRead(void* context, uint32_t commandId, uint8_t address, uint
     request.wire.replyGapUs = REPLY_GAP_US; // Bench turnaround exception; final t3.5 is still 1750 us.
     request.wire.deadlineUs = sampled + REQUEST_US;
     request.expected.address = address; request.expected.function = 3; request.expected.first = first; request.expected.count = count;
-    request.expected.target = address; request.expected.targetGeneration = 1;
+    request.expected.target = address; request.expected.targetGeneration = a.bindingGeneration;
     request.validator = Rtu::essValidator();
     if (!captureRead) request.validator.checkReply = checkProbe;
     Rtu::RequestId id;
@@ -189,13 +211,113 @@ Probe::Action probe(void* context, uint32_t commandId, uint8_t address, uint32_t
 Probe::Action captureRead(void* context, uint32_t commandId, uint8_t address, uint32_t& operationId) {
     return startRead(context, commandId, address, operationId, true);
 }
+Rtu::BusAdmission admitStep(App& a, App::Record& record, uint64_t sampled) {
+    ESS::PreparedRead prepared;
+    if (!ESS::nextRead(record.read, sampled, prepared)) return Rtu::BusAdmission::EXPIRED;
+    Rtu::BusRequest request;
+    request.wire.bytes = prepared.bytes; request.wire.length = prepared.length;
+    request.wire.replyLength = ESS::expectedReadRegistersLen(prepared.count);
+    request.wire.responseTimeoutUs = RESPONSE_US; request.wire.replyGapUs = REPLY_GAP_US;
+    request.wire.deadlineUs = prepared.deadlineUs;
+    request.expected.address = prepared.target.address; request.expected.function = 3;
+    request.expected.target = prepared.target.id; request.expected.targetGeneration = prepared.target.generation;
+    request.expected.first = prepared.first; request.expected.count = prepared.count;
+    request.validator = Rtu::essValidator();
+    return a.owner.admit(request, sampled, record.requestId);
+}
+Probe::Action typedRead(void* context, uint32_t commandId, uint8_t address, ESS::ReadKind kind, uint32_t& operationId) {
+    App& a = *static_cast<App*>(context);
+    if (!platformReady) return Probe::Action::UNAVAILABLE;
+    const uint64_t sampled = uart.sample();
+    if (a.owner.needsRecovery() || uart.needsRecovery()) return Probe::Action::RECOVERY_REQUIRED;
+    if (!a.nextOperationId) return Probe::Action::IDS_EXHAUSTED;
+    App::Record* record = nullptr;
+    for (auto& slot : a.records) if (!slot.operationId) { record = &slot; break; }
+    if (!record) return Probe::Action::RESULTS_FULL;
+    MotorControlRS::ReadTarget target; target.id = address; target.address = address; target.generation = a.bindingGeneration;
+    MotorControlRS::ActiveSerialTuple serial; serial.known = true; serial.baud = BAUD;
+    serial.dataBits = 8; serial.parity = MotorControlRS::SerialParity::NONE; serial.stopBits = 1;
+    const auto prepared = kind == ESS::ReadKind::IDENTITY ?
+        ESS::prepareIdentity(record->read, target, a.nextOperationId, sampled, sampled + REQUEST_US, serial) :
+        ESS::prepareConfig(record->read, target, a.nextOperationId, sampled, sampled + REQUEST_US, serial);
+    if (!prepared || (kind != ESS::ReadKind::IDENTITY && kind != ESS::ReadKind::CONFIG)) {
+        *record = App::Record(); return Probe::Action::INVALID;
+    }
+    const auto admitted = admitStep(a, *record, sampled);
+    if (admitted != Rtu::BusAdmission::ACCEPTED) {
+        *record = App::Record();
+        return admitted == Rtu::BusAdmission::QUEUE_FULL ? Probe::Action::QUEUE_FULL :
+            admitted == Rtu::BusAdmission::RESULTS_FULL ? Probe::Action::RESULTS_FULL : Probe::Action::FAILED;
+    }
+    record->operationId = a.nextOperationId++; record->commandId = commandId; record->address = address;
+    record->deadlineUs = record->read.deadlineUs; record->typedRead = true;
+    operationId = a.latestOperationId = record->operationId;
+    return Probe::Action::OK;
+}
+MotorControlRS::ReadEvent readEvent(const App::Record& record, ReadEventKind kind) {
+    MotorControlRS::ReadEvent event; event.target = record.read.target;
+    event.operationId = record.operationId; event.step = record.read.step; event.kind = kind;
+    return event;
+}
+// Consume one retained transaction per operation per loop. Intermediate evidence
+// is copied into the public context before its owner slot is explicitly released.
+// The frontend record reserves terminal storage across the gaps between steps.
+void advanceReads(App& a, uint64_t sampled) {
+    for (auto& record : a.records) {
+        if (!record.operationId || !record.typedRead || record.read.state != ReadState::ACTIVE) continue;
+        if (record.requestId.owner) {
+            const auto* result = a.owner.result(record.requestId); if (!result) continue;
+            const auto kind = result->transport.reason == Rtu::Reason::FRAME ? ReadEventKind::FRAME :
+                result->transport.reason == Rtu::Reason::REQUEST_DEADLINE ||
+                result->outcome == Rtu::Outcome::QUEUE_EXPIRED || result->outcome == Rtu::Outcome::DISPATCH_EXPIRED ? ReadEventKind::DEADLINE :
+                result->outcome == Rtu::Outcome::CANCELLED ? ReadEventKind::CANCEL :
+                ReadEventKind::TRANSPORT_FAILURE;
+            auto event = readEvent(record, kind);
+            event.target.id = result->expected.target; event.target.address = result->expected.address;
+            event.target.generation = result->expected.targetGeneration;
+            event.txAccepted = result->transport.txAccepted; event.executionUnknown = result->executionUnknown;
+            event.transportDetail = static_cast<int32_t>(result->transport.reason);
+            event.length = result->transport.rxLength; event.frame = event.length ? result->raw : nullptr;
+            if (kind == ReadEventKind::FRAME) {
+                event.qualified = result->transport.closureQualified;
+                if (event.qualified) {
+                    event.earliestUs = result->transport.closureEarliestUs;
+                    event.latestUs = result->transport.closureLatestUs;
+                }
+            }
+            if (!ESS::advanceRead(record.read, event, sampled)) {
+                // An impossible owner/event envelope is an integration failure.
+                // Preserve the captured prefix and terminate; never re-admit it.
+                auto failed = readEvent(record, ReadEventKind::TRANSPORT_FAILURE);
+                failed.transportDetail = -1;
+                failed.txAccepted = event.txAccepted; failed.executionUnknown = true;
+                failed.frame = event.frame; failed.length = event.length;
+                if (!ESS::advanceRead(record.read, failed, sampled)) continue;
+            }
+            if (record.read.state != ReadState::ACTIVE) continue;
+            a.owner.release(record.requestId); record.requestId = Rtu::RequestId();
+        }
+        if (record.cancelContinuation || record.read.target.generation != a.bindingGeneration) {
+            ESS::advanceRead(record.read, readEvent(record, ReadEventKind::CANCEL), sampled);
+        } else if (sampled >= record.deadlineUs) {
+            ESS::advanceRead(record.read, readEvent(record, ReadEventKind::DEADLINE), sampled);
+        } else if (!a.owner.needsRecovery() && !uart.needsRecovery()) {
+            admitStep(a, record, sampled); // Queue pressure defers; no admitted frame is retried.
+        }
+    }
+}
 Probe::Action recover(void* context, uint32_t commandId, uint32_t& operationId) {
     App& a = *static_cast<App*>(context);
     if (!platformReady) return Probe::Action::UNAVAILABLE;
     if (a.recovery.operationId) return Probe::Action::RESULTS_FULL;
     if (!a.nextOperationId) return Probe::Action::IDS_EXHAUSTED;
+    if (a.bindingGeneration == UINT32_MAX) return Probe::Action::IDS_EXHAUSTED;
     const uint64_t now = uart.sample(); uint64_t id = 0;
     if (a.owner.recover(now, now + 2000000, id) != Rtu::RecoveryAdmission::ACCEPTED) return Probe::Action::FAILED;
+    ++a.bindingGeneration;
+    for (auto& record : a.records) if (record.operationId && record.typedRead &&
+        record.read.state == ReadState::ACTIVE && !record.requestId.owner)
+        ESS::advanceRead(record.read, readEvent(record, ReadEventKind::CANCEL), now);
     a.recovery.id = id; a.recovery.commandId = commandId; a.recovery.operationId = a.nextOperationId++;
     a.recovery.deadlineUs = now + 2000000;
     a.recoveryGuardUntilUs = std::max(a.recoveryGuardUntilUs, now + RECOVER_US);
@@ -213,6 +335,10 @@ bool lookup(void* context, uint32_t operationId, Probe::ResultView& out) {
     out = Probe::ResultView();
     out.commandId = record->commandId; out.operationId = operationId; out.address = record->address;
     out.captureRead = record->captureRead;
+    if (record->typedRead) {
+        out.typedRead = &record->read; out.pending = record->read.state == ReadState::ACTIVE;
+        return true;
+    }
     const auto* result = a.owner.result(record->requestId); out.pending = !result; if (!result) return true;
     Probe::ProbeResult& p = out.probe;
     p.captureRead = record->captureRead;
@@ -238,7 +364,16 @@ bool lookup(void* context, uint32_t operationId, Probe::ResultView& out) {
 Probe::Action cancel(void* context, uint32_t operationId) {
     App& a = *static_cast<App*>(context); if (!operationId) operationId = a.latestOperationId;
     auto* record = findRecord(a, operationId); if (!record) return Probe::Action::INVALID;
+    if (record->typedRead && record->read.state != ReadState::ACTIVE) return Probe::Action::ALREADY_TERMINAL;
+    if (record->typedRead && !record->requestId.owner) {
+        ESS::advanceRead(record->read, readEvent(*record, ReadEventKind::CANCEL), nowUs());
+        return Probe::Action::OK;
+    }
     const auto result = a.owner.cancel(record->requestId, uart.sample());
+    if (record->typedRead && result != Rtu::Cancel::INVALID) {
+        record->cancelContinuation = true;
+        return Probe::Action::OK;
+    }
     return result == Rtu::Cancel::CANCELLED ? Probe::Action::OK :
         result == Rtu::Cancel::ALREADY_TERMINAL ? Probe::Action::ALREADY_TERMINAL : Probe::Action::INVALID;
 }
@@ -249,7 +384,7 @@ Probe::Action release(void* context, uint32_t operationId) {
         a.recovery = App::Recovery(); return Probe::Action::OK;
     }
     auto* record = findRecord(a, operationId); if (!record) return Probe::Action::INVALID;
-    if (!record->delivered || !a.owner.release(record->requestId)) return Probe::Action::BUSY;
+    if (!record->delivered || (record->requestId.owner && !a.owner.release(record->requestId))) return Probe::Action::BUSY;
     *record = App::Record(); return Probe::Action::OK;
 }
 void reset(void* context) {
@@ -264,7 +399,7 @@ void reset(void* context) {
 Probe::Action load(void* context, const Probe::LoadSettings* requested, Probe::LoadSnapshot& out) {
     App& a = *static_cast<App*>(context);
     if (!fixtureReady) return Probe::Action::UNAVAILABLE;
-    if (requested && (a.owner.active() || a.owner.pending() || a.owner.recovering() || a.runner.transmitEnabled())) return Probe::Action::BUSY;
+    if (requested && (a.owner.active() || a.owner.pending() || a.owner.recovering() || reading(a) || a.runner.transmitEnabled())) return Probe::Action::BUSY;
     const auto result = loadFixture.configure(requested, out, uart); out.ready = platformReady;
     if (requested) nextServiceUs = 0;
     return result;
@@ -273,6 +408,7 @@ Probe::Action load(void* context, const Probe::LoadSettings* requested, Probe::L
 Probe::Host host(App* a) {
     Probe::Host h; h.context = a; h.emitLine = emit; h.snapshot = snapshot;
     h.startProbe = probe; h.startCaptureRead = captureRead; h.recover = recover; h.resetStats = reset;
+    h.startTypedRead = typedRead;
     h.result = lookup; h.cancel = cancel; h.release = release;
 #if MOTORCONTROLRS_LOAD_FIXTURE
     h.load = load;
@@ -283,6 +419,17 @@ void deliver(App& a) {
     for (auto& record : a.records) {
         if (!record.operationId || record.delivered) continue;
         Probe::ResultView view; if (!lookup(&a, record.operationId, view) || view.pending) continue;
+        if (record.typedRead) {
+            if (!record.observed) {
+                record.observed = true;
+                if (record.read.kind == ESS::ReadKind::IDENTITY && record.operationId > a.identity.operationId)
+                    ESS::getIdentity(record.read, a.identity);
+                if (record.read.kind == ESS::ReadKind::CONFIG && record.operationId > a.configuration.operationId)
+                    ESS::getConfig(record.read, a.configuration);
+            }
+            if (!a.console.reportRead(record.commandId, record.operationId, record.read)) continue;
+            record.delivered = true; record.deliveredUs = nowUs(); continue;
+        }
         if (!record.observed && !record.captureRead) {
             record.observed = true;
             if (view.probe.transport.txAccepted && record.operationId > a.cacheOperationId) {
@@ -356,6 +503,7 @@ void loop() {
         a.modelOperationId = a.recovery.operationId;
         a.observedEarliestUs = a.observedLatestUs = a.deliveredUs = 0;
     }
+    advanceReads(a, nowUs());
     a.console.serviceOutput(); deliver(a);
     for (unsigned i = 0; i < 32 && Serial.available(); ++i) {
         const char c = static_cast<char>(Serial.read()); ++a.inputBytes;

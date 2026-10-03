@@ -39,6 +39,76 @@ def load_reply(request_id, settings=(0, 0, 0), **fields):
                  work_stack_free_bytes=2500, **fields)
 
 
+def typed_terminal(request_id, kind):
+    """Literal independently reviewed windows/vectors, not firmware helpers."""
+    fixtures = (
+        ((0, 4), "0103000000044409", "0103084EEA12340001A58103E3"),
+    ) if kind == "identity" else (
+        ((0x10, 2), "010300100002C5CE", "01030400010640A9A3"),
+        ((0x13, 3), "010300130003F40E", "010306002A00020003D972"),
+        ((0x17, 3), "010300170003B5CF", "0103060001000100018CB5"),
+        ((0x40, 5), "010300400005841D", "01030AA5F50000000100020011557C"),
+        ((0x100, 2), "010301000002C5F7", "010304000210005633"),
+    )
+    steps = []
+    for index, ((first, count), tx, rx) in enumerate(fixtures):
+        steps.append(dict(step=index, first=first, count=count, event=0, status="OK", detail=0,
+                          frame_error=0, qualified=True, earliest_us=2000 + index * 1000,
+                          latest_us=2050 + index * 1000, delivered_us=2100 + index * 1000,
+                          tx=tx, rx=rx, received_length=len(rx) // 2, tx_accepted=8,
+                          execution_unknown=False, transport_detail=1))
+    result = reply(request_id, "read-" + kind, type="read", command_id=request_id,
+                   operation_id=request_id + 100, read_kind=kind, state="succeeded", outcome="success",
+                   status="OK", detail=0, target=1, address=1, generation=9, started_us=1000,
+                   deadline_us=20000, serviced_us=steps[-1]["delivered_us"], completed_steps=len(steps),
+                   active_serial=dict(known=True, baud=115200, data_bits=8, parity=1, stop_bits=1), steps=steps)
+    if kind == "identity":
+        result[kind] = dict(raw_model=0x4EEA, raw_version=0x1234, raw_active_node=1, raw_dip=0xA581,
+                            active_node_known=True, active_node=1, model_resolution=2, version_resolution=3,
+                            dip_resolution=4, dip_issues=320, model="mapping_unresolved", firmware="mapping_unresolved",
+                            dip="mapping_conflict_unresolved")
+    else:
+        result[kind] = dict(raw=dict(direction=1, subdivision=1600, custom_node=42, baud=2, format=3,
+                                    over_limit_stop=1, soft_limit_enable=1, word_order=1,
+                                    input_polarity=0xA5F5, algorithm=2, encoder_resolution=4096),
+                            known=dict(direction=True, baud=True, format=True, over_limit_stop=True,
+                                       soft_limit_enable=True, word_order=True, algorithm=True),
+                            unknown_polarity_bits=0xA5F0, subdivision_resolution=5, encoder_resolution=0,
+                            subdivision_issues=4, custom_node_issues=64, over_limit_stop_issues=1024,
+                            soft_limit_issues=256, encoder_scale_source=3,
+                            stored_serial=dict(baud_code=2, format_code=3, activation="power_cycle_required"),
+                            units="command_scale_unresolved_encoder_readback_only",
+                            inputs=[dict(function=value, known=True, inverted=bool(5 & (1 << index)),
+                                         wiring=0, level_known=False, level=None)
+                                    for index, value in enumerate((0, 1, 2, 17))])
+    return result
+
+
+class TypedSerial:
+    """Read operation storage survives inspections until explicit release."""
+    def __init__(self, mutate=None, admission_only=False):
+        self.retained = {}
+        self.mutate = mutate
+        self.admission_only = admission_only
+
+    def __call__(self, request_id, command, args):
+        if command == "read":
+            kind = args[0]
+            terminal = typed_terminal(request_id, kind)
+            if self.mutate:
+                self.mutate(terminal)
+            self.retained[terminal["operation_id"]] = terminal
+            accepted = reply(request_id, "read-" + kind, result="accepted", address=1,
+                             operation_id=request_id + 100, read_kind=kind)
+            return encoded(accepted) + (b"" if self.admission_only else encoded(terminal))
+        if command == "result":
+            original = self.retained[int(args[0])]
+            return encoded({**original, "type": "reply", "id": request_id, "command": "result"})
+        if command == "release":
+            self.retained.pop(int(args[0]))
+        return Serial.normal(request_id, command, args)
+
+
 class Clock:
     def __init__(self):
         self.now = 0.0
@@ -172,6 +242,159 @@ class Framing(unittest.TestCase):
                    and entry["response"].get("result") == "accepted"]
         self.assertEqual(len(accepts), 1)
 
+    def test_typed_reads_fragmented_and_explicitly_released(self):
+        for kind in ("identity", "config"):
+            with self.subTest(kind=kind):
+                console = self.session(TypedSerial(), fragment=1)
+                terminal = console.command("read-" + kind, address=1, timeout_s=0.1)
+                self.assertEqual(terminal["state"], "succeeded")
+                self.assertEqual(len(terminal["steps"]), len(bench.TYPED_WINDOWS[kind]))
+                self.assertEqual(self.port.writes[-2:], [f"@2 read {kind} 1\n".encode(), b"@3 release 102\n"])
+                self.assertFalse(console.operations)
+
+    def test_typed_invalid_evidence_never_releases_or_replays(self):
+        mutations = (
+            lambda r: r.update(read_kind="identity"),
+            lambda r: r.update(generation=True),
+            lambda r: r.update(target=0),
+            lambda r: r.update(address=2),
+            lambda r: r.update(completed_steps=4),
+            lambda r: r.update(state="active"),
+            lambda r: r["config"]["raw"].update(subdivision=1000),
+            lambda r: r["config"]["known"].update(direction=False),
+            lambda r: r["config"]["inputs"][0].update(level_known=True, level=False),
+            lambda r: r["config"].update(encoder_scale_source=4),
+            lambda r: r["active_serial"].update(baud=True),
+            lambda r: r["steps"][1].update(first=0x17),
+            lambda r: r["steps"][1].update(step=0),
+            lambda r: r["steps"][1].update(earliest_us=2000),
+            lambda r: r["steps"][0].update(tx="010300120002640E"),
+            lambda r: r["steps"][0].update(rx=r["steps"][0]["rx"][:-2] + "00"),
+            lambda r: r["steps"][0].update(received_length=38),
+            lambda r: r["steps"][0].update(tx_accepted=9),
+        )
+        for mutate in mutations:
+            with self.subTest(mutate=mutate):
+                console = self.session(TypedSerial(mutate))
+                self.failed(lambda: console.command("read-config", address=1, timeout_s=0.1), "typed-read")
+                self.assertEqual(len(self.port.writes), 2)
+
+    def test_typed_unknown_codes_and_zero_encoder_remain_successful_raw_reads(self):
+        def future_codes(r):
+            first = bytearray.fromhex(r["steps"][0]["rx"])
+            first[3:5] = b"\xFF\xFF"
+            first[-2:] = bench.wire_crc(first[:-2]).to_bytes(2, "little")
+            r["steps"][0]["rx"] = first.hex()
+            r["config"]["raw"]["direction"] = 65535
+            r["config"]["known"]["direction"] = False
+            encoder = bytearray.fromhex(r["steps"][4]["rx"])
+            encoder[5:7] = b"\x00\x00"
+            encoder[-2:] = bench.wire_crc(encoder[:-2]).to_bytes(2, "little")
+            r["steps"][4]["rx"] = encoder.hex()
+            r["config"]["raw"]["encoder_resolution"] = 0
+            r["config"].update(encoder_resolution=6, encoder_scale_source=0)
+
+        console = self.session(TypedSerial(future_codes), fragment=7)
+        result = console.command("read-config", timeout_s=0.1)
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["config"]["raw"]["direction"], 65535)
+        self.assertEqual(result["config"]["raw"]["encoder_resolution"], 0)
+
+    def test_typed_failed_partial_reply_is_retained_without_decoded_publication(self):
+        def crc_failure(r):
+            r.update(ok=False, state="failed", outcome="reply_error", status="CRC_ERROR", detail=6,
+                     completed_steps=1, config=None)
+            r["steps"] = r["steps"][:2]
+            r["steps"][1].update(status="CRC_ERROR", detail=6, frame_error=6,
+                                 rx=r["steps"][1]["rx"][:-2] + "00")
+
+        console = self.session(TypedSerial(crc_failure), fragment=3)
+        handle = console.begin("read-config", timeout_s=0.1)
+        terminal = console.wait(handle)
+        self.assertFalse(terminal["ok"])
+        inspected = console.command("result", operation_id=102, timeout_s=0.1)
+        self.assertEqual(inspected["steps"], terminal["steps"])
+        self.assertIsNone(inspected["config"])
+        console.command("release", operation_id=102, timeout_s=0.1)
+        self.assertEqual(sum(line.split()[1] == b"read" for line in self.port.writes), 1)
+
+    def test_typed_failed_control_events_preserve_partial_capture_and_uncertainty(self):
+        for event, outcome in ((1, "transport_error"), (2, "cancelled"), (3, "deadline")):
+            with self.subTest(event=event):
+                def failed(r):
+                    r.update(ok=False, state="failed", outcome=outcome, status="ILLEGAL_VALUE", detail=12,
+                             completed_steps=0, config=None, serviced_us=25000)
+                    r["steps"] = r["steps"][:1]
+                    r["steps"][0].update(event=event, status="ILLEGAL_VALUE", detail=12,
+                                         qualified=False, earliest_us=0, latest_us=0, delivered_us=25000,
+                                         rx="010304", received_length=3, execution_unknown=True,
+                                         transport_detail=17)
+
+                console = self.session(TypedSerial(failed))
+                terminal = console.command("read-config", timeout_s=0.1)
+                self.assertFalse(terminal["ok"])
+                self.assertEqual(terminal["steps"][0]["rx"], "010304")
+                self.assertTrue(terminal["steps"][0]["execution_unknown"])
+
+    def test_typed_final_on_time_closure_can_be_delivered_after_fixed_deadline(self):
+        def delayed(r):
+            r["serviced_us"] = r["deadline_us"] + 5000
+            r["steps"][-1]["delivered_us"] = r["serviced_us"]
+
+        for kind in ("identity", "config"):
+            with self.subTest(kind=kind):
+                console = self.session(TypedSerial(delayed))
+                terminal = console.command("read-" + kind, timeout_s=0.1)
+                self.assertGreater(terminal["serviced_us"], terminal["deadline_us"])
+                self.assertTrue(terminal["ok"])
+
+    def test_typed_failure_outcome_must_match_retained_step(self):
+        def inconsistent(r):
+            r.update(ok=False, state="failed", outcome="cancelled", status="ILLEGAL_VALUE", detail=12,
+                     completed_steps=0, config=None)
+            r["steps"] = r["steps"][:1]
+            r["steps"][0].update(status="CRC_ERROR", detail=6, frame_error=6,
+                                 rx=r["steps"][0]["rx"][:-2] + "00")
+
+        console = self.session(TypedSerial(inconsistent))
+        self.failed(lambda: console.command("read-config", timeout_s=0.1), "failure outcome")
+        self.assertEqual(len(self.port.writes), 2)
+
+    def test_typed_campaign_arguments_select_explicit_kind_without_port_access(self):
+        parsed = bench.arguments(["--port", "FAKE", "--log", "unused.jsonl", "typed-read", "--kind", "config"])
+        self.assertEqual((parsed.mode, parsed.kind, parsed.count, parsed.interval), ("typed-read", "config", 1, 0))
+
+    def test_typed_retained_result_rejects_changed_target_and_pending_kind(self):
+        handler = TypedSerial()
+        console = self.session(handler)
+        handle = console.begin("read-identity", timeout_s=0.1)
+        terminal = console.wait(handle)
+        handler.retained[102] = {**terminal, "generation": 10}
+        self.failed(lambda: console.command("result", operation_id=102, timeout_s=0.1), "immutable")
+        for read_kind in (None, "config", [], True):
+            with self.subTest(read_kind=read_kind):
+                handler = TypedSerial(admission_only=True)
+                console = self.session(handler)
+                console.begin("read-identity", timeout_s=0.1)
+                self.port.handler = lambda i, command, args: encoded(reply(
+                    i, command, result="pending", operation_id=102, command_id=2,
+                    recovery=False, capture_read=False, read_kind=read_kind))
+                self.failed(lambda: console.command("result", operation_id=102, timeout_s=0.1), "kind")
+
+    def test_typed_campaign_reads_inspects_releases_once_per_kind(self):
+        console = self.session(TypedSerial(), fragment=9)
+        bench.campaign(console, "typed-read", count=1, interval_s=0, timeout_s=0.1, address=1)
+        bus_commands = [line for line in self.port.writes if line.split()[1] == b"read"]
+        self.assertEqual(len(bus_commands), 2)
+        self.assertIn(b"read identity 1", bus_commands[0])
+        self.assertIn(b"read config 1", bus_commands[1])
+        for name in (b"result", b"release"):
+            self.assertEqual(sum(line.split()[1] == name for line in self.port.writes), 2)
+        self.assertFalse(console.operations)
+        summary = self.events[-1]
+        self.assertTrue(summary["ok"])
+        self.assertEqual(summary["reads_passed"], 2)
+
     def test_capture_read_fragmented_retained_and_released(self):
         console = self.session(fragment=1)
         handle = console.begin("capture-read", address=1, timeout_s=0.1)
@@ -193,7 +416,7 @@ class Framing(unittest.TestCase):
                        {"rx_bytes": 7}, {"tx_bytes": 7}, {"tx_hex": "01030130001045F4"},
                        {"tx_hex": "010300000001840A"}, {"rx_hex": "010302003CB855"},
                        {"rx_hex": "010320" + "00" * 32 + "927B"}, {"tx_hex": "01 030130001045F5"},
-                       {"type": "probe"}):
+                       {"type": "probe"}, {"read_kind": "config"}):
             with self.subTest(change=change):
                 console = self.session()
                 def handler(i, cmd, args):
@@ -358,7 +581,7 @@ class Framing(unittest.TestCase):
                        {"raw_model": None}, {"raw_model": True}, {"raw_model": 65536},
                        {"tx_bytes": 0}, {"rx_bytes": 5}, {"rx_bytes": 7.0},
                        {"duration_us": None}, {"duration_us": True}, {"duration_us": -1},
-                       {"timing_valid": False}, {"raw_truncated": True}):
+                       {"timing_valid": False}, {"raw_truncated": True}, {"read_kind": "identity"}):
             with self.subTest(change=change):
                 console = self.session()
 
@@ -367,7 +590,7 @@ class Framing(unittest.TestCase):
                     return encoded(accepted) + encoded({**terminal, **change})
 
                 self.port.handler = malformed
-                self.failed(lambda: console.command("probe", timeout_s=0.1), "result evidence")
+                self.failed(lambda: console.command("probe", timeout_s=0.1), "result evidence|result kind")
 
     def test_terminal_arriving_after_deadline_stops(self):
         console = self.session()
@@ -1053,7 +1276,7 @@ class Framing(unittest.TestCase):
     def test_recovery_terminal_requires_checked_outcome_and_deadlines(self):
         for fields in ({"outcome": "unknown"}, {"outcome": []}, {"ok": False}, {"recovery": False},
                        {"finished_us": None}, {"deadline_us": True}, {"requested_us": 50000},
-                       {"finished_us": 50000}, {"transport": None}, {"transport": "FRAME"}):
+                       {"finished_us": 50000}, {"transport": None}, {"transport": "FRAME"}, {"read_kind": "config"}):
             with self.subTest(fields=fields):
                 console = self.session()
 

@@ -474,6 +474,172 @@ void testDelayedHarvestKeepsSuccessIndependentOfLatestFailure() {
     assert(cached.observedLatestUs == view(1).probe.observedLatestUs);
     assert(cached.deliveredUs && cached.deliveredUs == view(1).probe.deliveredUs);
 }
+std::vector<uint8_t> registerReply(std::initializer_list<uint16_t> words) {
+    std::vector<uint8_t> bytes = {1, 3, static_cast<uint8_t>(words.size() * 2)};
+    for (uint16_t word : words) { bytes.push_back(static_cast<uint8_t>(word >> 8)); bytes.push_back(static_cast<uint8_t>(word)); }
+    const uint16_t crc = ESS::calcCrc16(bytes.data(), bytes.size());
+    bytes.push_back(static_cast<uint8_t>(crc)); bytes.push_back(static_cast<uint8_t>(crc >> 8)); return bytes;
+}
+void readStep(uint32_t operation, uint8_t index, const std::vector<uint8_t>& bytes) {
+    const unsigned writes = hardware.writes;
+    if (app->runner.phase() != Rtu::Phase::DRAIN) startTx(writes);
+    scheduleReply(std::max(hardware.writeStarted + 8 * 87 + 1000, hardware.time + 1000), bytes);
+    for (unsigned i = 0; i < 25000 && view(operation).typedRead->state == ReadState::ACTIVE &&
+        view(operation).typedRead->step == index; ++i) step();
+    assert(view(operation).typedRead->step != index || !view(operation).pending);
+}
+void completeConfig(uint32_t operation) {
+    readStep(operation, 0, registerReply({1, 1000}));
+    readStep(operation, 1, registerReply({0, 0, 0}));
+    readStep(operation, 2, registerReply({1, 0, 1}));
+    readStep(operation, 3, registerReply({0x8005, 0, 1, 6, 17}));
+    readStep(operation, 4, registerReply({2, 4000})); pump(100);
+}
+void testTypedReadRoutesAndAtomicPublication() {
+    fresh(); timerCapture(); command("@1 caps\n"); contains("\"command\":\"caps\"");
+    command("@2 read identity 1\n"); const uint32_t identity = view(0).operationId;
+    contains("accepted"); assert(view(identity).typedRead && !view(identity).captureRead);
+    readStep(identity, 0, registerReply({0x4EEA, 0xCAFE, 1, 0xFFFF})); pump(100);
+    assert(!view(identity).pending && app->identity.rawModel == 0x4EEA && app->identity.rawVersion == 0xCAFE);
+    contains("\"type\":\"read\""); contains("\"read_kind\":\"identity\"");
+    const auto oldIdentity = app->identity;
+    command("@3 profile ess_rs config 1\n"); const uint32_t config = view(0).operationId;
+    assert(app->configuration.operationId == 0); completeConfig(config);
+    assert(view(config).typedRead->state == ReadState::SUCCEEDED && hardware.writes == 6);
+    assert(app->configuration.raw.subdivision == 1000 && app->configuration.raw.encoderResolution == 4000);
+    assert(app->configuration.raw.wordOrder == 1 && app->configuration.raw.inputFunctions[0] == 0);
+    assert(app->configuration.activeSerial.known && app->configuration.activeSerial.baud == 115200);
+    assert(app->configuration.wiring[0] == MotorControlRS::InputWiring::UNKNOWN && !app->configuration.inputLevelKnown[0]);
+    assert(app->configuration.units.commandStepsPerMotorTurn.source == MotorControlRS::ScaleSource::UNKNOWN);
+    assert(app->configuration.units.encoder.countsPerUnit.source == MotorControlRS::ScaleSource::READBACK);
+    const auto previous = app->configuration;
+    command("@4 result 2\n"); contains("\"read_kind\":\"config\"");
+    assert(hardware.writes == 6 && app->identity.rawVersion == oldIdentity.rawVersion);
+    command("@5 read config\n"); const uint32_t failed = view(0).operationId;
+    readStep(failed, 0, registerReply({0, 2000}));
+    assert(app->configuration.operationId == previous.operationId && app->configuration.raw.subdivision == 1000);
+    readStep(failed, 1, {1, 0x83, 2, 0xC0, 0xF1}); pump(100);
+    assert(view(failed).typedRead->outcome == MotorControlRS::ReadOutcome::REPLY_ERROR);
+    assert(view(failed).typedRead->status.code == MotorControlRS::Err::EXCEPTION && !app->owner.needsRecovery());
+    assert(app->configuration.operationId == previous.operationId && app->configuration.raw.subdivision == 1000);
+    assert(hardware.writes == 8); pump(500); assert(hardware.writes == 8);
+    command("@6 release 2\n"); contains("done");
+    Probe::ResultView released; assert(!lookup(app, config, released));
+}
+void testTypedReadPartialCancelRecoveryAndRetention() {
+    fresh(); timerCapture(); command("@1 read config\n"); const uint32_t operation = view(0).operationId;
+    readStep(operation, 0, registerReply({0, 1000}));
+    const uint64_t deadline = view(operation).typedRead->deadlineUs;
+    command("@2 recover\n");
+    for (unsigned i = 0; i < 80000 && app->owner.recovering(); ++i) step();
+    pump(100);
+    assert(!view(operation).pending && view(operation).typedRead->state == ReadState::FAILED);
+    assert(view(operation).typedRead->deadlineUs == deadline && app->configuration.operationId == 0);
+    const unsigned writes = hardware.writes; pump(1000); assert(hardware.writes == writes);
+    assert(app->bindingGeneration == 2 && view(operation).typedRead->target.generation == 1);
+    const auto retained = *view(operation).typedRead;
+    command("@3 result 1\n"); contains("\"read_kind\":\"config\"");
+    assert(view(operation).typedRead->servicedUs == retained.servicedUs);
+    assert(cancel(app, operation) == Probe::Action::ALREADY_TERMINAL);
+    command("@4 read identity\n"); const uint32_t next = view(0).operationId;
+    assert(view(next).typedRead->target.generation == 2);
+    assert(cancel(app, next) == Probe::Action::OK);
+    for (unsigned i = 0; i < 1000 && view(next).pending; ++i) step();
+    assert(!view(next).pending && view(next).typedRead->outcome == MotorControlRS::ReadOutcome::CANCELLED);
+    assert(hardware.writes == writes);
+}
+void testTypedReadPressureAndInvalidArguments() {
+    fresh(); timerCapture();
+    command("@1 read state\n"); command("@2 read config 0\n"); command("@3 profile other identity\n");
+    command("@4 profile ess_rs config 1 junk\n"); assert(hardware.writes == 0 && app->latestOperationId == 0);
+    for (unsigned i = 0; i < 8; ++i) {
+        uint32_t operation = 0; assert(typedRead(app, i + 10, 1, ESS::ReadKind::IDENTITY, operation) == Probe::Action::OK);
+        assert(cancel(app, operation) == Probe::Action::OK); advanceReads(*app, nowUs());
+        assert(!view(operation).pending);
+    }
+    uint32_t unchanged = 123;
+    assert(typedRead(app, 99, 1, ESS::ReadKind::CONFIG, unchanged) == Probe::Action::RESULTS_FULL && unchanged == 123);
+    uint32_t control = 0; assert(recover(app, 100, control) == Probe::Action::OK);
+    assert(hardware.writes == 0 && app->owner.recovering());
+}
+void testTypedReadAbsoluteBudgetAndDelayedEvidence() {
+    fresh(); timerCapture(); command("@1 read identity\n"); startTx(0);
+    const auto deadline = view(1).typedRead->deadlineUs;
+    scheduleReply(hardware.writeStarted + 8 * 87 + 1000, registerReply({0x4EEA, 0x1234, 1, 0}));
+    advanceHardware(deadline + 10000); loop(); pump(100);
+    assert(view(1).typedRead->state == ReadState::SUCCEEDED && hardware.writes == 1);
+    assert(app->identity.provenance.latestUs < deadline && app->identity.provenance.deliveredUs > deadline);
+    const uint64_t observed = app->identity.provenance.earliestUs;
+    command("@2 result 1\n"); command("@3 status\n"); assert(app->identity.provenance.earliestUs == observed);
+    fresh(); timerCapture(); command("@1 read config\n"); startTx(0);
+    const auto partialDeadline = view(1).typedRead->deadlineUs;
+    scheduleReply(hardware.writeStarted + 8 * 87 + 1000, registerReply({0, 1000}));
+    advanceHardware(partialDeadline + 10000); loop(); pump(100);
+    assert(view(1).typedRead->outcome == MotorControlRS::ReadOutcome::DEADLINE);
+    assert(view(1).typedRead->completedSteps == 1 && app->configuration.operationId == 0 && hardware.writes == 1);
+    fresh(); timerCapture(); command("@1 read identity\n"); startTx(0);
+    const auto lateDeadline = view(1).typedRead->deadlineUs;
+    const auto bytes = registerReply({0x4EEA, 0x1234, 1, 0});
+    scheduleReply(lateDeadline - bytes.size() * 87 - 500, bytes);
+    // Delay beyond the response timeout too: the retained physical closure is
+    // already outside the earlier response/request budget, so success is forbidden.
+    advanceHardware(lateDeadline + 10000); loop(); pump(100);
+    assert(view(1).typedRead->state == ReadState::FAILED && app->identity.operationId == 0 && hardware.writes == 1);
+}
+void testTypedReadInvalidOwnerEnvelopeCannotReplay() {
+    fresh(); timerCapture(); uint32_t operation = 0;
+    assert(typedRead(app, 1, 1, ESS::ReadKind::CONFIG, operation) == Probe::Action::OK);
+    startTx(0); scheduleReply(hardware.writeStarted + 8 * 87 + 1000, registerReply({0, 1000}));
+    // Fault injection at the application handoff: real immutable completions
+    // cannot be edited by callers, but a bad adapter must never replay a read.
+    for (unsigned i = 0; i < 1000 && !app->owner.result(app->records[0].requestId); ++i) {
+        advanceHardware(hardware.time + 10); app->owner.service(uart.sample());
+    }
+    auto* completion = const_cast<Rtu::Completion*>(app->owner.result(app->records[0].requestId));
+    assert(completion && completion->outcome == Rtu::Outcome::SUCCESS);
+    ++completion->expected.targetGeneration;
+    advanceReads(*app, nowUs());
+    assert(view(operation).typedRead->outcome == MotorControlRS::ReadOutcome::TRANSPORT_ERROR);
+    assert(view(operation).typedRead->observations[0].transportDetail == -1);
+    pump(1000); assert(hardware.writes == 1 && app->configuration.operationId == 0);
+}
+void testTypedReadCancelSettledIntermediateCannotContinue() {
+    fresh(); timerCapture(); uint32_t operation = 0;
+    assert(typedRead(app, 1, 1, ESS::ReadKind::CONFIG, operation) == Probe::Action::OK);
+    startTx(0); scheduleReply(hardware.writeStarted + 8 * 87 + 1000, registerReply({0, 1000}));
+    for (unsigned i = 0; i < 1000 && !app->owner.result(app->records[0].requestId); ++i) {
+        advanceHardware(hardware.time + 10); app->owner.service(uart.sample());
+    }
+    assert(app->owner.result(app->records[0].requestId));
+    assert(cancel(app, operation) == Probe::Action::OK);
+    advanceReads(*app, nowUs());
+    assert(view(operation).typedRead->outcome == MotorControlRS::ReadOutcome::CANCELLED);
+    assert(view(operation).typedRead->completedSteps == 1 && app->configuration.operationId == 0);
+    pump(1000); assert(hardware.writes == 1);
+    assert(cancel(app, operation) == Probe::Action::ALREADY_TERMINAL);
+}
+void testTypedConfigYieldsBusAndPreservesUnknownHardwareCode() {
+    fresh(); timerCapture(); uint32_t configuration = 0, probeOperation = 0;
+    assert(typedRead(app, 1, 1, ESS::ReadKind::CONFIG, configuration) == Probe::Action::OK);
+    startTx(0);
+    assert(probe(app, 2, 1, probeOperation) == Probe::Action::OK);
+    readStep(configuration, 0, registerReply({0, 1000}));
+    startTx(1); assert(hardware.tx[2] == 0 && hardware.tx[3] == 0 && hardware.tx[5] == 1);
+    scheduleReply(hardware.writeStarted + 8 * 87 + 1000, REPLY);
+    for (unsigned i = 0; i < 1000 && view(probeOperation).pending; ++i) step();
+    assert(view(probeOperation).probe.outcome == Rtu::Outcome::SUCCESS);
+    readStep(configuration, 1, registerReply({0, 0, 0}));
+    readStep(configuration, 2, registerReply({0, 0, 0}));
+    readStep(configuration, 3, registerReply({0, 1, 2, 3, 0}));
+    readStep(configuration, 4, registerReply({3, 4000})); pump(100);
+    assert(view(configuration).typedRead->state == ReadState::SUCCEEDED && hardware.writes == 6);
+    // Exact COM13 readback: undocumented algorithm3 remains valid raw data,
+    // with no guessed enum or promotion of motion readiness.
+    assert(app->configuration.raw.algorithm == 3 && !app->configuration.algorithmKnown);
+    assert(app->configuration.raw.encoderResolution == 4000 && app->configuration.raw.wordOrder == 0);
+    assert(app->configuration.inputFunctions[3] == ESS::InputFunction::UNDEFINED);
+    assert(!app->configuration.inputLevelKnown[1] && !app->configuration.inputLevelKnown[2]);
+}
 #if MOTORCONTROLRS_LOAD_FIXTURE
 void testLoadLocalAdmission() {
     fresh(); command("@1 load\n"); contains("\"command\":\"load\"");
@@ -513,6 +679,9 @@ void testLoadDelayExhaustsSetupTxBudgetWithoutTransmission() {
 #endif
 }
 int main() {
+    std::printf("Storage bytes: App=%zu Record=%zu Console=%zu ReadContext=%zu PreparedRead=%zu Identity=%zu Config=%zu\n",
+        sizeof(App), sizeof(App::Record), sizeof(Probe::Console), sizeof(ESS::ReadContext), sizeof(ESS::PreparedRead),
+        sizeof(ESS::IdentityObservation), sizeof(ESS::ConfigObservation));
     testSuccessfulProbeAndReset(); testCheckedExceptionAndParserRejection();
     testCaptureReadUsesOwnerAndPreservesModel(); testCaptureReadRejectsMalformedRepliesAndArguments();
     testActiveConsoleAndBoundedInputOutput(); testQueuePressureAndQueuedCancellation();
@@ -526,6 +695,11 @@ int main() {
     testBlockedOutputDoesNotBlockNewerCachedObservation(); testSnapshotReportsEarliestActiveAndRecoveryDeadline();
     testCheckedExceptionKeepsValidModelAndAge(); testBadCrcKeepsValidModelAndAge();
     testDelayedHarvestKeepsSuccessIndependentOfLatestFailure();
+    testTypedReadRoutesAndAtomicPublication(); testTypedReadPartialCancelRecoveryAndRetention();
+    testTypedReadPressureAndInvalidArguments();
+    testTypedReadAbsoluteBudgetAndDelayedEvidence(); testTypedReadInvalidOwnerEnvelopeCannotReplay();
+    testTypedReadCancelSettledIntermediateCannotContinue();
+    testTypedConfigYieldsBusAndPreservesUnknownHardwareCode();
 #if MOTORCONTROLRS_LOAD_FIXTURE
     testLoadLocalAdmission();
     testLoadDelayExhaustsSetupTxBudgetWithoutTransmission();

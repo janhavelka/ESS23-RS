@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Bounded, read-only tests of the standalone MotorControl-RS JSONL console.
 
-Only ``probe`` and fixed-window ``capture-read`` create motor-bus traffic. Status, health and memory are cached
+Only reviewed probes and typed reads create motor-bus traffic. Status, health and memory are cached
 host reports. A lost or malformed reply stops the run; nothing is replayed and
 host recovery is never automatic. Python 3.10+; pyserial is needed only for a
 real port. See ``--help`` for finite probe, stress, watch and load runs. Load
@@ -27,11 +27,15 @@ import time
 MAX_LINE = 4096
 MAX_INPUT = 32768
 COMMANDS = frozenset({"version", "config", "probe", "capture-read", "status", "health", "memory", "stats", "load",
-                      "drv", "result", "release", "cancel", "recover", "reset"})
+                      "drv", "result", "release", "cancel", "recover", "reset", "caps",
+                      "read-identity", "read-config"})
 MAX_COMMANDS = 10  # Eight probes, one recovery and one interleaved local report.
 MAX_OPERATIONS = 9  # Firmware retains eight ordinary results plus one recovery.
 MAX_PROBES = 8
-READ_COMMANDS = ("probe", "capture-read")
+TYPED_READS = {"read-identity": "identity", "read-config": "config"}
+READ_COMMANDS = ("probe", "capture-read", *TYPED_READS)
+TYPED_WINDOWS = {"identity": ((0x0000, 4),),
+                 "config": ((0x0010, 2), (0x0013, 3), (0x0017, 3), (0x0040, 5), (0x0100, 2))}
 LOAD_FIELDS = ("workload_us", "owner_delay_us", "console_bytes")
 LOAD_LIMITS = (5000, 20000, 256)
 LOAD_COUNTERS = (
@@ -271,7 +275,8 @@ class Console:
 
     @staticmethod
     def _check_probe(item: dict, address: int | None) -> None:
-        if item.get("capture_read", False) is not False or item.get("recovery", False) is not False:
+        if (item.get("capture_read", False) is not False or item.get("recovery", False) is not False
+                or item.get("read_kind") is not None):
             raise BenchError("probe result kind is inconsistent")
         model = item.get("raw_model")
         if item["ok"] and (type(model) is not int or not 0 <= model <= 65535):
@@ -303,6 +308,7 @@ class Console:
     def _check_capture_read(item: dict, address: int | None) -> None:
         if (item.get("capture_read") is not True
                 or item.get("recovery", False) is not False
+                or item.get("read_kind") is not None
                 or type(item.get("register_start")) is not int or item["register_start"] != 0x0130
                 or type(item.get("register_count")) is not int or item["register_count"] != 16
                 or "raw_model" not in item or item["raw_model"] is not None
@@ -328,10 +334,189 @@ class Console:
             raise BenchError("capture-read raw frame evidence is inconsistent") from exc
 
     @staticmethod
+    def _check_typed_read(item: dict, kind: str, address: int | None) -> None:
+        """Check retained FC03 provenance and decoded fields independently."""
+        def require(condition, message):
+            if not condition:
+                raise BenchError("typed-read " + message)
+
+        def integer(value, maximum=0xFFFFFFFFFFFFFFFF):
+            return type(value) is int and 0 <= value <= maximum
+
+        def frame(value, maximum):
+            require(isinstance(value, str) and len(value) <= 2 * maximum
+                    and re.fullmatch(r"(?:[0-9A-Fa-f]{2})*", value) is not None,
+                    "raw frame is malformed")
+            return bytes.fromhex(value)
+
+        require(item.get("read_kind") == kind and item.get("recovery", False) is False
+                and item.get("capture_read", False) is False, "result kind is inconsistent")
+        require(integer(item.get("address"), 247) and item["address"] >= 1
+                and (address is None or item["address"] == address), "address does not match acceptance")
+        require(Console._operation_id(item.get("target")) and Console._operation_id(item.get("generation")),
+                "target or generation is invalid")
+        check_counts(item, ("started_us", "deadline_us", "serviced_us", "completed_steps"), "typed-read")
+        require(item["started_us"] < item["deadline_us"] and item["serviced_us"] >= item["started_us"],
+                "absolute time budget is inconsistent")
+        statuses = {"OK", "INVALID_CONFIG", "ILLEGAL_VALUE", "UNSUPPORTED", "CRC_ERROR", "FRAME_ERROR", "EXCEPTION"}
+        require(type(item.get("status")) is str and item["status"] in statuses
+                and type(item.get("detail")) is int and -0x80000000 <= item["detail"] <= 0x7FFFFFFF,
+                "status evidence is invalid")
+        require(item.get("state") == ("succeeded" if item["ok"] else "failed"), "terminal state is inconsistent")
+        outcome = item.get("outcome")
+        require(type(outcome) is str and (outcome == "success" if item["ok"] else outcome in
+                {"reply_error", "transport_error", "cancelled", "deadline", "timing_unqualified"}),
+                "terminal outcome is inconsistent")
+        serial = item.get("active_serial")
+        require(isinstance(serial, dict) and type(serial.get("known")) is bool, "active tuple is unavailable")
+        for key, maximum in (("baud", 0xFFFFFFFF), ("data_bits", 255), ("parity", 3), ("stop_bits", 255)):
+            require(integer(serial.get(key), maximum), "active tuple is invalid")
+        if serial["known"]:
+            require(serial["baud"] > 0 and 5 <= serial["data_bits"] <= 8
+                    and 1 <= serial["parity"] <= 3 and serial["stop_bits"] in (1, 2), "active tuple is invalid")
+        windows = TYPED_WINDOWS[kind]
+        steps = item.get("steps")
+        complete = item["completed_steps"]
+        require(isinstance(steps, list) and complete <= len(windows)
+                and complete <= len(steps) <= min(len(windows), complete + 1), "step counts are inconsistent")
+        if item["ok"]:
+            require(complete == len(windows) and len(steps) == complete and item["status"] == "OK"
+                    and item["detail"] == 0, "successful operation is incomplete")
+        decoded_words = []
+        previous_delivery = item["started_us"]
+        for index, step in enumerate(steps):
+            require(isinstance(step, dict), "step is not an object")
+            first, count = windows[index]
+            require(type(step.get("step")) is int and step["step"] == index
+                    and type(step.get("first")) is int and step["first"] == first
+                    and type(step.get("count")) is int and step["count"] == count, "step/window order is inconsistent")
+            require(integer(step.get("event"), 3) and type(step.get("status")) is str
+                    and step["status"] in statuses and integer(step.get("frame_error"), 10)
+                    and type(step.get("qualified")) is bool and type(step.get("execution_unknown")) is bool
+                    and integer(step.get("tx_accepted"), 8)
+                    and type(step.get("transport_detail")) is int
+                    and -0x80000000 <= step["transport_detail"] <= 0x7FFFFFFF,
+                    "step evidence is invalid")
+            check_counts(step, ("earliest_us", "latest_us", "delivered_us", "received_length"), "typed-read step")
+            require(type(step.get("detail")) is int and -0x80000000 <= step["detail"] <= 0x7FFFFFFF,
+                    "step status detail is invalid")
+            require(previous_delivery <= step["delivered_us"] <= item["serviced_us"], "step delivery order is inconsistent")
+            if step["qualified"]:
+                require(step["event"] == 0 and previous_delivery <= step["earliest_us"]
+                        <= step["latest_us"] <= step["delivered_us"], "closure bounds are inconsistent")
+            else:
+                require(step["earliest_us"] == step["latest_us"] == 0, "unqualified step invents closure bounds")
+            tx, rx = frame(step.get("tx"), 8), frame(step.get("rx"), 37)
+            require(len(tx) == 8 and wire_crc(tx) == 0
+                    and tx[:6] == bytes((item["address"], 3, first >> 8, first & 255, 0, count)),
+                    "retained request does not match reviewed FC03 window")
+            require(len(rx) == min(step["received_length"], 37), "captured prefix length is inconsistent")
+            if step["event"] == 0:
+                received = step["received_length"]
+                if received < 5 or received > 5 + 2 * count:
+                    error = 2  # Exact response-length contract, before header access.
+                elif rx[0] != item["address"]:
+                    error = 3
+                elif rx[1] not in (3, 0x83):
+                    error = 4
+                elif received != (5 if rx[1] == 0x83 else 5 + 2 * count):
+                    error = 2
+                elif rx[1] == 3 and rx[2] != 2 * count:
+                    error = 5
+                elif wire_crc(rx) != 0:
+                    error = 6
+                else:
+                    error = 10 if rx[1] == 0x83 else 0
+                expected_status = {0: "OK", 6: "CRC_ERROR", 10: "EXCEPTION"}.get(error, "FRAME_ERROR")
+                expected_detail = rx[2] if error == 10 else error
+                require(step["frame_error"] == error and step["status"] == expected_status
+                        and step["detail"] == expected_detail, "codec evidence differs from retained RX")
+            else:
+                require(not step["qualified"] and step["status"] == "ILLEGAL_VALUE", "control event evidence is inconsistent")
+            if index < complete:
+                require(step["event"] == 0 and step["status"] == "OK" and step["qualified"]
+                        and step["tx_accepted"] == 8 and step["execution_unknown"] is False
+                        and step["latest_us"] <= item["deadline_us"]
+                        and (index == len(windows) - 1 or not item["ok"] or step["delivered_us"] < item["deadline_us"]),
+                        "completed step lacks on-time checked closure")
+                decoded_words.extend(int.from_bytes(rx[3 + 2 * word:5 + 2 * word], "big") for word in range(count))
+            previous_delivery = step["delivered_us"]
+        decoded = item.get(kind)
+        if not item["ok"]:
+            require(kind in item and decoded is None, "failed operation published a decoded observation")
+            require(bool(steps), "failed operation lacks retained terminal evidence")
+            last = steps[-1]
+            if outcome == "reply_error":
+                require(last["event"] == 0 and last["qualified"] and last["latest_us"] <= item["deadline_us"]
+                        and last["status"] != "OK" and item["status"] == last["status"]
+                        and item["detail"] == last["detail"], "failure outcome differs from last step")
+            elif outcome in ("transport_error", "cancelled"):
+                require(last["event"] == (1 if outcome == "transport_error" else 2)
+                        and item["status"] == last["status"] == "ILLEGAL_VALUE"
+                        and item["detail"] == last["detail"], "failure outcome differs from last step")
+            elif outcome == "timing_unqualified":
+                require(last["event"] == 0 and not last["qualified"] and item["status"] == "ILLEGAL_VALUE",
+                        "failure outcome differs from last step")
+            else:
+                expired_frame = (last["event"] == 0 and last["qualified"]
+                                 and last["latest_us"] > item["deadline_us"])
+                partial_budget = (complete == len(steps) < len(windows)
+                                  and item["serviced_us"] >= item["deadline_us"])
+                expired_control = last["event"] == 3 and last["delivered_us"] >= item["deadline_us"]
+                require(item["status"] == "ILLEGAL_VALUE" and (expired_frame or partial_budget or expired_control),
+                        "deadline outcome lacks absolute expiry evidence")
+            return
+        require(isinstance(decoded, dict), "successful operation lacks decoded observation")
+        if kind == "identity":
+            keys = ("raw_model", "raw_version", "raw_active_node", "raw_dip")
+            for key, value in zip(keys, decoded_words):
+                require(type(decoded.get(key)) is int and decoded[key] == value, "identity differs from retained RX")
+            known = 1 <= decoded_words[2] <= 247
+            require(type(decoded.get("active_node_known")) is bool and decoded["active_node_known"] == known
+                    and type(decoded.get("active_node")) is int and decoded["active_node"] == (decoded_words[2] if known else 0),
+                    "active node interpretation is inconsistent")
+            for key, value in (("model_resolution", 2), ("version_resolution", 3), ("dip_resolution", 4), ("dip_issues", 320)):
+                require(type(decoded.get(key)) is int and decoded[key] == value, "identity mapping claims unsupported certainty")
+            require(decoded.get("model") == decoded.get("firmware") == "mapping_unresolved"
+                    and decoded.get("dip") == "mapping_conflict_unresolved", "identity mapping claims unsupported certainty")
+            return
+        keys = ("direction", "subdivision", "custom_node", "baud", "format", "over_limit_stop", "soft_limit_enable",
+                "word_order", "input_polarity", "algorithm", "encoder_resolution")
+        values = decoded_words[:9] + decoded_words[13:15]
+        raw, known = decoded.get("raw"), decoded.get("known")
+        require(isinstance(raw, dict) and isinstance(known, dict), "configuration raw/known evidence is unavailable")
+        for key, value in zip(keys, values):
+            require(type(raw.get(key)) is int and raw[key] == value, "configuration differs from retained RX")
+        require(decoded.get("stored_serial") == {"baud_code": raw["baud"], "format_code": raw["format"],
+                                                   "activation": "power_cycle_required"}
+                and decoded.get("units") == "command_scale_unresolved_encoder_readback_only",
+                "stored settings were promoted to active transport or physical units")
+        for key, valid in (("direction", raw["direction"] <= 1), ("baud", raw["baud"] <= 3),
+                           ("format", raw["format"] <= 3), ("over_limit_stop", raw["over_limit_stop"] <= 1),
+                           ("soft_limit_enable", raw["soft_limit_enable"] <= 1), ("word_order", raw["word_order"] <= 1),
+                           ("algorithm", raw["algorithm"] in (1, 2))):
+            require(type(known.get(key)) is bool and known[key] == valid, "unknown configuration code was normalized")
+        for key, value in (("unknown_polarity_bits", raw["input_polarity"] & 0xFFF0),
+                           ("subdivision_resolution", 5), ("encoder_resolution", 0 if raw["encoder_resolution"] else 6),
+                           ("subdivision_issues", 4), ("custom_node_issues", 64), ("over_limit_stop_issues", 1024),
+                           ("soft_limit_issues", 256), ("encoder_scale_source", 3 if raw["encoder_resolution"] else 0)):
+            require(type(decoded.get(key)) is int and decoded[key] == value, "configuration provenance is inconsistent")
+        inputs = decoded.get("inputs")
+        require(isinstance(inputs, list) and len(inputs) == 4, "configuration input evidence is incomplete")
+        for index, entry in enumerate(inputs):
+            function = decoded_words[9 + index]
+            require(isinstance(entry, dict) and type(entry.get("function")) is int and entry["function"] == function
+                    and type(entry.get("known")) is bool and entry["known"] == (function <= 17)
+                    and type(entry.get("inverted")) is bool and entry["inverted"] == bool(raw["input_polarity"] & (1 << index))
+                    and integer(entry.get("wiring"), 2) and entry.get("level_known") is False
+                    and "level" in entry and entry["level"] is None, "input assignment/wiring/level evidence is inconsistent")
+
+    @staticmethod
     def _check_recovery(item: dict) -> None:
         outcome = item.get("outcome")
         if (item.get("recovery") is not True
                 or item.get("capture_read", False) is not False
+                or item.get("read_kind") is not None
                 or outcome not in ("recovered", "expired", "read_error", "transport_error")
                 or item["ok"] != (outcome == "recovered")
                 or not isinstance(item.get("transport"), str)
@@ -396,6 +581,8 @@ class Console:
                             or (handle.address is not None and address != handle.address)):
                         raise BenchError("probe acceptance address does not match request")
                     handle.address = address
+                if item.get("read_kind") != TYPED_READS.get(handle.command):
+                    raise BenchError("typed-read acceptance kind does not match request")
                 operation_id = item.get("operation_id")
                 if not self._operation_id(operation_id) or operation_id <= self.last_operation_id:
                     raise BenchError("accepted operation ID is missing, reused or not monotonic")
@@ -410,7 +597,8 @@ class Console:
                 self.operations[operation_id] = handle
                 self.last_operation_id = operation_id
                 return
-            expected_type = {"probe": "probe", "capture-read": "capture_read", "recover": "recovery"}[handle.command]
+            expected_type = {"probe": "probe", "capture-read": "capture_read", "recover": "recovery",
+                             "read-identity": "read", "read-config": "read"}[handle.command]
             if item.get("type") != expected_type or not handle.accepted:
                 raise BenchError(f"{handle.command} response sequence is invalid")
             if (not self._operation_id(item.get("operation_id"))
@@ -421,6 +609,8 @@ class Console:
                 self._check_probe(item, handle.address)
             elif handle.command == "capture-read":
                 self._check_capture_read(item, handle.address)
+            elif handle.command in TYPED_READS:
+                self._check_typed_read(item, TYPED_READS[handle.command], handle.address)
             else:
                 self._check_recovery(item)
         else:
@@ -439,10 +629,14 @@ class Console:
                         raise BenchError("result original command ID does not match retained operation")
                     recovery = item.get("recovery", False)
                     capture_read = item.get("capture_read", False)
+                    read_kind = item.get("read_kind")
                     if (type(recovery) is not bool or
                             type(capture_read) is not bool or (recovery and capture_read) or
+                            (read_kind is not None and (type(read_kind) is not str or read_kind not in TYPED_WINDOWS)) or
+                            (read_kind is not None and (recovery or capture_read)) or
                             (original is not None and (recovery != (original.command == "recover") or
-                             capture_read != (original.command == "capture-read")))):
+                             capture_read != (original.command == "capture-read") or
+                             read_kind != TYPED_READS.get(original.command)))):
                         raise BenchError("result kind does not match retained operation")
                     if item.get("result") == "pending":
                         if item["ok"] is not True or type(item.get("recovery")) is not bool:
@@ -453,6 +647,8 @@ class Console:
                         self._check_recovery(item)
                     elif capture_read:
                         self._check_capture_read(item, original.address if original else None)
+                    elif read_kind is not None:
+                        self._check_typed_read(item, read_kind, original.address if original else None)
                     else:
                         self._check_probe(item, original.address if original else None)
                     if original is not None and original.terminal is not None:
@@ -539,7 +735,8 @@ class Console:
                 suffix = " " + " ".join(str(value) for value in load)
             if operation_id is not None:
                 suffix = f" {operation_id}"
-            payload = f"@{request_id} {command}{suffix}\n".encode("ascii")
+            wire_command = "read " + TYPED_READS[command] if command in TYPED_READS else command
+            payload = f"@{request_id} {wire_command}{suffix}\n".encode("ascii")
             self.emit("send", id=request_id, command=command, address=address,
                       load=load, operation_id=operation_id)
             if self.port.write(payload) != len(payload):
@@ -632,6 +829,7 @@ def campaign(
     address: int = 1,
     load: tuple[int, int, int] | None = None,
     read_command: str = "probe",
+    typed_kind: str = "both",
     sleeper: Callable[[float], None] = time.sleep,
 ) -> None:
     """Finite work, no recovery and no replay. Watch never issues a probe.
@@ -641,11 +839,16 @@ def campaign(
     stays explicitly configured, including after a failure or interruption;
     the harness never sends cleanup or recovery commands behind the operator.
     """
+    if mode == "typed-read":
+        if type(count) is not int or count != 1 or interval_s != 0 or load is not None or read_command != "probe":
+            raise ValueError("typed-read is one explicit configuration/identity scenario")
+        typed_read_campaign(console, kind=typed_kind, timeout_s=timeout_s, address=address)
+        return
     if mode not in {"probe", "capture-read", "stress", "watch", "load"}:
         raise ValueError("unknown campaign mode")
     if mode == "capture-read":
         read_command = "capture-read"
-    if read_command not in READ_COMMANDS or (read_command != "probe" and mode not in ("capture-read", "load")):
+    if read_command not in ("probe", "capture-read") or (read_command != "probe" and mode not in ("capture-read", "load")):
         raise ValueError("capture-read requires its named campaign or load mode")
     if type(count) is not int or not 1 <= count <= 1_000_000 or (mode in READ_COMMANDS and count != 1):
         raise ValueError("invalid campaign count")
@@ -719,6 +922,53 @@ def campaign(
                      ok=failure is None and completed == count, error=failure)
 
 
+def typed_read_campaign(console: Console, *, kind: str, timeout_s: float, address: int) -> None:
+    """One reviewed read per selected kind, retained inspection, explicit release.
+
+    A missing/malformed response ends the session without retry or recovery.
+    Inspection does not refresh observations, change settings or send motor traffic.
+    """
+    if kind not in ("identity", "config", "both"):
+        raise ValueError("typed read kind must be identity, config or both")
+    positive(timeout_s, "command timeout")
+    if type(address) is not int or not 1 <= address <= 247:
+        raise ValueError("ESS read address must be within 1..247")
+    kinds = ("identity", "config") if kind == "both" else (kind,)
+    attempted = completed = 0
+    failure = None
+    try:
+        successful(console, "caps", timeout_s)
+        successful(console, "stats", timeout_s)
+        for selected in kinds:
+            attempted += 1
+            handle = console.begin("read-" + selected, timeout_s=timeout_s, address=address)
+            terminal = console.wait(handle)
+            if not terminal["ok"]:
+                raise BenchError(f"typed {selected} failed: {terminal.get('outcome', terminal.get('result'))}")
+            # Each control uses the same remaining host budget; diagnostic queries
+            # cannot renew the original operation's deadline.
+            remaining = handle.deadline - console.clock()
+            positive(remaining, "remaining typed-read inspection budget")
+            inspected = console.command("result", operation_id=handle.operation_id, timeout_s=remaining)
+            if not inspected["ok"]:
+                raise BenchError("typed read retained inspection was rejected")
+            remaining = handle.deadline - console.clock()
+            positive(remaining, "remaining typed-read release budget")
+            released = console.command("release", operation_id=handle.operation_id, timeout_s=remaining)
+            if not released["ok"]:
+                raise BenchError("explicit typed read release was rejected")
+            completed += 1
+        for command in ("status", "health", "memory", "drv", "stats"):
+            successful(console, command, timeout_s)
+    except Exception as exc:
+        failure = str(exc)
+        raise
+    finally:
+        console.emit("summary", mode="typed-read", read_kind=kind, reads_attempted=attempted,
+                     reads_passed=completed, reads_failed=attempted - completed,
+                     ok=failure is None and completed == len(kinds), error=failure)
+
+
 def open_port(name: str, baud: int, timeout_s: float):
     try:
         import serial
@@ -748,6 +998,8 @@ def arguments(argv: list[str] | None) -> argparse.Namespace:
     sub = parser.add_subparsers(dest="mode", required=True)
     sub.add_parser("probe", help="one model-register read and cached observations")
     sub.add_parser("capture-read", help="one fixed 0x0130/16-word timing-fixture read")
+    typed = sub.add_parser("typed-read", help="typed identity/configuration reads, retained inspection and release")
+    typed.add_argument("--kind", choices=("identity", "config", "both"), default="both")
     for mode, default_count, default_interval, description in (
         ("stress", 100, 0.1, "explicit repeated probes"),
         ("watch", 60, 1.0, "cached status/health/memory only; no motor traffic"),
@@ -806,6 +1058,7 @@ def main(argv: list[str] | None = None) -> int:
                 console.identify(timeout_s=args.timeout)
                 campaign(console, args.mode, count=args.count, interval_s=args.interval,
                          timeout_s=args.timeout, address=args.address, load=args.load,
+                         typed_kind=getattr(args, "kind", "both"),
                          read_command="capture-read" if getattr(args, "capture_read", False) else "probe")
             except (Exception, KeyboardInterrupt) as exc:
                 evidence("failure", error=str(exc) or "interrupted", ok=False)

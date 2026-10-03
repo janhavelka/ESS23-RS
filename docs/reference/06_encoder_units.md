@@ -167,3 +167,9 @@ messages are static; the module uses no heap, UART, platform framework, clock,
 logging or persistent storage. Native tests exercise dimensions, gear/encoder
 bases, signs, configuration failures, precision limits and exact integer
 boundaries. Software tests are separate from unperformed motor qualification.
+
+## Current configuration readback (2026-10-04)
+
+[Prompt 05](../reports/ess_release_05_2026-10-04.md) read the configuration through the typed public API on COM13. The raw subdivision is 1000 and configured encoder resolution is 4000. These supersede the earlier statement that the active raw subdivision had not been read; its physical command-unit interpretation remains SCALE_UNRESOLVED. The defaults helper deliberately remains labelled ASSUMED. `getConfig` supplies only the nonzero configured encoder scale as READBACK metadata, with remaining unit fields unknown. No encoder IC/manufacturer, physical resolution, shaft accuracy or external encoder interface has been identified.
+
+The observed algorithm code is 3, outside the reviewed documented 1/2 enum. It is retained raw with `algorithmKnown=false`; neither a guessed third algorithm nor motion readiness is inferred. Model 0x4EEA and firmware raw0x0029 remain unmapped. Missing label/firmware identification and input-level evidence remain explicit motion prerequisites. No motor setting changed.

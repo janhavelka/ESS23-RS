@@ -3,13 +3,14 @@
 #include "MotorControlRS/Version.h"
 
 #include <cstdio>
+#include <cstdarg>
 #include <cstring>
 #include <limits>
 
 namespace MotorControlRSExample { namespace Probe {
 namespace {
 
-enum class Command : uint8_t { HELP, VERSION, CONFIG, STATUS, HEALTH, STATS, PROBE, CAPTURE_READ, RECOVER, RESET, MEMORY, LOAD, DRV, RESULT, CANCEL, RELEASE };
+enum class Command : uint8_t { HELP, VERSION, CONFIG, STATUS, HEALTH, STATS, PROBE, CAPTURE_READ, RECOVER, RESET, MEMORY, LOAD, DRV, RESULT, CANCEL, RELEASE, READ, PROFILE, CAPS, READ_IDENTITY, READ_CONFIG };
 struct Entry { const char* name; Command command; const char* syntax; const char* effect; bool bus; };
 const Entry COMMANDS[] = {
     {"help", Command::HELP, "help [command]", "show_callable_commands", false},
@@ -23,6 +24,9 @@ const Entry COMMANDS[] = {
     {"probe", Command::PROBE, "probe [address]", "read_model_word_only", true},
     {"ping", Command::PROBE, "ping [address]", "read_model_word_only", true},
     {"capture-read", Command::CAPTURE_READ, "capture-read [address]", "read_0x0130_16_words_for_capture_qualification", true},
+    {"read", Command::READ, "read identity|config [address]", "checked_nonchanging_read", true},
+    {"profile", Command::PROFILE, "profile ess_rs identity|config [address] | profile ess_rs caps", "checked_profile_reads_and_capabilities", true},
+    {"caps", Command::CAPS, "caps", "show_public_read_capabilities", false},
     {"recover", Command::RECOVER, "recover", "recover_host_transport_only", false},
     {"reset", Command::RESET, "reset", "clear_host_counters_only", false},
     {"memory", Command::MEMORY, "memory", "show_cached_memory", false},
@@ -32,6 +36,37 @@ const Entry COMMANDS[] = {
     {"cancel", Command::CANCEL, "cancel [operation_id]", "cancel_local_work_not_motor_stop", false},
     {"release", Command::RELEASE, "release operation_id", "release_retained_terminal_result", false}
 };
+const Entry IDENTITY_ENTRY = {"read-identity", Command::READ_IDENTITY, "read identity [address]", "checked_identity_read", true};
+const Entry CONFIG_ENTRY = {"read-config", Command::READ_CONFIG, "read config [address]", "checked_configuration_read", true};
+namespace Ess = MotorControlRS::ESS_RS;
+
+const char* readName(Ess::ReadKind kind) { return kind == Ess::ReadKind::IDENTITY ? "identity" : "config"; }
+const char* readCommandName(Ess::ReadKind kind) { return kind == Ess::ReadKind::IDENTITY ? "read-identity" : "read-config"; }
+const char* readState(MotorControlRS::ReadState state) {
+    switch (state) { case MotorControlRS::ReadState::EMPTY: return "empty";
+    case MotorControlRS::ReadState::ACTIVE: return "active";
+    case MotorControlRS::ReadState::SUCCEEDED: return "succeeded";
+    case MotorControlRS::ReadState::FAILED: return "failed"; } return "unknown";
+}
+const char* readOutcome(MotorControlRS::ReadOutcome outcome) {
+    switch (outcome) { case MotorControlRS::ReadOutcome::NONE: return "none";
+    case MotorControlRS::ReadOutcome::SUCCESS: return "success";
+    case MotorControlRS::ReadOutcome::REPLY_ERROR: return "reply_error";
+    case MotorControlRS::ReadOutcome::TRANSPORT_ERROR: return "transport_error";
+    case MotorControlRS::ReadOutcome::CANCELLED: return "cancelled";
+    case MotorControlRS::ReadOutcome::DEADLINE: return "deadline";
+    case MotorControlRS::ReadOutcome::TIMING_UNQUALIFIED: return "timing_unqualified"; } return "unknown";
+}
+
+// Append complete fragments or fail; never publish truncated JSON.
+bool append(char* output, std::size_t capacity, std::size_t& used, const char* format, ...) {
+    if (used >= capacity) return false;
+    va_list arguments; va_start(arguments, format);
+    const int written = std::vsnprintf(output + used, capacity - used, format, arguments);
+    va_end(arguments);
+    if (written < 0 || static_cast<std::size_t>(written) >= capacity - used) return false;
+    used += static_cast<std::size_t>(written); return true;
+}
 
 const Entry* find(const char* name) {
     for (const Entry& entry : COMMANDS) if (std::strcmp(name, entry.name) == 0) return &entry;
@@ -137,11 +172,12 @@ void Console::error(uint32_t id, const char* command, const char* reason) noexce
 }
 
 void Console::action(uint32_t id, const char* command, Action result, uint8_t address, uint32_t operationId) noexcept {
+    const bool typed = std::strcmp(command, "read-identity") == 0 || std::strcmp(command, "read-config") == 0;
     std::snprintf(output_, sizeof(output_),
-        "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"%s\",\"ok\":%s,\"result\":\"%s\",\"address\":%u,\"operation_id\":%lu}",
+        "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"%s\",\"ok\":%s,\"result\":\"%s\",\"address\":%u,\"operation_id\":%lu%s}",
         static_cast<unsigned long>(id), command, boolean(result == Action::OK),
-        result == Action::OK && (std::strcmp(command, "probe") != 0 && std::strcmp(command, "capture-read") != 0 && std::strcmp(command, "recover") != 0) ? "done" : actionName(result), address,
-        static_cast<unsigned long>(operationId));
+        result == Action::OK && !typed && (std::strcmp(command, "probe") != 0 && std::strcmp(command, "capture-read") != 0 && std::strcmp(command, "recover") != 0) ? "done" : actionName(result), address,
+        static_cast<unsigned long>(operationId), typed ? (std::strcmp(command, "read-identity") == 0 ? ",\"read_kind\":\"identity\"" : ",\"read_kind\":\"config\"") : "");
     emit();
 }
 
@@ -163,7 +199,7 @@ void Console::feed(char value) noexcept {
 }
 
 void Console::dispatch() noexcept {
-    char* tokens[5] = {}; // Optional @id, command, and three fixture values.
+    char* tokens[6] = {}; // Optional @id, profile/kind routing and bounded arguments.
     std::size_t count = 0;
     char* next = line_;
     while (*next) {
@@ -192,10 +228,25 @@ void Console::dispatch() noexcept {
     if (outputPending_ && entry->command != Command::CANCEL) { ++inputDropped_; return; }
     // The asynchronous terminal event uses the canonical probe name too.
     if (entry->command == Command::PROBE) entry = find("probe");
+    const bool profileRoute = entry->command == Command::PROFILE;
+    if (entry->command == Command::READ || entry->command == Command::PROFILE) {
+        std::size_t kind = first + 1;
+        if (entry->command == Command::PROFILE) {
+            if (kind >= count || std::strcmp(tokens[kind], "ess_rs") != 0) { error(id, "profile", "invalid_profile"); return; }
+            ++kind;
+        }
+        if (kind >= count) { error(id, entry->name, "invalid_arguments"); return; }
+        if (std::strcmp(tokens[kind], "identity") == 0) entry = &IDENTITY_ENTRY;
+        else if (std::strcmp(tokens[kind], "config") == 0) entry = &CONFIG_ENTRY;
+        else if (entry->command == Command::PROFILE && std::strcmp(tokens[kind], "caps") == 0) entry = find("caps");
+        else { error(id, entry->name, "invalid_arguments"); return; }
+        first = kind;
+    }
     const std::size_t args = count - first - 1;
     const char* arg = args ? tokens[first + 1] : nullptr;
     const bool loadCommand = entry->command == Command::LOAD;
-    const bool readCommand = entry->command == Command::PROBE || entry->command == Command::CAPTURE_READ;
+    const bool typedCommand = entry->command == Command::READ_IDENTITY || entry->command == Command::READ_CONFIG;
+    const bool readCommand = entry->command == Command::PROBE || entry->command == Command::CAPTURE_READ || typedCommand;
     const bool optionalArg = entry->command == Command::HELP ||
         entry->command == Command::STATS || readCommand ||
         entry->command == Command::RESULT || entry->command == Command::CANCEL;
@@ -240,13 +291,14 @@ void Console::dispatch() noexcept {
         switch (c) {
         case Command::LOAD: return host_.load != nullptr;
         case Command::CAPTURE_READ: return host_.startCaptureRead != nullptr;
+        case Command::READ: case Command::PROFILE: case Command::READ_IDENTITY: case Command::READ_CONFIG: return host_.startTypedRead != nullptr;
         case Command::RESULT: return host_.result != nullptr;
         case Command::CANCEL: return host_.cancel != nullptr;
         case Command::RELEASE: return host_.release != nullptr;
         default: return true;
         }
     };
-    if (!callable(entry->command) || (described && !callable(described->command))) {
+    if (!callable(entry->command) || (profileRoute && !host_.startTypedRead) || (described && !callable(described->command))) {
         error(id, entry->name, "unavailable"); return;
     }
     if (entry->command == Command::HELP) {
@@ -279,6 +331,13 @@ void Console::dispatch() noexcept {
             static_cast<unsigned long>(id), entry->name, MotorControlRS::VERSION, static_cast<unsigned>(OUTSTANDING_CAPACITY));
         emit(); return;
     }
+    if (entry->command == Command::CAPS) {
+        const auto caps = Ess::readCapabilities();
+        std::snprintf(output_, sizeof(output_),
+            "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"caps\",\"ok\":true,\"probe\":%s,\"identity\":%s,\"config\":%s,\"max_steps\":%u,\"max_reply_bytes\":%u,\"writes\":false,\"motion\":false}",
+            static_cast<unsigned long>(id), boolean(caps.probe), boolean(caps.identity), boolean(caps.config), caps.maxSteps, caps.maxReplyBytes);
+        emit(); return;
+    }
     if (entry->command == Command::RESET || (entry->command == Command::STATS && arg)) {
         host_.resetStats(host_.context); action(id, entry->name, Action::OK); return;
     }
@@ -299,11 +358,13 @@ void Console::dispatch() noexcept {
         if (!host_.result(host_.context, operationId, view)) { error(id, entry->name, "unavailable"); return; }
         if (view.pending) {
             std::snprintf(output_, sizeof(output_),
-                "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"result\",\"command_id\":%lu,\"operation_id\":%lu,\"ok\":true,\"result\":\"pending\",\"recovery\":%s,\"capture_read\":%s}",
+                "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"result\",\"command_id\":%lu,\"operation_id\":%lu,\"ok\":true,\"result\":\"pending\",\"recovery\":%s,\"capture_read\":%s,\"read_kind\":%s}",
                 static_cast<unsigned long>(id), static_cast<unsigned long>(view.commandId),
-                static_cast<unsigned long>(view.operationId), boolean(view.recovery), boolean(view.captureRead));
+                static_cast<unsigned long>(view.operationId), boolean(view.recovery), boolean(view.captureRead),
+                !view.typedRead ? "null" : view.typedRead->kind == Ess::ReadKind::IDENTITY ? "\"identity\"" : "\"config\"");
             emit();
-        } else if (view.recovery) formatRecovery(id, view.commandId, view.operationId, view.recoveryResult, true);
+        } else if (view.typedRead) formatRead(id, view.commandId, view.operationId, *view.typedRead, true);
+        else if (view.recovery) formatRecovery(id, view.commandId, view.operationId, view.recoveryResult, true);
         else formatProbe(id, view.commandId, view.address, view.operationId, view.probe, true);
         return;
     }
@@ -343,7 +404,9 @@ void Console::dispatch() noexcept {
         std::size_t occupied = 0; for (const auto& item : outstanding_) occupied += item.commandId != 0;
         if (occupied == OUTSTANDING_CAPACITY) { action(id, entry->name, Action::BUSY); return; }
         const auto start = entry->command == Command::CAPTURE_READ ? host_.startCaptureRead : host_.startProbe;
-        const Action result = start(host_.context, id, static_cast<uint8_t>(address), operationId);
+        const Action result = typedCommand ? host_.startTypedRead(host_.context, id, static_cast<uint8_t>(address),
+            entry->command == Command::READ_IDENTITY ? Ess::ReadKind::IDENTITY : Ess::ReadKind::CONFIG, operationId) :
+            start(host_.context, id, static_cast<uint8_t>(address), operationId);
         if (result == Action::OK) track(id, operationId);
         action(id, entry->name, result, static_cast<uint8_t>(address), result == Action::OK ? operationId : 0);
         return;
@@ -378,12 +441,15 @@ void Console::dispatch() noexcept {
     }
     case Command::CONFIG:
         std::snprintf(output_, sizeof(output_),
-            "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"%s\",\"ok\":true,\"address\":%u,\"baud\":%lu,\"format\":\"8N1\",\"response_timeout_us\":%lu,\"reply_gap_us\":%lu,\"gap15_us\":%lu,\"gap35_us\":%lu,\"stale_after_ms\":%lu,\"ready\":%s,\"timing_qualified\":%s,\"device_settings\":\"unknown\",\"cache_off_supported\":%s,\"sample_gap_limit_us\":%lu}",
+            "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"%s\",\"ok\":true,\"address\":%u,\"baud\":%lu,\"format\":\"8N1\",\"response_timeout_us\":%lu,\"reply_gap_us\":%lu,\"gap15_us\":%lu,\"gap35_us\":%lu,\"stale_after_ms\":%lu,\"ready\":%s,\"timing_qualified\":%s,\"device_settings\":\"%s\",\"cache_off_supported\":%s,\"sample_gap_limit_us\":%lu,\"cached_identity_id\":%lu,\"cached_identity_address\":%u,\"cached_identity_generation\":%lu,\"cached_config_id\":%lu,\"cached_config_address\":%u,\"cached_config_generation\":%lu,\"binding_generation\":%lu}",
             static_cast<unsigned long>(id), entry->name, data.address, static_cast<unsigned long>(data.baud),
             static_cast<unsigned long>(data.responseTimeoutUs), static_cast<unsigned long>(data.replyGapUs),
             static_cast<unsigned long>(data.gap15Us), static_cast<unsigned long>(data.gap35Us),
             static_cast<unsigned long>(data.staleAfterMs), boolean(data.ready), boolean(data.timingQualified),
-            boolean(data.cacheOffSupported), static_cast<unsigned long>(data.sampleGapLimitUs));
+            data.cachedConfigId ? "cached" : "unknown", boolean(data.cacheOffSupported), static_cast<unsigned long>(data.sampleGapLimitUs),
+            static_cast<unsigned long>(data.cachedIdentityId), data.cachedIdentityAddress, static_cast<unsigned long>(data.cachedIdentityGeneration),
+            static_cast<unsigned long>(data.cachedConfigId), data.cachedConfigAddress, static_cast<unsigned long>(data.cachedConfigGeneration),
+            static_cast<unsigned long>(data.bindingGeneration));
         break;
     case Command::STATUS:
         std::snprintf(output_, sizeof(output_),
@@ -476,6 +542,84 @@ bool Console::reportRecovery(uint32_t id, uint32_t operationId, const Rtu::Recov
         return formatRecovery(id, id, operationId, result, false);
     }
     return false;
+}
+
+bool Console::reportRead(uint32_t id, uint32_t operationId, const Ess::ReadContext& context) noexcept {
+    if (outputPending_ || context.operationId != operationId ||
+        (context.state != MotorControlRS::ReadState::SUCCEEDED && context.state != MotorControlRS::ReadState::FAILED)) return false;
+    for (auto& item : outstanding_) if (item.commandId == id && item.operationId == operationId && !item.transferred) {
+        item.transferred = true;
+        return formatRead(id, id, operationId, context, false);
+    }
+    return false;
+}
+
+bool Console::formatRead(uint32_t id, uint32_t commandId, uint32_t operationId,
+                         const Ess::ReadContext& context, bool inspection) noexcept {
+    std::size_t used = 0;
+    const bool identity = context.kind == Ess::ReadKind::IDENTITY;
+    const bool decoded = context.state == MotorControlRS::ReadState::SUCCEEDED &&
+        (identity ? Ess::getIdentity(context, identityView_) : Ess::getConfig(context, configView_)).isOk();
+    bool fits = append(output_, sizeof(output_), used,
+        "{\"type\":\"%s\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"%s\",\"command_id\":%lu,\"operation_id\":%lu,\"read_kind\":\"%s\",\"ok\":%s,\"state\":\"%s\",\"outcome\":\"%s\",\"status\":\"%s\",\"detail\":%ld,\"target\":%lu,\"address\":%u,\"generation\":%lu,\"started_us\":%llu,\"deadline_us\":%llu,\"serviced_us\":%llu,\"completed_steps\":%u,\"active_serial\":{\"known\":%s,\"baud\":%lu,\"data_bits\":%u,\"parity\":%u,\"stop_bits\":%u},\"%s\":",
+        inspection ? "reply" : "read", static_cast<unsigned long>(id), inspection ? "result" : readCommandName(context.kind),
+        static_cast<unsigned long>(commandId), static_cast<unsigned long>(operationId), readName(context.kind), boolean(decoded),
+        readState(context.state), readOutcome(context.outcome), MotorControlRS::errToString(context.status.code), static_cast<long>(context.status.detail),
+        static_cast<unsigned long>(context.target.id), context.target.address, static_cast<unsigned long>(context.target.generation),
+        static_cast<unsigned long long>(context.startedUs), static_cast<unsigned long long>(context.deadlineUs),
+        static_cast<unsigned long long>(context.servicedUs), context.completedSteps, boolean(context.activeSerial.known),
+        static_cast<unsigned long>(context.activeSerial.baud), context.activeSerial.dataBits, static_cast<unsigned>(context.activeSerial.parity),
+        context.activeSerial.stopBits, readName(context.kind));
+    if (!decoded) fits = fits && append(output_, sizeof(output_), used, "null");
+    else if (identity) {
+        const auto& v = identityView_;
+        fits = fits && append(output_, sizeof(output_), used,
+            "{\"raw_model\":%u,\"raw_version\":%u,\"raw_active_node\":%u,\"raw_dip\":%u,\"active_node_known\":%s,\"active_node\":%u,\"model_resolution\":%u,\"version_resolution\":%u,\"dip_resolution\":%u,\"dip_issues\":%lu,\"model\":\"mapping_unresolved\",\"firmware\":\"mapping_unresolved\",\"dip\":\"mapping_conflict_unresolved\"}",
+            v.rawModel, v.rawVersion, v.rawActiveNode, v.rawDip, boolean(v.activeNodeKnown), v.activeNode,
+            static_cast<unsigned>(v.modelResolution), static_cast<unsigned>(v.versionResolution), static_cast<unsigned>(v.dipResolution),
+            static_cast<unsigned long>(v.dipIssues));
+    } else {
+        const auto& v = configView_; const auto& raw = v.raw;
+        fits = fits && append(output_, sizeof(output_), used,
+            "{\"raw\":{\"direction\":%u,\"subdivision\":%u,\"custom_node\":%u,\"baud\":%u,\"format\":%u,\"over_limit_stop\":%u,\"soft_limit_enable\":%u,\"word_order\":%u,\"input_polarity\":%u,\"algorithm\":%u,\"encoder_resolution\":%u},\"known\":{\"direction\":%s,\"baud\":%s,\"format\":%s,\"over_limit_stop\":%s,\"soft_limit_enable\":%s,\"word_order\":%s,\"algorithm\":%s},\"unknown_polarity_bits\":%u,\"subdivision_resolution\":%u,\"encoder_resolution\":%u,\"subdivision_issues\":%lu,\"custom_node_issues\":%lu,\"over_limit_stop_issues\":%lu,\"soft_limit_issues\":%lu,\"encoder_scale_source\":%u,\"inputs\":[",
+            raw.direction, raw.subdivision, raw.customNode, raw.baud, raw.format, raw.overLimitStop, raw.softLimitEnable,
+            raw.wordOrder, raw.inputPolarity, raw.algorithm, raw.encoderResolution, boolean(v.directionKnown), boolean(v.baudKnown),
+            boolean(v.formatKnown), boolean(v.overLimitStopKnown), boolean(v.softLimitEnableKnown), boolean(v.wordOrderKnown),
+            boolean(v.algorithmKnown), v.unknownPolarityBits, static_cast<unsigned>(v.subdivisionResolution), static_cast<unsigned>(v.encoderResolution),
+            static_cast<unsigned long>(v.subdivisionIssues), static_cast<unsigned long>(v.customNodeIssues),
+            static_cast<unsigned long>(v.overLimitStopIssues), static_cast<unsigned long>(v.softLimitIssues),
+            static_cast<unsigned>(v.units.encoder.countsPerUnit.source));
+        for (std::size_t i = 0; i < Ess::READ_INPUT_COUNT && fits; ++i)
+            fits = append(output_, sizeof(output_), used,
+                "%s{\"function\":%u,\"known\":%s,\"inverted\":%s,\"wiring\":%u,\"level_known\":%s,\"level\":null}",
+                i ? "," : "", raw.inputFunctions[i], boolean(v.inputFunctionKnown[i]), boolean(v.inputInverted[i]),
+                static_cast<unsigned>(v.wiring[i]), boolean(v.inputLevelKnown[i]));
+        fits = fits && append(output_, sizeof(output_), used,
+            "],\"stored_serial\":{\"baud_code\":%u,\"format_code\":%u,\"activation\":\"power_cycle_required\"},\"units\":\"command_scale_unresolved_encoder_readback_only\"}", raw.baud, raw.format);
+    }
+    fits = fits && append(output_, sizeof(output_), used, ",\"steps\":[");
+    bool firstStep = true;
+    for (std::size_t i = 0; i < Ess::READ_MAX_STEPS && fits; ++i) {
+        const auto& v = context.observations[i];
+        if (!v.count) continue; // Failed evidence does not increment completedSteps.
+        uint8_t tx[Ess::READ_REQUEST_LEN]; char txHex[Ess::READ_REQUEST_LEN * 2 + 1], rxHex[Ess::READ_MAX_REPLY_BYTES * 2 + 1];
+        const auto txLength = Ess::buildReadRegisters(context.target.address, v.first, v.count, tx, sizeof(tx));
+        hex(tx, txLength, txHex, sizeof(txHex)); hex(v.raw, v.length, rxHex, sizeof(rxHex));
+        fits = append(output_, sizeof(output_), used,
+            "%s{\"step\":%u,\"first\":%u,\"count\":%u,\"event\":%u,\"status\":\"%s\",\"detail\":%ld,\"frame_error\":%u,\"qualified\":%s,\"earliest_us\":%llu,\"latest_us\":%llu,\"delivered_us\":%llu,\"tx\":\"%s\",\"rx\":\"%s\",\"received_length\":%u,\"tx_accepted\":%u,\"execution_unknown\":%s,\"transport_detail\":%ld}",
+            firstStep ? "" : ",", static_cast<unsigned>(i), v.first, v.count, static_cast<unsigned>(v.event),
+            MotorControlRS::errToString(v.status.code), static_cast<long>(v.status.detail), static_cast<unsigned>(v.frameError), boolean(v.qualified),
+            static_cast<unsigned long long>(v.earliestUs), static_cast<unsigned long long>(v.latestUs), static_cast<unsigned long long>(v.deliveredUs),
+            txHex, rxHex, static_cast<unsigned>(v.receivedLength), static_cast<unsigned>(v.txAccepted), boolean(v.executionUnknown), static_cast<long>(v.transportDetail));
+        firstStep = false;
+    }
+    fits = fits && append(output_, sizeof(output_), used, "]}");
+    if (!fits) {
+        error(id, inspection ? "result" : readCommandName(context.kind), "output_full");
+        if (!inspection) { if (outputPending_) pendingTerminalOperation_ = operationId; else untrack(operationId); }
+        return true;
+    }
+    emit(inspection ? 0 : operationId); return true;
 }
 
 bool Console::formatRecovery(uint32_t id, uint32_t commandId, uint32_t operationId,

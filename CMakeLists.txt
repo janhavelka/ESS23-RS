@@ -3,7 +3,8 @@ cmake_minimum_required(VERSION 3.16)
 set(MOTORCONTROLRS_SOURCES
     "src/Units.cpp"
     "src/profiles/ess_rs/Registers.cpp"
-    "src/profiles/ess_rs/Codec.cpp")
+    "src/profiles/ess_rs/Codec.cpp"
+    "src/profiles/ess_rs/Reads.cpp")
 
 # ESP-IDF component consumption requires no Arduino or FieldCore dependency.
 if(COMMAND idf_component_register)
@@ -35,7 +36,7 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     include(CTest)
     # Distributed source packages contain the core; repository tests stay here.
     if(BUILD_TESTING AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/test/units_test.cpp")
-        foreach(suite units registers codec runner bus_owner bus_scheduling probe_console esp32_uart probe_app capture_service)
+        foreach(suite units registers codec reads runner bus_owner bus_scheduling probe_console esp32_uart probe_app capture_service)
             add_executable(${suite}_test "test/${suite}_test.cpp")
             target_link_libraries(${suite}_test PRIVATE MotorControlRS)
             set_target_properties(${suite}_test PROPERTIES
@@ -91,6 +92,10 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
                 ${CMAKE_CURRENT_SOURCE_DIR}/test/generator_test.py)
             add_test(NAME bench_probe COMMAND ${Python3_EXECUTABLE}
                 ${CMAKE_CURRENT_SOURCE_DIR}/test/bench_probe_test.py)
+            add_test(NAME operations_inventory COMMAND ${Python3_EXECUTABLE}
+                ${CMAKE_CURRENT_SOURCE_DIR}/scripts/check_ess_operations.py)
+            add_test(NAME operations_inventory_failures COMMAND ${Python3_EXECUTABLE}
+                ${CMAKE_CURRENT_SOURCE_DIR}/test/operations_inventory_test.py)
         endif()
     endif()
 endif()

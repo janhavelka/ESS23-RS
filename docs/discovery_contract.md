@@ -1,11 +1,12 @@
 # Drive discovery and non-changing probes
 
+Prompt 05 implements the bounded [typed identity/configuration read API](ess_reads.md), common/profile read routes and minimal read capabilities. The [linked inventory](reference/ess_rs_operations.json) keeps read/write/action and native/hardware evidence separate. Model/firmware compatibility, state and motion remain unqualified; these reads perform no writes.
+
 Discovery and a minimal non-changing presence probe are required design
 considerations for every supported drive profile and manufacturer grouping.
 This contract defines the public API and standalone CLI design. The ESS raw
 probe codec and [read-only probe CLI](esp32_probe.md) are implemented, with bench
-response evidence. Common operation preparation, scans, full identity reads
-and exact-model/non-changing qualification remain future work.
+response evidence. Typed ESS identity preparation/decoding is implemented; scans, common discovery orchestration and exact-model qualification remain future work.
 
 The [axis API](axis_contract.md) exposes the common operations, the
 [profile contract](profile_contract.md) records per-device evidence, and the

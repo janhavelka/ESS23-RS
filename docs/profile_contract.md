@@ -1,12 +1,13 @@
 # Drive profile and complete native API contract
 
+Prompt 05 implements the bounded [typed identity/configuration read API](ess_reads.md), common/profile read routes and minimal read capabilities. The [linked inventory](reference/ess_rs_operations.json) keeps read/write/action and native/hardware evidence separate. Model/firmware compatibility, state and motion remain unqualified; these reads perform no writes.
+
 This is the accepted profile-layer design for `MotorControlRS`. It specifies how
 each selected drive exposes its complete documented functionality alongside
 the [common axis API](axis_contract.md). The first implementation supplies the
 [ESS register catalogue](reference/05_ess_register_catalog.md), generated C++
 descriptors and native enums. Checked raw ESS codecs and a minimal probe are
-also implemented, with limited read-only bench evidence. Typed commands,
-sequencing and broader hardware qualification remain future work.
+also implemented, with limited read-only bench evidence. Typed identity/configuration reads are implemented; action sequencing and broader hardware qualification remain future work.
 ESS-RS is the first target; Leadshine iEM-RS
 is a contrasting design case whose concrete model and firmware still require
 selection.

@@ -3,18 +3,19 @@
 
 #include "../common/RtuBusOwner.h"
 #include "MotorControlRS/profiles/ess_rs/Codec.h"
+#include "MotorControlRS/profiles/ess_rs/Reads.h"
 
 namespace MotorControlRSExample { namespace Probe {
 
 constexpr std::size_t LINE_CAPACITY = 96;
-constexpr std::size_t OUTPUT_CAPACITY = 1536;
+constexpr std::size_t OUTPUT_CAPACITY = 4096;
 constexpr std::size_t OUTSTANDING_CAPACITY = 9;
 constexpr std::size_t PROBE_TX_CAPACITY = 8;
 constexpr std::size_t PROBE_RX_CAPACITY = 64;
 // Fixed non-consuming FC03 timing fixture; function manual physical p77.
 constexpr uint16_t CAPTURE_FIRST = 0x0130, CAPTURE_WORDS = 16;
 
-/** Host action result; admitted probe and recovery complete asynchronously. */
+/** Host action result; admitted reads and recovery complete asynchronously. */
 enum class Action : uint8_t { OK, BUSY, RECOVERY_REQUIRED, UNAVAILABLE, FAILED,
     QUEUE_FULL, RESULTS_FULL, IDS_EXHAUSTED, INVALID, ALREADY_TERMINAL };
 
@@ -74,6 +75,9 @@ struct Snapshot {
     uint32_t sampleGapLimitUs = 0;
     uint32_t readBudget = Rtu::READ_BUDGET;
     uint32_t operationId = 0;
+    uint32_t cachedIdentityId = 0, cachedConfigId = 0;
+    uint8_t cachedIdentityAddress = 0, cachedConfigAddress = 0;
+    uint32_t cachedIdentityGeneration = 0, cachedConfigGeneration = 0, bindingGeneration = 0;
     std::size_t pending = 0, retained = 0, reserved = 0;
     std::size_t pendingCapacity = 0, resultCapacity = 0, outstandingCapacity = OUTSTANDING_CAPACITY;
     std::size_t outputQueued = 0;
@@ -113,6 +117,7 @@ struct ResultView {
     uint32_t commandId = 0, operationId = 0;
     uint8_t address = 0;
     bool pending = false, recovery = false, captureRead = false;
+    const MotorControlRS::ESS_RS::ReadContext* typedRead = nullptr; ///< Borrowed only during formatting.
     ProbeResult probe;
     Rtu::RecoveryResult recoveryResult;
 };
@@ -126,7 +131,9 @@ struct ResultView {
  * remain retained and are never replaced by a discarded command reply.
  * snapshot only reads cached state and must not touch the
  * motor bus. startProbe admits exactly one built ESS model read; it must not call
- * reportProbe synchronously. Successful probe/recover admission publishes a
+ * reportProbe synchronously. startTypedRead prepares the public ESS operation
+ * and reports its terminal context with reportRead; borrowed result contexts
+ * remain valid for the synchronous result formatter only. Successful read/recover admission publishes a
  * unique nonzero operationId, distinct from command correlation, and exactly
  * one later terminal callback. recover affects the host only; resetStats clears
  * only local counters. The optional load callback changes/reads host fixture
@@ -143,6 +150,8 @@ struct Host {
     /** Optional fixed CAPTURE_FIRST/CAPTURE_WORDS timing read. Same retained
      * lifetime as startProbe; reports captureRead=true, never refreshes model. */
     Action (*startCaptureRead)(void*, uint32_t commandId, uint8_t address, uint32_t& operationId) = nullptr;
+    Action (*startTypedRead)(void*, uint32_t commandId, uint8_t address,
+                            MotorControlRS::ESS_RS::ReadKind, uint32_t& operationId) = nullptr;
     Action (*recover)(void*, uint32_t commandId, uint32_t& operationId) = nullptr;
     void (*resetStats)(void*) = nullptr;
     Action (*load)(void*, const LoadSettings* requested, LoadSnapshot&) = nullptr;
@@ -175,6 +184,9 @@ public:
      * A blocked sink retains exactly one line. Never retry a transferred result. */
     bool reportProbe(uint32_t id, uint8_t address, uint32_t operationId, const ProbeResult& result) noexcept;
     bool reportRecovery(uint32_t id, uint32_t operationId, const Rtu::RecoveryResult& result) noexcept;
+    /** Same transfer contract as reportProbe. Context is borrowed during this
+     * call only; operation identity and terminal state are checked before use. */
+    bool reportRead(uint32_t id, uint32_t operationId, const MotorControlRS::ESS_RS::ReadContext&) noexcept;
 
 private:
     void dispatch() noexcept;
@@ -188,11 +200,17 @@ private:
                      const ProbeResult&, bool inspection) noexcept;
     bool formatRecovery(uint32_t id, uint32_t commandId, uint32_t operationId,
                         const Rtu::RecoveryResult&, bool inspection) noexcept;
+    bool formatRead(uint32_t id, uint32_t commandId, uint32_t operationId,
+                    const MotorControlRS::ESS_RS::ReadContext&, bool inspection) noexcept;
 
     Host host_;
     char line_[LINE_CAPACITY] = {};
     char output_[OUTPUT_CAPACITY] = {};
     char pendingOutput_[OUTPUT_CAPACITY] = {};
+    // Checked decoder outputs stay in caller-owned task storage, never on a
+    // service stack. Only the selected kind is used during a bounded format.
+    MotorControlRS::ESS_RS::IdentityObservation identityView_;
+    MotorControlRS::ESS_RS::ConfigObservation configView_;
     std::size_t length_ = 0;
     uint32_t nextId_ = 1;
     struct Outstanding { uint32_t commandId = 0, operationId = 0; bool transferred = false; } outstanding_[OUTSTANDING_CAPACITY];

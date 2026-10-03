@@ -118,3 +118,5 @@ SHA-256 checksums.
 quick searching. Original PDFs remain the reference for tables and diagrams.
 These documents are reference material, not hardware qualification or a
 completed driver design.
+
+Typed identity and motion-prerequisite configuration reads are implemented through the installed public [read API](ess_reads.md). The standalone console exposes `read identity`, `read config`, `caps` and matching ESS profile routes. These are non-changing reads; exact-model, state and motion qualification remain separate.

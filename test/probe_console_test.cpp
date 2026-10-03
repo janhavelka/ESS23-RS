@@ -21,6 +21,8 @@ struct Fake {
     Probe::Action loadAction = Probe::Action::OK;
     unsigned snapshots = 0, probes = 0, recoveries = 0, resets = 0;
     unsigned loads = 0, loadChanges = 0;
+    unsigned typedReads = 0;
+    Ess::ReadKind typedKind = Ess::ReadKind::IDENTITY;
     uint32_t id = 0, nextOperation = 100;
     bool blocked = false;
     unsigned resultQueries = 0, cancellations = 0, releases = 0;
@@ -57,6 +59,13 @@ struct Fake {
         return self.recoverAction;
     }
     static void reset(void* context) { ++static_cast<Fake*>(context)->resets; }
+    static Probe::Action typedRead(void* context, uint32_t commandId, uint8_t address,
+                                  Ess::ReadKind kind, uint32_t& operation) {
+        Fake& self = *static_cast<Fake*>(context); ++self.typedReads;
+        self.typedKind = kind; self.id = commandId; self.address = address;
+        if (self.probeAction == Probe::Action::OK) operation = self.nextOperation++;
+        return self.probeAction;
+    }
     static Probe::Action load(void* context, const Probe::LoadSettings* requested,
                               Probe::LoadSnapshot& output) {
         Fake& self = *static_cast<Fake*>(context);
@@ -531,6 +540,114 @@ void testCaptureReadOptionalHookAndDiagnostics() {
     send(console, "stats\n"); fake.contains("\"sample_gap_exceeded\":true");
 }
 
+void sealTypedReply(uint8_t* frame, std::size_t length) {
+    uint16_t crc = 0xFFFF;
+    for (std::size_t i = 0; i < length - 2; ++i) {
+        crc ^= frame[i];
+        for (unsigned b = 0; b < 8; ++b) crc = (crc >> 1) ^ ((crc & 1) ? 0xA001 : 0);
+    }
+    frame[length - 2] = static_cast<uint8_t>(crc); frame[length - 1] = static_cast<uint8_t>(crc >> 8);
+}
+Ess::ReadContext typedContext(bool identity, uint32_t operation) {
+    Ess::ReadContext context;
+    MotorControlRS::ReadTarget target; target.id = UINT32_MAX; target.address = 247; target.generation = UINT32_MAX;
+    const uint64_t start = UINT64_MAX - 1000;
+    MotorControlRS::ActiveSerialTuple active;
+    active.known = true; active.baud = UINT32_MAX; active.dataBits = 8;
+    active.parity = MotorControlRS::SerialParity::ODD; active.stopBits = 2;
+    assert(identity ? Ess::prepareIdentity(context, target, operation, start, UINT64_MAX, active).isOk() :
+        Ess::prepareConfig(context, target, operation, start, UINT64_MAX, active).isOk());
+    return context;
+}
+void completeTypedStep(Ess::ReadContext& context, bool invalid = false) {
+    Ess::PreparedRead read; assert(Ess::nextRead(context, context.servicedUs, read));
+    uint8_t frame[Ess::READ_MAX_REPLY_BYTES] = {247, 3};
+    frame[2] = static_cast<uint8_t>(read.count * 2);
+    const std::size_t length = 5 + read.count * 2;
+    for (std::size_t i = 3; i < length - 2; ++i) frame[i] = 0xFF;
+    sealTypedReply(frame, length);
+    if (invalid) frame[length - 1] ^= 1;
+    MotorControlRS::ReadEvent event; event.target = context.target; event.operationId = context.operationId;
+    event.step = context.step; event.frame = frame; event.length = length; event.qualified = true;
+    event.earliestUs = context.servicedUs + 10; event.latestUs = context.servicedUs + 20; event.txAccepted = 8;
+    event.transportDetail = INT32_MIN;
+    assert(Ess::advanceRead(context, event, context.servicedUs + 30));
+}
+void testTypedRoutesAndValidation() {
+    Fake fake; auto host = fake.host(); host.startTypedRead = Fake::typedRead;
+    Probe::Console console(host);
+    send(console, "@1 read identity 247\n"); fake.contains("\"command\":\"read-identity\""); fake.contains("\"result\":\"accepted\"");
+    assert(fake.typedReads == 1 && fake.typedKind == Ess::ReadKind::IDENTITY && fake.address == 247);
+    send(console, "@2 profile ess_rs config 1\n"); fake.contains("\"command\":\"read-config\"");
+    assert(fake.typedReads == 2 && fake.typedKind == Ess::ReadKind::CONFIG && fake.address == 1);
+    send(console, "@3 read config\n"); assert(fake.typedReads == 3 && fake.address == fake.data.address);
+    const unsigned snapshots = fake.snapshots;
+    for (const char* bad : {"read", "read unknown", "read identity 0", "read config 248", "read config -1", "read config 1 extra", "profile", "profile unknown identity", "profile ess_rs", "profile ess_rs caps 1", "read-identity 1"})
+        send(console, std::string(bad) + "\n");
+    assert(fake.typedReads == 3 && fake.snapshots == snapshots && fake.probes == 0);
+    send(console, "caps\n"); fake.contains("\"identity\":true"); fake.contains("\"max_steps\":5");
+    send(console, "profile ess_rs caps\n"); fake.contains("\"command\":\"caps\"");
+    assert(fake.typedReads == 3 && fake.snapshots == snapshots);
+    send(console, "help read\n"); fake.contains("read identity|config [address]");
+    send(console, "help profile\n"); fake.contains("profile ess_rs caps");
+    fake.data.cachedIdentityId = 91; fake.data.cachedIdentityAddress = 4; fake.data.cachedIdentityGeneration = 2;
+    fake.data.cachedConfigId = 92; fake.data.cachedConfigAddress = 5; fake.data.cachedConfigGeneration = 3;
+    fake.data.bindingGeneration = 4;
+    send(console, "config\n"); fake.contains("\"device_settings\":\"cached\"");
+    fake.contains("\"cached_identity_id\":91,\"cached_identity_address\":4,\"cached_identity_generation\":2");
+    fake.contains("\"cached_config_id\":92,\"cached_config_address\":5,\"cached_config_generation\":3,\"binding_generation\":4");
+    Fake absent; Probe::Console noHook(absent.host());
+    send(noHook, "read identity\n"); absent.contains("unavailable"); absent.untouched();
+    send(noHook, "profile ess_rs caps\n"); absent.contains("unavailable"); absent.untouched();
+    send(noHook, "caps\n"); absent.contains("\"identity\":true"); absent.untouched();
+    send(noHook, "help\n"); assert(absent.lines.back().find("\"read\"") == std::string::npos);
+    assert(absent.lines.back().find(",\"profile\",") == std::string::npos);
+}
+void testTypedTerminalInspectionAndBound() {
+    Fake fake; auto host = fake.host(false, true); host.startTypedRead = Fake::typedRead;
+    Probe::Console console(host);
+    fake.nextOperation = UINT32_MAX;
+    send(console, "@4294967295 read config 247\n");
+    Ess::ReadContext context = typedContext(false, UINT32_MAX);
+    for (unsigned i = 0; i < 5; ++i) completeTypedStep(context);
+    assert(!console.reportRead(UINT32_MAX, 101, context));
+    assert(console.reportRead(UINT32_MAX, UINT32_MAX, context));
+    fake.contains("\"type\":\"read\""); fake.contains("\"config\":{\"raw\""); fake.contains("\"function\":65535,\"known\":false");
+    fake.contains("\"wiring\":0,\"level_known\":false,\"level\":null"); fake.contains("\"step\":4,\"first\":256,\"count\":2");
+    assert(fake.lines.back().size() < Probe::OUTPUT_CAPACITY);
+    std::printf("Maximum-width config line: %zu/%zu bytes\n", fake.lines.back().size(), Probe::OUTPUT_CAPACITY);
+    const std::string terminal = fake.lines.back();
+    assert(!console.reportRead(UINT32_MAX, UINT32_MAX, context));
+    fake.view.commandId = UINT32_MAX; fake.view.operationId = UINT32_MAX; fake.view.typedRead = &context;
+    send(console, "@8 result 4294967295\n");
+    assert(fake.lines.back().substr(fake.lines.back().find("\"command_id\"")) == terminal.substr(terminal.find("\"command_id\"")));
+    fake.view.pending = true; send(console, "@9 result 4294967295\n"); fake.contains("\"result\":\"pending\""); fake.contains("\"read_kind\":\"config\"");
+    fake.nextOperation = 101;
+    send(console, "@10 read identity 247\n");
+    auto failed = typedContext(true, 101); completeTypedStep(failed, true);
+    fake.blocked = true;
+    assert(console.reportRead(10, 101, failed)); assert(console.outputPending());
+    assert(!console.reportRead(10, 101, failed));
+    fake.blocked = false; assert(console.serviceOutput());
+    fake.contains("\"identity\":null"); fake.contains("\"completed_steps\":0"); fake.contains("\"step\":0,\"first\":0,\"count\":4");
+    fake.contains("\"outcome\":\"reply_error\""); fake.contains("\"rx\":\"F70308FFFFFFFFFFFFFFFF");
+    send(console, "@11 read identity 247\n");
+    auto identity = typedContext(true, 102); completeTypedStep(identity);
+    assert(console.reportRead(11, 102, identity)); fake.contains("\"raw_model\":65535"); fake.contains("\"active_node_known\":false");
+    send(console, "@12 profile ess_rs config 247\n");
+    auto partial = typedContext(false, 103);
+    for (unsigned i = 0; i < 4; ++i) completeTypedStep(partial);
+    uint8_t prefix[Ess::READ_MAX_REPLY_BYTES]; for (auto& byte : prefix) byte = 0xFF;
+    MotorControlRS::ReadEvent event; event.target = partial.target; event.operationId = 103; event.step = 4;
+    event.kind = MotorControlRS::ReadEventKind::TRANSPORT_FAILURE; event.frame = prefix; event.length = sizeof(prefix);
+    event.txAccepted = 8; event.executionUnknown = true; event.transportDetail = INT32_MIN;
+    assert(Ess::advanceRead(partial, event, partial.servicedUs + 30));
+    assert(console.reportRead(12, 103, partial)); fake.contains("\"config\":null");
+    fake.contains("\"received_length\":37,\"tx_accepted\":8,\"execution_unknown\":true");
+    fake.contains("\"completed_steps\":4"); fake.contains("\"step\":4,\"first\":256");
+    assert(fake.lines.back().size() < Probe::OUTPUT_CAPACITY);
+}
+
 } // namespace
 
 int main() {
@@ -550,4 +667,6 @@ int main() {
     testOwnerControlsAndRetainedInspections();
     testRecoveryTerminalAndOptionalOwnerHooks();
     testCaptureReadOptionalHookAndDiagnostics();
+    testTypedRoutesAndValidation();
+    testTypedTerminalInspectionAndBound();
 }

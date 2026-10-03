@@ -7,4 +7,5 @@
 
 #include "Status.h"
 #include "Units.h"
+#include "ReadOperation.h"
 #include "Version.h"

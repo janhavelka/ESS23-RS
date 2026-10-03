@@ -77,6 +77,8 @@ completion and record changes to the setup for the next session.
 
 ## Current status
 
+- [Prompt 05](reports/ess_release_05_2026-10-04.md), 2026-10-04, uploaded the typed-read timer image. Five identity/config pairs (including loaded/common/profile routes), 13 model probes and one long capture read passed: 44 frames/468 RX bytes, no transport errors. Model4EEA/version0029/node1/DIP0, subdivision1000, configuredencoder4000 and unknown algorithm3 are retained without inferred mapping. Workload is off, DE released and no pending/retained work or recovery requirement remains; wiring/input levels and physical encoder/model/firmware qualification remain unknown.
+
 - Latest verification: [prompt 04 fresh audit](reports/ess_release_04_audit_2026-10-04.md),
   2026-10-04, repeats 140 successful reads plus expected pre-TX timeout/recovery
   with the stricter host harness on the unchanged image. Workload is off, DE

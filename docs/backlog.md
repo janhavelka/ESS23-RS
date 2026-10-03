@@ -74,7 +74,7 @@ measurements and the production CPU budget remain open.
 [Prompt 04](reports/ess_release_04_2026-10-04.md) retains the measured 20-us
 capture, enforces timer starvation failure and extends available read-only
 bench evidence to fixed 37-byte replies. Cache-off capture is explicitly
-unsupported. Prompt 05 is next when dispatched; independent 05–07 progress
+unsupported. [Prompt 05](reports/ess_release_05_2026-10-04.md) implements typed identity/configuration reads and ledger-linked coverage. Prompt 06 is next when dispatched; independent read-only progress
 is not blocked by missing analyzer evidence.
 The [release roadmap](roadmap.md) defines the delivery order and release gates.
 
@@ -386,3 +386,14 @@ possible. This list is not a request for the user to answer everything now.
   a fix. Motor firmware is not running during this failure. Final-image upload
   verification and read-only RS485 regression pass independently; see the
   [audit and evidence](reports/2026-10-03_platform_scope_audit.md).
+
+## Prompt 05 typed read handoff
+
+- [x] Pure caller-owned identity/configuration operations, exact gap-safe FC03 windows, checked atomic publication and copied provenance; installed-core consumer verification.
+- [x] Same public preparation/event/decoder APIs through common/profile console routes and strict Python correlation, retention and release.
+- [x] Complete ledger-linked operation inventory with separate source/model/read/write/action/API/CLI/native/hardware dispositions; generated descriptors remain unchanged.
+- [ ] Resolve model `0x4EEA`/firmware/DIP mapping, subdivision physical interpretation and physical encoder evidence. Readback alone does not resolve these.
+- [ ] Prompt 06 state/input-level evidence; retain specific input-dependent homing, limit, enable/stop and trigger prerequisites without requiring external I/O for independent serial-only operations.
+- [ ] Typed I/O changes remain for 15; no configuration writes, save or motion were added in 05.
+
+See [the typed read API](ess_reads.md) and [current report](reports/ess_release_05_2026-10-04.md) for exact readback and independent hardware disposition.

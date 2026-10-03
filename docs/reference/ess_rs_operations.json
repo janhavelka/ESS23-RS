@@ -1,0 +1,167 @@
+{
+  "schema_version": 1,
+  "register_ledger": "docs/reference/ess_rs_registers.json",
+  "scope": "Typed non-changing ESS reads; register names are ledger record IDs. Addresses, access, pages, issues and complete obligation counts are derived from that ledger.",
+  "default_disposition": {
+    "implementation": "NOT_IMPLEMENTED",
+    "cli": "NOT_REACHABLE",
+    "native": "NOT_RUN",
+    "hardware": "NOT_RUN"
+  },
+  "model_availability": {
+    "documented_models": [
+      "ESS23-RS10",
+      "ESS23-RS20"
+    ],
+    "observed_model_raw": "0x4EEA",
+    "exact_model": "UNKNOWN",
+    "firmware_compatibility": "UNKNOWN",
+    "qualification": "UNQUALIFIED",
+    "reason": "A checked raw model response does not establish the physical model, firmware mapping or motion compatibility."
+  },
+  "shared_records": [
+    "DRIVER_MODEL"
+  ],
+  "operations": [
+    {
+      "id": "probe",
+      "kind": "READ",
+      "records": [
+        "DRIVER_MODEL"
+      ],
+      "api": {
+        "header": "include/MotorControlRS/profiles/ess_rs/Codec.h",
+        "symbols": [
+          "buildProbe",
+          "parseProbe"
+        ]
+      },
+      "cli_commands": [
+        "probe",
+        "ping"
+      ],
+      "implementation": "IMPLEMENTED",
+      "cli": "REACHABLE",
+      "native": {
+        "state": "PASS",
+        "evidence": [
+          "test/codec_test.cpp",
+          "test/probe_app_test.cpp"
+        ]
+      },
+      "hardware": {
+        "state": "PASS",
+        "evidence": [
+          "docs/reports/ess_release_04_audit_2026-10-04.md"
+        ]
+      },
+      "reason": "Existing minimal checked model query; identity and motion qualification remain separate."
+    },
+    {
+      "id": "read_identity",
+      "kind": "READ",
+      "records": [
+        "DRIVER_MODEL",
+        "DRIVER_VERSION",
+        "ACTIVE_NODE",
+        "DIP_STATUS"
+      ],
+      "api": {
+        "header": "include/MotorControlRS/profiles/ess_rs/Reads.h",
+        "symbols": [
+          "prepareIdentity",
+          "nextRead",
+          "advanceRead",
+          "getIdentity"
+        ]
+      },
+      "cli_commands": [
+        "read identity",
+        "profile ess_rs identity"
+      ],
+      "implementation": "IMPLEMENTED",
+      "cli": "REACHABLE",
+      "native": {
+        "state": "PASS",
+        "evidence": [
+          "test/reads_test.cpp",
+          "test/probe_app_test.cpp",
+          "test/probe_console_test.cpp",
+          "test/bench_probe_test.py",
+          "test/installed_consumer/main.cpp",
+          "docs/reports/ess_release_05_2026-10-04.md"
+        ]
+      },
+      "hardware": {
+        "state": "PASS",
+        "evidence": [
+          "docs/reports/ess_release_05_2026-10-04.md",
+          "docs/reports/ess_release_05_2026-10-04.json"
+        ]
+      },
+      "reason": "Keep raw model/version and DIP mapping conflict; no exact-model inference."
+    },
+    {
+      "id": "read_config",
+      "kind": "READ",
+      "records": [
+        "DEFAULT_DIRECTION",
+        "SUBDIVISION",
+        "CUSTOM_NODE",
+        "BAUD_RATE",
+        "SERIAL_FORMAT",
+        "OVER_LIMIT_STOP",
+        "SOFT_LIMIT_ENABLE",
+        "WORD_ORDER",
+        "INPUT_POLARITY",
+        "INPUT_X0_FUNCTION",
+        "INPUT_X1_FUNCTION",
+        "INPUT_X2_FUNCTION",
+        "INPUT_X3_FUNCTION",
+        "CONTROL_ALGORITHM",
+        "ENCODER_RESOLUTION"
+      ],
+      "api": {
+        "header": "include/MotorControlRS/profiles/ess_rs/Reads.h",
+        "symbols": [
+          "prepareConfig",
+          "nextRead",
+          "advanceRead",
+          "getConfig"
+        ]
+      },
+      "cli_commands": [
+        "read config",
+        "profile ess_rs config"
+      ],
+      "implementation": "IMPLEMENTED",
+      "cli": "REACHABLE",
+      "native": {
+        "state": "PASS",
+        "evidence": [
+          "test/reads_test.cpp",
+          "test/probe_app_test.cpp",
+          "test/probe_console_test.cpp",
+          "test/bench_probe_test.py",
+          "test/installed_consumer/main.cpp",
+          "docs/reports/ess_release_05_2026-10-04.md"
+        ]
+      },
+      "hardware": {
+        "state": "PASS",
+        "evidence": [
+          "docs/reports/ess_release_05_2026-10-04.md",
+          "docs/reports/ess_release_05_2026-10-04.json"
+        ]
+      },
+      "reason": "Reads only. Stored serial settings, raw unresolved units, input assignments, application wiring and observed levels remain distinct. Observed algorithm raw3 is unknown under the documented1/2 enum; read response evidence does not qualify its meaning or motion."
+    }
+  ],
+  "coverage_notes": [
+    "Every expanded ledger record remains in the denominator, including explicit reserved records and unresolved access; holes never become records.",
+    "Read, write and action obligations are separate. Implementing a read never satisfies a write or action obligation.",
+    "Every named enum/bit choice remains accounted for separately; read decoding never establishes typed setting/action support.",
+    "Source certainty is derived from source-access and issue metadata. No recorded issue is not hardware qualification.",
+    "Native and hardware states are independent. Hardware evidence does not resolve unknown model availability or undocumented firmware interpretation."
+  ]
+}

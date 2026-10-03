@@ -219,3 +219,5 @@ describe the intended complete library beyond this first implementation.
 
 Code is MIT licensed. Vendor PDFs, CAD, software and standards retain their
 owners' rights and are excluded from the distributed source package.
+
+Typed identity and motion-prerequisite configuration reads are implemented through the installed public [read API](docs/ess_reads.md). The standalone console exposes `read identity`, `read config`, `caps` and matching ESS profile routes. These are non-changing reads; exact-model, state and motion qualification remain separate.

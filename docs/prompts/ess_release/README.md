@@ -1,8 +1,8 @@
 # ESS release implementation sequence
 
 Prepared 2026-10-03 against MotorControl-RS `4ae0c4d` (0.6.0).
-Preparing this set executed no numbered prompt. **Prompts 01–04 have implementation and available verification dispositions;
-05–30 remain prepared and unexecuted. Independent electrical qualification remains open.**
+Preparing this set executed no numbered prompt. **Prompts 01–05 have implementation and available verification dispositions;
+06–30 remain prepared and unexecuted. Independent electrical qualification remains open.**
 The current core, runner, ESP32-S3 capture and probe/load tools are existing work;
 do not rebuild them from an old prompt as if they were missing.
 
@@ -43,7 +43,7 @@ Never mark all preceding physical work qualified just because code compiles.
 | [02 — Fair scheduling, cancellation and urgent work](02_bus_scheduling_and_cancellation.md) | 3 | Implemented and freshly audited; native/build PASS; owner hardware NOT RUN | [Handoff](../../reports/ess_release_02_2026-10-03.md), [fresh audit](../../reports/ess_release_02_audit_2026-10-03.md) |
 | [03 — Connect the bus owner to the standalone console](03_standalone_owner_and_responsive_console.md) | 3 | Implemented and freshly audited; native/build PASS; read-only timer owner/load/console bench PASS; upper 20-ms delay fails closed before TX | [Handoff](../../reports/ess_release_03_2026-10-03.md), [fresh audit](../../reports/ess_release_03_audit_2026-10-04.md) |
 | [04 — Review capture cost and qualify available timing](04_capture_cost_and_timing_qualification.md) | 2 / 8 | Implemented and freshly audited; capture retained at measured 20–21%; native/build and 7/37-byte read-only bench PASS; independent electrical timing NOT RUN | [Handoff](../../reports/ess_release_04_2026-10-04.md), [fresh audit](../../reports/ess_release_04_audit_2026-10-04.md) |
-| [05 — Typed identity/configuration reads and coverage tracking](05_identity_configuration_and_coverage.md) | 4 | Prepared | — |
+| [05 — Typed identity/configuration reads and coverage tracking](05_identity_configuration_and_coverage.md) | 4 | Implemented; native/package/build PASS; read-only typed COM13 PASS; model/firmware/units unresolved | [Handoff](../../reports/ess_release_05_2026-10-04.md) |
 | [06 — Typed state, feedback and separate health observations](06_state_feedback_and_health.md) | 4 | Prepared | — |
 | [07 — Exact target preparation, coordinates and limits](07_coordinates_and_target_preparation.md) | 5 / 6 | Prepared | — |
 | [08 — Bounded actions, enable/release and priority stop](08_operations_enable_release_and_stop.md) | 5 | Prepared | — |
