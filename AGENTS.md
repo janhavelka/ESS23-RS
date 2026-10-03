@@ -6,8 +6,8 @@ Implementation is authorized in small, tested blocks. Implemented foundations
 are configurable units, the complete documented ESS register catalogue,
 standalone build/board settings and checked ESS wire codecs with a minimal
 probe. The standalone runner under `examples/common/` now has native fake
-tests. The E2 ESP32-S3 polling adapter and read-only probe CLI now have native
-tests and bench probe evidence. External timing qualification, motion sequences,
+tests. The E2 ESP32-S3 adapter supports polling and GPTimer capture; the
+read-only probe/load CLI has native tests and measured bench evidence. External timing qualification, motion sequences,
 discovery orchestration and the full CLI follow; do not add placeholder APIs.
 The accepted scope remains a general framework-independent serial motion
 library: common axis API, drive profiles and application integration. Implement
@@ -45,6 +45,11 @@ staging/committing shared work when subagents are used.
 Maintain [the implementation backlog](docs/backlog.md) as features, open
 questions and verification work are resolved. Mark implementation and
 hardware evidence independently; a documented contract is not completed code.
+Keep [the release roadmap](docs/roadmap.md) current as implementation and
+qualification sharpen its milestones. Run a short hardware regression on the
+authorized bench when new behavior reaches the board, plus focused feature
+checks. Record unperformed hardware checks explicitly; quick regressions do
+not replace the later soak and electrical qualification gates.
 
 The user has authorized future communication and motion testing on the motor
 bench described in [hardware bench notes](docs/hardware_bench.md). As reported

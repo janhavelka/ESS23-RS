@@ -1,6 +1,6 @@
 # MotorControl-RS architecture review
 
-Updated on 2026-10-03 for version 0.5.1. The original core review used version
+Updated on 2026-10-03 for version 0.6.0. The original core review used version
 0.3.0, commit `2c9970c`; the application audit started at commit `d2d9a3a`.
 This report describes the code that exists, how its parts connect, and the
 next boundaries to establish. The [architecture contract](architecture.md)
@@ -11,7 +11,9 @@ The [standalone runner](runner.md), [E2 adapter and probe CLI](e2_probe.md), and
 Python bench tools now have native tests and recorded read-only communication.
 The [0.5.1 audit](reports/2026-10-03_audit.md) covers capture races, fault
 reporting and harness validation. External timing and motion qualification
-remain open.
+remain open. The [capture/load audit](reports/2026-10-03_capture_load.md) adds
+independent wire scheduling, sleeping-owner reception, bounded load measurements
+and the atomic TX/DE timing contract. The [roadmap](roadmap.md) records release gates.
 
 ## 1. Assessment
 
@@ -54,7 +56,8 @@ and GitHub repository are still named `ESS23-RS`.
 | [rtu/Frame.h](../src/rtu/Frame.h) | Private byte packing, CRC and buffer-overlap helpers. Contains no UART or device register policy. |
 | [examples/units_preview/main.cpp](../examples/units_preview/main.cpp) | One offline program for desktop or Arduino USB console. Prints conversions and catalogue information. |
 | [examples/common/RtuRunner.h](../examples/common/RtuRunner.h), [RtuRunner.cpp](../examples/common/RtuRunner.cpp) | Bounded application transaction state, caller-owned buffers/traces, callback timing, framing, deadlines and recovery. |
-| [examples/common/E2Uart.h](../examples/common/E2Uart.h), [E2Uart.cpp](../examples/common/E2Uart.cpp) | Exclusive UART2/DE ownership and conservative polling capture on ESP32-S3. External timing qualification remains open. |
+| [examples/common/E2Uart.h](../examples/common/E2Uart.h), [E2Uart.cpp](../examples/common/E2Uart.cpp) | Exclusive UART2/DE ownership and conservative polling or GPTimer capture on ESP32-S3. External timing qualification remains open. |
+| [examples/probe_cli/E2Load.h](../examples/probe_cli/E2Load.h), [E2Load.cpp](../examples/probe_cli/E2Load.cpp) | Optional competing task, console load, active-owner delay and measurement window. Lives only in the load example. |
 | [examples/probe_cli/](../examples/probe_cli/) | Platform-neutral bounded JSONL console and the Arduino application that owns its buffers, runner, cached results and policy. |
 | [examples/common/](../examples/common/) | Also contains board pins, console setting and flash partition file. |
 | [boards/e2_s3_n16r8.json](../boards/e2_s3_n16r8.json), [platformio.ini](../platformio.ini) | E2 ESP32-S3 Arduino build selection and pinned toolchain/platform settings. |
@@ -337,7 +340,7 @@ age separately. A fresh identity reply must not make an old position fresh.
 Keep this logging in the application so the library remains easy to test
 without a logger or clock.
 
-The 0.5.1 audit runs **12 CTest suites**, covering the core, runner, adapter,
+The 0.6.0 audit runs **13 CTest suites**, covering the core, runner, adapter,
 actual application loop, console, Python harness, generated files and preview.
 Build and historical package/header evidence is recorded in
 [verification.md](verification.md), separately from hardware qualification.
@@ -350,7 +353,7 @@ cmake --build build/motorcontrol-native
 ctest --test-dir build/motorcontrol-native --output-on-failure
 ```
 
-CMake currently treats Python 3.10+ as optional. Without it, only eight CTest
+CMake currently treats Python 3.10+ as optional. Without it, only nine CTest
 checks are registered, so a successful run alone does not establish that
 generated files and gap metadata were checked. Full repository validation
 must include those Python checks. Ordinary consumers need only the generated

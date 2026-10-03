@@ -66,7 +66,7 @@ a clock-error trace event while preserving the prior transaction result.
 | --- | --- |
 | `setTransmit(context, enabled)` | Set the one owned direction control; return failure if the requested direction is not established. The port starts physically idle in receive mode. |
 | `write(context, bytes, length)` | One bounded attempt to enqueue a continuous RTU frame. Report accepted bytes and failure separately. No scheduler-created gaps between partial chunks are allowed. |
-| `txState(context, nowUs, endedUs)` | Distinguish pending, physical idle and failure. After enqueue, `IDLE` supplies the latest bound on the final stop-bit time, with optional interval width. A polling observation alone is not an exact timestamp. |
+| `txState(context, nowUs, observation)` | Distinguish pending, physical idle and failure. After enqueue, `IDLE` supplies the latest bound on the final stop-bit time, with optional interval width. A polling observation alone is not an exact timestamp. |
 | `read(context, nowUs, byte, observedThroughUs)` | Return one ordered wire byte, an error, or `EMPTY`. A byte includes start/stop intervals. On `EMPTY`, the watermark states how far all receive activity has been observed. |
 
 An incomplete character or delayed capture holds the receive watermark back.
@@ -87,8 +87,14 @@ completion and start after DE release. Zero selects `t3.5`. An explicit shorter
 value is a device-specific exception and never shortens admission/final gaps.
 
 RX `uncertaintyUs` defines start in `[startUs, startUs + uncertaintyUs]` and
-end in `[endUs - uncertaintyUs, endUs]`. TX uses optional
-`Port.txUncertaintyUs()` to define `[endedUs - width, endedUs]`. Zero width
+end in `[endUs - uncertaintyUs, endUs]`. An atomic `TxObservation` defines TX
+end in `[endedUs - uncertaintyUs, endedUs]` and optional physical DE release in
+`[releasedUs - releaseUncertaintyUs, releasedUs]`. The complete release interval
+must follow the latest TX end plus hold. A background adapter can retain these
+observations while the owner sleeps; the runner advances to RECEIVE before
+reading queued reply bytes. The deadline follows physical release evidence,
+not the task wake-up time. In timer mode, E2 reports BUSY until completion and
+release evidence are both available at the supplied time. Zero width
 retains the exact native-fixture behavior. Each gap must be valid across the
 whole range; an ambiguous gap or deadline returns `TIMING_UNCERTAIN`.
 `PENDING` supplies no silence evidence; prolonged lack of capture progress
@@ -218,5 +224,9 @@ the ESP32-S3 compiler. Those checks do not establish UART or motor behavior.
 The [E2 probe](e2_probe.md) now supplies the adapter, read-only JSONL console
 and Python probe/stress/cached-watch harness. Native SDK fakes compile the
 actual adapter source. Bench probes establish a working communication path;
-external TX/RX/DE timing, loaded-firmware integration and motion remain separate
-qualification work. See the [bench report](reports/2026-10-03_e2_probe.md).
+The independent wire fixture and timer load bench now exercise a sleeping
+owner, FIFO batches/overflow, late/foreign replies, missing evidence and
+interrupt masking. See the [capture/load audit](reports/2026-10-03_capture_load.md).
+External TX/RX/DE timing, cache-off operation and motion remain separate
+qualification work. The next implementation block is the bounded bus-owner
+reference in the [roadmap](roadmap.md).

@@ -15,8 +15,11 @@ namespace {
 
 struct Fake {
     Probe::Snapshot data;
+    Probe::LoadSnapshot loadData;
     Probe::Action probeAction = Probe::Action::OK, recoverAction = Probe::Action::OK;
+    Probe::Action loadAction = Probe::Action::OK;
     unsigned snapshots = 0, probes = 0, recoveries = 0, resets = 0;
+    unsigned loads = 0, loadChanges = 0;
     uint32_t id = 0;
     uint8_t address = 0;
     std::vector<std::string> lines;
@@ -43,16 +46,28 @@ struct Fake {
         ++self.recoveries; return self.recoverAction;
     }
     static void reset(void* context) { ++static_cast<Fake*>(context)->resets; }
-    Probe::Host host() {
+    static Probe::Action load(void* context, const Probe::LoadSettings* requested,
+                              Probe::LoadSnapshot& output) {
+        Fake& self = *static_cast<Fake*>(context);
+        ++self.loads;
+        if (requested && self.loadAction == Probe::Action::OK) {
+            ++self.loadChanges;
+            self.loadData.settings = *requested;
+        }
+        output = self.loadData;
+        return self.loadAction;
+    }
+    Probe::Host host(bool withLoad = false) {
         Probe::Host result;
         result.context = this; result.emitLine = emit; result.snapshot = snapshot;
         result.startProbe = probe; result.recover = recover; result.resetStats = reset;
+        if (withLoad) result.load = load;
         return result;
     }
     void contains(const char* fragment) const {
         assert(!lines.empty() && lines.back().find(fragment) != std::string::npos);
     }
-    void untouched() const { assert(probes == 0 && recoveries == 0 && resets == 0); }
+    void untouched() const { assert(probes == 0 && recoveries == 0 && resets == 0 && loadChanges == 0); }
 };
 
 void send(Probe::Console& console, const std::string& input) {
@@ -79,7 +94,8 @@ void testInvalidInputHasNoEffects() {
         "probe 1 2", "probe 1 2 3 4", "@1 probe 1 2", "@0 probe", "@4294967296 probe",
         "@-1 probe", "@+1 probe", "@1.0 probe", "@ probe", "@1", "health check",
         "recover now", "reset motor", "stats clear", "help not_a_command", "version extra",
-        "read 0", "write 1", "move 1", "probe;reset", "PROBE", "settings junk", "memory junk"
+        "read 0", "write 1", "move 1", "probe;reset", "PROBE", "settings junk", "memory junk",
+        "@4 probe 1 2 3", "@4 reset 0 0 0", "@4 help load extra", "@4 stats reset extra"
     };
     for (const char* input : invalid) {
         Fake fake; Probe::Console console(fake.host());
@@ -239,6 +255,94 @@ void testMaximumOutputAndRawBounds() {
     fake.contains("\"raw_truncated\":true"); fake.untouched();
 }
 
+void testLoadQueryAndSettings() {
+    Fake fake; fake.loadData.ready = true; fake.loadData.timer = true;
+    fake.loadData.elapsedUs = 123456; fake.loadData.workUs = 20000;
+    fake.loadData.workIterations = 10; fake.loadData.consoleLines = 8; fake.loadData.consoleDropped = 2;
+    fake.loadData.captureUs = 5000; fake.loadData.captureSamples = 6000;
+    fake.loadData.ownerGapMaxUs = 5002; fake.loadData.captureGapMaxUs = 23;
+    fake.loadData.workStackFreeBytes = 2400;
+    Probe::Console console(fake.host(true));
+    send(console, "@4294967295 load 5000 20000 256\n");
+    assert(fake.loads == 1 && fake.loadChanges == 1);
+    assert(fake.loadData.settings.workUs == 5000 && fake.loadData.settings.ownerDelayUs == 20000);
+    assert(fake.loadData.settings.consoleBytes == 256);
+    fake.contains("\"id\":4294967295"); fake.contains("\"result\":\"done\"");
+    fake.contains("\"ready\":true"); fake.contains("\"capture_mode\":\"timer\"");
+    fake.contains("\"workload_us\":5000"); fake.contains("\"owner_delay_us\":20000");
+    fake.contains("\"console_bytes\":256"); fake.contains("\"elapsed_us\":123456");
+    fake.contains("\"work_us\":20000"); fake.contains("\"work_iterations\":10");
+    fake.contains("\"console_lines\":8"); fake.contains("\"console_dropped\":2");
+    fake.contains("\"capture_us\":5000"); fake.contains("\"capture_samples\":6000");
+    fake.contains("\"owner_gap_max_us\":5002"); fake.contains("\"capture_gap_max_us\":23");
+    fake.contains("\"work_stack_free_bytes\":2400"); fake.contains("\"cpu_valid\":false");
+    fake.contains("\"cpu0_busy_pct\":null"); fake.contains("\"cpu1_busy_pct\":null");
+    fake.loadData.timer = false; fake.loadData.cpuValid = true;
+    fake.loadData.cpu0BusyPct = 23; fake.loadData.cpu1BusyPct = 100;
+    send(console, "@9 load\n");
+    assert(fake.loads == 2 && fake.loadChanges == 1);
+    fake.contains("\"id\":9"); fake.contains("\"capture_mode\":\"poll\"");
+    fake.contains("\"workload_us\":5000"); fake.contains("\"cpu_valid\":true");
+    fake.contains("\"cpu0_busy_pct\":23"); fake.contains("\"cpu1_busy_pct\":100");
+    send(console, "load 0 0 0\n");
+    assert(fake.loads == 3 && fake.loadChanges == 2);
+    fake.contains("\"workload_us\":0"); fake.contains("\"owner_delay_us\":0");
+    fake.contains("\"console_bytes\":0");
+    assert(fake.probes == 0 && fake.recoveries == 0 && fake.resets == 0 && fake.snapshots == 0);
+}
+
+void testLoadValidationAndOptionalCallback() {
+    const char* invalid[] = {
+        "load 0", "load 0 0", "load 0 0 0 0", "@1 load 0 0 0 0",
+        "load -1 0 0", "load +1 0 0", "load 0.0 0 0", "load 0x1 0 0",
+        "load 5001 0 0", "load 0 20001 0", "load 0 0 257", "load 4294967296 0 0",
+        "load 0 junk 0", "load 0 0 1x", "@-1 load 0 0 0"
+    };
+    for (const char* input : invalid) {
+        Fake fake; Probe::Console console(fake.host(true));
+        send(console, std::string(input) + "\n");
+        fake.contains("\"ok\":false");
+        assert(fake.lines.size() == 1 && fake.loads == 0 && fake.snapshots == 0);
+        fake.untouched();
+    }
+    Fake fake; Probe::Console unavailable(fake.host());
+    send(unavailable, "load\n"); fake.contains("\"result\":\"unavailable\"");
+    send(unavailable, "load 0 0 0\n"); fake.contains("\"result\":\"unavailable\"");
+    send(unavailable, "help load\n"); fake.contains("\"result\":\"unavailable\"");
+    send(unavailable, "help\n");
+    assert(fake.lines.back().find("\"load\"") == std::string::npos);
+    assert(fake.loads == 0 && fake.snapshots == 0); fake.untouched();
+    Probe::Console available(fake.host(true));
+    send(available, "help\n"); fake.contains("\"load\"");
+    send(available, "help load\n"); fake.contains("load [work_us owner_delay_us console_bytes]");
+    fake.contains("\"bus_traffic\":false"); assert(fake.loads == 0); fake.untouched();
+    for (Probe::Action result : {Probe::Action::BUSY, Probe::Action::UNAVAILABLE,
+                                Probe::Action::RECOVERY_REQUIRED, Probe::Action::FAILED}) {
+        fake.loadAction = result;
+        send(available, "@31 load 1 2 3\n"); fake.contains("\"ok\":false"); fake.contains("\"id\":31");
+        assert(fake.loadChanges == 0 && fake.snapshots == 0); fake.untouched();
+    }
+}
+
+void testLoadMaximumOutput() {
+    Fake fake; Probe::Console console(fake.host(true));
+    const uint64_t max64 = std::numeric_limits<uint64_t>::max();
+    fake.loadData.elapsedUs = fake.loadData.workUs = fake.loadData.workIterations = max64;
+    fake.loadData.consoleLines = fake.loadData.consoleDropped = max64;
+    fake.loadData.captureUs = fake.loadData.captureSamples = max64;
+    fake.loadData.ownerGapMaxUs = fake.loadData.captureGapMaxUs = max64;
+    fake.loadData.workStackFreeBytes = std::numeric_limits<uint32_t>::max();
+    fake.loadData.cpuValid = true; fake.loadData.cpu0BusyPct = fake.loadData.cpu1BusyPct = 100;
+    send(console, "@4294967295 load 5000 20000 256\n");
+    fake.contains("\"capture_gap_max_us\":18446744073709551615");
+    fake.contains("\"work_stack_free_bytes\":4294967295");
+    fake.contains("\"cpu1_busy_pct\":100");
+    assert(fake.lines.back().size() < Probe::OUTPUT_CAPACITY);
+    fake.loadData.cpu0BusyPct = 255;
+    send(console, "load\n"); fake.contains("\"cpu_valid\":false");
+    fake.contains("\"cpu0_busy_pct\":null"); fake.contains("\"cpu1_busy_pct\":null");
+}
+
 } // namespace
 
 int main() {
@@ -250,4 +354,7 @@ int main() {
     testHelpConfigMemoryAndStats();
     testProbeResultEvidence();
     testMaximumOutputAndRawBounds();
+    testLoadQueryAndSettings();
+    testLoadValidationAndOptionalCallback();
+    testLoadMaximumOutput();
 }

@@ -34,6 +34,10 @@ struct Fake {
     uint64_t txEnd = 0;
     uint64_t txDuration = 800;
     uint32_t txUncertainty = 0;
+    bool autoRelease = false;
+    uint64_t releaseAt = 0; // Zero selects TX end + 20 us in the independent fixture.
+    uint32_t releaseUncertainty = 0;
+    bool forceReleaseEvidence = false;
     uint64_t captureThrough = std::numeric_limits<uint64_t>::max();
     std::size_t acceptLimit = MAX_FRAME;
     std::size_t readIndex = 0;
@@ -73,12 +77,19 @@ struct Fake {
         return WriteResult(accepted, self.writeError);
     }
 
-    static TxState tx(void* context, uint64_t now, uint64_t& ended) {
+    static TxState tx(void* context, uint64_t now, TxObservation& observation) {
         Fake& self = *static_cast<Fake*>(context);
         ++self.txChecks;
         if (self.txError) return TxState::ERROR;
         if (self.holdBusy || (self.queued && now < self.txEnd)) return TxState::BUSY;
-        ended = self.txEnd;
+        observation.endedUs = self.txEnd;
+        observation.uncertaintyUs = self.txUncertainty;
+        const uint64_t released = self.releaseAt ? self.releaseAt : self.txEnd + 20;
+        if (self.autoRelease && self.queued && (now >= released || self.forceReleaseEvidence)) {
+            observation.released = true;
+            observation.releasedUs = released;
+            observation.releaseUncertaintyUs = self.releaseUncertainty;
+        }
         return TxState::IDLE;
     }
 
@@ -103,9 +114,6 @@ struct Fake {
         return ReadState::EMPTY;
     }
 
-    static uint32_t uncertainty(void* context) {
-        return static_cast<Fake*>(context)->txUncertainty;
-    }
 };
 
 Port makePort(Fake& fake) {
@@ -115,7 +123,6 @@ Port makePort(Fake& fake) {
     port.write = Fake::write;
     port.txState = Fake::tx;
     port.read = Fake::read;
-    port.txUncertaintyUs = Fake::uncertainty;
     return port;
 }
 
@@ -1109,6 +1116,153 @@ void testReplyGapPolicy() {
     }
 }
 
+void testDeferredTransmitEvidence() {
+    for (bool observedHold : {false, true}) {
+        Rig rig;
+        rig.fake.autoRelease = true;
+        rig.start(); rig.send();
+        if (observedHold) {
+            rig.poll(2160);
+            assert(rig.runner.phase() == Phase::HOLD);
+        }
+        rig.fake.bytes(REPLY, sizeof(REPLY), 2510);
+        rig.poll(20000); // Delivery is late; the wire frame and DE release were on time.
+        assert(rig.runner.result().reason == Reason::FRAME);
+        assert(rig.runner.result().endedUs == 3560);
+        assert(!rig.runner.transmitEnabled());
+        assert(rig.fake.directions.size() == 1); // Only DE assertion needed task service.
+        assert(std::memcmp(rig.rx, REPLY, sizeof(REPLY)) == 0);
+        unsigned completions = 0;
+        for (std::size_t i = 0; i < rig.runner.traceSize(); ++i) {
+            const Trace& trace = *rig.runner.traceAt(i);
+            if (trace.event == Event::TX_DONE) ++completions;
+            if (trace.event == Event::DIRECTION && !trace.byte) assert(trace.atUs == 2180);
+        }
+        assert(completions == 1);
+        rig.poll(30000, 5);
+        assert(rig.fake.writes == 1 && rig.runner.result().reason == Reason::FRAME);
+    }
+    {
+        Rig rig;
+        rig.fake.autoRelease = true;
+        rig.start(); rig.send(); rig.poll(2160);
+        assert(rig.runner.phase() == Phase::HOLD);
+        rig.fake.holdBusy = true; // A newer release observation is not publishable yet.
+        rig.poll(2180);
+        assert(rig.runner.phase() == Phase::HOLD && rig.runner.transmitEnabled());
+        rig.fake.holdBusy = false;
+        rig.fake.bytes(REPLY, sizeof(REPLY), 2510);
+        rig.poll(9000);
+        assert(rig.runner.result().reason == Reason::FRAME && rig.fake.writes == 1);
+    }
+    {
+        Rig rig;
+        rig.fake.autoRelease = true;
+        rig.start(request(WRITE, sizeof(WRITE), sizeof(WRITE), Echo::REQUIRED));
+        rig.send();
+        rig.fake.bytes(WRITE, sizeof(WRITE), 1360);
+        rig.fake.bytes(WRITE, sizeof(WRITE), 2510);
+        rig.poll(9000);
+        assert(rig.runner.result().reason == Reason::FRAME);
+        assert(rig.runner.result().echoBytes == sizeof(WRITE));
+        assert(rig.runner.result().rxLength == sizeof(WRITE));
+        assert(rig.fake.writes == 1); // Buffered echo never causes replay.
+    }
+    {
+        Rig rig;
+        rig.fake.autoRelease = true;
+        rig.start(); rig.send();
+        rig.fake.bytes(REPLY, sizeof(REPLY), 13000); // The response itself missed its deadline.
+        rig.poll(15000);
+        assert(rig.runner.result().reason == Reason::NO_RESPONSE);
+        assert(rig.runner.needsRecovery());
+        rig.poll(20000, 5);
+        assert(rig.fake.writes == 1);
+    }
+    {
+        Rig rig;
+        rig.fake.autoRelease = true;
+        rig.start(); rig.send();
+        rig.runner.cancel(1500);
+        rig.fake.bytes(REPLY, sizeof(REPLY), 2510);
+        rig.poll(9000);
+        assert(rig.runner.result().reason == Reason::CANCELLED);
+        assert(!rig.runner.transmitEnabled());
+        assert(rig.fake.readIndex == 0 && rig.fake.writes == 1);
+        assert(rig.runner.needsRecovery());
+    }
+}
+
+void testReleaseBoundsAndDeadlines() {
+    struct Invalid { uint64_t at; uint32_t width; uint64_t poll; Reason reason; };
+    const Invalid invalid[] = {
+        {3000, 0, 2500, Reason::CLOCK_ERROR}, // Future release evidence.
+        {2180, 2181, 4000, Reason::CLOCK_ERROR},
+        {2180, 1000, 4000, Reason::CLOCK_ERROR}, // Earliest release precedes assertion.
+        {2170, 0, 4000, Reason::DIRECTION_ERROR}, // Definite hold violation.
+        {2190, 20, 4000, Reason::TIMING_UNCERTAIN}, // Release range straddles required hold.
+    };
+    for (const Invalid& value : invalid) {
+        Rig rig;
+        rig.fake.autoRelease = rig.fake.forceReleaseEvidence = true;
+        rig.fake.releaseAt = value.at;
+        rig.fake.releaseUncertainty = value.width;
+        rig.start(); rig.send(); rig.poll(value.poll);
+        assert(rig.runner.result().reason == value.reason);
+        assert(rig.runner.needsRecovery());
+        assert(rig.runner.start(request(), value.poll) == Admission::RECOVERY_REQUIRED);
+        // Current idle + an explicit direction action can recover without rewriting
+        // the historical bad release evidence or replaying the original command.
+        rig.fake.now = 5000;
+        assert(rig.runner.recover(5000));
+        assert(rig.runner.result().reason == value.reason && rig.fake.writes == 1);
+    }
+    struct Deadline { uint64_t at; uint32_t width; Reason reason; };
+    const Deadline deadlines[] = {
+        {6349, 0, Reason::FRAME},
+        {6350, 0, Reason::TX_TIMEOUT},
+        {6355, 10, Reason::TIMING_UNCERTAIN},
+    };
+    for (const Deadline& value : deadlines) {
+        Rig rig;
+        rig.fake.autoRelease = true;
+        rig.fake.releaseAt = value.at;
+        rig.fake.releaseUncertainty = value.width;
+        rig.start(); rig.send();
+        rig.fake.bytes(REPLY, sizeof(REPLY), 6500);
+        rig.poll(9000);
+        assert(rig.runner.result().reason == value.reason);
+        assert(!rig.runner.transmitEnabled() && rig.fake.writes == 1);
+    }
+    {
+        Rig rig;
+        rig.fake.autoRelease = true;
+        rig.start(); rig.send();
+        rig.fake.holdBusy = true;
+        rig.poll(9000);
+        assert(rig.runner.result().reason == Reason::TX_TIMEOUT);
+        assert(rig.runner.transmitEnabled());
+        rig.fake.holdBusy = false;
+        rig.poll(10000);
+        assert(!rig.runner.transmitEnabled());
+        assert(rig.runner.result().reason == Reason::TX_TIMEOUT && rig.fake.writes == 1);
+    }
+    for (uint64_t start : {uint64_t(2300), uint64_t(2340), uint64_t(2350)}) {
+        Rig rig;
+        rig.fake.autoRelease = true;
+        rig.fake.releaseAt = 2350;
+        rig.fake.releaseUncertainty = 20;
+        Request value = request();
+        value.replyGapUs = 50;
+        rig.start(value); rig.send();
+        rig.fake.bytes(REPLY, sizeof(REPLY), start);
+        for (RxByte& byte : rig.fake.input) byte.uncertaintyUs = 20;
+        rig.poll(9000);
+        assert(rig.runner.result().reason == (start == 2300 ? Reason::EARLY_REPLY :
+            start == 2340 ? Reason::TIMING_UNCERTAIN : Reason::FRAME));
+    }
+}
+
 } // namespace
 
 int main() {
@@ -1132,5 +1286,7 @@ int main() {
     testTimingIntervals();
     testPendingCapture();
     testReplyGapPolicy();
+    testDeferredTransmitEvidence();
+    testReleaseBoundsAndDeadlines();
     return 0;
 }

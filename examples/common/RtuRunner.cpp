@@ -14,6 +14,37 @@ bool elapsed(uint64_t now, uint64_t since, uint32_t duration) noexcept {
     return now >= since && now - since >= duration;
 }
 
+bool validEnd(const TxObservation& tx, uint64_t nowUs, uint64_t queuedUs,
+              bool accepted) noexcept {
+    return tx.uncertaintyUs <= tx.endedUs && tx.endedUs <= nowUs &&
+           (!accepted || tx.endedUs - tx.uncertaintyUs >= queuedUs);
+}
+
+Reason checkTx(const TxObservation& tx, uint64_t nowUs, uint64_t queuedUs,
+               uint64_t assertedUs, bool accepted, uint32_t holdUs) noexcept {
+    if (!validEnd(tx, nowUs, queuedUs, accepted)) return Reason::CLOCK_ERROR;
+    if (!tx.released) return Reason::NONE;
+    if (tx.releaseUncertaintyUs > tx.releasedUs || tx.releasedUs > nowUs ||
+        tx.releasedUs - tx.releaseUncertaintyUs < assertedUs) return Reason::CLOCK_ERROR;
+    const uint64_t end = accepted ? tx.endedUs : queuedUs;
+    const uint32_t width = accepted ? tx.uncertaintyUs : 0;
+    if (!elapsed(tx.releasedUs - tx.releaseUncertaintyUs, end, holdUs)) {
+        return elapsed(tx.releasedUs, end - width, holdUs) ?
+            Reason::TIMING_UNCERTAIN : Reason::DIRECTION_ERROR;
+    }
+    return Reason::NONE;
+}
+
+Reason txDeadline(const TxObservation& tx, uint64_t nowUs,
+                  uint64_t assertedUs, uint32_t timeoutUs) noexcept {
+    // Owner scheduling delay is distinct from a transmitter/DE deadline failure.
+    const uint64_t latest = tx.released ? tx.releasedUs : nowUs;
+    if (!elapsed(latest, assertedUs, timeoutUs)) return Reason::NONE;
+    if (tx.released && !elapsed(tx.releasedUs - tx.releaseUncertaintyUs,
+                               assertedUs, timeoutUs)) return Reason::TIMING_UNCERTAIN;
+    return Reason::TX_TIMEOUT;
+}
+
 bool overlaps(const void* left, std::size_t leftSize,
               const void* right, std::size_t rightSize) noexcept {
     if (!leftSize || !rightSize) return false;
@@ -148,7 +179,7 @@ Admission Runner::start(const Request& request, uint64_t nowUs) noexcept {
     quietSince_ = nowUs;
     observed_ = haveRx_ = false;
     observedUs_ = lastRxEndUs_ = txEndUs_ = releasedUs_ = queuedUs_ = 0;
-    txUncertaintyUs_ = rxUncertaintyUs_ = 0;
+    txUncertaintyUs_ = rxUncertaintyUs_ = releaseUncertaintyUs_ = 0;
     increment(stats_.started);
     phase_ = Phase::WAIT_BUS;
     record(Event::START, nowUs, 0, static_cast<uint16_t>(txLength_));
@@ -226,7 +257,7 @@ bool Runner::onByte(const RxByte& byte, uint64_t nowUs) noexcept {
         record(Event::ECHO, byte.endUs, byte.value, result_.echoBytes);
         return true;
     }
-    if (phase_ != Phase::RECEIVE || startLatest < releasedUs_ ||
+    if (phase_ != Phase::RECEIVE || startLatest < releasedUs_ - releaseUncertaintyUs_ ||
         !elapsed(startLatest, txEndUs_ - txUncertaintyUs_, replyGapUs_)) {
         finish(Reason::EARLY_REPLY, nowUs, true);
         return false;
@@ -308,14 +339,18 @@ bool Runner::receive(uint64_t nowUs) noexcept {
 
 void Runner::releaseFault(uint64_t nowUs) noexcept {
     if (!de_) return;
-    uint64_t ended = 0;
-    if (port_.txState(port_.context, nowUs, ended) != TxState::IDLE) return;
-    if (result_.txAccepted && (ended < queuedUs_ || ended > nowUs ||
-        !elapsed(nowUs, ended, timing_.holdUs))) return;
+    TxObservation tx;
+    if (port_.txState(port_.context, nowUs, tx) != TxState::IDLE) return;
+    if (!validEnd(tx, nowUs, queuedUs_, result_.txAccepted != 0)) return;
+    if (result_.txAccepted && !elapsed(nowUs, tx.endedUs, timing_.holdUs)) return;
+    const bool released = tx.released && checkTx(tx, nowUs, queuedUs_, assertedUs_,
+        result_.txAccepted != 0, timing_.holdUs) == Reason::NONE;
     // Preserve the original terminal reason even if cleanup itself fails.
-    if (port_.setTransmit(port_.context, false)) {
+    // Bad release evidence does not prevent a fresh, explicit receive-mode action.
+    if (released || port_.setTransmit(port_.context, false)) {
         de_ = false;
-        record(Event::DIRECTION, nowUs, 0);
+        record(Event::DIRECTION, released ? tx.releasedUs : nowUs, 0, 0, 0,
+               released ? tx.releaseUncertaintyUs : 0);
     }
 }
 
@@ -333,8 +368,8 @@ void Runner::poll(uint64_t nowUs) noexcept {
         }
         if (!empty || observedUs_ != nowUs ||
             !elapsed(observedUs_, quietSince_, timing_.gap35Us)) return;
-        uint64_t ended = 0;
-        const TxState state = port_.txState(port_.context, nowUs, ended);
+        TxObservation tx;
+        const TxState state = port_.txState(port_.context, nowUs, tx);
         if (state == TxState::BUSY) return;
         if (state != TxState::IDLE) { finish(Reason::TX_ERROR, nowUs, true); return; }
         if (!direction(true, nowUs)) return;
@@ -362,59 +397,69 @@ void Runner::poll(uint64_t nowUs) noexcept {
         return;
     }
 
-    if (phase_ == Phase::DRAIN) {
-        uint64_t ended = 0;
-        const TxState state = port_.txState(port_.context, nowUs, ended);
+    if (phase_ == Phase::DRAIN || phase_ == Phase::HOLD) {
+        TxObservation tx;
+        const TxState state = port_.txState(port_.context, nowUs, tx);
         if (state == TxState::ERROR || (state != TxState::IDLE && state != TxState::BUSY)) {
             finish(Reason::TX_ERROR, nowUs, true);
             return;
         }
         if (state == TxState::IDLE) {
-            const uint32_t uncertainty = port_.txUncertaintyUs ?
-                port_.txUncertaintyUs(port_.context) : 0;
-            if (uncertainty > ended ||
-                (result_.txAccepted && ended - uncertainty < queuedUs_) || ended > nowUs ||
+            const Reason invalid = checkTx(tx, nowUs, queuedUs_, assertedUs_,
+                                           result_.txAccepted != 0, timing_.holdUs);
+            if (invalid != Reason::NONE) {
+                finish(invalid, nowUs, true);
+                return;
+            }
+            const uint64_t end = result_.txAccepted ? tx.endedUs : queuedUs_;
+            const uint32_t width = result_.txAccepted ? tx.uncertaintyUs : 0;
+            if ((phase_ == Phase::HOLD && (txEndUs_ != end || txUncertaintyUs_ != width)) ||
                 (echo_ == Echo::REQUIRED && result_.echoBytes &&
-                 lastRxEndUs_ - rxUncertaintyUs_ > ended)) {
+                 lastRxEndUs_ - rxUncertaintyUs_ > tx.endedUs)) {
                 finish(Reason::CLOCK_ERROR, nowUs, true);
                 return;
             }
-            txEndUs_ = result_.txAccepted ? ended : queuedUs_;
-            txUncertaintyUs_ = result_.txAccepted ? uncertainty : 0;
+            txEndUs_ = end;
+            txUncertaintyUs_ = width;
             result_.txComplete = result_.txAccepted == txLength_;
-            record(Event::TX_DONE, txEndUs_, 0, result_.txAccepted, 0, txUncertaintyUs_);
+            if (phase_ == Phase::DRAIN)
+                record(Event::TX_DONE, txEndUs_, 0, result_.txAccepted, 0, txUncertaintyUs_);
             if (echo_ == Echo::REQUIRED && result_.echoBytes &&
                 lastRxEndUs_ > txEndUs_ - txUncertaintyUs_) {
                 finish(Reason::TIMING_UNCERTAIN, nowUs, true);
                 releaseFault(nowUs);
                 return;
             }
-            phase(Phase::HOLD, nowUs);
+            if (phase_ == Phase::DRAIN) phase(Phase::HOLD, nowUs);
+        } else {
+            tx = TxObservation(); // BUSY supplies no completion/release evidence.
         }
-        if (elapsed(nowUs, assertedUs_, timing_.txTimeoutUs)) {
-            finish(Reason::TX_TIMEOUT, nowUs, true);
+        const Reason deadline = txDeadline(tx, nowUs, assertedUs_, timing_.txTimeoutUs);
+        if (deadline != Reason::NONE) {
+            finish(deadline, nowUs, true);
             releaseFault(nowUs);
             return;
         }
+        if (state == TxState::BUSY && phase_ == Phase::HOLD) return;
         if (phase_ == Phase::DRAIN) {
             receive(nowUs);
             if (!busy()) releaseFault(nowUs);
-            return;
-        }
-    }
-
-    if (phase_ == Phase::HOLD) {
-        if (elapsed(nowUs, assertedUs_, timing_.txTimeoutUs)) {
-            finish(Reason::TX_TIMEOUT, nowUs, true);
-            releaseFault(nowUs);
             return;
         }
         if (!elapsed(nowUs, txEndUs_, timing_.holdUs)) {
             receive(nowUs);
             return;
         }
-        if (!direction(false, nowUs)) return;
-        releasedUs_ = nowUs;
+        if (tx.released) {
+            de_ = false;
+            releasedUs_ = tx.releasedUs;
+            releaseUncertaintyUs_ = tx.releaseUncertaintyUs;
+            record(Event::DIRECTION, releasedUs_, 0, 0, 0, releaseUncertaintyUs_);
+        } else {
+            if (!direction(false, nowUs)) return;
+            releasedUs_ = nowUs;
+            releaseUncertaintyUs_ = 0;
+        }
         if (pending_ != Reason::NONE) { finish(pending_, nowUs, true); return; }
         phase(Phase::RECEIVE, nowUs);
     }
@@ -450,13 +495,16 @@ void Runner::cancel(uint64_t nowUs) noexcept {
 bool Runner::recover(uint64_t nowUs) noexcept {
     if (!valid() || !clock(nowUs) || busy()) return false;
     phase_ = Phase::FAULT; // Failed recovery must never reopen admission.
-    uint64_t ended = 0;
-    if (port_.txState(port_.context, nowUs, ended) != TxState::IDLE) return false;
-    if (result_.txAccepted && (ended < queuedUs_ || ended > nowUs ||
-        !elapsed(nowUs, ended, timing_.holdUs))) return false;
-    if (!port_.setTransmit(port_.context, false)) { de_ = true; return false; }
+    TxObservation tx;
+    if (port_.txState(port_.context, nowUs, tx) != TxState::IDLE) return false;
+    if (!validEnd(tx, nowUs, queuedUs_, result_.txAccepted != 0)) return false;
+    if (result_.txAccepted && !elapsed(nowUs, tx.endedUs, timing_.holdUs)) return false;
+    const bool released = tx.released && checkTx(tx, nowUs, queuedUs_, assertedUs_,
+        result_.txAccepted != 0, timing_.holdUs) == Reason::NONE;
+    if (!released && !port_.setTransmit(port_.context, false)) { de_ = true; return false; }
     de_ = false;
-    record(Event::DIRECTION, nowUs, 0);
+    record(Event::DIRECTION, released ? tx.releasedUs : nowUs, 0, 0, 0,
+           released ? tx.releaseUncertaintyUs : 0);
     phase_ = Phase::IDLE;
     record(Event::RECOVER, nowUs);
     return true; // start() still establishes a fresh, fully observed bus-idle interval.

@@ -3,6 +3,7 @@
 import importlib.util
 import io
 import json
+from contextlib import redirect_stderr
 from pathlib import Path
 import unittest
 
@@ -20,6 +21,15 @@ def encoded(item):
 def reply(request_id, command, **fields):
     return {"type": "reply", "id": request_id, "command": command,
             "profile": "ess_rs", "ok": True, **fields}
+
+
+def load_reply(request_id, settings=(0, 0, 0), **fields):
+    return reply(request_id, "load", **dict(zip(bench.LOAD_FIELDS, settings)),
+                 ready=True, capture_mode="timer", elapsed_us=20000,
+                 work_us=4000, work_iterations=2, console_lines=2,
+                 console_dropped=0, capture_us=800, capture_samples=200,
+                 owner_gap_max_us=5001, capture_gap_max_us=10,
+                 work_stack_free_bytes=2500, **fields)
 
 
 class Clock:
@@ -63,7 +73,8 @@ class Serial:
                                  readiness="unknown", alarms="unknown", state="unknown"))
         if command == "memory":
             return encoded(reply(request_id, command, valid=True, internal_free=150000,
-                                 internal_min=145000, psram_free=8000000, psram_min=7990000,
+                                 internal_min=145000, internal_largest=130000,
+                                 psram_free=8000000, psram_min=7990000, psram_largest=7900000,
                                  stack_free_bytes=2500))
         return encoded(reply(request_id, command, started=10, frames=10, failed=0))
 
@@ -100,6 +111,23 @@ class Framing(unittest.TestCase):
         with self.assertRaises(bench.BenchError):
             self.console.command("status", timeout_s=0.1)
         self.assertEqual(len(self.port.writes), writes, "failed session must never send again")
+
+    def load_session(self, *, probe_failure=None):
+        settings = (0, 0, 0)
+
+        def handler(request_id, command, args):
+            nonlocal settings
+            if command == "load":
+                if args:
+                    settings = tuple(int(value) for value in args)
+                return encoded(load_reply(request_id, settings))
+            if command == "probe" and probe_failure:
+                return (encoded(reply(request_id, command, result="accepted", address=1))
+                        + encoded(reply(request_id, command, type="probe", ok=False,
+                                        address=1, transport=probe_failure, codec="NOT_CHECKED")))
+            return Serial.normal(request_id, command, args)
+
+        return self.session(handler)
 
     def test_fragmented_probe_and_cached_health(self):
         console = self.session(fragment=1)
@@ -199,6 +227,7 @@ class Framing(unittest.TestCase):
         for change in ({"transport": "NO_RESPONSE"}, {"codec": "EXCEPTION"},
                        {"raw_model": None}, {"raw_model": True}, {"raw_model": 65536},
                        {"tx_bytes": 0}, {"rx_bytes": 5}, {"rx_bytes": 7.0},
+                       {"duration_us": None}, {"duration_us": True}, {"duration_us": -1},
                        {"timing_valid": False}, {"raw_truncated": True}):
             with self.subTest(change=change):
                 console = self.session()
@@ -331,6 +360,217 @@ class Framing(unittest.TestCase):
         self.assertEqual(memory["psram_min"], 7990000)
         self.assertEqual(health["readiness"], "unknown")
         self.assertTrue(all("utc" in row and "elapsed_s" in row for row in records))
+
+    def test_load_campaign_records_configuration_costs_and_memory(self):
+        console = self.load_session()
+        bench.campaign(console, "load", count=3, interval_s=0, timeout_s=0.1,
+                       load=(2000, 5000, 128))
+        commands = [line.decode("ascii").strip().split()[1:] for line in self.port.writes]
+        self.assertEqual(commands, [["version"], ["load", "2000", "5000", "128"], ["stats"]]
+                         + [["probe", "1"], ["status"], ["health"], ["memory"], ["load"]] * 3
+                         + [["stats"]])
+        summary = self.events[-1]
+        self.assertTrue(summary["ok"])
+        self.assertEqual(summary["probes_attempted"], 3)
+        self.assertEqual(summary["probes_passed"], 3)
+        self.assertEqual(summary["probes_failed"], 0)
+        self.assertEqual(summary["latency_us"], {"min": 12345, "max": 12345, "mean": 12345})
+        self.assertEqual(summary["last_load"]["capture_mode"], "timer")
+        self.assertEqual(summary["last_load"]["capture_gap_max_us"], 10)
+        self.assertEqual(summary["last_load"]["work_us"], 4000)
+        self.assertEqual(summary["last_memory"]["internal_min"], 145000)
+
+    def test_failed_load_probe_collects_cached_evidence_and_stops(self):
+        console = self.load_session(probe_failure="TIMING_UNCERTAIN")
+        with self.assertRaisesRegex(bench.BenchError, "TIMING_UNCERTAIN"):
+            bench.campaign(console, "load", count=100, interval_s=0, timeout_s=0.1,
+                           load=(2000, 5000, 128))
+        commands = [line.decode("ascii").strip().split()[1] for line in self.port.writes]
+        self.assertEqual(commands, ["version", "load", "stats", "probe", "status",
+                                    "health", "memory", "load", "stats"])
+        summary = self.events[-1]
+        self.assertFalse(summary["ok"])
+        self.assertEqual(summary["probes_failed"], 1)
+        self.assertEqual(summary["probes_passed"], 0)
+        self.assertEqual(summary["load_settings"], (2000, 5000, 128))
+        self.assertEqual(summary["last_load"]["owner_delay_us"], 5000)
+        self.assertIn("TIMING_UNCERTAIN", summary["error"])
+
+    def test_load_cannot_pass_without_exercising_requested_work(self):
+        for counters, error in (({"console_lines": 0, "console_dropped": 2}, "no complete lines"),
+                                ({"work_iterations": 0, "console_lines": 0}, "no competing task")):
+            with self.subTest(counters=counters):
+                console = self.load_session()
+                normal = self.port.handler
+
+                def inactive(i, command, args):
+                    response = normal(i, command, args)
+                    if command == "load":
+                        response = encoded({**json.loads(response), **counters})
+                    return response
+
+                self.port.handler = inactive
+                with self.assertRaisesRegex(bench.BenchError, error):
+                    bench.campaign(console, "load", count=1, interval_s=0,
+                                   timeout_s=0.1, load=(2000, 5000, 128))
+                self.assertEqual(self.events[-1]["probes_passed"], 1)
+                self.assertFalse(self.events[-1]["ok"])
+                self.assertEqual(self.port.writes[-1].split()[1], b"stats")
+
+    def test_load_timeout_never_attempts_diagnostics_or_cleanup(self):
+        console = self.load_session()
+        normal = self.port.handler
+        self.port.handler = lambda i, cmd, args: b"" if cmd == "probe" else normal(i, cmd, args)
+        self.failed(lambda: bench.campaign(console, "load", count=100, interval_s=0,
+                                           timeout_s=0.02, load=(5000, 20000, 256)), "deadline")
+        self.assertEqual([line.decode("ascii").split()[1] for line in self.port.writes],
+                         ["version", "load", "stats", "probe"])
+        self.assertFalse(self.events[-1]["ok"])
+        self.assertEqual(self.events[-1]["load_settings"], (5000, 20000, 256))
+
+    def test_load_rejection_stops_before_any_probe(self):
+        console = self.load_session()
+        self.port.handler = lambda i, cmd, _: encoded(reply(i, cmd, ok=False, result="busy"))
+        with self.assertRaisesRegex(bench.BenchError, "load failed"):
+            bench.campaign(console, "load", count=2, interval_s=0, timeout_s=0.1,
+                           load=(2000, 5000, 128))
+        self.assertEqual(len(self.port.writes), 2)
+        self.assertEqual(self.events[-1]["probes_attempted"], 0)
+        self.assertFalse(self.events[-1]["ok"])
+
+    def test_invalid_load_settings_never_send(self):
+        for settings in (None, (), [0, 0, 0], (True, 0, 0), (-1, 0, 0), (5001, 0, 0),
+                         (0, 20001, 0), (0, 0, 257), (0, 0, 2.5), (0, 0, "256")):
+            with self.subTest(settings=settings):
+                console = self.session()
+                with self.assertRaises(ValueError):
+                    bench.campaign(console, "load", count=1, interval_s=0,
+                                   timeout_s=0.1, load=settings)
+                self.assertEqual(len(self.port.writes), 1)
+        console = self.session()
+        with self.assertRaises(ValueError):
+            console.command("probe", load=(0, 0, 0))
+        with self.assertRaises(ValueError):
+            bench.campaign(console, "stress", count=1, interval_s=0,
+                           timeout_s=0.1, load=(0, 0, 0))
+        self.assertEqual(len(self.port.writes), 1)
+
+    def test_invalid_campaign_count_never_sends(self):
+        for count in (True, 1.0, "1", None, 0, 1000001):
+            with self.subTest(count=count):
+                console = self.session()
+                with self.assertRaises(ValueError):
+                    bench.campaign(console, "stress", count=count, interval_s=0, timeout_s=0.1)
+                self.assertEqual(len(self.port.writes), 1)
+
+    def test_load_reply_requires_matching_settings_and_counters(self):
+        for change in ({"workload_us": 1000}, {"owner_delay_us": True}, {"console_bytes": 257},
+                       {"ready": False}, {"capture_mode": "driver"}, {"capture_mode": []},
+                       {"capture_us": None}, {"capture_samples": True}, {"work_us": -1},
+                       {"owner_gap_max_us": 2**64}, {"work_stack_free_bytes": 2.5}):
+            with self.subTest(change=change):
+                console = self.session()
+                self.port.handler = lambda i, cmd, _: encoded({**load_reply(i), **change})
+                self.failed(lambda: console.command("load", load=(0, 0, 0), timeout_s=0.1),
+                            "load|capture")
+
+    def test_load_configuration_change_stops_before_next_probe(self):
+        console = self.load_session()
+        normal = self.port.handler
+
+        def changed(request_id, command, args):
+            if command == "load" and not args:
+                return encoded(load_reply(request_id, (0, 0, 0)))
+            return normal(request_id, command, args)
+
+        self.port.handler = changed
+        with self.assertRaisesRegex(bench.BenchError, "configuration does not match"):
+            bench.campaign(console, "load", count=100, interval_s=0, timeout_s=0.1,
+                           load=(2000, 5000, 128))
+        commands = [line.decode("ascii").split()[1] for line in self.port.writes]
+        self.assertEqual(commands.count("probe"), 1)
+        self.assertEqual(commands[-1], "load")
+        self.assertFalse(self.events[-1]["ok"])
+
+    def test_load_text_can_follow_terminal_in_fragments(self):
+        for trailer in (b"#", b"# load ", b"# load xxxxx"):
+            with self.subTest(trailer=trailer):
+                console = self.session()
+                self.port.handler = lambda i, cmd, _: encoded(reply(i, cmd)) + trailer
+                console.command("stats", timeout_s=0.1)
+                self.assertTrue(console.synchronized)
+                self.assertEqual(console.buffer, trailer)
+                self.port.input.extend(b"xxxx\n")
+                self.port.handler = Serial.normal
+                console.command("status", timeout_s=0.1)
+                self.assertEqual(len(self.port.writes), 3)
+                self.assertTrue(any(event.get("text", "").startswith("#") for event in self.events))
+
+    def test_partial_load_line_waits_without_sending(self):
+        console = self.session()
+        self.console.buffer.extend(b"# load ")
+        original_read = self.port.read
+        polls = 0
+
+        def delayed_tail(limit):
+            nonlocal polls
+            polls += 1
+            if polls == 3:
+                self.assertEqual(len(self.port.writes), 1)
+                self.port.input.extend(b"xxxx\n")
+            return original_read(limit)
+
+        self.port.read = delayed_tail
+        console.command("status", timeout_s=0.1)
+        self.assertEqual(len(self.port.writes), 2)
+        self.assertGreater(self.clock.now, 0)
+
+    def test_incomplete_load_line_deadline_stops_before_send(self):
+        console = self.session()
+        console.buffer.extend(b"# load ")
+        self.failed(lambda: console.command("probe", timeout_s=0.02), "deadline")
+        self.assertEqual(len(self.port.writes), 1)
+
+    def test_startup_retains_only_a_partial_fixture_line(self):
+        console = self.session(identify=False)
+        self.port.input.extend(b"boot text\n# load ")
+        console.drain_startup(0.01)
+        self.assertEqual(console.buffer, b"# load ")
+        self.port.input.extend(b"xxxx\n")
+        console.identify(timeout_s=0.1)
+        self.assertTrue(console.identified)
+        self.assertEqual(self.port.writes, [b"@1 version\n"])
+
+    def test_load_text_does_not_hide_a_watchdog(self):
+        console = self.load_session()
+        self.port.input.extend(b"# load watchdog timeout\n")
+        self.failed(lambda: console.command("probe", timeout_s=0.1), "watchdog fault")
+        self.assertEqual(len(self.port.writes), 1)
+
+    def test_memory_requires_valid_measurements(self):
+        for change in ({"valid": False}, {"internal_free": True}, {"psram_min": None},
+                       {"internal_largest": -1}, {"stack_free_bytes": 2**64}):
+            with self.subTest(change=change):
+                console = self.session()
+
+                def malformed(request_id, command, args):
+                    return encoded({**json.loads(Serial.normal(request_id, command, args)), **change})
+
+                self.port.handler = malformed
+                self.failed(lambda: console.command("memory", timeout_s=0.1), "memory")
+
+    def test_load_arguments_are_explicit_and_bounded(self):
+        prefix = ["--port", "unused", "--log", "unused.jsonl", "load"]
+        args = bench.arguments(prefix + ["--work-us", "5000", "--owner-delay-us", "20000",
+                                         "--console-bytes", "256", "--count", "2"])
+        self.assertEqual(args.load, (5000, 20000, 256))
+        self.assertEqual(args.count, 2)
+        for options in (["--work-us", "5001"], ["--owner-delay-us", "20001"],
+                        ["--console-bytes", "257"], ["--console-bytes", "-1"]):
+            with self.subTest(options=options), redirect_stderr(io.StringIO()):
+                with self.assertRaises(SystemExit) as exit_status:
+                    bench.arguments(prefix + options)
+                self.assertEqual(exit_status.exception.code, 2)
 
 
 if __name__ == "__main__":

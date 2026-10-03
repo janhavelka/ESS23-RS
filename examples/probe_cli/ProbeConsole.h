@@ -14,6 +14,26 @@ constexpr std::size_t PROBE_RX_CAPACITY = 64;
 /** Host action result; only a probe completes asynchronously. */
 enum class Action : uint8_t { OK, BUSY, RECOVERY_REQUIRED, UNAVAILABLE, FAILED };
 
+/** Host-only qualification workload. Changes never configure the motor. */
+struct LoadSettings {
+    uint32_t workUs = 0;       ///< Competing work per 10 ms period, at most 5000 us.
+    uint32_t ownerDelayUs = 0; ///< Active runner service delay, at most 20000 us.
+    uint32_t consoleBytes = 0; ///< Competing console bytes per period, at most 256.
+};
+
+/** Retained fixture measurements. Section durations are not total CPU use. */
+struct LoadSnapshot {
+    LoadSettings settings;
+    uint64_t elapsedUs = 0, workUs = 0, workIterations = 0;
+    uint64_t consoleLines = 0, consoleDropped = 0;
+    uint64_t captureUs = 0, captureSamples = 0;
+    uint64_t ownerGapMaxUs = 0, captureGapMaxUs = 0;
+    uint32_t workStackFreeBytes = 0;
+    bool timer = false, ready = false;
+    bool cpuValid = false;
+    uint8_t cpu0BusyPct = 0, cpu1BusyPct = 0; ///< Optional scheduler-derived estimate.
+};
+
 /** Task-context cached host observations. No probe establishes motor readiness. */
 struct Snapshot {
     uint8_t address = 1;
@@ -65,7 +85,10 @@ struct ProbeResult {
  * back into the console. snapshot only reads cached state and must not touch the
  * motor bus. startProbe admits exactly one built ESS model read; it must not call
  * reportProbe synchronously. recover affects the host only; resetStats clears
- * only local counters. All callbacks are required for this console build.
+ * only local counters. The optional load callback changes/reads host fixture
+ * settings only; a null request means query. It must copy the request before
+ * returning and publish the applied settings in the snapshot. Other callbacks
+ * are required for this console build.
  */
 struct Host {
     void* context = nullptr;
@@ -74,6 +97,7 @@ struct Host {
     Action (*startProbe)(void*, uint32_t id, uint8_t address) = nullptr;
     Action (*recover)(void*) = nullptr;
     void (*resetStats)(void*) = nullptr;
+    Action (*load)(void*, const LoadSettings* requested, LoadSnapshot&) = nullptr;
 };
 
 /** Fixed-capacity read-only ESS console; no allocation, clocks or platform I/O.

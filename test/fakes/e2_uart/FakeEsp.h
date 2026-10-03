@@ -23,6 +23,11 @@ void fakeEnterCritical();
 void fakeExitCritical();
 #define portENTER_CRITICAL(mux) ((void)(mux), fakeEnterCritical())
 #define portEXIT_CRITICAL(mux) ((void)(mux), fakeExitCritical())
+#define portENTER_CRITICAL_SAFE(mux) portENTER_CRITICAL(mux)
+#define portEXIT_CRITICAL_SAFE(mux) portEXIT_CRITICAL(mux)
+#define portENTER_CRITICAL_ISR(mux) portENTER_CRITICAL(mux)
+#define portEXIT_CRITICAL_ISR(mux) portEXIT_CRITICAL(mux)
+#define IRAM_ATTR
 
 struct FakeRegister { uint32_t val = 0; };
 struct FakeClearRegister {

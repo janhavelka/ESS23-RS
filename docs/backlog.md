@@ -59,23 +59,13 @@ The checkout and GitHub URL remain `ESS23-RS` pending the user's remote rename.
 
 ## Immediate next implementation block
 
-Start capture/load verification around the existing runner and E2 adapter.
-The shared-bus owner and motion API remain unimplemented; the recent FieldCore
-discussion established their development route, not completed code.
+The independent native wire fixture, E2 load fixture and optional GPTimer
+capture are implemented and have bench evidence in the
+[capture/load audit](reports/2026-10-03_capture_load.md). External TX/RX/DE
+measurements, cache-off qualification and the production CPU budget remain open.
+The [release roadmap](roadmap.md) defines the delivery order and release gates.
 
-1. Extend native fixtures so wire arrival and application servicing can be
-   delayed independently. Exercise FIFO batches/overflow, missing timing,
-   late/foreign replies and bounded failure delivery. Reject ambiguous evidence
-   without replaying the request.
-2. Add an E2 load fixture with competing task work and controlled console/USB
-   activity, initially using the existing read-only probe. Retain service gaps,
-   failures, latency, CPU cost and internal/PSRAM/stack measurements.
-3. Use that evidence and the SDK/hardware contracts to select the receive
-   capture path for a sleeping owner task. Document the supported service/load
-   envelope and remaining independent TX/RX/DE measurements. Successful probes
-   alone do not qualify timing; native work can proceed before external captures.
-
-The following block adds the small bounded bus owner: pending requests, explicit
+The next block adds the small bounded bus owner: pending requests, explicit
 queue limits, retained results, fairness and priority for a pending stop after
 in-flight transport settlement. Reuse the runner, keep this code in the
 application layer, and leave FieldCore read-only. Typed identity/state reads
@@ -219,12 +209,14 @@ and testing belong here, with the public motor library remaining independent
 of the standalone bus owner. See the
 [development route](reference/10_runner_platform_review.md#develop-the-integration-reference-here).
 
-- [ ] Extend native fixtures for delayed task service and captured wire events;
+- [x] Extend native fixtures for delayed task service and captured wire events;
   check lost timing, UART overflow, late replies and bounded terminal results.
-- [ ] Add an E2 task/USB/load fixture and measure service gaps, CPU cost, errors,
-  transaction latency and memory. Qualify a capture path that does not require
-  the application owner to poll once per character. Select its mechanism from
-  hardware/SDK evidence; independent TX/RX/DE capture remains required.
+- [x] Add an E2 task/USB/load fixture and measure service gaps, CPU cost, errors,
+  transaction latency and memory. Implement GPTimer capture and physical DE
+  release while the owner sleeps; retain atomic completion/release observations.
+- [ ] Independently qualify TX/RX/DE and RX publication/idle assumptions; measure
+  cache-off/interrupt starvation behavior and decide the production CPU budget.
+  Current 20-us capture is a measured reference, not a blanket timing guarantee.
 - [ ] Build a small standalone bus-owner reference with bounded queue/admission,
   multiple request producers, retained results, fair scheduling and priority
   for a pending stop. Settle in-flight transport and recovery explicitly.

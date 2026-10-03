@@ -1,5 +1,18 @@
 # Software verification
 
+## Capture and load audit, version 0.6.0
+
+Checks on 2026-10-03: Release build with warnings as errors and **13/13 CTest
+suites**, including 44 Python harness cases, passed. Native SDK fixtures compile
+the real E2 adapter and runner and independently schedule wire arrival, capture
+and owner service. Tests cover timer lifecycle failures, delayed DE observations,
+FIFO/ring overflow, late replies and missing/contradictory timing evidence.
+
+E2 polling and timer load builds compile. Read-only COM13 campaigns, memory/CPU
+measurements, audit fixes and remaining hardware limits are recorded in the
+[capture/load report](reports/2026-10-03_capture_load.md). These checks do not
+establish external timing, cache-off tolerance or motion qualification.
+
 ## Implementation audit, version 0.5.1
 
 Checks on 2026-10-03: clean Release build with warnings as errors and **12/12

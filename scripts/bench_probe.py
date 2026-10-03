@@ -4,7 +4,8 @@
 Only ``probe`` creates motor-bus traffic. Status, health and memory are cached
 host reports. A lost or malformed reply stops the run; nothing is replayed and
 host recovery is never automatic. Python 3.10+; pyserial is needed only for a
-real port. See ``--help`` for finite probe, stress and watch runs.
+real port. See ``--help`` for finite probe, stress, watch and load runs. Load
+settings change the host fixture only; they never change motor settings.
 """
 
 from __future__ import annotations
@@ -22,7 +23,18 @@ import time
 
 MAX_LINE = 4096
 MAX_INPUT = 32768
-COMMANDS = frozenset({"version", "probe", "status", "health", "memory", "stats"})
+COMMANDS = frozenset({"version", "probe", "status", "health", "memory", "stats", "load"})
+LOAD_FIELDS = ("workload_us", "owner_delay_us", "console_bytes")
+LOAD_LIMITS = (5000, 20000, 256)
+LOAD_COUNTERS = (
+    "elapsed_us", "work_us", "work_iterations", "console_lines", "console_dropped",
+    "capture_us", "capture_samples", "owner_gap_max_us", "capture_gap_max_us",
+    "work_stack_free_bytes",
+)
+MEMORY_FIELDS = (
+    "internal_free", "internal_min", "internal_largest", "psram_free", "psram_min",
+    "psram_largest", "stack_free_bytes",
+)
 FAULT_TEXT = re.compile(
     r"Guru Meditation|stack canary|watchdog.*(?:trigger|timeout)|assert failed|"
     r"abort\(\) was called|brownout detector|backtrace:|(?:^|\s)rst:0x",
@@ -38,6 +50,38 @@ def positive(value: float, label: str) -> float:
     if not math.isfinite(value) or value <= 0:
         raise ValueError(f"{label} must be finite and greater than zero")
     return value
+
+
+def check_load(settings: tuple[int, int, int]) -> None:
+    """Check the fixture's explicit, motor-independent workload limits."""
+    if not isinstance(settings, tuple) or len(settings) != len(LOAD_LIMITS):
+        raise ValueError("load settings must be (work_us, owner_delay_us, console_bytes)")
+    for name, value, maximum in zip(LOAD_FIELDS, settings, LOAD_LIMITS):
+        if type(value) is not int or not 0 <= value <= maximum:
+            raise ValueError(f"{name} must be an integer within 0..{maximum}")
+
+
+def check_load_reply(response: dict, settings: tuple[int, int, int] | None) -> None:
+    """Validate cached fixture evidence, including the applied configuration."""
+    values = tuple(response.get(name) for name in LOAD_FIELDS)
+    try:
+        check_load(values)
+    except ValueError as exc:
+        raise BenchError("load reply has invalid configuration") from exc
+    if settings is not None and values != settings:
+        raise BenchError("load reply configuration does not match request")
+    if (response.get("ready") is not True
+            or response.get("capture_mode") not in ("poll", "timer")):
+        raise BenchError("load fixture is not ready or capture mode is unknown")
+    check_counts(response, LOAD_COUNTERS, "load")
+
+
+def check_counts(response: dict, names: tuple[str, ...], command: str) -> None:
+    """Require actual nonnegative integer counters, never missing values or bools."""
+    for name in names:
+        value = response.get(name)
+        if type(value) is not int or not 0 <= value <= 0xFFFFFFFFFFFFFFFF:
+            raise BenchError(f"{command} reply lacks a valid {name}")
 
 
 def unique_object(pairs: list[tuple[str, object]]) -> dict:
@@ -159,15 +203,23 @@ class Console:
                         raise BenchError("unexpected structured reply during startup")
                 if not data:
                     self.sleep(0.005)
-            if self.buffer:
+            if self.buffer and not self._load_line_pending():
                 raise BenchError("startup ended with an incomplete line")
         except Exception:
             self.synchronized = False
             raise
 
-    def _check_pending(self) -> None:
+    def _load_line_pending(self) -> bool:
+        """Only fixture text may straddle a completed JSON reply."""
+        prefix = b"# load "
+        return bool(self.buffer) and (prefix.startswith(self.buffer)
+                                      or self.buffer.startswith(prefix))
+
+    def _check_pending(self, deadline: float) -> None:
         total = 0
         while True:
+            if self.clock() >= deadline:
+                raise BenchError("command deadline expired while collecting pending diagnostics")
             data = self._read()
             total += len(data)
             if total > MAX_INPUT:
@@ -176,12 +228,16 @@ class Console:
                 if self._decode(raw) is not None:
                     raise BenchError("unsolicited structured reply before command")
             if not data:
+                if self._load_line_pending() and self.clock() < deadline:
+                    self.sleep(0.005)
+                    continue
                 break
         if self.buffer:
             raise BenchError("incomplete pending line before command")
 
     def command(self, command: str, *, timeout_s: float = 3.0,
-                address: int | None = None) -> dict:
+                address: int | None = None,
+                load: tuple[int, int, int] | None = None) -> dict:
         """Send exactly once and return the terminal response, logging acceptance."""
         positive(timeout_s, "command timeout")
         if command not in COMMANDS:
@@ -189,6 +245,10 @@ class Console:
         if address is not None and (command != "probe" or type(address) is not int
                                     or not 1 <= address <= 247):
             raise ValueError("an ESS probe address must be an integer within 1..247")
+        if load is not None:
+            if command != "load":
+                raise ValueError("load settings are only valid for the load command")
+            check_load(load)
         if not self.synchronized:
             raise BenchError("console framing failed; session cannot be reused")
         if not self.identified and command != "version":
@@ -201,12 +261,14 @@ class Console:
         started = self.clock()
         deadline = started + timeout_s
         try:
-            self._check_pending()
+            self._check_pending(deadline)
             if self.clock() >= deadline:
                 raise BenchError("command deadline expired before transmission")
             suffix = "" if address is None else f" {address}"
+            if load is not None:
+                suffix = " " + " ".join(str(value) for value in load)
             payload = f"@{request_id} {command}{suffix}\n".encode("ascii")
-            self.emit("send", id=request_id, command=command, address=address)
+            self.emit("send", id=request_id, command=command, address=address, load=load)
             if self.port.write(payload) != len(payload):
                 raise BenchError("short serial command write; command was not replayed")
             total = 0
@@ -252,6 +314,8 @@ class Console:
                                         or type(model) is not int or not 0 <= model <= 65535
                                         or type(item.get("tx_bytes")) is not int or item["tx_bytes"] != 8
                                         or type(item.get("rx_bytes")) is not int or item["rx_bytes"] != 7
+                                        or type(item.get("duration_us")) is not int
+                                        or not 0 <= item["duration_us"] <= 0xFFFFFFFFFFFFFFFF
                                         or item.get("timing_valid") is not True
                                         or item.get("raw_truncated") is not False):
                                     raise BenchError("successful probe lacks consistent result evidence")
@@ -265,8 +329,14 @@ class Console:
                 if terminal is not None:
                     if self.clock() >= deadline:
                         raise BenchError("command response deadline expired; command was not replayed")
-                    if self.buffer:
+                    if self.buffer and not self._load_line_pending():
                         raise BenchError("terminal response has an incomplete trailing line")
+                    if command == "load" and terminal["ok"]:
+                        check_load_reply(terminal, load)
+                    if command == "memory" and terminal["ok"]:
+                        if terminal.get("valid") is not True:
+                            raise BenchError("memory measurements are unavailable")
+                        check_counts(terminal, MEMORY_FIELDS, "memory")
                     if command == "status" and terminal["ok"]:
                         uptime = terminal.get("uptime_ms")
                         if type(uptime) is not int or uptime < 0:
@@ -298,8 +368,9 @@ class Console:
 
 
 def successful(console: Console, command: str, timeout_s: float,
-               address: int | None = None) -> dict:
-    result = console.command(command, timeout_s=timeout_s, address=address)
+               address: int | None = None,
+               load: tuple[int, int, int] | None = None) -> dict:
+    result = console.command(command, timeout_s=timeout_s, address=address, load=load)
     if not result["ok"]:
         raise BenchError(f"{command} failed: {result.get('result', result.get('transport'))}")
     return result
@@ -313,29 +384,83 @@ def campaign(
     interval_s: float,
     timeout_s: float,
     address: int = 1,
+    load: tuple[int, int, int] | None = None,
     sleeper: Callable[[float], None] = time.sleep,
 ) -> None:
-    """Finite work, no recovery and no replay. Watch never issues a probe."""
-    if mode not in {"probe", "stress", "watch"}:
+    """Finite work, no recovery and no replay. Watch never issues a probe.
+
+    Load campaigns retain cached diagnostics after a complete failed probe,
+    then stop. A framing failure ends communication immediately. Fixture load
+    stays explicitly configured, including after a failure or interruption;
+    the harness never sends cleanup or recovery commands behind the operator.
+    """
+    if mode not in {"probe", "stress", "watch", "load"}:
         raise ValueError("unknown campaign mode")
-    if not 1 <= count <= 1_000_000 or (mode == "probe" and count != 1):
+    if type(count) is not int or not 1 <= count <= 1_000_000 or (mode == "probe" and count != 1):
         raise ValueError("invalid campaign count")
     if not math.isfinite(interval_s) or not 0 <= interval_s <= 60:
         raise ValueError("interval must be finite and within 0..60 seconds")
     positive(timeout_s, "command timeout")
     if type(address) is not int or not 1 <= address <= 247:
         raise ValueError("ESS probe address must be within 1..247")
-    successful(console, "stats", timeout_s)
-    for iteration in range(count):
-        console.emit("iteration", number=iteration + 1, mode=mode)
-        if mode != "watch":
-            successful(console, "probe", timeout_s, address)
-        for command in ("status", "health", "memory"):
-            successful(console, command, timeout_s)
-        if iteration + 1 < count and interval_s:
-            sleeper(interval_s)
-    successful(console, "stats", timeout_s)
-    console.emit("summary", mode=mode, iterations=count, ok=True)
+    if mode == "load":
+        check_load(load)
+    elif load is not None:
+        raise ValueError("load settings require a load campaign")
+
+    attempted = passed = completed = 0
+    latency_total = 0
+    latency_min = latency_max = None
+    latest_load = latest_memory = None
+    failure = None
+    try:
+        if mode == "load":
+            latest_load = successful(console, "load", timeout_s, load=load)
+        successful(console, "stats", timeout_s)
+        for iteration in range(count):
+            console.emit("iteration", number=iteration + 1, mode=mode)
+            probe = None
+            if mode != "watch":
+                attempted += 1
+                probe = console.command("probe", timeout_s=timeout_s, address=address)
+                if probe["ok"]:
+                    passed += 1
+                    latency = probe["duration_us"]
+                    latency_total += latency
+                    latency_min = latency if latency_min is None else min(latency_min, latency)
+                    latency_max = latency if latency_max is None else max(latency_max, latency)
+                elif mode != "load":
+                    raise BenchError(f"probe failed: {probe.get('result', probe.get('transport'))}")
+            for command in ("status", "health", "memory"):
+                report = successful(console, command, timeout_s)
+                if command == "memory":
+                    latest_memory = report
+            if mode == "load":
+                latest_load = successful(console, "load", timeout_s)
+                check_load_reply(latest_load, load)
+                if probe is not None and not probe["ok"]:
+                    successful(console, "stats", timeout_s)
+                    raise BenchError(f"probe failed: {probe.get('result', probe.get('transport'))}")
+            completed += 1
+            if iteration + 1 < count and interval_s:
+                sleeper(interval_s)
+        successful(console, "stats", timeout_s)
+        if mode == "load" and latest_load is not None:
+            if (load[0] or load[2]) and not latest_load["work_iterations"]:
+                raise BenchError("load window contained no competing task iterations")
+            if load[2] and not latest_load["console_lines"]:
+                raise BenchError("console workload produced no complete lines")
+    except Exception as exc:
+        failure = str(exc)
+        raise
+    finally:
+        console.emit("summary", mode=mode, iterations=completed, requested_count=count,
+                     probes_attempted=attempted, probes_passed=passed,
+                     probes_failed=attempted - passed,
+                     latency_us={"min": latency_min, "max": latency_max,
+                                 "mean": latency_total / passed if passed else None},
+                     load_settings=load, last_load=latest_load, last_memory=latest_memory,
+                     ok=failure is None and completed == count, error=failure)
 
 
 def open_port(name: str, baud: int, timeout_s: float):
@@ -366,11 +491,21 @@ def arguments(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument("--startup", type=float, default=0.5, help="bounded boot-log collection in seconds")
     sub = parser.add_subparsers(dest="mode", required=True)
     sub.add_parser("probe", help="one model-register read and cached observations")
-    for mode, default_count, default_interval in (("stress", 100, 0.1), ("watch", 60, 1.0)):
-        child = sub.add_parser(mode, help="explicit repeated probes" if mode == "stress"
-                               else "cached status/health/memory only; no motor traffic")
+    for mode, default_count, default_interval, description in (
+        ("stress", 100, 0.1, "explicit repeated probes"),
+        ("watch", 60, 1.0, "cached status/health/memory only; no motor traffic"),
+        ("load", 100, 0.1, "read-only probes with explicit competing host workload"),
+    ):
+        child = sub.add_parser(mode, help=description)
         child.add_argument("--count", type=int, default=default_count)
         child.add_argument("--interval", type=float, default=default_interval)
+        if mode == "load":
+            child.add_argument("--work-us", type=int, default=0,
+                               help="competing task work per 10 ms period, 0..5000 us")
+            child.add_argument("--owner-delay-us", type=int, default=0,
+                               help="active transaction service delay, 0..20000 us")
+            child.add_argument("--console-bytes", type=int, default=0,
+                               help="competing console payload per 10 ms, 0..256 bytes")
     result = parser.parse_args(argv)
     if not 1 <= result.baud <= 4_000_000:
         parser.error("baud must be within 1..4000000")
@@ -386,6 +521,13 @@ def arguments(argv: list[str] | None) -> argparse.Namespace:
         parser.error("count must be within 1..1000000")
     if not math.isfinite(result.interval) or not 0 <= result.interval <= 60:
         parser.error("interval must be finite and within 0..60 seconds")
+    result.load = None
+    if result.mode == "load":
+        result.load = (result.work_us, result.owner_delay_us, result.console_bytes)
+        try:
+            check_load(result.load)
+        except ValueError as exc:
+            parser.error(str(exc))
     return result
 
 
@@ -396,14 +538,15 @@ def main(argv: list[str] | None = None) -> int:
         with args.log.open("x", encoding="utf-8", newline="\n") as stream:
             evidence = Evidence(stream)
             evidence("session", port=args.port, console_baud=args.baud, mode=args.mode,
-                     address=args.address, requested_count=args.count, timeout_s=args.timeout)
+                     address=args.address, requested_count=args.count, timeout_s=args.timeout,
+                     load_settings=args.load)
             try:
                 port = open_port(args.port, args.baud, args.timeout)
                 console = Console(port, on_event=evidence)
                 console.drain_startup(args.startup)
                 console.identify(timeout_s=args.timeout)
                 campaign(console, args.mode, count=args.count, interval_s=args.interval,
-                         timeout_s=args.timeout, address=args.address)
+                         timeout_s=args.timeout, address=args.address, load=args.load)
             except (Exception, KeyboardInterrupt) as exc:
                 evidence("failure", error=str(exc) or "interrupted", ok=False)
                 raise

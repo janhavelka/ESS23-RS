@@ -51,6 +51,11 @@ for current code and builds.
 
 ## Work tracking and bench
 
+- [Release roadmap](roadmap.md): delivery order, release scope, completion gates
+  and the hardware regression required as each implemented feature reaches E2.
+- [Capture and load audit](reports/2026-10-03_capture_load.md): independent wire
+  fixtures, timer capture, measured load and remaining timing qualification.
+
 - [Software verification](verification.md): foundation and codec checks with
   explicit limits on what was tested.
 

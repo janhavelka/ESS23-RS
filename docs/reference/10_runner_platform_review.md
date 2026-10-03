@@ -206,7 +206,9 @@ FieldCore's worker. At 115200 baud an 8N1 character lasts about 87 microseconds;
 5 ms spans about 58 characters. Our adapter deliberately rejects more than one
 byte waiting in the hardware FIFO. Increasing the buffer or calling the same
 polling code from a slower task cannot reconstruct the missing wire timing.
-The four captured-byte slots are not an interrupt-fed receive buffer.
+The original 0.5.1 four-slot queue was not an interrupt-fed receive buffer.
+Version 0.6.0 adds a 64-slot internal ring filled by optional GPTimer capture;
+this changes the capture service schedule, not the need for timing evidence.
 FieldCore's existing UART driver does buffer bytes independently of its worker;
 a 5 ms worker interval does not itself establish byte loss. Its current backend
 does not expose the timing/framing evidence required by our runner. Reliable
@@ -214,22 +216,19 @@ frame-level hardware evidence may be a suitable alternative to per-byte timing;
 select that boundary from evidence, rather than requiring one interrupt per byte
 or shortening every application task's polling interval.
 
-Start with a load and fault test fixture around the existing adapter/runner:
+The first capture/load implementation block is now complete; see the
+[capture/load audit](../reports/2026-10-03_capture_load.md). Native fixtures
+separate wire arrival from service and test batch/overflow, late/foreign replies,
+missing evidence and no replay. The E2 load fixture measures task/USB load,
+service gaps, failures and resources. GPTimer sampling and asynchronous DE
+release allow the owner to sleep; atomic TX/release bounds replace separate
+completion observations. No per-byte times are reconstructed from a FIFO batch.
 
-1. Add deterministic native cases for delayed servicing, UART batch/overflow,
-   late and foreign replies, queued requests and bounded result delivery.
-   Separate actual wire events from the task's servicing time.
-2. Establish an E2 workload fixture with competing task work and controlled
-   logging/USB pressure. Measure CPU/service gaps, drops, latency, internal
-   memory, PSRAM and stack use. Start with the existing non-changing probe.
-3. Review a capture strategy that preserves sufficient hardware timing evidence
-   while the owner task sleeps. Driver events or interrupt capture are candidates,
-   not a selected implementation: delayed event delivery alone is not a timestamp.
-   Extend the adapter/runner contract only if the measured strategy needs it;
-   do not fake per-byte timestamps from a batch.
-4. Qualify physical TX/RX/DE and framing boundaries with an independent capture.
-   Native tests and a soak run cannot substitute for this evidence. Report
-   unsupported load/timing cases explicitly until that qualification exists.
+The measured 20-us sampler costs about 19?21% of one core inside the capture
+section alone. This is a reference choice that needs a production CPU-budget
+review. External TX/RX/DE, cache-off behavior and the full FieldCore workload
+remain separate qualification work; native tests and successful probes do not
+replace those measurements.
 
 Then add the smallest application bus owner needed for multiple request
 producers and stop priority. Admission must be bounded, queue-full behavior
@@ -286,16 +285,15 @@ known about their execution, observe completion/faults and schedule stop within
 a defined bus-service budget. A functioning bus is still required for a serial
 stop command to reach the drive.
 
-The remaining work here has two separate parts: reliable capture while other
-tasks run, and a small bus owner that decides which request may use the wire
-next. Existing codecs and the one-transaction runner are reusable foundations
-for both. Then typed drive operations add their own sequencing and state rules.
-These are real implementation blocks; the current read-only probe does not
-already supply them.
+Capture during competing work now has an implemented, measured reference.
+The next block is the small bus owner that decides which request may use the
+wire next, reusing the codecs and runner. Typed drive operations then add their
+own sequencing and state rules. Queueing, stop priority and typed motion are
+not supplied by the current read-only probe.
 
 Developing those blocks here can turn later FieldCore work into adaptation of
 tested mechanisms with known limits. It cannot make integration a header-only
 addition or remove tests for concurrency, old sensors, memory and product load.
 No reliable line count, effort percentage or completion date follows from this
-source review alone. Start with capture/load evidence, then add the bounded owner
-and reuse the same scenarios when integration is separately authorized.
+source review alone. Carry forward the capture/load evidence, add the bounded
+owner and reuse the same scenarios when integration is separately authorized.

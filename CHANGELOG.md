@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.6.0
+
+- Separate scheduled wire arrivals from owner/capture service in native SDK
+  fixtures. Exercise FIFO and capture-ring overflow, late/foreign replies,
+  missing timing evidence and interrupt masking without automatic replay.
+- Add optional GPTimer capture and autonomous DE release on E2, with a bounded
+  internal ring and atomic `TxObservation` in the application runner port.
+  Delayed delivery uses physical completion/release evidence. Timer lifecycle
+  failures retain ownership and require explicit recovery.
+- Add a bounded E2 task/console load fixture and Python load campaigns with
+  retained failures, service gaps, latency, CPU estimates, RAM and stack data.
+  Fix complete-line serialization, maximum USB payload admission and consistent
+  measurement reset windows. The reusable core and ESS access policy are unchanged.
+- Record native and read-only hardware audit evidence and a release roadmap.
+  External electrical timing, cache-off behavior, motion and FieldCore integration
+  remain unqualified; the FieldCore repository was not edited.
+
 ## 0.5.1
 
 - Fix RX silence evidence around FIFO/state-machine races and reject snapshots

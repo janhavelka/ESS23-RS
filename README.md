@@ -8,7 +8,8 @@ and GitHub URL remain `ESS23-RS` until the user renames the remote repository.
 The implementation supplies **configurable units, the ESS register catalogue
 and checked ESS Modbus RTU codecs**. A [standalone transaction runner](docs/runner.md)
 has native fake-transport tests. The [E2 read-only probe](docs/e2_probe.md) adds
-a polling UART adapter, JSONL console and Python bench tools. Model-register
+polling and timer UART capture, a JSONL console and Python load/bench tools.
+The [release roadmap](docs/roadmap.md) records the delivery order and completion gates. Model-register
 communication has bench evidence; external timing qualification, motion commands,
 discovery orchestration and the full CLI remain future work. Other reviewed drives, including
 Leadshine iEM-RS, are design contrasts rather than implemented profiles.

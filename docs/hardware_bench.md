@@ -80,7 +80,9 @@ completion and record changes to the setup for the next session.
 
 - Bench access and motion-test authorization: recorded from the user.
 - COM13 inspected on 2026-10-03; original CO2Control-node 1.3.0 flash backed up.
-- Board now runs the standalone MotorControl-RS 0.5.1 read-only probe console.
+- Board now runs the MotorControl-RS 0.6.0 timer-capture load/probe console;
+  workload is explicitly disabled at the end of testing. See the
+  [capture/load audit](reports/2026-10-03_capture_load.md).
 - The [0.5.1 audit](reports/2026-10-03_audit.md) adds 20 checked probes and
   timeout/recovery/alias/reset evidence; the original flash backup is unchanged.
 - Repeated checked model reads succeed at node 1, 115200 8N1, TX47/RX48/DE21.

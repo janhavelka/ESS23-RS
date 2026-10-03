@@ -9,7 +9,7 @@
 namespace MotorControlRSExample { namespace Probe {
 namespace {
 
-enum class Command : uint8_t { HELP, VERSION, CONFIG, STATUS, HEALTH, STATS, PROBE, RECOVER, RESET, MEMORY };
+enum class Command : uint8_t { HELP, VERSION, CONFIG, STATUS, HEALTH, STATS, PROBE, RECOVER, RESET, MEMORY, LOAD };
 struct Entry { const char* name; Command command; const char* syntax; const char* effect; bool bus; };
 const Entry COMMANDS[] = {
     {"help", Command::HELP, "help [command]", "show_callable_commands", false},
@@ -24,7 +24,8 @@ const Entry COMMANDS[] = {
     {"ping", Command::PROBE, "ping [address]", "read_model_word_only", true},
     {"recover", Command::RECOVER, "recover", "recover_host_transport_only", false},
     {"reset", Command::RESET, "reset", "clear_host_counters_only", false},
-    {"memory", Command::MEMORY, "memory", "show_cached_memory", false}
+    {"memory", Command::MEMORY, "memory", "show_cached_memory", false},
+    {"load", Command::LOAD, "load [work_us owner_delay_us console_bytes]", "configure_or_report_host_load", false}
 };
 
 const Entry* find(const char* name) {
@@ -105,13 +106,13 @@ void Console::feed(char value) noexcept {
 }
 
 void Console::dispatch() noexcept {
-    char* tokens[4] = {};
+    char* tokens[5] = {}; // Optional @id, command, and three fixture values.
     std::size_t count = 0;
     char* next = line_;
     while (*next) {
         while (*next == ' ' || *next == '\t') ++next;
         if (!*next) break;
-        if (count == 4) { error(0, "input", "too_many_arguments"); return; }
+        if (count == sizeof(tokens) / sizeof(tokens[0])) { error(0, "input", "too_many_arguments"); return; }
         tokens[count++] = next;
         while (*next && *next != ' ' && *next != '\t') ++next;
         if (*next) *next++ = '\0';
@@ -131,8 +132,11 @@ void Console::dispatch() noexcept {
     if (entry->command == Command::PROBE) entry = find("probe");
     const std::size_t args = count - first - 1;
     const char* arg = args ? tokens[first + 1] : nullptr;
-    if (args > 1 || (args && entry->command != Command::HELP &&
-        entry->command != Command::STATS && entry->command != Command::PROBE)) {
+    const bool loadCommand = entry->command == Command::LOAD;
+    const bool optionalArg = entry->command == Command::HELP ||
+        entry->command == Command::STATS || entry->command == Command::PROBE;
+    const bool validArgs = loadCommand ? (args == 0 || args == 3) : args <= (optionalArg ? 1U : 0U);
+    if (!validArgs) {
         error(id, entry->name, "invalid_arguments"); return;
     }
     if (!host_.snapshot || !host_.startProbe || !host_.recover || !host_.resetStats) {
@@ -148,9 +152,19 @@ void Console::dispatch() noexcept {
     if (entry->command == Command::STATS && arg && std::strcmp(arg, "reset") != 0) {
         error(id, entry->name, "invalid_arguments"); return;
     }
+    LoadSettings loadSettings;
+    if (loadCommand && args &&
+        (!number(tokens[first + 1], loadSettings.workUs) || loadSettings.workUs > 5000 ||
+         !number(tokens[first + 2], loadSettings.ownerDelayUs) || loadSettings.ownerDelayUs > 20000 ||
+         !number(tokens[first + 3], loadSettings.consoleBytes) || loadSettings.consoleBytes > 256)) {
+        error(id, entry->name, "invalid_arguments"); return;
+    }
     const Entry* described = entry->command == Command::HELP && arg ? find(arg) : nullptr;
     if (entry->command == Command::HELP && arg && !described) {
         error(id, entry->name, "unknown_command"); return;
+    }
+    if ((loadCommand || (described && described->command == Command::LOAD)) && !host_.load) {
+        error(id, entry->name, "unavailable"); return;
     }
     if (entry->command == Command::HELP) {
         if (described) {
@@ -162,11 +176,14 @@ void Console::dispatch() noexcept {
                 "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"help\",\"ok\":true,\"commands\":[", static_cast<unsigned long>(id));
             if (prefix < 0 || static_cast<std::size_t>(prefix) >= sizeof(output_)) { error(id, "help", "output_full"); return; }
             std::size_t used = static_cast<std::size_t>(prefix);
+            bool firstName = true;
             for (const Entry& item : COMMANDS) {
+                if (item.command == Command::LOAD && !host_.load) continue;
                 const int written = std::snprintf(output_ + used, sizeof(output_) - used,
-                    "%s\"%s\"", &item == COMMANDS ? "" : ",", item.name);
+                    "%s\"%s\"", firstName ? "" : ",", item.name);
                 if (written < 0 || static_cast<std::size_t>(written) >= sizeof(output_) - used) { error(id, "help", "output_full"); return; }
                 used += static_cast<std::size_t>(written);
+                firstName = false;
             }
             if (sizeof(output_) - used < 3) { error(id, "help", "output_full"); return; }
             std::snprintf(output_ + used, sizeof(output_) - used, "]}");
@@ -184,6 +201,31 @@ void Console::dispatch() noexcept {
     }
     if (entry->command == Command::RECOVER) {
         action(id, entry->name, host_.recover(host_.context)); return;
+    }
+    if (loadCommand) {
+        LoadSnapshot data;
+        const Action result = host_.load(host_.context, args ? &loadSettings : nullptr, data);
+        if (result != Action::OK) { action(id, entry->name, result); return; }
+        const bool cpuValid = data.cpuValid && data.cpu0BusyPct <= 100 && data.cpu1BusyPct <= 100;
+        char cpu0[5] = "null", cpu1[5] = "null";
+        if (cpuValid) {
+            std::snprintf(cpu0, sizeof(cpu0), "%u", static_cast<unsigned>(data.cpu0BusyPct));
+            std::snprintf(cpu1, sizeof(cpu1), "%u", static_cast<unsigned>(data.cpu1BusyPct));
+        }
+        const int written = std::snprintf(output_, sizeof(output_),
+            "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"load\",\"ok\":true,\"result\":\"done\",\"ready\":%s,\"capture_mode\":\"%s\",\"workload_us\":%lu,\"owner_delay_us\":%lu,\"console_bytes\":%lu,\"elapsed_us\":%llu,\"work_us\":%llu,\"work_iterations\":%llu,\"console_lines\":%llu,\"console_dropped\":%llu,\"capture_us\":%llu,\"capture_samples\":%llu,\"owner_gap_max_us\":%llu,\"capture_gap_max_us\":%llu,\"work_stack_free_bytes\":%lu,\"cpu_valid\":%s,\"cpu0_busy_pct\":%s,\"cpu1_busy_pct\":%s}",
+            static_cast<unsigned long>(id), boolean(data.ready), data.timer ? "timer" : "poll",
+            static_cast<unsigned long>(data.settings.workUs), static_cast<unsigned long>(data.settings.ownerDelayUs),
+            static_cast<unsigned long>(data.settings.consoleBytes), static_cast<unsigned long long>(data.elapsedUs),
+            static_cast<unsigned long long>(data.workUs), static_cast<unsigned long long>(data.workIterations),
+            static_cast<unsigned long long>(data.consoleLines), static_cast<unsigned long long>(data.consoleDropped),
+            static_cast<unsigned long long>(data.captureUs), static_cast<unsigned long long>(data.captureSamples),
+            static_cast<unsigned long long>(data.ownerGapMaxUs), static_cast<unsigned long long>(data.captureGapMaxUs),
+            static_cast<unsigned long>(data.workStackFreeBytes), boolean(cpuValid), cpu0, cpu1);
+        if (written < 0 || static_cast<std::size_t>(written) >= sizeof(output_)) {
+            error(id, entry->name, "output_full"); return;
+        }
+        emit(); return;
     }
 
     Snapshot data;

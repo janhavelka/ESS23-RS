@@ -18,7 +18,7 @@ enum class Reason : uint8_t {
 enum class Admission : uint8_t { STARTED, BUSY, RECOVERY_REQUIRED, INVALID };
 enum class Echo : uint8_t { NONE, REQUIRED }; ///< REQUIRED means one qualified local copy.
 enum class ReadState : uint8_t { BYTE, EMPTY, ERROR, PENDING };
-enum class TxState : uint8_t { IDLE, BUSY, ERROR };
+enum class TxState : uint8_t { IDLE, BUSY, ERROR }; ///< BUSY also covers pending capture evidence.
 
 /** Conservative wire-time intervals on the same microsecond clock as poll().
  * Start is in [startUs, startUs + uncertaintyUs]; stop-bit end is in
@@ -38,12 +38,30 @@ struct WriteResult {
     WriteResult(std::size_t count = 0, bool failed = false) : accepted(count), error(failed) {}
 };
 
+/** One atomic observation of physical TX and an optional adapter-owned DE release.
+ * TX end is in [endedUs - uncertaintyUs, endedUs]. If released is true, receive
+ * mode was established in [releasedUs - releaseUncertaintyUs, releasedUs].
+ * Release evidence belongs to the current transmission, never an earlier one.
+ * An autonomous adapter must use the same hold policy as the runner and retain
+ * these bounds until the next enqueue. Otherwise leave released false and let
+ * the runner control DE in task context.
+ */
+struct TxObservation {
+    uint64_t endedUs = 0;
+    uint32_t uncertaintyUs = 0;
+    bool released = false;
+    uint64_t releasedUs = 0;
+    uint32_t releaseUncertaintyUs = 0;
+};
+
 /** Bounded, nonblocking adapter callbacks; caller configured an idle UART in receive mode.
  * write() is called once per request. It must enqueue a contiguous whole RTU frame;
  * a short enqueue is a failed transaction, never resumed or retried here.
- * txState(IDLE) supplies the latest possible final stop-bit timestamp after write().
- * With txUncertaintyUs(), its interval is [endedUs - width, endedUs]; without
- * that callback the timestamp must be exact. IDLE means physical TX has ended.
+ * txState(IDLE) supplies one atomic TxObservation. IDLE means physical TX has
+ * ended, independently of when the task reads that evidence. Adapter-owned DE
+ * release permits delayed task service without holding the bus over a reply.
+ * Such adapters return BUSY until completion and release can be reported together;
+ * the task must not race their autonomous direction action.
  * read() reports ordered wire events at/before nowUs. EMPTY supplies a monotonic
  * observedThroughUs watermark: all wire activity through that time was reported.
  * An in-progress character or delayed capture must hold the watermark back.
@@ -55,9 +73,8 @@ struct Port {
     void* context = nullptr;
     bool (*setTransmit)(void*, bool) = nullptr;
     WriteResult (*write)(void*, const uint8_t*, std::size_t) = nullptr;
-    TxState (*txState)(void*, uint64_t nowUs, uint64_t& endedUs) = nullptr;
+    TxState (*txState)(void*, uint64_t nowUs, TxObservation&) = nullptr;
     ReadState (*read)(void*, uint64_t nowUs, RxByte&, uint64_t& observedThroughUs) = nullptr;
-    uint32_t (*txUncertaintyUs)(void*) = nullptr; ///< Optional latest IDLE interval width.
 };
 
 struct Timing {
@@ -68,6 +85,7 @@ struct Timing {
     uint32_t busTimeoutUs = 0;  ///< Application admission deadline, not a drive fact.
     uint32_t txTimeoutUs = 0;   ///< Transaction deadline from DE assertion; stalled TX
                               ///< may keep DE asserted until physical idle is established.
+                              ///< Retained on-time TX/release evidence survives delayed polling.
     uint32_t captureTimeoutUs = 0; ///< Maximum adapter observation lag, not a drive timeout.
 };
 
@@ -191,7 +209,7 @@ private:
     std::size_t txLength_ = 0, replyLength_ = 0;
     std::size_t traceHead_ = 0, traceSize_ = 0;
     uint32_t responseTimeoutUs_ = 0, replyGapUs_ = 0;
-    uint32_t txUncertaintyUs_ = 0, rxUncertaintyUs_ = 0;
+    uint32_t txUncertaintyUs_ = 0, rxUncertaintyUs_ = 0, releaseUncertaintyUs_ = 0;
     uint64_t now_ = 0, quietSince_ = 0, assertedUs_ = 0, queuedUs_ = 0;
     uint64_t txEndUs_ = 0, releasedUs_ = 0, lastRxEndUs_ = 0, observedUs_ = 0;
     bool clockSet_ = false, observed_ = false, haveRx_ = false, de_ = false;

@@ -21,9 +21,10 @@ void testInitialization() {
     resetHardware();
     E2Uart uart;
     Rtu::Port port = uart.port();
-    uint64_t ended = 777, through = 777;
+    uint64_t through = 777;
+    Rtu::TxObservation tx;
     Rtu::RxByte byte;
-    assert(port.txState(port.context, 1000, ended) == Rtu::TxState::ERROR);
+    assert(port.txState(port.context, 1000, tx) == Rtu::TxState::ERROR);
     assert(read(port, 1000, byte, through) == Rtu::ReadState::ERROR);
     assert(!uart.clear());
     assert(!uart.begin(9600));
@@ -59,20 +60,19 @@ void testPhysicalTx() {
     const Rtu::WriteResult sent = port.write(port.context, frame, sizeof(frame));
     assert(!sent.error && sent.accepted == sizeof(frame));
     assert(hardware.writes == 1 && hardware.tx == std::vector<uint8_t>(frame, frame + sizeof(frame)));
-    uint64_t ended = 999;
-    assert(port.txState(port.context, 1100, ended) == Rtu::TxState::BUSY);
+    Rtu::TxObservation tx;
+    assert(port.txState(port.context, 1100, tx) == Rtu::TxState::BUSY);
     fakeUart.status.txfifo_cnt = 0; // Last byte left FIFO; shifter still sends its stop bit.
     fakeUart.fsm_status.st_utx_out = 1;
     sample(uart, 1100);
-    assert(port.txState(port.context, 1100, ended) == Rtu::TxState::BUSY);
+    assert(port.txState(port.context, 1100, tx) == Rtu::TxState::BUSY);
     assert(!port.setTransmit(port.context, false) && hardware.de == 1);
     assert(!uart.clear());
     fakeUart.fsm_status.st_utx_out = 0;
     const uint64_t at = sample(uart, 1110);
-    assert(port.txState(port.context, at, ended) == Rtu::TxState::BUSY); // Snapshot upper bound is later.
-    assert(port.txState(port.context, 1112, ended) == Rtu::TxState::IDLE);
-    const uint32_t width = port.txUncertaintyUs(port.context);
-    assert(ended == 1112 && ended - width == 1100);
+    assert(port.txState(port.context, at, tx) == Rtu::TxState::BUSY); // Snapshot upper bound is later.
+    assert(port.txState(port.context, 1112, tx) == Rtu::TxState::IDLE);
+    assert(tx.endedUs == 1112 && tx.endedUs - tx.uncertaintyUs == 1100);
     assert(port.setTransmit(port.context, false) && hardware.de == 0);
     assert(uart.clear());
     assert(hardware.writes == 1); // Recovery never repeats the write.
@@ -149,10 +149,9 @@ void testCaptureFaultsAndRecovery() {
     assert(uart.captureFaults() == 1 && uart.rxErrors() == 0);
     sample(uart, 1300);
     assert(uart.captureFaults() == 1); // Sticky failure counts once.
-    assert(port.setTransmit(port.context, true));
+    assert(!port.setTransmit(port.context, true) && hardware.de == 0);
     const uint8_t frame[] = {1, 3, 0, 0};
     assert(port.write(port.context, frame, sizeof(frame)).error && hardware.writes == 0);
-    assert(!uart.clear());
     assert(port.setTransmit(port.context, false));
     fakeUart.fsm_status.st_urx_out = 1;
     assert(!uart.clear()); // Do not flush an in-progress character as if the bus were idle.
@@ -175,15 +174,166 @@ void testPendingCapacity() {
     resetHardware();
     E2Uart uart;
     assert(uart.begin());
-    for (unsigned i = 0; i < 5; ++i) {
+    for (unsigned i = 0; i < E2Uart::CAPTURE_CAPACITY + 1; ++i) {
         hardware.rx.push_back(static_cast<uint8_t>(i));
         sample(uart, 1200 + i * 100);
     }
     Rtu::Port port = uart.port();
     Rtu::RxByte byte;
     uint64_t through = 0;
-    assert(read(port, 1800, byte, through) == Rtu::ReadState::ERROR);
+    assert(read(port, hardware.time, byte, through) == Rtu::ReadState::ERROR);
     assert(uart.captureFaults() == 1);
+}
+void testCaptureTimerLifecycle() {
+    resetHardware();
+    unsigned startupCalls = 0;
+    {
+        E2Uart uart;
+        assert(!uart.startCapture());
+        assert(uart.begin());
+        assert(!uart.startCapture(0) && !uart.startCapture(1000));
+        assert(uart.startCapture() && uart.stats().timer);
+        assert(!uart.startCapture());
+        startupCalls = hardware.timerCalls;
+        advanceHardware(hardware.time + 1000);
+        assert(hardware.timerCallbacks > 40 && uart.stats().samples > 40);
+        assert(uart.stopCapture() && !hardware.timerRunning && !uart.stats().timer);
+        const unsigned callbacks = hardware.timerCallbacks;
+        advanceHardware(hardware.time + 1000);
+        assert(hardware.timerCallbacks == callbacks && hardware.writes == 0);
+        assert(uart.startCapture());
+    }
+    assert(!hardware.timerRunning && !hardware.timerCreated); // Destructor owns its timer.
+    for (unsigned call = 1; call <= startupCalls; ++call) {
+        resetHardware();
+        E2Uart uart;
+        assert(uart.begin());
+        hardware.timerFailCalls = {call};
+        assert(!uart.startCapture());
+        assert(!hardware.timerCreated && !hardware.timerRunning && !uart.stats().timer);
+        hardware.timerFailCalls.clear();
+        assert(uart.startCapture()); // A failed start does not leak the timer allocation.
+    }
+}
+void testCaptureTimerStopsOnlyWhenIdle() {
+    resetHardware();
+    hardware.txCharacterUs = 87;
+    E2Uart uart;
+    assert(uart.begin() && uart.startCapture());
+    Rtu::Port port = uart.port();
+    const uint8_t frame[] = {1, 3, 0, 0};
+    assert(port.setTransmit(port.context, true));
+    assert(!port.write(port.context, frame, sizeof(frame)).error);
+    assert(!uart.stopCapture() && hardware.timerRunning && hardware.de == 1);
+    advanceHardware(hardware.time + 1000);
+    assert(hardware.de == 0); // Background capture releases after physical TX and hold.
+    hardware.timerFailCalls = {hardware.timerCalls + 1};
+    assert(!uart.stopCapture() && hardware.timerRunning && uart.stats().timer);
+    hardware.timerFailCalls.clear();
+    assert(uart.stopCapture());
+}
+void testPartialTimerCleanupCanResume() {
+    for (unsigned stage : {2U, 3U}) {
+        resetHardware();
+        E2Uart uart;
+        assert(uart.begin() && uart.startCapture());
+        advanceHardware(hardware.time + 1000);
+        hardware.timerFailCalls = {hardware.timerCalls + stage};
+        assert(!uart.stopCapture());
+        assert(!hardware.timerRunning && hardware.timerCreated);
+        assert(hardware.timerEnabled == (stage == 2));
+        assert(!uart.stats().timer && uart.needsRecovery());
+        hardware.timerFailCalls.clear();
+        assert(uart.stopCapture());
+        assert(!hardware.timerCreated && !hardware.timerEnabled);
+        assert(uart.clear() && uart.startCapture());
+    }
+}
+void testStartupCleanupFailureKeepsOwnership() {
+    resetHardware();
+    E2Uart uart;
+    assert(uart.begin());
+    // Current startup: create, callbacks, alarm, enable, start. Fail start and
+    // the subsequent disable, then require staged cleanup of the retained timer.
+    hardware.timerFailCalls = {5, 6};
+    assert(!uart.startCapture());
+    assert(hardware.timerCreated && hardware.timerEnabled && !hardware.timerRunning);
+    assert(uart.needsRecovery() && !uart.stats().timer);
+    assert(!uart.startCapture());
+    hardware.timerFailCalls.clear();
+    assert(uart.stopCapture());
+    assert(!hardware.timerCreated && uart.clear() && uart.startCapture());
+}
+void testTimerStopChecksCurrentReceiveState() {
+    resetHardware();
+    E2Uart uart;
+    assert(uart.begin() && uart.startCapture());
+    advanceHardware(hardware.time + 1000);
+    fakeUart.fsm_status.st_urx_out = 1;
+    assert(!uart.stopCapture() && hardware.timerRunning);
+    fakeUart.fsm_status.st_urx_out = 0;
+    hardware.rx.push_back(0x55);
+    assert(!uart.stopCapture() && hardware.timerRunning);
+    assert(uart.clear());
+    advanceHardware(hardware.time + 100);
+    assert(uart.stopCapture());
+}
+void testUnrepresentableTimingFails() {
+    {
+        resetHardware();
+        E2Uart uart;
+        assert(uart.begin());
+        sample(uart, 1100);
+        hardware.rx.push_back(0x55);
+        sample(uart, uint64_t(UINT32_MAX) + 2000);
+        Rtu::Port port = uart.port();
+        Rtu::RxByte byte;
+        uint64_t through = 0;
+        assert(uart.needsRecovery());
+        assert(read(port, hardware.time, byte, through) == Rtu::ReadState::ERROR);
+    }
+    {
+        resetHardware();
+        E2Uart uart;
+        assert(uart.begin());
+        Rtu::Port port = uart.port();
+        const uint8_t bytes[] = {1, 3, 0, 0};
+        assert(port.setTransmit(port.context, true));
+        assert(!port.write(port.context, bytes, sizeof(bytes)).error);
+        fakeUart.status.txfifo_cnt = 0; fakeUart.fsm_status.st_utx_out = 0;
+        sample(uart, uint64_t(UINT32_MAX) + 2000);
+        assert(uart.needsRecovery());
+        assert(port.setTransmit(port.context, false)); // Fault still permits physical cleanup.
+    }
+}
+void testTimerTxObservationWaitsForRelease() {
+    resetHardware();
+    hardware.txCharacterUs = 87;
+    E2Uart uart;
+    assert(uart.begin() && uart.startCapture(20, 1000));
+    Rtu::Port port = uart.port();
+    const uint8_t bytes[] = {1, 3, 0, 0};
+    assert(port.setTransmit(port.context, true));
+    assert(!port.write(port.context, bytes, sizeof(bytes)).error);
+    advanceHardware(hardware.time + 500);
+    assert(fakeUart.fsm_status.st_utx_out == 0 && hardware.de == 1);
+    Rtu::TxObservation tx;
+    assert(port.txState(port.context, hardware.time, tx) == Rtu::TxState::BUSY);
+    advanceHardware(hardware.time + 1000);
+    assert(port.txState(port.context, hardware.time, tx) == Rtu::TxState::IDLE);
+    assert(tx.released && hardware.de == 0);
+    assert(tx.releasedUs - tx.releaseUncertaintyUs >= tx.endedUs + 1000);
+    const uint64_t released = tx.releasedUs;
+    assert(port.txState(port.context, released - 1, tx) == Rtu::TxState::BUSY);
+    // An earlier release belongs only to that transfer. Starting another request
+    // cannot inherit it and release DE before the new stop bit and hold interval.
+    assert(port.setTransmit(port.context, true));
+    assert(!port.write(port.context, bytes, sizeof(bytes)).error);
+    advanceHardware(hardware.time + 50);
+    assert(port.txState(port.context, hardware.time, tx) == Rtu::TxState::BUSY && hardware.de == 1);
+    advanceHardware(hardware.time + 1500);
+    assert(port.txState(port.context, hardware.time, tx) == Rtu::TxState::IDLE);
+    assert(tx.releasedUs > released && tx.released && hardware.de == 0 && hardware.writes == 2);
 }
 void testRunnerProbe() {
     resetHardware();
@@ -233,6 +383,10 @@ int main() {
     testInitialization(); testPhysicalTx(); testReceiveCapture();
     testIdleSnapshotRace(); testSlowSnapshotFails();
     testCaptureFaultsAndRecovery(); testPendingCapacity();
+    testCaptureTimerLifecycle(); testCaptureTimerStopsOnlyWhenIdle();
+    testPartialTimerCleanupCanResume(); testStartupCleanupFailureKeepsOwnership();
+    testTimerStopChecksCurrentReceiveState(); testUnrepresentableTimingFails();
+    testTimerTxObservationWaitsForRelease();
     testRunnerProbe();
     return 0;
 }
