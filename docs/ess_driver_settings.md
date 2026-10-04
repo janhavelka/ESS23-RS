@@ -127,3 +127,11 @@ platform sizes and current read-only evidence. Physical settings changes and
 restoration are NOT RUN pending electrical/FC06 response-source and input
 qualification. Software-limit movement also needs resolved pair encoding,
 homing/reference semantics and a suitable fixture; raw zero limits are no proof.
+
+
+Prompt15 extends this same sequencer with `DriverGroup::IO`, separate stored I/O
+observations, typed function setters and checked polarity/custom masks. The
+DRIVE group retains its four read windows and seven writable fields; I/O has
+three gap-safe read windows and at most nine writes plus nine readbacks.
+Field/effect masks are32 bits, supported logical raw indices are16, and copied
+reply capacity is15 bytes. See [I/O API/lifetime and effects](ess_io.md).

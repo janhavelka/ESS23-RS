@@ -1,5 +1,24 @@
 # Features implementation tasks and open questions
 
+## Prompt 15 optional I/O and external controls
+
+[Handoff/evidence](reports/ess_release_15_2026-10-04.md), [public API](ess_io.md):
+
+- [x] Existing settings sequencer supports four indexed inputs/two outputs,
+  explicit function-zero disabling, checked polarity/custom masks, unknown raw
+  values, whole-candidate prerequisites, partial effects and immutable progress.
+- [x] Direct/CLI/Python routes share preparation; finite retention/correlation,
+  strict provenance and uncertain echo/readback distinctions are tested.
+- [x]190-frame COM13 campaign,13 explicit passive/unloaded settings updates,
+  exact original restoration and short existing non-changing regression PASS.
+- [x] Optional-unwired serial move admission and no-terminal method35 regressions;
+  switch-dependent methods retain visible capability and reject before TX.
+- [ ] External switches/output loads, electrical state/activation, control
+  precedence and physical trigger/homing transitions remain NOT RUN/unqualified.
+- [ ] Output11/custom2 and crossmapped custom actuation remain unavailable.
+  Prompt16 owns external segment sequencing; setter success cannot establish
+  a real connected trigger/selector fixture or synthesize its edges.
+
 ## Prompt 14 homing and reference
 
 [Fresh audit](reports/ess_release_14_audit_2026-10-04.md) fixes the first post-home feedback baseline and strict host readiness/failure evidence; checked trigger exceptions now have actual console parity. Native33/33, Python167, parity15 and corrected-image read-only COM13/gates pass; physical qualification remains open.
@@ -183,10 +202,10 @@ FieldCore remains read-only; typed identity/state and motion/stop retain their g
   host-origin mapping and configuration dependencies.
 - [ ] Define typed ESS identity, telemetry, motion, homing, stop, auxiliary,
   I/O, segment, limits, tuning, communications and persistence operations.
-- [ ] Implement explicit ESS input/output disable through documented function 0
+- [x] Implement explicit ESS input/output disable through documented function 0
   (`UNDEFINED`: no function), sharing the typed function setter with API/CLI.
   Preserve unknown output electrical state and serial/external-control precedence;
-  cable absence and polarity inversion are not disabling. Prompt 15 owns setters.
+  cable absence and polarity inversion are not disabling. Prompt15 delivers setters and selected stored-readback bench evidence; external effects remain separately qualified.
 - [ ] Verify serial-only operation with optional I/O unwired or explicitly
   disabled, using readback prerequisites from 05 and admission tests in 08/09.
   Never rewrite input functions implicitly during startup, probes or motion.
@@ -465,7 +484,7 @@ passed on the unchanged image.
 - [x] User-confirmed ESS23-RS20 bench identity and documented incremental/differential/three-channel 1000-PPR encoder; nominal4000 decoded counts agrees with RS485 configured4000. See [source reconciliation](reference/11_ess23_rs20_identity.md). Encoder chip/label identification is not a prerequisite for preparation.
 - [ ] Resolve universal model `0x4EEA`/firmware/DIP mapping, subdivision physical interpretation and measured shaft/feedback behavior. Product specifications and readback do not resolve undocumented algorithm3.
 - [x] Prompt 06 state/input-level evidence; retain specific input-dependent homing, limit, enable/stop and trigger prerequisites without requiring external I/O for independent serial-only operations.
-- [ ] Typed I/O changes remain for 15; no configuration writes, save or motion were added in 05.
+- [x] Prompt15 now delivers typed I/O changes;05 itself remains non-changing, and no implicit save/motion was added.
 
 See [the typed read API](ess_reads.md) and [current report](reports/ess_release_05_2026-10-04.md) for exact readback and independent hardware disposition.
 

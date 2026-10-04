@@ -208,8 +208,8 @@ X0-X3 at `0x0041`-`0x0044` and Y0-Y1 at `0x004C`-`0x004D`. Existing
 `InputFunction::UNDEFINED` and `OutputFunction::UNDEFINED` represent this known
 no-function value, not an unknown decode. Typed I/O operations must expose it
 as an explicit disabled/none choice for each terminal. These enum values and
-raw codecs exist; typed configuration helpers and hardware qualification remain
-future work.
+raw codecs and the [typed I/O settings operations](ess_io.md) exist. Register-path
+and external switch/load/electrical qualification remain distinct.
 
 Keep no-function assignment separate from level inversion (`0x0040`/`0x004B`),
 a custom output's inactive value (`0x004F`), and the application's report that

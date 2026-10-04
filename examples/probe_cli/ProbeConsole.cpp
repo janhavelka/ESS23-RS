@@ -10,7 +10,7 @@
 namespace MotorControlRSExample { namespace Probe {
 namespace {
 
-enum class Command : uint8_t { HELP, VERSION, CONFIG, STATUS, HEALTH, STATS, PROBE, CAPTURE_READ, RECOVER, RESET, MEMORY, LOAD, DRV, RESULT, CANCEL, RELEASE, READ, PROFILE, CAPS, READ_IDENTITY, READ_CONFIG, READ_STATE, HEALTH_CHECK, MONITOR, AXIS, PREPARE, ENABLE, MOTOR_RELEASE, ALARM_CLEAR, STOP, MOVE, POSITION_CLEAR, VELOCITY, DRIVER, HOME };
+enum class Command : uint8_t { HELP, VERSION, CONFIG, STATUS, HEALTH, STATS, PROBE, CAPTURE_READ, RECOVER, RESET, MEMORY, LOAD, DRV, RESULT, CANCEL, RELEASE, READ, PROFILE, CAPS, READ_IDENTITY, READ_CONFIG, READ_STATE, HEALTH_CHECK, MONITOR, AXIS, PREPARE, ENABLE, MOTOR_RELEASE, ALARM_CLEAR, STOP, MOVE, POSITION_CLEAR, VELOCITY, DRIVER, IO, HOME };
 struct Entry { const char* name; Command command; const char* syntax; const char* effect; bool bus; };
 const Entry COMMANDS[] = {
     {"help", Command::HELP, "help [command]", "show_callable_commands", false},
@@ -25,8 +25,9 @@ const Entry COMMANDS[] = {
     {"ping", Command::PROBE, "ping [address]", "read_model_word_only", true},
     {"capture-read", Command::CAPTURE_READ, "capture-read [address]", "read_0x0130_16_words_for_capture_qualification", true},
     {"read", Command::READ, "read identity|config|state [address]", "checked_nonchanging_read", true},
-    {"profile", Command::PROFILE, "profile ess_rs identity|config|state|enable|release|clear-alarm|clear-position|normal-stop|emergency-stop [address] | profile ess_rs move-relative|move-absolute|move-angle ... | profile ess_rs velocity ... | profile ess_rs driver read|set ... | profile ess_rs caps", "public_profile_operations", true},
+    {"profile", Command::PROFILE, "profile ess_rs identity|config|state|enable|release|clear-alarm|clear-position|normal-stop|emergency-stop [address] | profile ess_rs move-relative|move-absolute|move-angle ... | profile ess_rs velocity ... | profile ess_rs driver read|set ... | profile ess_rs io read|set ... | profile ess_rs caps", "public_profile_operations", true},
     {"driver", Command::DRIVER, "profile ess_rs driver read [address] | profile ess_rs driver set field integer [field integer ...] [address]", "typed_drive_settings_with_checked_readback", true},
+    {"io", Command::IO, "profile ess_rs io read [address] | profile ess_rs io set input-polarity|x0|x1|x2|x3|output-polarity|y0|y1|custom value [field value ...] [address]; none assigns function 0", "explicit_typed_terminal_settings_and_readback", true},
     {"home", Command::HOME, "home methods | home method search_native return_native ramp_native zero [address] | profile ess_rs home ...", "qualified_homing_with_fresh_completion_and_zero_evidence", true},
     {"enable", Command::ENABLE, "enable [address]", "request_enable_then_observe_flags", true},
     {"motor-release", Command::MOTOR_RELEASE, "motor-release [address]", "request_release_then_observe_flags", true},
@@ -508,7 +509,7 @@ void Console::error(uint32_t id, const char* command, const char* reason) noexce
 
 void Console::action(uint32_t id, const char* command, Action result, uint8_t address, uint32_t operationId) noexcept {
     const bool typed = std::strcmp(command, "read-identity") == 0 || std::strcmp(command, "read-config") == 0 || std::strcmp(command, "read-state") == 0;
-    const bool motor = std::strcmp(command, "enable") == 0 || std::strcmp(command, "motor-release") == 0 || std::strcmp(command, "alarm-clear") == 0 || std::strcmp(command, "position-clear") == 0 || std::strcmp(command, "stop") == 0 || std::strncmp(command, "move-", 5) == 0 || std::strcmp(command, "velocity") == 0 || std::strcmp(command, "driver") == 0;
+    const bool motor = std::strcmp(command, "enable") == 0 || std::strcmp(command, "motor-release") == 0 || std::strcmp(command, "alarm-clear") == 0 || std::strcmp(command, "position-clear") == 0 || std::strcmp(command, "stop") == 0 || std::strncmp(command, "move-", 5) == 0 || std::strcmp(command, "velocity") == 0 || std::strcmp(command, "driver") == 0 || std::strcmp(command, "io") == 0;
     std::snprintf(output_, sizeof(output_),
         "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"%s\",\"ok\":%s,\"result\":\"%s\",\"address\":%u,\"operation_id\":%lu%s}",
         static_cast<unsigned long>(id), command, boolean(result == Action::OK),
@@ -625,38 +626,57 @@ void Console::dispatch() noexcept {
     }
     const bool nativeDriver = entry->command == Command::PROFILE && count > first + 2 &&
         std::strcmp(tokens[first + 1], "ess_rs") == 0 && std::strcmp(tokens[first + 2], "driver") == 0;
-    if (entry->command == Command::DRIVER || nativeDriver) {
+    const bool nativeIo = entry->command == Command::PROFILE && count > first + 2 &&
+        std::strcmp(tokens[first + 1], "ess_rs") == 0 && std::strcmp(tokens[first + 2], "io") == 0;
+    if (entry->command == Command::DRIVER || entry->command == Command::IO || nativeDriver || nativeIo) {
+        const char* command = nativeIo || entry->command == Command::IO ? "io" : "driver";
         if (outputPending()) { ++inputDropped_; return; }
-        if (!nativeDriver) { error(id, "driver", "use_profile_route"); return; }
-        if (!host_.startDriver || !host_.snapshot) { error(id, "driver", "unavailable"); return; }
+        if (!nativeDriver && !nativeIo) { error(id, command, "use_profile_route"); return; }
+        if (!host_.startDriver || !host_.snapshot) { error(id, command, "unavailable"); return; }
         std::size_t next = first + 3;
-        if (next >= count) { error(id, "driver", "invalid_arguments"); return; }
+        if (next >= count) { error(id, command, "invalid_arguments"); return; }
         Ess::DriverRequest request;
+        request.group = nativeIo ? Ess::DriverGroup::IO : Ess::DriverGroup::DRIVE;
         const bool reading = std::strcmp(tokens[next], "read") == 0;
-        if (!reading && std::strcmp(tokens[next], "set") != 0) { error(id, "driver", "invalid_arguments"); return; }
+        if (!reading && std::strcmp(tokens[next], "set") != 0) { error(id, command, "invalid_arguments"); return; }
         ++next;
         // An odd trailing token is the optional target; every remaining token
         // must belong to a complete field/value pair before host admission.
         const bool hasAddress = reading ? count == next + 1 : (count - next) % 2 != 0;
         const std::size_t end = count - (hasAddress ? 1 : 0);
-        if ((reading && end != next) || (!reading && end == next)) { error(id, "driver", "invalid_arguments"); return; }
+        if ((reading && end != next) || (!reading && end == next)) { error(id, command, "invalid_arguments"); return; }
         uint32_t address = 0;
-        if (hasAddress && (!number(tokens[end], address) || address < 1 || address > 247)) { error(id, "driver", "invalid_address"); return; }
-        const char* fields[] = {"direction", "subdivision", "word-order", "soft-limit", "over-limit", "interruption", "position-mode", "positive-limit", "negative-limit"};
+        if (hasAddress && (!number(tokens[end], address) || address < 1 || address > 247)) { error(id, command, "invalid_address"); return; }
+        const char* driveFields[] = {"direction", "subdivision", "word-order", "soft-limit", "over-limit", "interruption", "position-mode", "positive-limit", "negative-limit"};
+        const char* ioFields[] = {"input-polarity", "x0", "x1", "x2", "x3", "output-polarity", "y0", "y1", "custom"};
+        const char* const* fields = nativeIo ? ioFields : driveFields;
+        const std::size_t fieldCount = 9;
         for (; next < end; next += 2) {
             std::size_t field = 0;
-            while (field < sizeof(fields) / sizeof(fields[0]) && std::strcmp(tokens[next], fields[field]) != 0) ++field;
-            if (field == sizeof(fields) / sizeof(fields[0])) { error(id, "driver", "unknown_field"); return; }
-            const uint16_t mask = static_cast<uint16_t>(1U << field);
-            if (request.fields & mask) { error(id, "driver", "duplicate_field"); return; }
+            while (field < fieldCount && std::strcmp(tokens[next], fields[field]) != 0) ++field;
+            if (field == fieldCount) { error(id, command, "unknown_field"); return; }
+            const uint32_t mask = 1UL << (field + (nativeIo ? 9 : 0));
+            if (request.fields & mask) { error(id, command, "duplicate_field"); return; }
+            const bool noFunction = nativeIo && std::strcmp(tokens[next + 1], "none") == 0 &&
+                ((field >= 1 && field <= 4) || field == 6 || field == 7);
             Core::Rational value;
-            const char* digit = tokens[next + 1]; if (*digit == '-') ++digit;
-            if (!*digit) { error(id, "driver", "invalid_integer"); return; }
-            for (const char* p = digit; *p; ++p) if (*p < '0' || *p > '9') { error(id, "driver", "invalid_integer"); return; }
-            if (!Core::parseExactNumber(tokens[next + 1], value) || value.denominator != 1 ||
-                (field < 7 && (value.numerator < 0 || value.numerator > 65535))) { error(id, "driver", "invalid_integer"); return; }
-            request.fields = static_cast<uint16_t>(request.fields | mask);
+            const char* digit = noFunction ? "0" : tokens[next + 1]; if (*digit == '-') ++digit;
+            if (!*digit) { error(id, command, "invalid_integer"); return; }
+            for (const char* p = digit; *p; ++p) if (*p < '0' || *p > '9') { error(id, command, "invalid_integer"); return; }
+            if (!Core::parseExactNumber(noFunction ? "0" : tokens[next + 1], value) || value.denominator != 1 ||
+                ((nativeIo || field < 7) && (value.numerator < 0 || value.numerator > 65535))) { error(id, command, "invalid_integer"); return; }
+            request.fields |= mask;
             const uint16_t word = static_cast<uint16_t>(value.numerator);
+            if (nativeIo) {
+                Core::Status checked;
+                if (field >= 1 && field <= 4) checked = Ess::prepareInputFunction(request, static_cast<uint8_t>(field - 1), static_cast<Ess::InputFunction>(word));
+                else if (field == 6 || field == 7) checked = Ess::prepareOutputFunction(request, static_cast<uint8_t>(field - 6), static_cast<Ess::OutputFunction>(word));
+                else if (field == 0) request.inputPolarity = word;
+                else if (field == 5) request.outputPolarity = word;
+                else request.customOutput = word;
+                if (!checked) { error(id, command, "invalid_value"); return; }
+                continue;
+            }
             switch (field) {
             case 0: request.direction = static_cast<Ess::DefaultDirection>(word); break;
             case 1: request.subdivision = word; break;
@@ -670,14 +690,14 @@ void Console::dispatch() noexcept {
             }
         }
         if (!hasAddress) { Snapshot snapshot; host_.snapshot(host_.context, snapshot); address = snapshot.address; }
-        if (address < 1 || address > 247) { error(id, "driver", "invalid_address"); return; }
+        if (address < 1 || address > 247) { error(id, command, "invalid_address"); return; }
         bool available = false;
         for (std::size_t i = 0; i < OUTSTANDING_CAPACITY - 1; ++i) available = available || !outstanding_[i].commandId;
         uint32_t operationId = 0;
         const Action result = available ? host_.startDriver(host_.context, id, static_cast<uint8_t>(address),
             reading ? Ess::DriverKind::READ : Ess::DriverKind::UPDATE, request, operationId) : Action::BUSY;
         if (result == Action::OK) track(id, operationId);
-        action(id, "driver", result, static_cast<uint8_t>(address), result == Action::OK ? operationId : 0);
+        action(id, command, result, static_cast<uint8_t>(address), result == Action::OK ? operationId : 0);
         return;
     }
     const bool nativeVelocity = entry->command == Command::PROFILE && count > first + 2 &&
@@ -935,7 +955,7 @@ void Console::dispatch() noexcept {
         case Command::ENABLE: case Command::MOTOR_RELEASE: case Command::ALARM_CLEAR: case Command::STOP: case Command::POSITION_CLEAR: return host_.startAction && host_.snapshot;
         case Command::MOVE: return host_.startMove && host_.snapshot && host_.axis;
         case Command::VELOCITY: return host_.startVelocity && host_.snapshot && host_.axis;
-        case Command::DRIVER: return host_.startDriver && host_.snapshot;
+        case Command::IO: case Command::DRIVER: return host_.startDriver && host_.snapshot;
         case Command::HOME: return host_.startHome && host_.snapshot && host_.axis;
         case Command::PROFILE: return ((host_.startTypedRead || host_.startAction) && host_.snapshot) ||
             ((host_.startMove || host_.startVelocity || host_.startHome) && host_.snapshot && host_.axis) || (host_.startDriver && host_.snapshot);
@@ -983,9 +1003,9 @@ void Console::dispatch() noexcept {
         const auto caps = Ess::readCapabilities();
         Snapshot snapshot; host_.snapshot(host_.context, snapshot);
         std::snprintf(output_, sizeof(output_),
-            "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"caps\",\"ok\":true,\"probe\":%s,\"identity\":%s,\"config\":%s,\"state\":%s,\"max_steps\":%u,\"max_reply_bytes\":%u,\"writes\":true,\"motion\":%s,\"actions_qualified\":%s,\"axis_reserved\":%s,\"actions\":[\"enable\",\"release\",\"clear_alarm\",\"clear_position\",\"stop_normal\",\"stop_direct\"],\"device_queue_guarantee\":false,\"velocity\":%s,\"configured_ramp_policy\":true,\"acceleration_mapping\":false,\"velocity_unsupported\":[\"jerk\",\"blending\",\"live_updates\",\"torque\",\"current\",\"external_jog\"],\"driver_settings\":%s,\"limit_pair_writes\":false,\"home\":%s,\"home_methods\":[33,34,35],\"home_physical_qualified\":false}",
+            "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"caps\",\"ok\":true,\"probe\":%s,\"identity\":%s,\"config\":%s,\"state\":%s,\"max_steps\":%u,\"max_reply_bytes\":%u,\"writes\":true,\"motion\":%s,\"actions_qualified\":%s,\"axis_reserved\":%s,\"actions\":[\"enable\",\"release\",\"clear_alarm\",\"clear_position\",\"stop_normal\",\"stop_direct\"],\"device_queue_guarantee\":false,\"velocity\":%s,\"configured_ramp_policy\":true,\"acceleration_mapping\":false,\"velocity_unsupported\":[\"jerk\",\"blending\",\"live_updates\",\"torque\",\"current\",\"external_jog\"],\"driver_settings\":%s,\"limit_pair_writes\":false,\"home\":%s,\"home_methods\":[33,34,35],\"home_physical_qualified\":false,\"io_settings\":%s,\"input_terminals\":4,\"output_terminals\":2,\"no_function\":0,\"input_function_codes\":[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17],\"output_function_codes\":[0,1,2,3,4,5,9,10],\"output_function_11\":\"unresolved\",\"input_mask\":15,\"output_mask\":3,\"external_enable_precedence\":\"unknown\",\"electrical_output_state_known\":false}",
             static_cast<unsigned long>(id), boolean(caps.probe), boolean(caps.identity), boolean(caps.config), boolean(caps.state), caps.maxSteps, caps.maxReplyBytes,
-            boolean(host_.startMove && host_.snapshot && host_.axis), boolean(snapshot.actionsQualified), boolean(snapshot.axisReserved), boolean(host_.startVelocity && host_.snapshot && host_.axis), boolean(host_.startDriver && host_.snapshot), boolean(host_.startHome && host_.snapshot && host_.axis));
+            boolean(host_.startMove && host_.snapshot && host_.axis), boolean(snapshot.actionsQualified), boolean(snapshot.axisReserved), boolean(host_.startVelocity && host_.snapshot && host_.axis), boolean(host_.startDriver && host_.snapshot), boolean(host_.startHome && host_.snapshot && host_.axis), boolean(host_.startDriver && host_.snapshot));
         emit(); return;
     }
     if (entry->command == Command::RESET || (entry->command == Command::STATS && arg)) {
@@ -1257,21 +1277,28 @@ bool Console::reportDriver(uint32_t id, uint32_t operationId, const Ess::DriverC
 bool Console::formatDriver(uint32_t id, uint32_t commandId, uint32_t operationId,
                            const Ess::DriverContext& c, bool inspection) noexcept {
     std::size_t used = 0;
+    const bool io = c.group == Ess::DriverGroup::IO;
+    const char* command = io ? "io" : "driver";
     uint64_t stationaryUntil = c.deadlineUs;
     if (c.kind == Ess::DriverKind::UPDATE) {
         const auto& p = c.prerequisites;
         const uint64_t maximum = std::numeric_limits<uint64_t>::max();
         const uint64_t until = p.maxAgeUs > maximum - p.stationaryEarliestUs ? maximum : p.stationaryEarliestUs + p.maxAgeUs;
         if (until < stationaryUntil) stationaryUntil = until;
+        if (io) {
+            const uint64_t ioUntil = p.maxAgeUs > maximum - p.ioEarliestUs ? maximum : p.ioEarliestUs + p.maxAgeUs;
+            if (ioUntil < stationaryUntil) stationaryUntil = ioUntil;
+        }
     }
     if (!append(output_, sizeof(output_), used,
         "{\"type\":\"%s\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"%s\",\"command_id\":%lu,\"operation_id\":%lu,\"driver\":true,\"driver_kind\":\"%s\",\"ok\":%s,\"state\":\"%s\",\"outcome\":\"%s\",\"status\":\"%s\",\"detail\":%ld,\"target\":%lu,\"address\":%u,\"generation\":%lu,\"configuration_generation\":%lu,\"started_us\":%llu,\"deadline_us\":%llu,\"stationary_valid_until_us\":%llu,\"serviced_us\":%llu,\"completed_steps\":%u,\"fields\":%u,\"effects\":%u,\"uncertain\":%s,\"atomic\":false,\"active_settings_known\":false,\"progress_columns\":[\"field\",\"register\",\"previous\",\"requested\",\"acknowledged\",\"readback_known\",\"readback\",\"active_known\",\"active\",\"execution\"],\"progress\":[",
-        inspection ? "reply" : "driver", static_cast<unsigned long>(id), inspection ? "result" : "driver",
+        inspection ? "reply" : command, static_cast<unsigned long>(id), inspection ? "result" : command,
         static_cast<unsigned long>(commandId), static_cast<unsigned long>(operationId), c.kind == Ess::DriverKind::READ ? "read" : "update",
         boolean(c.state == Core::ReadState::SUCCEEDED), readState(c.state), driverOutcome(c.outcome), Core::errToString(c.status.code), static_cast<long>(c.status.detail),
         static_cast<unsigned long>(c.target.id), c.target.address, static_cast<unsigned long>(c.target.generation), static_cast<unsigned long>(c.configurationGeneration),
         static_cast<unsigned long long>(c.startedUs), static_cast<unsigned long long>(c.deadlineUs), static_cast<unsigned long long>(stationaryUntil), static_cast<unsigned long long>(c.servicedUs),
         c.completedSteps, c.request.fields, c.effects, boolean(c.uncertain))) return false;
+    // Additional policy fields follow progress/evidence; bounded rows stay shared.
     bool comma = false;
     for (const auto& p : c.progress) if (p.selected) {
         if (!append(output_, sizeof(output_), used, "%s[%u,%u,%u,%u,%s,%s,%u,%s,%u,\"%s\"]", comma ? "," : "",
@@ -1297,14 +1324,22 @@ bool Console::formatDriver(uint32_t id, uint32_t commandId, uint32_t operationId
     }
     if (!append(output_, sizeof(output_), used, "],\"observation\":")) return false;
     if (c.kind == Ess::DriverKind::READ && Ess::getDriver(c, driverView_)) {
+        if (io) {
+            const auto& v = driverView_;
+            if (!append(output_, sizeof(output_), used, "{\"raw\":[%u,%u,%u,%u,%u,%u,%u,%u,%u],\"known_fields\":%u,\"unknown_input_polarity_bits\":%u,\"unknown_output_polarity_bits\":%u,\"unknown_custom_output_bits\":%u}",
+                v.raw[7], v.raw[8], v.raw[9], v.raw[10], v.raw[11], v.raw[12], v.raw[13], v.raw[14], v.raw[15], v.knownFields,
+                v.raw[7] & ~15U, v.raw[12] & ~3U, v.raw[15] & ~3U)) return false;
+        } else {
         const auto& v = driverView_;
         if (!append(output_, sizeof(output_), used,
             "{\"raw\":[%u,%u,%u,%u,%u,%u,%u],\"known_fields\":%u,\"positive_words\":[%u,%u],\"negative_words\":[%u,%u],\"pair_known\":%s,\"positive_bits\":%lu,\"negative_bits\":%lu,\"signed_limits\":\"unresolved\",\"native_scale\":\"unresolved\"}",
             v.raw[0], v.raw[1], v.raw[2], v.raw[3], v.raw[4], v.raw[5], v.raw[6], v.knownFields,
             v.positiveWords[0], v.positiveWords[1], v.negativeWords[0], v.negativeWords[1], boolean(v.pairKnown),
             static_cast<unsigned long>(v.positiveBits), static_cast<unsigned long>(v.negativeBits))) return false;
+        }
     } else if (!append(output_, sizeof(output_), used, "null")) return false;
-    if (!append(output_, sizeof(output_), used, "}")) return false;
+    if (!append(output_, sizeof(output_), used, ",\"driver_group\":\"%s\",\"echo_readback_policy\":%s,\"settlement\":\"%s\"}",
+        io ? "io" : "drive", boolean(c.prerequisites.allowEchoReadback), io ? "stored_readback" : "checked_ack_readback")) return false;
     emit(inspection ? 0 : operationId); return true;
 }
 

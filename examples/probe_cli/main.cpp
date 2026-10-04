@@ -11,6 +11,7 @@
 #include <MotorControlRS/profiles/ess_rs/Position.h>
 #include <MotorControlRS/profiles/ess_rs/Velocity.h>
 #include <MotorControlRS/profiles/ess_rs/DriverSettings.h>
+#include <MotorControlRS/profiles/ess_rs/Registers.h>
 #include <MotorControlRS/profiles/ess_rs/Homing.h>
 #include "../common/EssRtuValidator.h"
 #include "../common/Esp32S3Uart.h"
@@ -81,7 +82,7 @@ struct App {
         ESS::VelocityContext velocity;
         bool driverOperation = false;
         uint32_t configurationGeneration = 0;
-        uint16_t driverEffects = 0;
+        uint32_t driverEffects = 0;
         ESS::DriverContext driver;
         bool homeOperation = false;
         ESS::HomeContext home;
@@ -105,6 +106,9 @@ struct App {
     ESS::IdentityObservation identity;
     ESS::ConfigObservation configuration;
     ESS::DriverObservation driverSettings;
+    ESS::DriverObservation ioSettings;
+    MotorControlRS::InputWiring inputWiring[4];
+    MotorControlRS::InputWiring outputWiring[2];
     ESS::DriverObservation driverObserved; // Scratch for whole-read publication/effects comparison.
     ESS::DriverPrerequisites driverPrerequisites; // PSRAM scratch; no large stack copies.
     bool driverInputsQualified = false; // Explicit commissioning evidence, no console bypass.
@@ -125,6 +129,9 @@ struct App {
     App() : runner(uart.port(), storage(tx, rx, trace), timing()),
         owner(runner, busStorage(pending, results, producers)), console(host(this)) {
         axis.target.id = axis.target.address = 1; axis.target.generation = bindingGeneration;
+        // Application bench declaration: only power/RS485, no terminal wiring.
+        for (auto& wiring : inputWiring) wiring = MotorControlRS::InputWiring::UNCONNECTED;
+        for (auto& wiring : outputWiring) wiring = MotorControlRS::InputWiring::UNCONNECTED;
     }
 };
 App* app = nullptr;
@@ -445,7 +452,8 @@ Probe::Action startTypedRead(void* context, uint32_t commandId, uint8_t address,
         ESS::prepareIdentity(record->read, target, a.nextOperationId, sampled, sampled + REQUEST_US, serial) :
         kind == ESS::ReadKind::STATE ?
         ESS::prepareState(record->read, target, a.nextOperationId, sampled, sampled + REQUEST_US, serial, configuration) :
-        ESS::prepareConfig(record->read, target, a.nextOperationId, sampled, sampled + REQUEST_US, serial);
+        ESS::prepareConfig(record->read, target, a.nextOperationId, sampled, sampled + REQUEST_US, serial,
+            address == a.axis.target.address ? a.inputWiring : nullptr);
     if (!prepared || (kind != ESS::ReadKind::IDENTITY && kind != ESS::ReadKind::CONFIG && kind != ESS::ReadKind::STATE)) {
         clearRecord(*record); return Probe::Action::INVALID;
     }
@@ -787,6 +795,63 @@ Probe::Action startHome(void* context, uint32_t commandId, uint8_t address,
     record->configurationGeneration = a.axis.generation;
     operationId = a.latestOperationId = record->operationId; return Probe::Action::OK;
 }
+// Register-only commissioning policy scoped to the affected terminals. Active
+// input controls/inversion require separately reviewed effects; unwired never
+// implies disabled. Output function 0 proves no electrical de-energization.
+void qualifyIoEffects(App& a, ESS::DriverPrerequisites& p, const ESS::DriverRequest& request) {
+    using MotorControlRS::InputWiring;
+    p.qualifiedIo = request;
+    for (uint8_t i = 0; i < 4; ++i) {
+        p.inputWiring[i] = a.inputWiring[i];
+        const uint32_t field = uint32_t(1) << (10 + i);
+        if ((request.fields & field) && a.inputWiring[i] == InputWiring::UNCONNECTED &&
+            p.previous.raw[8 + i] <= 3 && static_cast<uint16_t>(request.inputFunctions[i]) <= 3)
+            p.ioEffectsQualifiedFields |= field;
+    }
+    if (request.fields & static_cast<uint32_t>(ESS::DriverField::INPUT_POLARITY)) {
+        const uint16_t changed = request.inputPolarity ^ p.previous.raw[7];
+        bool safe = true;
+        for (uint8_t i = 0; i < 4; ++i) {
+            if (!(changed & (uint16_t(1) << i))) continue;
+            const uint32_t functionField = uint32_t(1) << (10 + i);
+            const uint16_t function = request.fields & functionField ?
+                static_cast<uint16_t>(request.inputFunctions[i]) : p.previous.raw[8 + i];
+            if (a.inputWiring[i] != InputWiring::UNCONNECTED || p.previous.raw[8 + i] != 0 || function != 0) safe = false;
+        }
+        // First disable/read the assignment explicitly; this request never
+        // changes polarity under an old active function before a later disable.
+        if (safe) p.ioEffectsQualifiedFields |= static_cast<uint32_t>(ESS::DriverField::INPUT_POLARITY);
+    }
+    for (uint8_t i = 0; i < 2; ++i) {
+        p.outputWiring[i] = a.outputWiring[i];
+        if (a.outputWiring[i] == InputWiring::UNCONNECTED)
+            p.ioEffectsQualifiedFields |= request.fields & (uint32_t(1) << (15 + i));
+    }
+    for (uint8_t index : {uint8_t(12), uint8_t(15)}) {
+        const uint32_t field = static_cast<uint32_t>(ESS::driverFieldAt(index));
+        const uint16_t value = index == 12 ? request.outputPolarity : request.customOutput;
+        const uint16_t changed = value ^ p.previous.raw[index];
+        bool safe = true;
+        for (uint8_t i = 0; i < 2; ++i)
+            if ((changed & (uint16_t(1) << i)) && a.outputWiring[i] != InputWiring::UNCONNECTED) safe = false;
+        if (safe) p.ioEffectsQualifiedFields |= request.fields & field;
+    }
+}
+Probe::Action checkIoWrite(const App& a, const Rtu::BusRequest& request) {
+    const uint16_t reg = request.expected.first;
+    const bool ioRegister = (reg >= ESS::Registers::INPUT_POLARITY && reg <= ESS::Registers::INPUT_X3_FUNCTION) ||
+        (reg >= ESS::Registers::OUTPUT_POLARITY && reg <= ESS::Registers::OUTPUT_Y1_FUNCTION) ||
+        reg == ESS::Registers::CUSTOM_OUTPUT;
+    if (!ioRegister || request.expected.count != 1) return Probe::Action::INVALID;
+    if (!platformReady) return Probe::Action::UNAVAILABLE;
+    if (request.expected.address != a.axis.target.address || request.expected.function != 6 ||
+        request.expected.target != request.expected.address ||
+        request.expected.targetGeneration != a.bindingGeneration) return Probe::Action::INVALID;
+    if (a.owner.needsRecovery() || uart.needsRecovery()) return Probe::Action::RECOVERY_REQUIRED;
+    if (!(a.knownTargets[request.expected.address / 8] & (1U << (request.expected.address % 8))))
+        return Probe::Action::UNAVAILABLE;
+    return axisReserved(a, request.expected.address) ? Probe::Action::AXIS_CONFLICT : Probe::Action::OK;
+}
 Probe::Action admitDriverStep(App& a, App::Record& record, const ESS::PreparedDriver& work, uint64_t now) {
     Rtu::BusRequest request;
     request.wire.bytes = work.bytes; request.wire.length = work.length;
@@ -798,7 +863,9 @@ Probe::Action admitDriverStep(App& a, App::Record& record, const ESS::PreparedDr
     request.expected.first = work.reg; request.expected.count = work.count;
     request.expected.value = work.value; request.validator = Rtu::essValidator();
     if (!record.operationId && work.write) {
-        const auto checked = checkAxisWrite(a, request); if (checked != Probe::Action::OK) return checked;
+        const auto checked = record.driver.group == ESS::DriverGroup::IO ?
+            checkIoWrite(a, request) : checkAxisWrite(a, request);
+        if (checked != Probe::Action::OK) return checked;
     }
     return admissionResult(a.owner.admit(request, now, record.requestId));
 }
@@ -823,11 +890,12 @@ Probe::Action startDriver(void* context, uint32_t commandId, uint8_t address, ES
     const uint32_t generation = address == a.axis.target.address ? a.axis.generation : a.bindingGeneration;
     Status checked;
     if (kind == ESS::DriverKind::READ) {
-        checked = ESS::prepareDriverRead(record->driver, target, a.nextOperationId, generation, now, now + REQUEST_US);
+        checked = ESS::prepareDriverRead(record->driver, target, a.nextOperationId, generation, now, now + REQUEST_US, supplied.group);
     } else if (kind == ESS::DriverKind::UPDATE) {
         auto& prerequisites = a.driverPrerequisites;
         prerequisites.~DriverPrerequisites(); new (&prerequisites) ESS::DriverPrerequisites();
-        prerequisites.previous = a.driverSettings; prerequisites.configurationGeneration = generation;
+        prerequisites.previous = supplied.group == ESS::DriverGroup::IO ? a.ioSettings : a.driverSettings;
+        prerequisites.configurationGeneration = generation;
         prerequisites.stationaryTarget = target; prerequisites.maxAgeUs = 5000000;
         const auto& motion = a.stateCache.blocks[static_cast<uint8_t>(ESS::StateBlock::MOTION)];
         prerequisites.stationaryQualified = Probe::fresh(motion, target, now, prerequisites.maxAgeUs);
@@ -837,6 +905,16 @@ Probe::Action startDriver(void* context, uint32_t commandId, uint8_t address, ES
         prerequisites.inputsPermit = a.driverInputsQualified;
         ESS::DriverRequest request = supplied;
         if (!request.configurationGeneration) request.configurationGeneration = generation;
+        if (request.group == ESS::DriverGroup::IO) {
+            const auto& io = a.stateCache.blocks[static_cast<uint8_t>(ESS::StateBlock::IO)];
+            prerequisites.inputsPermit = true; // Changed-terminal policy below, not global mandatory I/O.
+            prerequisites.ioLevelsQualified = Probe::fresh(io, target, now, prerequisites.maxAgeUs);
+            prerequisites.ioTarget = target; prerequisites.ioConfigurationGeneration = generation;
+            prerequisites.actualInputs = io.value.rawInputs; prerequisites.actualOutputs = io.value.rawOutputs;
+            prerequisites.ioEarliestUs = io.observedEarliestUs; prerequisites.ioLatestUs = io.observedLatestUs;
+            qualifyIoEffects(a, prerequisites, request);
+            prerequisites.allowEchoReadback = true; // Stored-value settlement on safe unwired terminals only.
+        }
         checked = ESS::prepareDriverSettings(record->driver, target, a.nextOperationId, request, prerequisites, now, now + 3000000);
     } else return Probe::Action::INVALID;
     if (!checked) { clearRecord(*record); return checked.code == Err::UNSUPPORTED ? Probe::Action::UNSUPPORTED : Probe::Action::INVALID; }
@@ -851,7 +929,7 @@ Probe::Action startDriver(void* context, uint32_t commandId, uint8_t address, ES
 }
 // Apply possible changes as soon as TX is accepted. Readback never rewrites
 // historical contexts or silently promotes stored codes into active settings.
-void invalidateDriverAssumptions(App& a, uint8_t address, uint16_t changed, uint64_t now, const App::Record* changing = nullptr) {
+void invalidateDriverAssumptions(App& a, uint8_t address, uint32_t changed, uint64_t now, const App::Record* changing = nullptr) {
     if (address == a.axis.target.address) {
         invalidateAxis(a, changing);
         if (changed & (static_cast<uint16_t>(ESS::DriverField::DIRECTION) | static_cast<uint16_t>(ESS::DriverField::SUBDIVISION)))
@@ -863,18 +941,20 @@ void invalidateDriverAssumptions(App& a, uint8_t address, uint16_t changed, uint
         a.positionClearQualified = false;
     }
     if (a.driverSettings.target.address == address) a.driverSettings.operationId = 0;
-    if (changed & (static_cast<uint16_t>(ESS::DriverField::INTERRUPTION) | static_cast<uint16_t>(ESS::DriverField::POSITION_MODE)))
+    if (a.ioSettings.target.address == address) a.ioSettings.operationId = 0;
+    if (changed & (0x0003FE00u | static_cast<uint32_t>(ESS::DriverField::INTERRUPTION) |
+        static_cast<uint32_t>(ESS::DriverField::POSITION_MODE)))
         a.driverInputsQualified = false;
     for (auto& block : a.stateCache.blocks)
         if (block.value.target.address == address) block.invalidatedUs = now;
 }
-void driverEffects(App& a, App::Record& record, uint16_t effects, uint64_t now) {
-    const uint16_t changed = effects & static_cast<uint16_t>(~record.driverEffects);
+void driverEffects(App& a, App::Record& record, uint32_t effects, uint64_t now) {
+    const uint32_t changed = effects & ~record.driverEffects;
     if (!changed) return;
     record.driverEffects |= changed;
     invalidateDriverAssumptions(a, record.address, changed, now, &record);
 }
-uint16_t driverConfigEffects(const ESS::RawConfig& config, const ESS::DriverObservation& driver) {
+uint32_t driverConfigEffects(const ESS::RawConfig& config, const ESS::DriverObservation& driver) {
     uint16_t effects = 0;
     if (config.direction != driver.raw[0]) effects |= static_cast<uint16_t>(ESS::DriverField::DIRECTION);
     if (config.subdivision != driver.raw[1]) effects |= static_cast<uint16_t>(ESS::DriverField::SUBDIVISION);
@@ -995,27 +1075,34 @@ void updateActionReservation(App& a, App::Record& record) {
     if (record.driverOperation) {
         driverEffects(a, record, record.driver.effects, nowUs());
         record.axisReserved = false;
+        auto& cache = record.driver.group == ESS::DriverGroup::IO ? a.ioSettings : a.driverSettings;
         if (record.driver.kind == ESS::DriverKind::READ && record.address == a.axis.target.address &&
-            record.configurationGeneration == a.axis.generation &&
-            record.driver.target.generation == a.bindingGeneration && record.operationId > a.driverSettings.operationId &&
-            record.operationId > a.configuration.operationId &&
+            record.configurationGeneration == a.axis.generation && record.driver.target.generation == a.bindingGeneration &&
+            record.operationId > cache.operationId && record.operationId > a.configuration.operationId &&
             ESS::getDriver(record.driver, a.driverObserved)) {
             const auto& observed = a.driverObserved;
-            uint16_t changed = 0;
-            if (a.driverSettings.operationId && Probe::sameTarget(a.driverSettings.target, observed.target)) {
-                for (uint8_t i = 0; i < ESS::DRIVER_FIELD_COUNT; ++i)
-                    if (a.driverSettings.raw[i] != observed.raw[i]) changed |= static_cast<uint16_t>(1U << i);
-                if (std::memcmp(a.driverSettings.positiveWords, observed.positiveWords, sizeof(observed.positiveWords)) ||
-                    std::memcmp(a.driverSettings.negativeWords, observed.negativeWords, sizeof(observed.negativeWords)))
-                    changed |= static_cast<uint16_t>(ESS::DriverField::POSITIVE_LIMIT) | static_cast<uint16_t>(ESS::DriverField::NEGATIVE_LIMIT);
+            uint32_t changed = 0;
+            const uint8_t first = record.driver.group == ESS::DriverGroup::IO ? 7 : 0;
+            const uint8_t end = record.driver.group == ESS::DriverGroup::IO ? 16 : 7;
+            if (cache.operationId && Probe::sameTarget(cache.target, observed.target)) {
+                for (uint8_t i = first; i < end; ++i)
+                    if (cache.raw[i] != observed.raw[i]) changed |= static_cast<uint32_t>(ESS::driverFieldAt(i));
+                if (record.driver.group == ESS::DriverGroup::DRIVE &&
+                    (std::memcmp(cache.positiveWords, observed.positiveWords, sizeof(observed.positiveWords)) ||
+                     std::memcmp(cache.negativeWords, observed.negativeWords, sizeof(observed.negativeWords))))
+                    changed |= static_cast<uint32_t>(ESS::DriverField::POSITIVE_LIMIT) | static_cast<uint32_t>(ESS::DriverField::NEGATIVE_LIMIT);
             } else if (a.configuration.operationId && Probe::sameTarget(a.configuration.target, observed.target)) {
-                changed |= driverConfigEffects(a.configuration.raw, observed);
+                if (record.driver.group == ESS::DriverGroup::DRIVE) changed |= driverConfigEffects(a.configuration.raw, observed);
+                else {
+                    if (a.configuration.raw.inputPolarity != observed.raw[7]) changed |= static_cast<uint32_t>(ESS::DriverField::INPUT_POLARITY);
+                    for (uint8_t i = 0; i < 4; ++i)
+                        if (a.configuration.raw.inputFunctions[i] != observed.raw[8+i]) changed |= uint32_t(1) << (10+i);
+                }
             }
             if (changed) invalidateDriverAssumptions(a, record.address, changed, nowUs(), &record);
-            a.driverSettings = observed;
-            // The cache is reconciled to the new host interpretation generation;
-            // record.driver and all raw/provenance retain their admission context.
-            if (record.address == a.axis.target.address) a.driverSettings.configurationGeneration = a.axis.generation;
+            cache = observed;
+            // Only the derived cache adopts the reconciled generation.
+            cache.configurationGeneration = a.axis.generation;
         }
         return;
     }
@@ -1062,7 +1149,7 @@ void advanceActions(App& a, uint64_t now) {
                 if (ESS::nextDriver(record.driver, record.driver.servicedUs, work) && work.write)
                     for (const auto& progress : record.driver.progress)
                         if (progress.selected && progress.reg == work.reg)
-                            driverEffects(a, record, static_cast<uint16_t>(progress.field), now);
+                            driverEffects(a, record, static_cast<uint32_t>(progress.field), now);
             }
             if (((record.moveOperation && record.move.step == 1) ||
                 (record.velocityOperation && record.velocity.phase == ESS::VelocityPhase::TRIGGER)) && record.address == a.axis.target.address &&
@@ -1091,7 +1178,8 @@ void advanceActions(App& a, uint64_t now) {
             event.transport.length = result->transport.rxLength;
             event.txComplete = result->transport.txComplete;
             event.responseConfirmed = kind == ReadEventKind::FRAME &&
-                (actionTimingQualified || (record.driverOperation && record.driver.kind == ESS::DriverKind::READ));
+                (actionTimingQualified || (record.driverOperation && (record.driver.kind == ESS::DriverKind::READ ||
+                    (record.driver.group == ESS::DriverGroup::IO && (record.driver.step % 2) == 1))));
             if (kind == ReadEventKind::FRAME) {
                 event.transport.qualified = result->transport.closureQualified;
                 if (event.transport.qualified) {
@@ -1398,7 +1486,7 @@ void deliver(App& a) {
                     ESS::getIdentity(record.read, a.identity);
                 if (record.read.kind == ESS::ReadKind::CONFIG && record.address == a.axis.target.address &&
                     record.operationId > a.configuration.operationId &&
-                    record.operationId > a.driverSettings.operationId &&
+                    record.operationId > a.driverSettings.operationId && record.operationId > a.ioSettings.operationId &&
                     record.configurationGeneration == a.axis.generation && record.read.target.generation == a.bindingGeneration) {
                     const ESS::RawConfig old = a.configuration.raw;
                     const bool same = a.configuration.operationId && Probe::sameTarget(a.configuration.target, record.read.target);
@@ -1407,9 +1495,14 @@ void deliver(App& a) {
                         const bool inputsChanged = !same || old.inputPolarity != updated.inputPolarity ||
                             std::memcmp(old.inputFunctions, updated.inputFunctions, sizeof(old.inputFunctions)) != 0;
                         if (inputsChanged) a.driverInputsQualified = false;
-                        uint16_t effects = 0;
+                        uint32_t effects = 0;
                         if (a.driverSettings.operationId && Probe::sameTarget(a.driverSettings.target, record.read.target))
                             effects = driverConfigEffects(updated, a.driverSettings);
+                        if (a.ioSettings.operationId && Probe::sameTarget(a.ioSettings.target, record.read.target)) {
+                            if (updated.inputPolarity != a.ioSettings.raw[7]) effects |= static_cast<uint32_t>(ESS::DriverField::INPUT_POLARITY);
+                            for (uint8_t i = 0; i < 4; ++i)
+                                if (updated.inputFunctions[i] != a.ioSettings.raw[8+i]) effects |= uint32_t(1) << (10+i);
+                        }
                         const bool configChanged = same &&
                             (old.direction != updated.direction || old.subdivision != updated.subdivision ||
                              old.wordOrder != updated.wordOrder || old.algorithm != updated.algorithm ||

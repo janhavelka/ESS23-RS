@@ -15,7 +15,7 @@
 namespace MotorControlRSExample { namespace Probe {
 
 constexpr std::size_t LINE_CAPACITY = 128;
-constexpr std::size_t OUTPUT_CAPACITY = 4608;
+constexpr std::size_t OUTPUT_CAPACITY = 8192;
 constexpr std::size_t OUTSTANDING_CAPACITY = 10; // Nine ordinary correlations plus one stop.
 constexpr std::size_t PROBE_TX_CAPACITY = 8;
 constexpr std::size_t PROBE_RX_CAPACITY = 64;

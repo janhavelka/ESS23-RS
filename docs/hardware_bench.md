@@ -31,6 +31,19 @@ changed; load/monitor off, DE released, owner empty and no recovery need.
 Physical settings/restoration and software-limit movement remain NOT RUN.
 
 
+## Prompt15 current stored-I/O evidence
+
+[Current-image report](reports/ess_release_15_2026-10-04.md) retains190 checked
+frames,13 explicit passive/unloaded settings updates with matching readbacks,
+and exact original restoration. Initial/final assignments X0-X3 are1/2/3/0,
+Y0/Y1 are0/0, input/output polarity and custom mask0. Logical I/O0/0,
+alarm/motion0/1, position/speed0 are unchanged. Every FC06 echo retains
+unconfirmed source/unknown execution; the explicit unwired policy settles only
+the subsequently observed stored word. No motion, input trigger, save or device
+clear was sent. Owner empty, DE released, no faults, load/monitor off.
+External electrical/switch/load behavior remains NOT RUN; optional unwired
+terminals do not impose a blanket serial-only control requirement.
+
 ## User report on 2026-10-02
 
 The [fresh prompt 12 audit](reports/ess_release_12_audit_2026-10-04.md) passes ten

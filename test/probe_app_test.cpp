@@ -764,7 +764,10 @@ void testTypedReadRoutesAndAtomicPublication() {
     assert(app->configuration.raw.subdivision == 1000 && app->configuration.raw.encoderResolution == 4000);
     assert(app->configuration.raw.wordOrder == 1 && app->configuration.raw.inputFunctions[0] == 0);
     assert(app->configuration.activeSerial.known && app->configuration.activeSerial.baud == 115200);
-    assert(app->configuration.wiring[0] == MotorControlRS::InputWiring::UNKNOWN && !app->configuration.inputLevelKnown[0]);
+    // This application bench declaration is independent of assignments and levels.
+    for (unsigned terminal = 0; terminal < ESS::READ_INPUT_COUNT; ++terminal)
+        assert(app->configuration.wiring[terminal] == MotorControlRS::InputWiring::UNCONNECTED &&
+               !app->configuration.inputLevelKnown[terminal]);
     assert(app->configuration.units.commandStepsPerMotorTurn.source == MotorControlRS::ScaleSource::UNKNOWN);
     assert(app->configuration.units.encoder.countsPerUnit.source == MotorControlRS::ScaleSource::READBACK);
     const auto previous = app->configuration;

@@ -416,7 +416,7 @@ FIFO submission copies at most 64 bytes to an internal stack array before its
 short critical section. Larger PSRAM storage is never read from that section.
 Task stacks remain under the framework's allocation rules. Memory snapshots
 include largest available blocks as well as free/minimum totals so fragmented
-heaps are visible. Console JSON output is capped at4608 bytes; retained hex is capped
+heaps are visible. Console JSON output is capped at8192 bytes; retained hex is capped
 at eight TX and 64 RX bytes with an explicit truncation flag.
 
 Native verification covers runner framing/failure cases, adapter snapshot races,
@@ -445,7 +445,7 @@ write before returning; the runner's separate setup wait cannot shorten it.
 
 Use `read identity [address]`, `read config [address]`, `profile ess_rs identity [address]`, `profile ess_rs config [address]`, `caps` or `profile ess_rs caps`. The [public read API](ess_reads.md) supplies every preparation/event/decoder; the CLI has no private raw-register sequence. Each admitted frontend read retains one terminal `type:read` record, with original command correlation, a separate operation ID, raw decoded codes and copied per-window TX/RX/closure evidence. `result` is non-consuming and `release` explicit. Eight retained/admitted read/probe operations share the existing frontend quota; a separate recovery record remains available. One 500-ms absolute deadline covers all five configuration windows.
 
-The JSON output capacity is4608 bytes. The tested full-width move record is4287
+The JSON output capacity is8192 bytes. The tested full-width move record is4287
 bytes; input is128 bytes including terminator/20 tokens,32 input characters and64
 output bytes per loop. Larger operation/cached/console buffers belong to the
 PSRAM App; the UART capture and worker stack remain internal. `config` shows
@@ -460,3 +460,18 @@ python scripts/bench_probe.py --port COM13 --log build/bench/my_typed_reads.json
 This finite scenario checks capabilities, each read once, immutable result inspection, release and local diagnostics. It never retries or recovers automatically. Actual raw configuration, current image and resource/latency measurements are in [prompt05](reports/ess_release_05_2026-10-04.md); configured encoder4000 and unknown algorithm3 do not establish motion readiness.
 
 See [typed state/cache contracts](ess_reads.md#state-observations-and-application-health) and [06 stationary evidence](reports/ess_release_06_2026-10-04.md). `python scripts/bench_probe.py --port COM13 --log build/bench/new-state.jsonl state-health --count 5 --interval 0.1` performs non-changing checks with strict correlation and no retries.
+
+
+## Typed optional I/O
+
+`profile ess_rs io read` exposes four input/two output assignments plus masks;
+`profile ess_rs io set x0 none` uses the same checked public function-zero setter
+as direct code. Fresh explicit I/O and state reads precede a stopped-state
+update. The known-unwired application policy qualifies only reviewed passive
+transitions, prior-disabled input polarity and unloaded outputs; active external
+controls remain gated. No probe/startup/move silently changes assignments.
+[The I/O contract](ess_io.md) distinguishes stored readback from acknowledgement,
+active settings, wiring, logical state and electrical output behavior.
+The finite Python `io read` / `io set FIELD VALUE` commands inspect/release
+results and never retry after framing failure; setters require the same current
+application prerequisites as direct console callers.

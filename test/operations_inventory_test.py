@@ -44,11 +44,11 @@ class Coverage(unittest.TestCase):
         self.assertEqual((summary["records"], summary["reserved"], summary["unresolved_access"], summary["named_choices"]),
                          (221, 16, 2, 135))
         self.assertEqual(sum(count for state, count in summary["read"].items() if state in operations.IMPLEMENTATION), 201)
-        self.assertEqual(summary["write"]["NOT_IMPLEMENTED"], 170)
+        self.assertEqual(summary["write"]["NOT_IMPLEMENTED"], 161)
         self.assertEqual(summary["write"]["UNSUPPORTED"], 2)
         self.assertEqual(summary["action"]["IN_PROGRESS"], 2)
         linked = {record for group in INVENTORY["operations"] for record in group["records"]}
-        self.assertEqual(len(linked), 43)
+        self.assertEqual(len(linked), 47)
         self.assertEqual(len(result["records"]), len({record["id"] for record in result["records"]}))
         self.assertTrue(all(choice["default_disposition"] == operations.DEFAULT for choice in result["named_choices"]))
 
@@ -63,8 +63,8 @@ class Coverage(unittest.TestCase):
             "WordOrder.HIGH_WORD_FIRST", "WordOrder.LOW_WORD_FIRST", "SoftLimitEnable.LIMITS_OFF",
             "SoftLimitEnable.AFTER_HOMING", "OverLimitStop.FREE_PARKING", "OverLimitStop.EMERGENCY_STOP",
             "PvTriggerMode.LEVEL", "PvTriggerMode.RISING_EDGE", "PositionMode.RELATIVE", "PositionMode.ABSOLUTE", "HomingMethod.METHOD_33", "HomingMethod.METHOD_34",
-            "HomingMethod.METHOD_35", "MotionCommandBit.START_HOMING"})
-        self.assertEqual(result["summary"]["choice_implementation"], {"NOT_IMPLEMENTED": 110, "IMPLEMENTED": 25})
+            "HomingMethod.METHOD_35", "MotionCommandBit.START_HOMING"} | {e["name"] + "." + v["name"] for e in LEDGER["enums"] if e["name"] in ("InputFunction", "OutputFunction", "InputBit", "OutputBit") for v in e["values"] if not (e["name"] == "OutputFunction" and v["value"] == 11)})
+        self.assertEqual(result["summary"]["choice_implementation"], {"NOT_IMPLEMENTED": 77, "IMPLEMENTED": 57, "UNSUPPORTED": 1})
         for record in result["records"]:
             if record["id"] in ("AUXILIARY_COMMAND", "MOTION_COMMAND"):
                 self.assertEqual(record["obligations"]["write"], "IN_PROGRESS")
@@ -80,6 +80,17 @@ class Coverage(unittest.TestCase):
         offset = next(row for row in result["records"] if row["id"] == "HOMING_OFFSET")
         self.assertEqual(offset["obligations"]["write"], "IN_PROGRESS")
         self.assertIn("WORD_ORDER_UNRESOLVED", offset["issues"])
+
+    def test_io_assignments_do_not_claim_all_physical_function_qualification(self):
+        result = operations.check(INVENTORY, LEDGER)
+        choices = {row["id"]: row["disposition"] for row in result["named_choices"]}
+        self.assertEqual(choices["InputFunction.UNDEFINED"]["implementation"], "IMPLEMENTED")
+        self.assertEqual(choices["OutputFunction.UNDEFINED"]["hardware"], "NOT_RUN")
+        self.assertEqual(choices["InputFunction.START_HOMING"]["hardware"], "NOT_RUN")
+        self.assertEqual(choices["OutputFunction.CUSTOM_2"]["implementation"], "UNSUPPORTED")
+        records = {row["id"]: row for row in result["records"]}
+        self.assertEqual(records["INPUT_STATUS"]["obligations"]["write"], "NOT_APPLICABLE")
+        self.assertEqual(records["OUTPUT_STATUS"]["obligations"]["write"], "NOT_APPLICABLE")
 
     def test_action_choices_must_match_ledger_record(self):
         def operation(value, name):

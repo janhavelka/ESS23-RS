@@ -109,7 +109,7 @@ void testWholeCandidateAndPrerequisites() {
     auto r = request(); auto p = prerequisites();
     r.fields = 0; checkUnchangedReject(r, p);
     r = request(0x8000); checkUnchangedReject(r, p);
-    for (unsigned i = 0; i < Ess::DRIVER_FIELD_COUNT; ++i) {
+    for (unsigned i = 0; i < 7; ++i) {
         r = request(static_cast<uint16_t>(1u << i));
         switch (i) {
         case 0: r.direction = static_cast<Ess::DefaultDirection>(2); break;
@@ -139,6 +139,7 @@ void testWholeCandidateAndPrerequisites() {
     // It cannot become newly fresh by waiting until the final reply arrived.
     p.stationaryEarliestUs = p.stationaryLatestUs = 199; checkUnchangedReject(r, p);
     p = prerequisites(); p.inputsPermit = false; checkUnchangedReject(r, p);
+    p = prerequisites(); p.allowEchoReadback = true; checkUnchangedReject(r, p);
     p = prerequisites(); p.stationaryQualified = false; checkUnchangedReject(r, p);
     p = prerequisites(); p.stationaryTarget.generation++; checkUnchangedReject(r, p);
     p = prerequisites(); p.stationaryLatestUs = 201; checkUnchangedReject(r, p);

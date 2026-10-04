@@ -7,7 +7,7 @@ future version numbers are not commitments.
 
 The [ESS release prompt set](prompts/ess_release/README.md) turns these stages
 into 30 ordered implementation blocks with tests, independent audits and
-evidence handoffs. Prompts 01-14 have implementation and available verification
+evidence handoffs. Prompts 01-15 have implementation and available verification
 dispositions. [Prompt12](reports/ess_release_12_2026-10-04.md) consolidates the
 four reviewed FC10 windows into generated policy and records all paired-write
 proof gaps. Its [fresh audit](reports/ess_release_12_audit_2026-10-04.md) fixes
@@ -15,7 +15,10 @@ generator address consistency and repeats native/build/read-only checks.
 No new physical write qualification is implied. [Prompt13](reports/ess_release_13_2026-10-04.md)
 implements typed single-word settings and raw limit reads; its
 [fresh audit](reports/ess_release_13_audit_2026-10-04.md) corrects response-source
-settlement and axis prerequisite caches. Prompt14 adds bounded methods33/34/35; prompt15 is next when separately dispatched.
+settlement and axis prerequisite caches. Prompt14 adds bounded methods33/34/35. [Prompt15](reports/ess_release_15_2026-10-04.md)
+adds typed optional I/O and selected stored-setting disable/readback/restoration
+evidence; external physical function qualification remains open. Prompt16 waits
+for its separate dispatch.
 [Prompt10](reports/ess_release_10_2026-10-04.md) adds absolute/wrapped
 coordinates and device zero-clear while physical comparisons remain gated.
 Its [fresh audit](reports/ess_release_10_audit_2026-10-04.md) fixes host-reference

@@ -1,8 +1,8 @@
 # ESS release implementation sequence
 
 Prepared 2026-10-03 against MotorControl-RS `4ae0c4d` (0.6.0).
-Preparing this set executed no numbered prompt. **Prompts 01-14 have implementation and available verification dispositions;
-15-30 remain prepared and unexecuted. Independent electrical and physical action/motion qualification remain open.**
+Preparing this set executed no numbered prompt. **Prompts 01-15 have implementation and available verification dispositions;
+16-30 remain prepared and unexecuted. Independent electrical and physical action/motion qualification remain open.**
 The current core, runner, ESP32-S3 capture and probe/load tools are existing work;
 do not rebuild them from an old prompt as if they were missing.
 
@@ -53,7 +53,7 @@ Never mark all preceding physical work qualified just because code compiles.
 | [12 — Resolve paired-register write support before expansion](12_paired_register_write_policy.md) | 7 prerequisite | Freshly audited all 20 writable pairs; generator address consistency fixed; four-window policy retained; native/package/build and read-only COM13 PASS; new pair forms/order and physical writes remain unresolved/NOT RUN | [Handoff](../../reports/ess_release_12_2026-10-04.md), [fresh audit](../../reports/ess_release_12_audit_2026-10-04.md), [per-pair disposition](../../ess_pair_writes.md) |
 | [13 — Typed driver settings and software limits](13_driver_configuration_and_limits.md) | 7 | Implemented and freshly re-audited; native/package/build and corrected-image read-only COM13/gates PASS; pair setters unsupported, physical writes/limits NOT RUN | [Handoff](../../reports/ess_release_13_2026-10-04.md), [fresh audit](../../reports/ess_release_13_audit_2026-10-04.md), [API](../../ess_driver_settings.md) |
 | [14 — Homing methods and reference establishment](14_homing_and_reference_establishment.md) | 6 / 7 | Implemented33/34/35 and freshly audited; all35 method dispositions; native/package/build and corrected-image read-only gates PASS; physical homing NOT RUN | [Handoff](../../reports/ess_release_14_2026-10-04.md), [fresh audit](../../reports/ess_release_14_audit_2026-10-04.md), [API](../../ess_homing.md), [methods](../../ess_homing_methods.md) |
-| [15 — Optional digital I/O and external-control configuration](15_digital_io_and_external_controls.md) | 7 | Prepared | — |
+| [15 — Optional digital I/O and external-control configuration](15_digital_io_and_external_controls.md) | 7 | Implemented; native/package/build PASS;190-frame stored-I/O paths/13 updates and restoration PASS; external switch/load/electrical tests NOT RUN | [Handoff](../../reports/ess_release_15_2026-10-04.md), [API](../../ess_io.md) |
 | [16 — Stored position/speed records and external triggers](16_stored_position_and_speed_segments.md) | 7 | Prepared | — |
 | [17 — Algorithm, encoder, current and lock settings](17_algorithm_encoder_current_and_lock.md) | 7 | Prepared | — |
 | [18 — Filters, tracking and tuning parameters](18_filters_tracking_and_tuning.md) | 7 | Prepared | — |

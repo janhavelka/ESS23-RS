@@ -422,7 +422,7 @@ The [ESS implementation reference](reference/01_implementation_reference.md)
 and original vendor PDFs remain authoritative for native behavior. Console
 contract tests, firmware builds and physical motor qualification are distinct.
 See [verification](verification.md) and the linked bench reports for completed
-checks; the planned full motion/I/O console remains unimplemented.
+checks; the remaining native families and physical qualification remain open.
 
 Prompt11 implements `velocity VALUE UNIT FRAME DURATION_MS configured normal|direct`
 and `profile ess_rs velocity` with the same public preparation and bounded
@@ -430,3 +430,18 @@ start/observe/stop sequence. Strict optional rounding/approximation, result
 correlation, limits and Python cleanup are documented in [finite serial velocity](ess_velocity.md).
 Velocity zero is distinct from stop/release; unqualified ramps and unsupported
 acceleration/jerk/blending/live/effort modes fail before traffic.
+
+
+Prompt15 implements `profile ess_rs io read|set` through the same installed
+`DriverSettings.h` preparation/decoder as direct callers. Fields are
+`input-polarity`, `x0`-`x3`, `output-polarity`, `y0`, `y1`, and `custom`;
+`none` selects documented function zero. Values are strict integers, duplicate
+fields fail, input masks are bounded to15 and output/custom masks to3.
+Terminal type/command is `io`; command IDs and operation IDs remain separate.
+`driver_group`, `echo_readback_policy`, `settlement`, progress and original raw
+TX/response-source/closure evidence preserve stored/readback versus acknowledged
+and active settings. One candidate validates before any write; no automatic
+assignment, polarity workaround, replay or save occurs. The explicit unwired
+settings policy may settle matching stored readback while the FC06 acknowledgement
+remains false and execution remains unknown. See [I/O contracts](ess_io.md)
+and [current evidence](reports/ess_release_15_2026-10-04.md).

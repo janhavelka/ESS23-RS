@@ -1392,7 +1392,7 @@ void testMaximumDriverReportFitsFixedOutput() {
     std::printf("Maximum-width driver line: %zu/%zu bytes\n", fake.lines.back().size(), Probe::OUTPUT_CAPACITY);
 }
 
-void driverFixtures() {
+void driverFixtures(bool io = false) {
     using namespace MotorControlRS;
     ReadTarget target; target.id = target.address = 1; target.generation = 9;
     auto consume = [](Ess::DriverContext& c, int failure, bool unknown) {
@@ -1400,8 +1400,11 @@ void driverFixtures() {
         uint8_t raw[Ess::DRIVER_MAX_REPLY_BYTES] = {}; std::size_t length = 0;
         if (p.write) { length = 8; std::memcpy(raw, p.bytes, length); }
         else {
-            uint16_t words[4] = {};
+            uint16_t words[5] = {};
             if (c.kind == Ess::DriverKind::UPDATE) words[0] = static_cast<uint16_t>(p.value + (failure == 3 ? 1 : 0));
+            else if (p.reg == 0x40) { words[0] = unknown ? 0x80 : 0; words[1] = unknown ? 99 : 1; words[2] = 2; words[3] = 3; }
+            else if (p.reg == 0x4B) { words[1] = unknown ? 11 : 9; words[2] = 10; }
+            else if (p.reg == 0x4F) { words[0] = unknown ? 8 : 0; }
             else if (p.reg == 0x10) { words[0] = unknown ? 77 : 0; words[1] = 1600; }
             else if (p.reg == 0x17) { words[0] = 0; words[1] = 0; words[2] = unknown ? 99 : 0; }
             else if (p.reg == 0x37) { words[0] = 1; words[1] = 2; words[2] = 3; words[3] = 4; }
@@ -1430,7 +1433,7 @@ void driverFixtures() {
         assert(Ess::advanceDriver(c, event, now));
     };
     auto read = [&](bool unknown) {
-        Ess::DriverContext c; assert(Ess::prepareDriverRead(c, target, 101, 3, 100, 10000));
+        Ess::DriverContext c; assert(Ess::prepareDriverRead(c, target, 101, 3, 100, 10000, io ? Ess::DriverGroup::IO : Ess::DriverGroup::DRIVE));
         while (c.state == ReadState::ACTIVE) consume(c, 0, unknown);
         return c;
     };
@@ -1443,11 +1446,20 @@ void driverFixtures() {
         Ess::DriverPrerequisites evidence; evidence.previous = previous; evidence.configurationGeneration = 3;
         evidence.stationaryQualified = evidence.inputsPermit = true; evidence.stationaryTarget = target;
         evidence.stationaryEarliestUs = evidence.stationaryLatestUs = 100; evidence.maxAgeUs = 20000;
+        if (io) {
+            request.group = Ess::DriverGroup::IO; request.fields = 0x3FE00;
+            request.outputFunctions[0] = Ess::OutputFunction::CUSTOM_0; request.outputFunctions[1] = Ess::OutputFunction::CUSTOM_1;
+            evidence.ioLevelsQualified = true; evidence.ioTarget = target; evidence.ioConfigurationGeneration = 3;
+            evidence.ioEarliestUs = evidence.ioLatestUs = 100;
+            for (auto& w : evidence.inputWiring) w = InputWiring::UNCONNECTED;
+            for (auto& w : evidence.outputWiring) w = InputWiring::UNCONNECTED;
+            evidence.ioEffectsQualifiedFields = request.fields; evidence.qualifiedIo = request;
+        }
         Ess::DriverContext c; assert(Ess::prepareDriverSettings(c, target, 101, request, evidence, 200, 10000)); return c;
     };
-    auto emit = [](const char* name, const Ess::DriverContext& c) {
+    auto emit = [io](const char* name, const Ess::DriverContext& c) {
         Fake fake; fake.nextOperation = c.operationId; auto host = fake.host(false, true); host.startDriver = Fake::startDriver;
-        Probe::Console console(host); send(console, "@77 profile ess_rs driver read 1\n"); fake.lines.clear();
+        Probe::Console console(host); send(console, io ? "@77 profile ess_rs io read 1\n" : "@77 profile ess_rs driver read 1\n"); fake.lines.clear();
         assert(console.reportDriver(77, c.operationId, c)); assert(fake.lines.size() == 1);
         std::printf("{\"case\":\"%s\",\"record\":%s}\n", name, fake.lines[0].c_str());
     };
@@ -1462,14 +1474,49 @@ void driverFixtures() {
              failure == 4 ? "deadline" : failure == 5 ? "wrong_echo" : failure == 6 ? "late_delivery" :
              failure == 7 ? "unqualified" : failure == 8 ? "unconfirmed_echo" : "late_closure", c);
     }
+    if (io) {
+        c = prepare(); c.prerequisites.allowEchoReadback = true;
+        while (c.state == ReadState::ACTIVE) { Ess::PreparedDriver w; assert(Ess::nextDriver(c, c.servicedUs, w)); consume(c, w.write ? 8 : 0, false); }
+        emit("unconfirmed_settled", c);
+        c = prepare(); auto candidate = c.request; auto prerequisites = c.prerequisites;
+        prerequisites.maxAgeUs = 200; prerequisites.stationaryEarliestUs = prerequisites.stationaryLatestUs = 110;
+        prerequisites.ioEarliestUs = prerequisites.ioLatestUs = 105;
+        assert(Ess::prepareDriverSettings(c, target, 101, candidate, prerequisites, 200, 10000));
+        Ess::PreparedDriver work; assert(Ess::nextDriver(c, 200, work) && work.deadlineUs == 305);
+        ActionEvent expiry; expiry.transport.target = target; expiry.transport.operationId = 101;
+        expiry.transport.step = 0; expiry.transport.kind = ReadEventKind::DEADLINE;
+        assert(Ess::advanceDriver(c, expiry, 305)); emit("io_evidence_deadline", c);
+    }
     // Actual core/formatter outcomes for an ambiguous settings response and
     // an ambiguous readback after a confirmed acknowledgement.
-    assert(Ess::prepareDriverRead(c, target, 101, 3, 100, 10000));
+    assert(Ess::prepareDriverRead(c, target, 101, 3, 100, 10000, io ? Ess::DriverGroup::IO : Ess::DriverGroup::DRIVE));
     consume(c, 8, false); emit("unconfirmed_read", c);
     c = prepare(); consume(c, 0, false); consume(c, 8, false);
     emit("unconfirmed_readback", c);
 }
 
+
+void testIoRoutes() {
+    Fake f; f.data.address = 1;
+    auto h = f.host(false, true); h.startDriver = Fake::startDriver;
+    Probe::Console c(h);
+    send(c, "@1 profile ess_rs io read 2\n");
+    assert(f.drivers == 1 && f.driverRequest.group == Ess::DriverGroup::IO && f.address == 2);
+    f.contains("\"result\":\"accepted\"");
+    send(c, "@2 profile ess_rs io set x0 none y1 none\n");
+    assert(f.drivers == 2 && f.driverRequest.fields == ((1UL << 10) | (1UL << 16)));
+    assert(f.driverRequest.inputFunctions[0] == Ess::InputFunction::UNDEFINED && f.driverRequest.outputFunctions[1] == Ess::OutputFunction::UNDEFINED);
+    for (const char* line : {"profile ess_rs io set x4 none", "profile ess_rs io set y2 none", "profile ess_rs io set x0 18", "profile ess_rs io set y0 11", "profile ess_rs io set y0 6", "profile ess_rs io set x0 1.0", "profile ess_rs io set x0 1/1", "profile ess_rs io set x0 none x0 1", "profile ess_rs io set custom none", "io read"}) {
+        send(c, std::string(line) + "\n"); f.contains("\"ok\":false"); assert(f.drivers == 2);
+    }
+    for (unsigned v = 0; v <= 17; ++v) {
+        // Use fresh correlation storage for each admission.
+        Fake isolated; isolated.data.address = 1; auto hook = isolated.host(false, true); hook.startDriver = Fake::startDriver;
+        Probe::Console route(hook); send(route, "profile ess_rs io set x3 " + std::to_string(v) + "\n");
+        assert(isolated.drivers == 1 && static_cast<unsigned>(isolated.driverRequest.inputFunctions[3]) == v);
+    }
+    send(c, "@3 help io\n"); f.contains("none assigns function 0");
+}
 
 void testHomeRoutesAndDescriptors() {
     Fake f; f.data.address = 1; f.axisConfig.generation = 3;
@@ -1589,6 +1636,8 @@ int main(int argc, char** argv) {
         driverFixtures(); return 0;
     }
     if (argc == 2 && std::strcmp(argv[1], "--home-fixtures") == 0) { homeFixtures(); return 0; }
+    if (argc == 2 && std::strcmp(argv[1], "--io-fixtures") == 0) { driverFixtures(true); return 0; }
+    testIoRoutes();
     testHomeRoutesAndDescriptors();
     testMaximumHomeOutputAndRetention();
     testFramingAndIds();

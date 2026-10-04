@@ -1,5 +1,7 @@
 # MotorControl-RS
 
+[Typed optional ESS I/O](docs/ess_io.md) adds explicit function-zero disable, indexed assignments, polarity/custom masks and stored readback settlement; wiring, logical levels and electrical qualification stay separate.
+
 [Bounded ESS homing](docs/ess_homing.md) implements internal-index methods33/34 and current-position35 with checked staging, fresh completion transitions and zero/reference evidence. All35 documented methods have explicit prerequisites and dispositions; physical homing remains gated.
 
 A framework-independent serial motion library, starting with STEPPERONLINE

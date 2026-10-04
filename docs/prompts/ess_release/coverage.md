@@ -1,5 +1,11 @@
 # Roadmap and requirement coverage
 
+Prompt15 [I/O handoff](../../reports/ess_release_15_2026-10-04.md) delivers all
+resolved typed assignments, explicit function-zero disable and checked masks
+through the existing settings engine. Selected stored-register/readback/restore
+bench evidence is separate from absent switch/load/electrical qualification;
+custom2 and crossmapped actuation remain unavailable.
+
 Prompt13 [implementation evidence](../../reports/ess_release_13_2026-10-04.md)
 records seven typed single-word settings and limit-pair reads. Unreviewed pair
 setters remain UNSUPPORTED; physical writes/restore and limit movement NOT RUN.

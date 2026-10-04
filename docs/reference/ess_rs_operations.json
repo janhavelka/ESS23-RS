@@ -21,11 +21,20 @@
   },
   "shared_records": [
     "AUXILIARY_COMMAND",
+    "CUSTOM_OUTPUT",
     "DEFAULT_DIRECTION",
     "DRIVER_MODEL",
     "EXTERNAL_POSITION_MODE",
+    "INPUT_POLARITY",
+    "INPUT_X0_FUNCTION",
+    "INPUT_X1_FUNCTION",
+    "INPUT_X2_FUNCTION",
+    "INPUT_X3_FUNCTION",
     "MOTION_COMMAND",
     "NEGATIVE_SOFT_LIMIT",
+    "OUTPUT_POLARITY",
+    "OUTPUT_Y0_FUNCTION",
+    "OUTPUT_Y1_FUNCTION",
     "OVER_LIMIT_STOP",
     "POSITIVE_SOFT_LIMIT",
     "PV_TRIGGER_MODE",
@@ -915,6 +924,164 @@
       "choices": [
         "MotionCommandBit.START_HOMING"
       ]
+    },
+    {
+      "id": "io_settings_read",
+      "kind": "READ",
+      "records": [
+        "INPUT_POLARITY",
+        "INPUT_X0_FUNCTION",
+        "INPUT_X1_FUNCTION",
+        "INPUT_X2_FUNCTION",
+        "INPUT_X3_FUNCTION",
+        "OUTPUT_POLARITY",
+        "OUTPUT_Y0_FUNCTION",
+        "OUTPUT_Y1_FUNCTION",
+        "CUSTOM_OUTPUT"
+      ],
+      "api": {
+        "header": "include/MotorControlRS/profiles/ess_rs/DriverSettings.h",
+        "symbols": [
+          "prepareDriverRead",
+          "nextDriver",
+          "advanceDriver",
+          "getIo"
+        ]
+      },
+      "cli_commands": [
+        "profile ess_rs io read"
+      ],
+      "implementation": "IMPLEMENTED",
+      "cli": "REACHABLE",
+      "native": {
+        "state": "PASS",
+        "evidence": [
+          "test/io_test.cpp",
+          "test/io_app_test.cpp",
+          "test/probe_console_test.cpp"
+        ]
+      },
+      "hardware": {
+        "state": "PASS",
+        "evidence": [
+          "docs/reports/ess_release_15_2026-10-04.json"
+        ],
+        "reason": "All nine stored fields read via three checked current-image FC03 windows; no physical electrical-state claim."
+      },
+      "reason": "ESS four inputs/two outputs, explicit function zero, bounded checked raw/provenance and exact stopped-state effects; active/persistence/electrical state unknown. Custom2 and custom cross-mapping remain unavailable."
+    },
+    {
+      "id": "io_settings_write",
+      "kind": "WRITE",
+      "records": [
+        "INPUT_POLARITY",
+        "INPUT_X0_FUNCTION",
+        "INPUT_X1_FUNCTION",
+        "INPUT_X2_FUNCTION",
+        "INPUT_X3_FUNCTION",
+        "OUTPUT_POLARITY",
+        "OUTPUT_Y0_FUNCTION",
+        "OUTPUT_Y1_FUNCTION",
+        "CUSTOM_OUTPUT"
+      ],
+      "api": {
+        "header": "include/MotorControlRS/profiles/ess_rs/DriverSettings.h",
+        "symbols": [
+          "prepareInputFunction",
+          "prepareOutputFunction",
+          "prepareDriverSettings",
+          "nextDriver",
+          "advanceDriver"
+        ]
+      },
+      "cli_commands": [
+        "profile ess_rs io set"
+      ],
+      "implementation": "IMPLEMENTED",
+      "cli": "REACHABLE",
+      "native": {
+        "state": "PASS",
+        "evidence": [
+          "test/io_test.cpp",
+          "test/io_app_test.cpp",
+          "test/probe_console_test.cpp"
+        ]
+      },
+      "hardware": {
+        "state": "NOT_RUN",
+        "evidence": [
+          "docs/reports/ess_release_15_2026-10-04.json"
+        ],
+        "reason": "Thirteen explicit passive/unloaded settings updates and exact restoration PASS as stored-register evidence. Full assignment/physical-function qualification NOT_RUN; checked FC06 source/ACK remains unconfirmed, matching FC03 readback settles only stored values."
+      },
+      "reason": "ESS four inputs/two outputs, explicit function zero, bounded checked raw/provenance and exact stopped-state effects; active/persistence/electrical state unknown. Custom2 and custom cross-mapping remain unavailable.",
+      "choices": [
+        "InputFunction.UNDEFINED",
+        "InputFunction.ORIGIN",
+        "InputFunction.POSITIVE_LIMIT",
+        "InputFunction.NEGATIVE_LIMIT",
+        "InputFunction.RELEASE_MOTOR",
+        "InputFunction.STOP",
+        "InputFunction.EMERGENCY_STOP",
+        "InputFunction.POSITION_MOVE",
+        "InputFunction.SPEED_MOVE",
+        "InputFunction.JOG_POSITIVE",
+        "InputFunction.JOG_NEGATIVE",
+        "InputFunction.START_HOMING",
+        "InputFunction.PT_TRIGGER",
+        "InputFunction.PV_TRIGGER",
+        "InputFunction.SEGMENT_PIN0",
+        "InputFunction.SEGMENT_PIN1",
+        "InputFunction.SEGMENT_PIN2",
+        "InputFunction.SEGMENT_PIN3",
+        "OutputFunction.UNDEFINED",
+        "OutputFunction.ALARM",
+        "OutputFunction.RUNNING",
+        "OutputFunction.HOMING_COMPLETE",
+        "OutputFunction.IN_POSITION",
+        "OutputFunction.BRAKE",
+        "OutputFunction.CUSTOM_0",
+        "OutputFunction.CUSTOM_1",
+        "InputBit.X0",
+        "InputBit.X1",
+        "InputBit.X2",
+        "InputBit.X3",
+        "OutputBit.Y0",
+        "OutputBit.Y1"
+      ]
+    },
+    {
+      "id": "io_custom2_unresolved",
+      "kind": "WRITE",
+      "records": [
+        "OUTPUT_Y0_FUNCTION",
+        "OUTPUT_Y1_FUNCTION"
+      ],
+      "choices": [
+        "OutputFunction.CUSTOM_2"
+      ],
+      "api": {
+        "header": "include/MotorControlRS/profiles/ess_rs/DriverSettings.h",
+        "symbols": [
+          "prepareOutputFunction"
+        ]
+      },
+      "cli_commands": [],
+      "implementation": "UNSUPPORTED",
+      "cli": "NOT_REACHABLE",
+      "native": {
+        "state": "PASS",
+        "evidence": [
+          "test/io_test.cpp",
+          "test/probe_console_test.cpp"
+        ]
+      },
+      "hardware": {
+        "state": "NOT_RUN",
+        "evidence": [],
+        "reason": "Value11 mapping to two ESS terminals unresolved; read preserves raw, assignment rejected."
+      },
+      "reason": "Listed numeric enum is not sufficient for a resolved custom2 output mapping. No invented third ESS output."
     }
   ],
   "coverage_notes": [
@@ -927,6 +1094,7 @@
     "Prompt10 implements absolute/wrapped finite positioning and explicit zero-only device clear through the same owner and public preparation/operation APIs. Motion/clear physical qualification remains NOT_RUN; host arithmetic/read-only checks never replace independent shaft or linear travel evidence.",
     "Prompt12 derives pair_write_policy for every writable pair from the same register ledger: exact reviewed FC10 windows, split-FC06 denial and unresolved interpretation/wire-form reasons. This adds no typed-write or hardware credit; see docs/ess_pair_writes.md.",
     "Prompt13 implements seven typed single-word settings and raw paired-limit reads; unavailable limit-pair writes remain UNSUPPORTED. Settings enum choices receive WRITE coverage separately from native action choices. ACK/readback never imply active or saved settings.",
-    "Prompt14 accounts for all35 homing methods; executable33/34/35 receive narrow native staging/trigger coverage. External-switch methods remain unimplemented pending edge/return and prompt15 assignment/fixture evidence;18 and collision methods remain unresolved. Existing auxiliary7 is a prerequisite, never typed setter coverage. Offset write obligation is IN_PROGRESS: zero-only complete reviewed window, no nonzero encoding or pair expansion."
+    "Prompt14 accounts for all35 homing methods; executable33/34/35 receive narrow native staging/trigger coverage. External-switch methods remain unimplemented pending edge/return and prompt15 assignment/fixture evidence;18 and collision methods remain unresolved. Existing auxiliary7 is a prerequisite, never typed setter coverage. Offset write obligation is IN_PROGRESS: zero-only complete reviewed window, no nonzero encoding or pair expansion.",
+    "Prompt15 implements all18 documented input assignments and eight resolved output assignments; custom2 remains unresolved. Register readback is distinct from physical switch/load operation and unconfirmed FC06 execution. No external switch/load is required for independent serial-only modes."
   ]
 }

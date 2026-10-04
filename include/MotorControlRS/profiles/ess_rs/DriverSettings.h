@@ -7,14 +7,18 @@
 
 namespace MotorControlRS { namespace ESS_RS {
 
-constexpr uint8_t DRIVER_FIELD_COUNT = 7;
+constexpr uint8_t DRIVER_FIELD_COUNT = 16;
 constexpr uint8_t DRIVER_READ_STEPS = 4;
-constexpr uint8_t DRIVER_MAX_STEPS = 14;
-constexpr std::size_t DRIVER_MAX_REPLY_BYTES = 13;
-enum class DriverField : uint16_t {
+constexpr uint8_t DRIVER_MAX_STEPS = 18;
+constexpr std::size_t DRIVER_MAX_REPLY_BYTES = 15;
+enum class DriverGroup : uint8_t { DRIVE, IO };
+enum class DriverField : uint32_t {
     DIRECTION = 1, SUBDIVISION = 2, WORD_ORDER = 4, SOFT_LIMIT_ENABLE = 8,
     OVER_LIMIT_STOP = 16, INTERRUPTION = 32, POSITION_MODE = 64,
-    POSITIVE_LIMIT = 128, NEGATIVE_LIMIT = 256
+    POSITIVE_LIMIT = 128, NEGATIVE_LIMIT = 256,
+    INPUT_POLARITY = 1u << 9, INPUT_X0 = 1u << 10, INPUT_X1 = 1u << 11,
+    INPUT_X2 = 1u << 12, INPUT_X3 = 1u << 13, OUTPUT_POLARITY = 1u << 14,
+    OUTPUT_Y0 = 1u << 15, OUTPUT_Y1 = 1u << 16, CUSTOM_OUTPUT = 1u << 17
 };
 enum class DriverKind : uint8_t { READ, UPDATE };
 enum class DriverOutcome : uint8_t {
@@ -27,13 +31,15 @@ enum class DriverError : int32_t {
     STALE_SETTINGS, STATIONARY_REQUIRED, LIMIT_REFERENCE_REQUIRED,
     LIMIT_DEPENDENCY, PAIR_WRITE_UNSUPPORTED, DEADLINE_EXPIRED,
     TRANSPORT_FAILURE, CANCELLED, TIMING_UNQUALIFIED, UNCONFIRMED_RESPONSE,
-    READBACK_MISMATCH, NOT_COMPLETE
+    READBACK_MISMATCH, NOT_COMPLETE, WIRING_REQUIRED, IO_EVIDENCE_REQUIRED,
+    IO_EFFECTS_REQUIRED, OUTPUT_FUNCTION_UNRESOLVED, CUSTOM_DEPENDENCY
 };
 /** Select fields explicitly; values in unselected fields are ignored. Pair
  * candidates are present for explicit unavailable reporting, never split writes.
  * interruption selects the external PV trigger level/edge, not serial bit 3. */
 struct DriverRequest {
-    uint16_t fields = 0;
+    DriverGroup group = DriverGroup::DRIVE;
+    uint32_t fields = 0;
     uint32_t configurationGeneration = 0;
     DefaultDirection direction = DefaultDirection::NORMAL;
     uint16_t subdivision = 400;
@@ -43,6 +49,9 @@ struct DriverRequest {
     PvTriggerMode interruption = PvTriggerMode::LEVEL;
     PositionMode positionMode = PositionMode::RELATIVE;
     int64_t positiveLimit = 0, negativeLimit = 0;
+    InputFunction inputFunctions[4] = {};
+    OutputFunction outputFunctions[2] = {};
+    uint16_t inputPolarity = 0, outputPolarity = 0, customOutput = 0;
 };
 /** Copied closure/transport and checked-parser evidence. Raw prefix retains the
  * full supplied size separately. Delivery is not observation freshness. */
@@ -63,13 +72,16 @@ struct DriverEvidence {
 };
 /** Whole successful read, not an atomic device snapshot. raw[] order is
  * direction, subdivision, word-order, soft-enable, over-limit, PV trigger,
- * external position mode. knownFields means legal codes, never active settings.
+ * external position mode, input polarity, four input functions, output polarity,
+ * two output functions and custom-output mask. DRIVE and IO populate separate
+ * groups. knownFields means resolved legal codes, never active settings.
  * Limits assemble unsigned bits only; signed meaning/native scale are unresolved. */
 struct DriverObservation {
+    DriverGroup group = DriverGroup::DRIVE;
     ReadTarget target;
     uint32_t operationId = 0, configurationGeneration = 0;
     uint16_t raw[DRIVER_FIELD_COUNT] = {};
-    uint16_t knownFields = 0;
+    uint32_t knownFields = 0;
     uint16_t positiveWords[2] = {}, negativeWords[2] = {};
     bool pairKnown = false;
     uint32_t positiveBits = 0, negativeBits = 0;
@@ -93,6 +105,22 @@ struct DriverPrerequisites {
      * the native signed bounds below. Neither a cast nor a host origin is proof. */
     uint16_t qualifiedPositiveWords[2] = {}, qualifiedNegativeWords[2] = {};
     int64_t positiveLimit = 0, negativeLimit = 0;
+    InputWiring inputWiring[4] = {}, outputWiring[2] = {};
+    bool ioLevelsQualified = false;
+    ReadTarget ioTarget;
+    uint32_t ioConfigurationGeneration = 0;
+    uint16_t actualInputs = 0, actualOutputs = 0;
+    uint64_t ioEarliestUs = 0, ioLatestUs = 0;
+    /** Independent application qualification of the exact candidate and its
+     * external effects. An asserted input may be reinterpreted by reassignment.
+     * UNCONNECTED is distinct from a disabled function; none proves no output
+     * electrical level and does not establish enable/release precedence. */
+    uint32_t ioEffectsQualifiedFields = 0;
+    DriverRequest qualifiedIo;
+    /** IO-only verification policy for known UNCONNECTED affected terminals.
+     * A checked, on-time unconfirmed write echo may lead to a separate confirmed
+     * readback. It never becomes an acknowledgement or proves activation. */
+    bool allowEchoReadback = false;
 };
 /** Each selected field's exact progress. Active/persistence remain unknown:
  * checked echo and matching readback do not document activation or rollback. */
@@ -105,10 +133,11 @@ struct DriverProgress {
     ActionExecution execution = ActionExecution::NOT_TRANSMITTED;
 };
 /** Caller-owned bounded state; treat fields as read-only between calls. There
- * are at most seven writes and seven reads. Accepted writes retain effects and
+ * are at most nine writes and nine reads (seven for DRIVE). Accepted writes retain effects and
  * uncertainty even when cancellation, expiry or a later read fails. Never retry
  * or rollback automatically. Historical previous/evidence keep original binding. */
 struct DriverContext {
+    DriverGroup group = DriverGroup::DRIVE;
     ReadTarget target;
     uint32_t operationId = 0, configurationGeneration = 0;
     DriverKind kind = DriverKind::READ;
@@ -121,7 +150,7 @@ struct DriverContext {
     uint8_t order[DRIVER_FIELD_COUNT] = {};
     DriverProgress progress[DRIVER_FIELD_COUNT];
     DriverEvidence observations[DRIVER_MAX_STEPS];
-    uint16_t effects = 0; ///< Possibly changed field mask; never cleared on failure.
+    uint32_t effects = 0; ///< Possibly changed field mask; never cleared on failure.
     bool uncertain = false; ///< A write lacks confirmed matching readback.
     Status status;
 };
@@ -141,7 +170,8 @@ struct PreparedDriver {
  * Request/prerequisite inputs must not alias the output's embedded members;
  * this is checked before mutation and avoids a full-context stack copy. */
 Status prepareDriverRead(DriverContext&, const ReadTarget&, uint32_t operationId,
-                         uint32_t configurationGeneration, uint64_t nowUs, uint64_t deadlineUs) noexcept;
+                         uint32_t configurationGeneration, uint64_t nowUs, uint64_t deadlineUs,
+                         DriverGroup group = DriverGroup::DRIVE) noexcept;
 Status prepareDriverSettings(DriverContext&, const ReadTarget&, uint32_t operationId,
                              const DriverRequest&, const DriverPrerequisites&,
                              uint64_t nowUs, uint64_t deadlineUs) noexcept;
@@ -150,10 +180,35 @@ Status prepareDriverSettings(DriverContext&, const ReadTarget&, uint32_t operati
 Status nextDriver(const DriverContext&, uint64_t nowUs, PreparedDriver&) noexcept;
 /** Invalid correlations/envelopes leave state unchanged. Qualified on-time final
  * completion can succeed when delivered later. A nonfinal late delivery cannot
- * start another transaction. Every successful frame requires responseConfirmed,
- * including reads and update readbacks. CANCEL is local and never restores settings. */
+ * start another transaction. Reads and update readbacks require responseConfirmed;
+ * only the explicit unconnected-IO echo/readback policy can continue an unchecked
+ * source write echo. CANCEL is local and never restores settings. */
 Status advanceDriver(DriverContext&, const ActionEvent&, uint64_t nowUs) noexcept;
 /** Only a complete READ publishes, leaving output unchanged on all failures. */
 Status getDriver(const DriverContext&, DriverObservation&) noexcept;
+
+/** Logical raw/progress indices 0..6 are DRIVE, 7..15 are IO; pairs have no
+ * logical writable index. An out-of-range index returns the empty field. */
+DriverField driverFieldAt(uint8_t index) noexcept;
+/** These setters select the same checked update engine; UNDEFINED explicitly
+ * assigns function zero. Bounds/choices fail without changing the request. */
+Status prepareInputFunction(DriverRequest&, uint8_t terminal, InputFunction) noexcept;
+Status prepareOutputFunction(DriverRequest&, uint8_t terminal, OutputFunction) noexcept;
+
+/** Stored settings only: no active/persistence/electrical-level assertion.
+ * Complete read provenance and unknown/reserved raw values are retained. */
+struct IoObservation {
+    ReadTarget target;
+    uint32_t operationId = 0, configurationGeneration = 0;
+    uint16_t inputPolarity = 0, outputPolarity = 0, customOutput = 0;
+    InputFunction inputFunctions[4] = {};
+    OutputFunction outputFunctions[2] = {};
+    uint16_t rawInputFunctions[4] = {}, rawOutputFunctions[2] = {};
+    uint8_t knownInputFunctions = 0, knownOutputFunctions = 0;
+    uint16_t unknownInputPolarityBits = 0, unknownOutputPolarityBits = 0,
+             unknownCustomOutputBits = 0;
+    DriverEvidence provenance[3];
+};
+Status getIo(const DriverContext&, IoObservation&) noexcept;
 
 }} // namespace MotorControlRS::ESS_RS

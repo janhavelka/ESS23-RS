@@ -1,5 +1,16 @@
 # Software verification
 
+## Prompt15 optional digital I/O
+
+[Implementation/review and current-image evidence](reports/ess_release_15_2026-10-04.md)
+passes37/37 CTest checks,173 Python host/IO units,16 actual I/O console parity
+fixtures, the installed C++11 consumer and allfour firmware environments.
+A190-frame COM13 campaign performs13 explicit passive/unloaded settings updates
+with checked readbacks and restores every original word. No external switch/load
+physical function, electrical output state or new motion qualification is claimed.
+The first missing-accepted-line failure and its native/hardware correction are
+retained; uncertain motor writes are not automatically replayed.
+
 ## Prompt08 bounded actions and stop
 
 [Action verification](reports/ess_release_08_2026-10-04.md): 21/21 CTest suites

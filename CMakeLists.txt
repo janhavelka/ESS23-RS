@@ -42,7 +42,7 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     include(CTest)
     # Distributed source packages contain the core; repository tests stay here.
     if(BUILD_TESTING AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/test/units_test.cpp")
-        foreach(suite units axis registers codec reads actions position velocity homing driver_settings driver_app home_app runner bus_owner bus_scheduling probe_console esp32_uart probe_app move_app velocity_app capture_service)
+        foreach(suite units axis registers codec reads actions position velocity homing driver_settings io io_app driver_app home_app runner bus_owner bus_scheduling probe_console esp32_uart probe_app move_app velocity_app capture_service)
             add_executable(${suite}_test "test/${suite}_test.cpp")
             target_link_libraries(${suite}_test PRIVATE MotorControlRS)
             set_target_properties(${suite}_test PROPERTIES
@@ -72,7 +72,7 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
         target_sources(bus_scheduling_test PRIVATE examples/common/RtuRunner.cpp
             examples/common/RtuBusOwner.cpp examples/common/EssRtuValidator.cpp)
         target_sources(probe_console_test PRIVATE examples/probe_cli/ProbeConsole.cpp examples/common/RtuRunner.cpp)
-        foreach(suite esp32_uart probe_app move_app velocity_app driver_app home_app capture_service)
+        foreach(suite esp32_uart probe_app move_app velocity_app driver_app home_app io_app capture_service)
             target_sources(${suite}_test PRIVATE examples/common/Esp32S3Uart.cpp examples/common/RtuRunner.cpp
                 test/fakes/esp32_uart/FakeEsp.cpp)
             target_include_directories(${suite}_test PRIVATE test/fakes/esp32_uart)
@@ -85,6 +85,8 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
         target_sources(velocity_app_test PRIVATE examples/probe_cli/ProbeConsole.cpp
             examples/common/RtuBusOwner.cpp examples/common/EssRtuValidator.cpp)
         target_sources(driver_app_test PRIVATE examples/probe_cli/ProbeConsole.cpp
+            examples/common/RtuBusOwner.cpp examples/common/EssRtuValidator.cpp)
+        target_sources(io_app_test PRIVATE examples/probe_cli/ProbeConsole.cpp
             examples/common/RtuBusOwner.cpp examples/common/EssRtuValidator.cpp)
         target_sources(home_app_test PRIVATE examples/probe_cli/ProbeConsole.cpp
             examples/common/RtuBusOwner.cpp examples/common/EssRtuValidator.cpp)
@@ -119,6 +121,11 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
                 ${CMAKE_CURRENT_SOURCE_DIR}/test/bench_probe_test.py)
             add_test(NAME velocity_console_parity COMMAND ${Python3_EXECUTABLE}
                 ${CMAKE_CURRENT_SOURCE_DIR}/test/velocity_console_parity_test.py
+                $<TARGET_FILE:probe_console_test>)
+            add_test(NAME io_transport COMMAND ${Python3_EXECUTABLE}
+                ${CMAKE_CURRENT_SOURCE_DIR}/test/io_transport_test.py)
+            add_test(NAME io_console_parity COMMAND ${Python3_EXECUTABLE}
+                ${CMAKE_CURRENT_SOURCE_DIR}/test/io_console_parity_test.py
                 $<TARGET_FILE:probe_console_test>)
             add_test(NAME driver_console_parity COMMAND ${Python3_EXECUTABLE}
                 ${CMAKE_CURRENT_SOURCE_DIR}/test/driver_console_parity_test.py
