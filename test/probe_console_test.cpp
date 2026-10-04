@@ -1510,7 +1510,7 @@ void homeFixtures() {
         if (w.function == 16) { std::memcpy(raw, w.bytes, 6); length = 6; }
         else if (w.function == 6) { std::memcpy(raw, w.bytes, 6); length = 6; }
         else { raw[0] = 1; raw[1] = 3; raw[2] = 4; raw[5] = static_cast<uint8_t>(motion >> 8); raw[6] = static_cast<uint8_t>(motion); length = 7; }
-        if (failure == 5) { raw[1] = 0x90; raw[2] = 3; length = 3; }
+        if (failure == 5 || failure == 9) { raw[1] = failure == 5 ? static_cast<uint8_t>(w.function | 0x80) : 0x90; raw[2] = 3; length = 3; }
         const uint16_t crc = Ess::calcCrc16(raw, length); raw[length++] = static_cast<uint8_t>(crc); raw[length++] = static_cast<uint8_t>(crc >> 8);
         ActionEvent e; e.transport.target = c.target; e.transport.operationId = c.operationId; e.transport.step = c.step;
         uint64_t now = c.eligibleUs + 20;
@@ -1524,6 +1524,8 @@ void homeFixtures() {
             e.transport.earliestUs = c.eligibleUs + 1; e.transport.latestUs = c.eligibleUs + 10;
             if (failure == 4) e.responseConfirmed = false;
             if (failure == 6) { now = w.deadlineUs + 20; e.transport.earliestUs = w.deadlineUs + 1; e.transport.latestUs = w.deadlineUs + 10; }
+            if (failure == 7) { e.transport.qualified = false; e.transport.earliestUs = e.transport.latestUs = 0; }
+            if (failure == 8) now = w.deadlineUs + 20; // On-time intermediate evidence, no next-step budget.
         }
         assert(Ess::advanceHome(c, e, now));
     };
@@ -1541,6 +1543,12 @@ void homeFixtures() {
         c = prepare(35, false); consume(c, 0, 0); consume(c, 0, failure);
         emit(failure == 1 ? "lost_trigger_ack" : failure == 2 ? "cancelled" : failure == 3 ? "deadline" : failure == 4 ? "unconfirmed_trigger" : failure == 5 ? "exception" : "late_trigger_echo", c);
     }
+    c = prepare(35, false); consume(c, 0, 7); emit("timing_unqualified", c);
+    c = prepare(35, false); consume(c, 0, 0); consume(c, 0, 0); consume(c, 8, 0); emit("drive_fault", c);
+    c = prepare(35, false); consume(c, 0, 0); consume(c, 0, 0); consume(c, 4, 0); emit("unexpected_activity", c);
+    c = prepare(35, false); consume(c, 0, 0); consume(c, 0, 0); consume(c, 3, 0); consume(c, 1, 0); emit("nonzero_position", c);
+    c = prepare(35, false); consume(c, 0, 0); consume(c, 0, 0); consume(c, 3, 8); emit("delayed_completion_deadline", c);
+    c = prepare(35, false); consume(c, 0, 0); consume(c, 0, 9); emit("wrong_function_exception", c);
 }
 
 void testMaximumHomeOutputAndRetention() {

@@ -493,6 +493,42 @@ class Framing(unittest.TestCase):
         self.assertEqual([line.decode().split()[1] for line in self.port.writes], ["version", "home"])
         self.assertFalse(console.synchronized); self.assertEqual(self.events[-1]["cleanup"], "unknown")
 
+    def test_home_impossible_admission_motion_is_not_trusted(self):
+        for flag in (4, 8, 16, 32, 64):
+            record = home_terminal(1)
+            record["prerequisites"]["raw_motion"] = flag
+            with self.subTest(flag=flag), self.assertRaises(bench.BenchError):
+                bench.Console._check_home(record, 1, None)
+        # Unknown raw bits are preserved rather than treated as invented faults.
+        record = home_terminal(1)
+        record["prerequisites"]["raw_motion"] |= 0x8000
+        bench.Console._check_home(record, 1, None)
+
+    def test_home_forged_local_failure_cannot_relabel_success(self):
+        for outcome, detail in (("cancelled", 22), ("transport_error", 21)):
+            record = home_terminal(1)
+            record.update(ok=False, state="failed", completion="not_observed", outcome=outcome,
+                          uncertain=True, status="ILLEGAL_VALUE", detail=detail)
+            record["failure_evidence"] = list(record["zero_evidence"])
+            with self.subTest(outcome=outcome), self.assertRaises(bench.BenchError):
+                bench.Console._check_home(record, 1, None)
+
+    def test_home_deadline_can_follow_on_time_intermediate_completion(self):
+        record = home_terminal(1)
+        record.update(ok=False, state="failed", completion="not_observed", outcome="deadline",
+                      uncertain=True, status="ILLEGAL_VALUE", detail=20, deadline_us=1350, serviced_us=1600)
+        record["zero_evidence"] = [0, 0, "", 0, 0, False, False, False, False, 0, 0, 0, 0, "OK", 0, 0]
+        # The qualifying completion closed on time, but delayed delivery leaves
+        # no budget to issue its required subsequent zero-pair read.
+        record["completion_evidence"][11] = 1600
+        record["last_observation"] = list(record["completion_evidence"])
+        record["failure_evidence"] = list(record["completion_evidence"])
+        bench.Console._check_home(record, 1, None)
+        record["serviced_us"] = record["failure_evidence"][11] = 1320
+        record["last_observation"][11] = record["completion_evidence"][11] = 1320
+        with self.assertRaises(bench.BenchError):
+            bench.Console._check_home(record, 1, None)
+
     def test_driver_exact_grammar_rejects_without_port_traffic(self):
         console = self.session()
         for args in (None, (), ("set",), ("set", "direction", "1", "direction", "0"),

@@ -943,15 +943,22 @@ void advanceReads(App& a, uint64_t sampled) {
             observeCommunication(a, *result);
             if (record.read.kind == ESS::ReadKind::STATE && record.configurationGeneration == a.axis.generation) {
                 const auto& previous = a.stateCache.blocks[static_cast<uint8_t>(block)];
-                const bool hadPosition = previous.valid && previous.value.pairKnown &&
-                    Probe::sameTarget(previous.value.target, a.axis.target);
+                const auto& reference = a.coordinateReference;
+                const bool hadPosition = Probe::current(previous, a.axis.target) && previous.value.pairKnown &&
+                    (!reference.nativeKnown || previous.observedLatestUs >= reference.observedUs);
                 const auto previousPosition = previous.value.rawPosition;
                 const auto previousSuccess = previous.observedLatestUs;
                 Probe::stateResult(a.stateCache, record.read, block, result->transport.startedUs);
                 const auto& current = a.stateCache.blocks[static_cast<uint8_t>(block)];
-                if (block == static_cast<uint8_t>(ESS::StateBlock::FEEDBACK) && hadPosition && current.valid && current.value.pairKnown &&
-                    current.observedLatestUs > previousSuccess && current.value.rawPosition != previousPosition &&
-                    Probe::sameTarget(current.value.target, a.axis.target) && coordinateKnowledge(a) &&
+                // Homing's correlated zero replaces older feedback as the baseline.
+                // Zero/nonzero is order/sign neutral; no unresolved pair conversion
+                // is needed to detect departure from that qualified zero witness.
+                const bool leftZero = reference.nativeKnown && reference.nativePosition == 0 &&
+                    current.observedLatestUs >= reference.observedUs &&
+                    (current.value.rawPositionWords[0] || current.value.rawPositionWords[1]);
+                if (block == static_cast<uint8_t>(ESS::StateBlock::FEEDBACK) && Probe::current(current, a.axis.target) &&
+                    current.observedLatestUs > previousSuccess &&
+                    ((hadPosition && current.value.pairKnown && current.value.rawPosition != previousPosition) || leftZero) && coordinateKnowledge(a) &&
                     !triggeredMotion(a, a.axis.target.address)) invalidateAxis(a);
             }
             if (record.read.state != ReadState::ACTIVE) continue;

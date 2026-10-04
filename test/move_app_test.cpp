@@ -594,14 +594,16 @@ void testPositionClearApiCliAndUncertainInvalidation() {
 }
 void testExternalFeedbackInvalidatesOnlyCurrentTarget() {
     for (bool sameTarget : {false, true}) {
-        fresh(); qualify(); coordinates();
+        // Test historical feedback target isolation without a separate native
+        // zero witness, which itself detects fresh nonzero feedback.
+        fresh(); qualify(); coordinates(50);
         auto& old = app->stateCache.blocks[static_cast<uint8_t>(ESS::StateBlock::FEEDBACK)];
         old.valid = true; old.value.target = app->axis.target; old.value.pairKnown = true;
-        old.value.rawPosition = 0; old.observedLatestUs = old.observedEarliestUs = nowUs();
+        old.value.rawPosition = 50; old.observedLatestUs = old.observedEarliestUs = nowUs();
         if (!sameTarget) { old.value.target.address = 2; old.value.target.id = 2; }
         uint32_t operation = 0;
         assert(startTypedRead(app, 1, 1, ESS::ReadKind::STATE, operation, false) == Probe::Action::OK);
-        const std::vector<uint8_t> responses[] = {registers(1, {0, 1}), registers(1, {0, 0}), registers(1, {0, 1, 0})};
+        const std::vector<uint8_t> responses[] = {registers(1, {0, 1}), registers(1, {0, 0}), registers(1, {0, 51, 0})};
         for (unsigned block = 0; block < 3; ++block) {
             waitTx(operation); scheduleReply(hardware.time + 2000, responses[block]);
             for (unsigned i = 0; i < 25000 && view(operation).pending && view(operation).typedRead->step == block; ++i) step();

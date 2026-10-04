@@ -194,8 +194,55 @@ void orderedSharedMotionCachePreservesNewHomeReference() {
     motion.value.running = true; motion.value.rawMotion = 4;
     step(); assert(!app->axis.originKnown && !app->coordinateReference.nativeKnown);
 }
+void refreshState(uint16_t position) {
+    uint32_t id = 0;
+    assert(startTypedRead(app,88,1,ESS::ReadKind::STATE,id,false) == Probe::Action::OK);
+    const std::vector<uint8_t> responses[] = {
+        words(0,3), words(0,0), crc({1,3,6,0,0,static_cast<uint8_t>(position >> 8),static_cast<uint8_t>(position),0,0})
+    };
+    for (const auto& response : responses) {
+        const auto token = findRecord(*app,id)->read.step;
+        waitTx(id);
+        scheduleReply(std::max(hardware.writeStarted + hardware.tx.size()*87 + 1000, hardware.time + 1000), response);
+        for (unsigned i = 0; i < 25000 && view(id).pending && findRecord(*app,id)->read.step == token; ++i) step();
+        assert(!view(id).pending || findRecord(*app,id)->read.step != token);
+    }
+    assert(!view(id).pending);
+}
+void feedbackAfterHomeUsesTheNewZeroWitness() {
+    for (unsigned scenario = 0; scenario < 5; ++scenario) {
+        fresh(); qualify();
+        app->configuration.algorithmKnown = true;
+        app->configuration.wordOrderKnown = scenario < 3;
+        app->configuration.wordOrder = ESS::WordOrder::HIGH_WORD_FIRST;
+        app->configuration.algorithm = ESS::ControlAlgorithm::ALGORITHM_1;
+        auto& historical = app->stateCache.blocks[2];
+        historical.valid = true; historical.value.target = app->axis.target;
+        historical.value.pairKnown = true; historical.value.rawPosition = 123;
+        historical.value.rawPositionWords[1] = 123;
+        historical.value.configOperationId = app->configuration.operationId;
+        historical.observedEarliestUs = historical.observedLatestUs = hardware.time;
+        const auto id = admit(); reply(id); reply(id); reply(id,words(0,3)); reply(id,words(0,0));
+        assert(app->coordinateReference.nativeKnown && historical.invalidatedUs);
+        const auto generation = app->axis.generation;
+        // A new zero matches the correlated home witness even though the older,
+        // invalidated feedback reports a different position. A first new nonzero
+        // or a later change from fresh zero must invalidate that witness.
+        const bool firstNonzero = scenario == 2 || scenario == 4;
+        refreshState(firstNonzero ? 1 : 0);
+        assert(app->coordinateReference.nativeKnown == !firstNonzero);
+        assert(app->axis.generation == generation + (firstNonzero ? 1U : 0U));
+        assert(app->stateCache.blocks[2].value.pairKnown == (scenario < 3));
+        if (scenario == 1 || scenario == 3) {
+            refreshState(1);
+            assert(!app->coordinateReference.nativeKnown && app->axis.generation == generation + 1);
+        }
+        assert(!app->axis.originKnown);
+    }
+}
 }
 int main() {
     productionAndFixtureGates(); completeAndInvalidateReference(); oldFlagsAndPartialSetup();
     stopAtBoundariesAndUnsentExpiry(); orderedSharedMotionCachePreservesNewHomeReference();
+    feedbackAfterHomeUsesTheNewZeroWitness();
 }

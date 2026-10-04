@@ -2,6 +2,8 @@
 
 ## Prompt 14 homing and reference
 
+[Fresh audit](reports/ess_release_14_audit_2026-10-04.md) fixes the first post-home feedback baseline and strict host readiness/failure evidence; checked trigger exceptions now have actual console parity. Native33/33, Python167, parity15 and corrected-image read-only COM13/gates pass; physical qualification remains open.
+
 [Handoff](reports/ess_release_14_2026-10-04.md), [API](ess_homing.md) and [35-method table](ess_homing_methods.md):
 - [x] Typed internal-index33/34 and current-position35 staging/trigger/observation/zero sequences, installed API and common/profile console routes.
 - [x] Fresh low-to-high homed evidence, bounded status polls, stop preemption, copied provenance and reference-generation exhaustion guards.

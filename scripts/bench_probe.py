@@ -1092,7 +1092,8 @@ class Console:
         p = item.get("prerequisites")
         require(isinstance(p, dict) and uint(p.get("observed_us")) and uint(p.get("maximum_age_us")) and p["maximum_age_us"] > 0 and
                 p["observed_us"] <= item["started_us"] < p["observed_us"] + p["maximum_age_us"] and
-                uint(p.get("raw_motion"), 65535) and p.get("auxiliary") == 7 and type(p.get("reference_semantics_qualified")) is bool,
+                uint(p.get("raw_motion"), 65535) and not p["raw_motion"] & 0x7C and
+                p.get("auxiliary") == 7 and type(p.get("reference_semantics_qualified")) is bool,
                 "immutable prerequisites are invalid")
         qualified = p.get("qualified_parameters")
         require(isinstance(qualified, list) and len(qualified) == 4 and all(type(v) is int for v in qualified) and
@@ -1187,8 +1188,49 @@ class Console:
                 require(not item["running_observed"] and not evidence["activity_evidence"][0]["delivered_us"], "current-position origin claims motion")
             require(not evidence["failure_evidence"][0]["delivered_us"] and item["status"] == "OK" and item["detail"] == 0, "success retains failure")
         else:
-            failure, _ = evidence["failure_evidence"]
+            failure, raw = evidence["failure_evidence"]
             require(failure["delivered_us"] == item["serviced_us"] and failure["delivered_us"] > 0, "failure lacks terminal evidence")
+            require(item.get("status") in ("ILLEGAL_VALUE", "UNSUPPORTED", "CRC_ERROR", "FRAME_ERROR", "EXCEPTION") and
+                    type(item.get("detail")) is int, "failure has invalid terminal status")
+            outcome = item["outcome"]
+            if outcome in ("cancelled", "transport_error"):
+                event, detail = (2, 22) if outcome == "cancelled" else (1, 21)
+                require(failure["event"] == event and failure["status"] == item["status"] == "ILLEGAL_VALUE" and
+                        failure["detail"] == item["detail"] == detail, "local failure differs from terminal evidence")
+            elif outcome == "deadline":
+                cap = min(item["deadline_us"], p["observed_us"] + p["maximum_age_us"]) if failure["step"] < 2 else item["deadline_us"]
+                require(item["status"] == "ILLEGAL_VALUE" and item["detail"] in (15, 20) and
+                        ((failure["event"] == 3 and failure["delivered_us"] >= cap and
+                          failure["status"] == item["status"] and failure["detail"] == item["detail"]) or
+                         (failure["event"] == 0 and failure["qualified"] and
+                          (failure["latest_us"] > cap or
+                           (failure["status"] == "OK" and failure["response_confirmed"] and
+                            item["failure_evidence"] != item["zero_evidence"] and failure["delivered_us"] >= cap)))),
+                        "deadline lacks expired transaction or next-step budget")
+            elif outcome in ("timing_unqualified", "unconfirmed_response"):
+                unqualified = outcome == "timing_unqualified"
+                require(item["status"] == "ILLEGAL_VALUE" and item["detail"] == (23 if unqualified else 24) and
+                        failure["event"] == 0 and failure["qualified"] == (not unqualified) and
+                        (unqualified or (failure["status"] == "OK" and not failure["response_confirmed"])),
+                        "response qualification failure differs from evidence")
+            else:
+                require(failure["event"] == 0 and failure["qualified"], "reply failure lacks qualified frame")
+                if outcome == "observation_limit":
+                    require(item["status"] == "ILLEGAL_VALUE" and item["detail"] == 26 and item["polls"] > 0 and
+                            failure["status"] == "OK" and failure["response_confirmed"] and
+                            item["failure_evidence"] == item["last_observation"],
+                            "observation limit lacks final observation")
+                elif failure["status"] != "OK":
+                    require(item["status"] == failure["status"] and item["detail"] == failure["detail"],
+                            "parser failure differs from terminal evidence")
+                else:
+                    require(failure["response_confirmed"] and item["status"] == "ILLEGAL_VALUE" and len(raw) == 9 and raw[:3] == bytes((item["address"], 3, 4)) and
+                            wire_crc(raw) == 0 and item["detail"] in (25, 27, 31), "decoded failure lacks checked read")
+                    first, second = int.from_bytes(raw[3:5], "big"), int.from_bytes(raw[5:7], "big")
+                    require((item["detail"] == 25 and (first or second & 0x78)) or
+                            (item["detail"] == 27 and (first or second) and item["failure_evidence"] == item["zero_evidence"]) or
+                            (item["detail"] == 31 and item["method"] == 35 and not first and not second & 0x78 and second & 4),
+                            "decoded failure reason differs from frame")
 
     @staticmethod
     def _check_action(item: dict, command: str, address: int | None, policy: str | None) -> None:

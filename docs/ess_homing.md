@@ -101,6 +101,11 @@ observation bound is strictly before the new reference's observation bound
 cannot erase that newer reference. Overlapping or newer cached activity still
 invalidates coordinate confidence. Retaining the reference does not promote
 that older shared cache into current stationary evidence.
+The first shared feedback refresh also compares against current evidence:
+invalidated feedback captured before homing cannot turn a new zero into a
+false external-motion change. Fresh nonzero raw words invalidate the qualified
+native-zero witness even when pair word order is unresolved; later changes
+between current feedback observations still invalidate coordinate confidence.
 Generation exhaustion cancels further homing work and prevents reference
 publication; any accepted write and its uncertainty remain retained.
 

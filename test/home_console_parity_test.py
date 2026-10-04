@@ -7,7 +7,8 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 from bench_probe import BenchError, Console, MAX_LINE, unique_object, wire_crc
 
-expected = {"current_origin", "index_origin", "stale_homed", "lost_trigger_ack", "cancelled", "deadline", "unconfirmed_trigger", "exception", "late_trigger_echo"}
+expected = {"current_origin", "index_origin", "stale_homed", "lost_trigger_ack", "cancelled", "deadline", "unconfirmed_trigger", "exception", "late_trigger_echo",
+            "timing_unqualified", "drive_fault", "unexpected_activity", "nonzero_position", "delayed_completion_deadline", "wrong_function_exception"}
 seen = set()
 for line in subprocess.check_output([sys.argv[1], "--home-fixtures"], text=True, timeout=10).splitlines():
     fixture = json.loads(line, object_pairs_hook=unique_object)
@@ -15,6 +16,16 @@ for line in subprocess.check_output([sys.argv[1], "--home-fixtures"], text=True,
     assert name in expected and name not in seen
     assert len(json.dumps(record, separators=(",", ":"))) < MAX_LINE
     Console._check_home(record, 1, None)
+    if name == "exception":
+        assert record["status"] == "EXCEPTION" and record["execution"] == "rejected"
+    if name == "wrong_function_exception":
+        assert record["status"] == "FRAME_ERROR" and record["execution"] == "unknown"
+    if record["ok"]:
+        # A final zero reply closed on time can be delivered after the retained
+        # request deadline. Its delivery never changes the physical outcome.
+        delayed = copy.deepcopy(record)
+        delayed["serviced_us"] = delayed["zero_evidence"][11] = record["deadline_us"] + 20
+        Console._check_home(delayed, 1, None)
     for mutate in (lambda r: r.update(address=2), lambda r: r.update(configuration_generation=0),
                    lambda r: r["prerequisites"]["qualified_parameters"].__setitem__(0, 34),
                    lambda r: r["prerequisites"]["qualified_parameters"].__setitem__(1, 61),
