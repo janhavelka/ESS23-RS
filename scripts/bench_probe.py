@@ -2517,7 +2517,7 @@ def driver_read_campaign(console: Console, *, timeout_s: float, address: int, co
         except BaseException as exc:
             if failure is None: failure = str(exc) or "interrupted"; raise
         finally:
-            console.emit("summary", mode="driver-read" if command == "driver" else "io-set" if candidate else "io-read",
+            console.emit("summary", mode=command + ("-set" if candidate else "-read"),
                          reads_attempted=0 if candidate else 1, settings_fields_requested=len(candidate), ok=failure is None,
                          driver_result=terminal, inspected_result=inspected,
                          motor_writes=(sum(row[3] and row[7] > 0 for row in terminal.get("evidence", [])) if candidate and terminal else None if candidate else 0), error=failure)

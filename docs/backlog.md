@@ -2,6 +2,8 @@
 
 ## Prompt16 stored records
 
+Fresh [independent audit](reports/ess_release_16_audit_2026-10-04.md) fixes host scenario vocabulary, verifies actual terminal correlation and repeats53 non-changing bench frames; starting-speed acceptance remains unresolved.
+
 - [x] All16 position/speed/shared-start reads and native scalar settings; one indexed helper per layout and existing bounded settings sequence; public/CLI/Python parity.
 - [x] Reserved slots and all16 pulse-pair write blockers; storage16 versus maximum8 input selections; no serial trigger.
 - [x] Native/package/four firmware builds and boundary COM13 reads; PT1/PV16 scalar writes/readback/restoration PASS.

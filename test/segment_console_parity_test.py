@@ -29,3 +29,27 @@ for args in (("position","0","read"),("speed","17","read"),("start","1","set","v
     except ValueError: pass
     else: raise AssertionError("invalid grammar")
 print("PASS: 18 actual segment core/console terminals and mutated correlation/evidence")
+
+# Run the actual accepted/terminal/inspect/release transport, then check the
+# campaign's diagnostic mode without weakening the record correlation checks.
+from bench_probe_test import Clock, Serial, encoded, reply
+import bench_probe
+fixture=json.loads(rows[0])["record"]
+terminal=None
+def handler(i,command,args):
+    global terminal
+    if command=="profile":
+        assert args==["ess_rs","segment","position","1","read","1"]
+        terminal={**fixture,"id":i,"command_id":i,"operation_id":101}
+        return encoded(reply(i,"segment",result="accepted",address=1,operation_id=101))+encoded(terminal)
+    if command=="result": return encoded({**terminal,"type":"reply","id":i,"command":"result"})
+    return Serial.normal(i,command,args)
+clock=Clock();port=Serial(handler);events=[]
+console=bench_probe.Console(port,clock=clock,sleeper=clock.sleep,on_event=lambda event,**data:events.append((event,data)))
+console.identify(timeout_s=0.1)
+bench_probe.driver_read_campaign(console,timeout_s=0.1,address=1,command="segment",driver_args=("position","1","read"))
+assert events[-1][0]=="summary" and events[-1][1]["mode"]=="segment-read"
+assert [line.decode().split()[1] for line in port.writes]==["version","profile","result","release"]
+parsed=bench_probe.arguments(["--port","fake","--log","unused.jsonl","segment","position","1","read"])
+assert parsed.mode=="segment" and parsed.driver_args==("position","1","read")
+print("PASS: segment lifecycle, CLI parser and summary vocabulary")
