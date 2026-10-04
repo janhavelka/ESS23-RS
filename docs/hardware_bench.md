@@ -1,5 +1,11 @@
 # Motor bench and testing authorization
 
+The [fresh16/17 audit](reports/ess_release_16_17_audit_2026-10-04.md) is the latest
+named image:114frames/1206RX bytes, all48 indexed reads, lock-delay200-to201-to200
+stored restoration and zero transport/capture errors. Settings/state unchanged,
+owner empty, DEreleased and load/monitoroff. Original shared-start write failure,
+external triggers and mode/current/encoder/torque effects remain unqualified.
+
 ## Prompt17 current settings evidence
 
 [Report](reports/ess_release_17_2026-10-04.md) retains66checked frames/684RX bytes on the497760-byte timer image, zero errors and exact lock-delay200-to201-to200 stored restoration. Control words3/4000/5600/100/40/100/40/200, I/O/config/state are unchanged afterward. Mode/encoder/current settings were not changed. Owner empty, DEreleased, load/monitor off; physical torque/feedback/lock-transition effects remain NOT RUN.

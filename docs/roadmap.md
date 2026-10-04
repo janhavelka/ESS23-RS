@@ -19,6 +19,10 @@ settlement and axis prerequisite caches. Prompt14 adds bounded methods33/34/35. 
 adds typed optional I/O and selected stored-setting disable/readback/restoration
 evidence; external physical function qualification remains open. Prompt16 adds [indexed record operations](ess_segments.md), boundary reads and PT/PV scalar restoration. Shared-start readback mismatch and physical triggering remain open in [the report](reports/ess_release_16_2026-10-04.md).
 Prompt17 adds [typed control settings](ess_control_settings.md), all-field readback and reversible stored lock-delay restoration. Mode/encoder/current effects and exact current semantics remain open in [the report](reports/ess_release_17_2026-10-04.md).
+The [fresh16/17 audit](reports/ess_release_16_17_audit_2026-10-04.md) fixes
+deadline certainty/help parity and verifies all48 indexed reads plus lock-delay
+restoration on the corrected image. Software passes independently of unresolved
+wire forms, shared-start acceptance and physical/current qualification.
 [Prompt10](reports/ess_release_10_2026-10-04.md) adds absolute/wrapped
 coordinates and device zero-clear while physical comparisons remain gated.
 Its [fresh audit](reports/ess_release_10_audit_2026-10-04.md) fixes host-reference

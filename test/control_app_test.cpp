@@ -176,8 +176,36 @@ void independentCachesAndPressure() {
     assert(host(app).startDriver(app,50,1,ESS::DriverKind::READ,r,unchanged) == Probe::Action::RESULTS_FULL);
     assert(unchanged == 99 && hardware.writes == writes && view(original).driverContext->outcome == ESS::DriverOutcome::SUCCESS);
 }
+void recoveryWithActiveWriteAndFullResults() {
+    fresh(); const auto original = readControl(); readIdentity();
+    while (app->latestOperationId < REQUEST_CAPACITY - 2) readControl();
+    stationary(); const auto update = start(delay()); waitTx(update);
+    assert(app->runner.transmitEnabled() && hardware.de == 1);
+    uint32_t queued = 0;
+    assert(host(app).startProbe(app,98,2,queued) == Probe::Action::OK);
+    const auto writes = hardware.writes, generation = app->bindingGeneration;
+    Serial.input = "@99 recover\n";
+    for (unsigned i = 0; i < 100 && !Serial.input.empty(); ++i) step();
+    assert(Serial.input.empty() && app->owner.recovering() && app->bindingGeneration == generation + 1);
+    const auto recovery = app->recovery.operationId;
+    assert(recovery != update && recovery != queued && view(recovery).recovery);
+    for (unsigned i = 0; i < 80000 && (app->owner.recovering() || view(update).pending || view(queued).pending); ++i) step();
+    assert(!app->owner.recovering() && !view(update).pending && !view(queued).pending);
+    const auto& interrupted = *view(update).driverContext;
+    assert(interrupted.outcome == ESS::DriverOutcome::CANCELLED && interrupted.uncertain);
+    assert(interrupted.effects == static_cast<uint32_t>(ESS::DriverField::LOCK_DELAY));
+    assert(interrupted.progress[7].execution == ActionExecution::UNKNOWN && !interrupted.progress[7].readbackKnown);
+    assert(view(queued).probe.outcome == Rtu::Outcome::CANCELLED && view(queued).probe.transport.txAccepted == 0);
+    assert(view(recovery).recoveryResult.outcome == Rtu::RecoveryOutcome::RECOVERED);
+    assert(view(original).driverContext->outcome == ESS::DriverOutcome::SUCCESS && hardware.writes == writes);
+    uint32_t unchanged = 99; ESS::DriverRequest r; r.group = ESS::DriverGroup::CONTROL_SETTINGS;
+    assert(host(app).startDriver(app,100,1,ESS::DriverKind::READ,r,unchanged) == Probe::Action::RESULTS_FULL && unchanged == 99);
+    for (unsigned i = 0; i < 100; ++i) step();
+    assert(hardware.writes == writes && view(update).driverContext->uncertain && !axisReserved(*app,1));
+}
 } // namespace
 int main() {
     safeDelayAndGuards(); modelAndStaleness(); changedScaleAndHistoricalContext(); uncertaintyAndCancel(); independentCachesAndPressure();
+    recoveryWithActiveWriteAndFullResults();
     if (app) { app->~App(); std::free(app); app = nullptr; }
 }

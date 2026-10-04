@@ -175,3 +175,10 @@ No hardware setup assumption becomes a universal profile default. Larger retaine
 contexts/cache remain application storage in PSRAM on the reference ESP32-S3;
 ISR/capture/driver state and stacks remain internal. Final ABI sizes and memory
 watermarks belong to the named-image report.
+
+The [fresh combined audit](reports/ess_release_16_17_audit_2026-10-04.md) checks
+both families against the full prompts. Write acknowledgement or checked device
+rejection requires qualified frame closure within the retained write budget;
+late checked bytes stay raw evidence with unknown execution. An on-time closure
+delivered later keeps its original classification. The Python checker follows
+the same rule.

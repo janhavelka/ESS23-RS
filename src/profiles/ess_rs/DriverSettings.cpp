@@ -564,7 +564,8 @@ Status advanceDriver(DriverContext& c, const ActionEvent& supplied, uint64_t now
         if (event.txAccepted || event.executionUnknown) {
             c.effects |= static_cast<uint32_t>(progress->field); progress->execution = ActionExecution::UNKNOWN;
         }
-        if (event.kind == ReadEventKind::FRAME && event.qualified && supplied.responseConfirmed) {
+        if (event.kind == ReadEventKind::FRAME && event.qualified &&
+            event.latestUs <= transactionDeadline && supplied.responseConfirmed) {
             if (evidence.status) {
                 progress->acknowledged = true; progress->execution = ActionExecution::ACKNOWLEDGED;
             } else if (evidence.status.code == Err::EXCEPTION && evidence.status.detail >= 1 && evidence.status.detail <= 7)

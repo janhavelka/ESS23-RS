@@ -1688,6 +1688,16 @@ void controlFixtures() {
     assert(Ess::prepareDriverSettings(c,target,101,r,p,200,10000));consume(c,0);consume(c,2);emit("readback_disagreement",c);
 }
 void testControlRoutes() {
+    {
+        Fake absent; auto absentHost=absent.host(false,true); absentHost.startDriver=nullptr;
+        Probe::Console unavailable(absentHost);
+        send(unavailable,"@80 help\n");
+        assert(absent.lines.size()==1 && absent.lines.back().find("\"control\"")==std::string::npos);
+        send(unavailable,"@81 help control\n"); absent.contains("\"result\":\"unavailable\"");
+        send(unavailable,"@82 caps\n"); absent.contains("\"control_settings\":false");
+        send(unavailable,"@83 profile ess_rs control read\n"); absent.contains("\"result\":\"unavailable\"");
+        assert(!absent.drivers);
+    }
     Fake f;auto h=f.host(false,true);h.startDriver=Fake::startDriver;Probe::Console c(h);
     send(c,"@84 profile ess_rs control read 2\n");assert(f.drivers==1&&f.address==2&&f.driverRequest.group==Ess::DriverGroup::CONTROL_SETTINGS);
     f.contains("\"result\":\"accepted\"");

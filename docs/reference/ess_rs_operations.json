@@ -1312,9 +1312,10 @@
       "hardware": {
         "state": "PASS",
         "evidence": [
-          "docs/reports/ess_release_16_2026-10-04.json"
+          "docs/reports/ess_release_16_2026-10-04.json",
+          "docs/reports/ess_release_16_17_audit_2026-10-04.json"
         ],
-        "reason": "Current-image checked boundary records1 and16 read before/after on ESS23-RS20 rawmodel4EEA/version0029. Other14 indexes and external execution are NOT_RUN physically; native enumerates all16."
+        "reason": "Fresh corrected497776-byte timer image on COM13 reads all16 indexes in this layout through checked typed core/CLI paths; rawmodel4EEA/version0029. Record storage access is qualified separately from external execution, signed physical meaning, activation or persistence."
       },
       "reason": "All16 position records; checked five-word reads exclude reserved sixth word. Raw target pair/order, signed encoding and physical units remain separate."
     },
@@ -1524,9 +1525,10 @@
       "hardware": {
         "state": "PASS",
         "evidence": [
-          "docs/reports/ess_release_16_2026-10-04.json"
+          "docs/reports/ess_release_16_2026-10-04.json",
+          "docs/reports/ess_release_16_17_audit_2026-10-04.json"
         ],
-        "reason": "Current-image checked boundary records1 and16 read before/after on ESS23-RS20 rawmodel4EEA/version0029. Other14 indexes and external execution are NOT_RUN physically; native enumerates all16."
+        "reason": "Fresh corrected497776-byte timer image on COM13 reads all16 indexes in this layout through checked typed core/CLI paths; rawmodel4EEA/version0029. Record storage access is qualified separately from external execution, signed physical meaning, activation or persistence."
       },
       "reason": "All16 speed records; signed/raw unknown values preserved, not proof of engine encoding or acceleration formula."
     },
@@ -1658,9 +1660,10 @@
       "hardware": {
         "state": "PASS",
         "evidence": [
-          "docs/reports/ess_release_16_2026-10-04.json"
+          "docs/reports/ess_release_16_2026-10-04.json",
+          "docs/reports/ess_release_16_17_audit_2026-10-04.json"
         ],
-        "reason": "Current-image checked boundary records1 and16 read before/after on ESS23-RS20 rawmodel4EEA/version0029. Other14 indexes and external execution are NOT_RUN physically; native enumerates all16."
+        "reason": "Fresh corrected497776-byte timer image on COM13 reads all16 indexes in this layout through checked typed core/CLI paths; rawmodel4EEA/version0029. Record storage access is qualified separately from external execution, signed physical meaning, activation or persistence."
       },
       "reason": "All16 shared PT/PV starting-speed fields; raw observations do not prove negative signed wire representation."
     },
@@ -1745,16 +1748,18 @@
         "evidence": [
           "test/control_settings_test.cpp",
           "test/control_app_test.cpp",
-          "test/control_console_parity_test.py"
+          "test/control_console_parity_test.py",
+          "docs/reports/ess_release_16_17_audit_2026-10-04.md"
         ],
-        "reason": "Real core and SDK application tests, exact CLI grammar and21 actual core/formatter Python fixtures; full8field/16step capacity, cancel boundaries, current/model dependencies and immutable partial/uncertain results."
+        "reason": "Real core and SDK application tests, exact CLI grammar and21 actual core/formatter Python fixtures; full8field/16step capacity, cancel boundaries, current/model dependencies and immutable partial/uncertain results. Fresh audit adds closure-budget ACK/exception classification, full-result-pressure CLI recovery and strict Python evidence regressions."
       },
       "hardware": {
         "state": "PASS",
         "evidence": [
-          "docs/reports/ess_release_17_2026-10-04.json"
+          "docs/reports/ess_release_17_2026-10-04.json",
+          "docs/reports/ess_release_16_17_audit_2026-10-04.json"
         ],
-        "reason": "Current497760-byte timer image on COM13 reads all8 native fields, preserves algorithm3 unknown and counts4000, and repeats exact raw baseline after explicit lock-delay restoration. Readback is not active mode/current/encoder accuracy qualification."
+        "reason": "Fresh497776-byte audit timer image on COM13 reads all8 native fields and repeats exact raw baseline after explicit lock-delay restoration; original497760-byte prompt17 evidence remains historical. Algorithm3 remains unknown; counts4000 and effective-current code5600 are retained. Readback is not active mode/current/encoder accuracy qualification."
       },
       "reason": "Two checked four-word reads preserve all native/unknown values."
     },
@@ -1786,9 +1791,10 @@
         "evidence": [
           "test/control_settings_test.cpp",
           "test/control_app_test.cpp",
-          "test/control_console_parity_test.py"
+          "test/control_console_parity_test.py",
+          "docs/reports/ess_release_16_17_audit_2026-10-04.md"
         ],
-        "reason": "Real core and SDK application tests, exact CLI grammar and21 actual core/formatter Python fixtures; full8field/16step capacity, cancel boundaries, current/model dependencies and immutable partial/uncertain results."
+        "reason": "Real core and SDK application tests, exact CLI grammar and21 actual core/formatter Python fixtures; full8field/16step capacity, cancel boundaries, current/model dependencies and immutable partial/uncertain results. Fresh audit adds closure-budget ACK/exception classification, full-result-pressure CLI recovery and strict Python evidence regressions."
       },
       "hardware": {
         "state": "NOT_RUN",
@@ -1825,14 +1831,16 @@
         "evidence": [
           "test/control_settings_test.cpp",
           "test/control_app_test.cpp",
-          "test/control_console_parity_test.py"
+          "test/control_console_parity_test.py",
+          "docs/reports/ess_release_16_17_audit_2026-10-04.md"
         ],
-        "reason": "Real core and SDK application tests, exact CLI grammar and21 actual core/formatter Python fixtures; full8field/16step capacity, cancel boundaries, current/model dependencies and immutable partial/uncertain results."
+        "reason": "Real core and SDK application tests, exact CLI grammar and21 actual core/formatter Python fixtures; full8field/16step capacity, cancel boundaries, current/model dependencies and immutable partial/uncertain results. Fresh audit adds closure-budget ACK/exception classification, full-result-pressure CLI recovery and strict Python evidence regressions."
       },
       "hardware": {
         "state": "PASS",
         "evidence": [
-          "docs/reports/ess_release_17_2026-10-04.json"
+          "docs/reports/ess_release_17_2026-10-04.json",
+          "docs/reports/ess_release_16_17_audit_2026-10-04.json"
         ],
         "reason": "Only stopped-state stored-value path: native200ms-to201ms then explicit restoration200ms, confirmed separate FC03 readbacks. Every FC06 source/ACK remains unconfirmed/executionUNKNOWN; no active lock timing, torque or persistence effect qualification."
       },
@@ -1852,6 +1860,7 @@
     "Prompt14 accounts for all35 homing methods; executable33/34/35 receive narrow native staging/trigger coverage. External-switch methods remain unimplemented pending edge/return and prompt15 assignment/fixture evidence;18 and collision methods remain unresolved. Existing auxiliary7 is a prerequisite, never typed setter coverage. Offset write obligation is IN_PROGRESS: zero-only complete reviewed window, no nonzero encoding or pair expansion.",
     "Prompt15 implements all18 documented input assignments and eight resolved output assignments; custom2 remains unresolved. Register readback is distinct from physical switch/load operation and unconfirmed FC06 execution. No external switch/load is required for independent serial-only modes.",
     "Prompt16 accounts separately for all16 PT records, all16 PV records and all16 shared start-speed words; all16 PT reserved slots remain ACCOUNTED_RESERVED. Stored PT target-pair setters remain UNSUPPORTED; negative PV/start encoding remains guarded. Storage16 is distinct from maximum8 externally selected combinations on four-input ESS drives. PT5ms setup/hold is not inherited by PV. No serial segment execution command exists. Shared EXTERNAL_POSITION_MODE and PV_TRIGGER_MODE reuse existing driver_settings_read/update coverage rather than duplicate operations.",
-    "Prompt17 control settings are native configuration, not commanded torque/current modes. Raw algorithm3 remains unknown; RS20 peak-current dial ratings do not establish maximum-effective-current0102 limits, and percent prose referencing2042 does not establish an0102 denominator. Exact independent qualification is required before affected writes."
+    "Prompt17 control settings are native configuration, not commanded torque/current modes. Raw algorithm3 remains unknown; RS20 peak-current dial ratings do not establish maximum-effective-current0102 limits, and percent prose referencing2042 does not establish an0102 denominator. Exact independent qualification is required before affected writes.",
+    "Fresh16/17audit fixes closure-budget certainty and optional-host help parity, repeats all48 indexed reads and reversible lock-delay stored restoration. The original shared-start write FAIL remains unresolved; no pair permission, current formula or physical trigger qualification is inferred."
   ]
 }

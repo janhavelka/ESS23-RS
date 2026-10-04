@@ -265,7 +265,7 @@ void testFaultsCancellationAndExpiry() {
     assert(Ess::prepareDriverSettings(capped, target(), 3, request(), p, 200, 9000));
     const auto capWork = work(capped); e = frame(capped, capWork.bytes, 8, 310);
     assert(Ess::advanceDriver(capped, e, 400) && capped.outcome == Ess::DriverOutcome::DEADLINE);
-    assert(capped.progress[0].acknowledged && capped.uncertain && !capped.progress[0].activeKnown);
+    assert(!capped.progress[0].acknowledged && capped.progress[0].execution == ActionExecution::UNKNOWN && capped.uncertain && !capped.progress[0].activeKnown);
 }
 void testUnconfirmedReadEvidence() {
     const auto historical = snapshot();

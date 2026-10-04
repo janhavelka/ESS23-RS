@@ -1,5 +1,11 @@
 # Roadmap and requirement coverage
 
+The [fresh16/17 audit](../../reports/ess_release_16_17_audit_2026-10-04.md)
+maps both complete prompts to actual public APIs, owner/CLI paths, tests and
+separate bench dispositions. All48 indexed records now have checked read
+evidence; late response certainty/help parity are corrected. Guarded wire forms,
+shared-start failure and current/physical qualification stay open.
+
 Prompt15 [I/O handoff](../../reports/ess_release_15_2026-10-04.md) delivers all
 resolved typed assignments, explicit function-zero disable and checked masks
 through the existing settings engine. Selected stored-register/readback/restore

@@ -190,6 +190,29 @@ void fullCapacity() {
         assert(c.prerequisites.previous.raw[2]==1000&&c.prerequisites.previous.raw[7]==4000);
     }
 }
+void deadlineEvidence() {
+    auto c=update(request());
+    const auto w=work(c); auto echo=std::vector<uint8_t>(w.bytes,w.bytes+w.length);
+    auto late=frame(c,echo,9001);
+    assert(E::advanceDriver(c,late,9003)&&c.outcome==E::DriverOutcome::DEADLINE);
+    assert(!c.progress[7].acknowledged&&c.progress[7].execution==ActionExecution::UNKNOWN&&c.uncertain&&c.effects==bit(7));
+    assert(c.observations[0].status&&c.observations[0].responseConfirmed&&c.observations[0].latestUs==9002);
+    std::vector<uint8_t> exception={1,0x86,2};
+    auto crc=E::calcCrc16(exception.data(),exception.size());exception.push_back(static_cast<uint8_t>(crc));exception.push_back(static_cast<uint8_t>(crc>>8));
+    c=update(request());late=frame(c,exception,9001);
+    assert(E::advanceDriver(c,late,9003)&&c.outcome==E::DriverOutcome::DEADLINE);
+    assert(c.progress[7].execution==ActionExecution::UNKNOWN&&c.uncertain&&c.effects==bit(7));
+    assert(c.observations[0].status.code==Err::EXCEPTION&&c.observations[0].length==exception.size()&&!std::memcmp(c.observations[0].raw,exception.data(),exception.size()));
+    c=update(request());const auto ontime=frame(c,exception,8998);
+    assert(E::advanceDriver(c,ontime,10000)&&c.outcome==E::DriverOutcome::REPLY_ERROR);
+    assert(c.progress[7].execution==ActionExecution::REJECTED&&!c.uncertain&&c.deadlineUs==9000);
+    c=update(request());auto expired=local(c,ReadEventKind::DEADLINE);expired.transport.txAccepted=4;expired.transport.executionUnknown=true;
+    assert(E::advanceDriver(c,expired,9000)&&c.outcome==E::DriverOutcome::DEADLINE&&c.uncertain&&c.effects==bit(7));
+    auto r=request(1);r.fields|=bit(7);c=update(r);ack(c);supply(c,reply({4000}));
+    expired=local(c,ReadEventKind::DEADLINE);
+    assert(E::advanceDriver(c,expired,9000)&&c.outcome==E::DriverOutcome::DEADLINE&&!c.uncertain);
+    assert(c.progress[1].readbackKnown&&c.effects==bit(1)&&c.progress[7].execution==ActionExecution::NOT_TRANSMITTED&&c.deadlineUs==9000);
+}
 void lifecycle() {
     auto r=request(1);r.fields|=bit(7);r.encoderResolution=8000;
     auto c=update(r);ack(c);supply(c,reply({8000}));assert(c.progress[1].readbackKnown&&!c.uncertain);
@@ -211,4 +234,4 @@ void lifecycle() {
     assert(E::prepareControlSettings(c,target(),12,request(),p,200,9000));assert(work(c).deadlineUs==210); // Older identity eligibility bounds write budget.
 }
 }
-int main(){readAndPreservation();rangesAndWholeCandidate();identityEffectsAndBounds();fullCapacity();lifecycle();}
+int main(){readAndPreservation();rangesAndWholeCandidate();identityEffectsAndBounds();fullCapacity();deadlineEvidence();lifecycle();}

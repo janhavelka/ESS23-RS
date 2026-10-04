@@ -1319,6 +1319,24 @@ void testSegmentIndexCancellationAndTriggerPolicy() {
     app->ioSettings.raw[8] = 17; // Not a passive assignment; no trigger policy can be inferred.
     command("@9 profile ess_rs segment start 1 set value 60\n"); contains("invalid"); assert(hardware.writes == before);
 }
+void testSegmentRecoveryCancelsReadbackContinuation() {
+    segmentBaseline();
+    command("@4 profile ess_rs segment speed 16 read\n"); const auto baseline = app->latestOperationId;
+    driverStep(baseline, registerReply({50,100,100}));
+    assert(release(app,baseline) == Probe::Action::OK);
+    command("@5 profile ess_rs segment speed 16 set speed 60 acceleration 90\n");
+    const auto update = app->latestOperationId; startTx(hardware.writes);
+    const auto writes = hardware.writes;
+    command("@6 recover\n"); const auto recovery = app->recovery.operationId;
+    for (unsigned i = 0; i < 80000 && (app->owner.recovering() || view(update).pending); ++i) step();
+    const auto& c = *view(update).driverContext;
+    assert(c.outcome == ESS::DriverOutcome::CANCELLED && c.uncertain);
+    assert(c.effects == static_cast<uint32_t>(ESS::DriverField::SEGMENT_SPEED));
+    assert(c.progress[0].execution == MotorControlRS::ActionExecution::UNKNOWN && !c.progress[0].readbackKnown);
+    assert(c.progress[1].execution == MotorControlRS::ActionExecution::NOT_TRANSMITTED);
+    assert(view(recovery).recoveryResult.outcome == Rtu::RecoveryOutcome::RECOVERED && !axisReserved(*app,1));
+    pump(100); assert(hardware.writes == writes && view(update).driverContext->uncertain);
+}
 #if MOTORCONTROLRS_LOAD_FIXTURE
 void testLoadLocalAdmission() {
     fresh(); command("@1 load\n"); contains("\"command\":\"load\"");
@@ -1362,6 +1380,7 @@ int main() {
         sizeof(App), sizeof(App::Record), sizeof(Probe::Console), sizeof(ESS::ReadContext), sizeof(ESS::PreparedRead),
         sizeof(ESS::IdentityObservation), sizeof(ESS::ConfigObservation), sizeof(Probe::StateCache), sizeof(ESS::StateObservation));
     testSegmentRoutesStoredSettlementAndNoImplicitTrigger(); testSegmentIndexCancellationAndTriggerPolicy();
+    testSegmentRecoveryCancelsReadbackContinuation();
     testSuccessfulProbeAndReset(); testCheckedExceptionAndParserRejection();
     testActionGateAndSeparateAcknowledgement(); testStopSupersedesOnlyAfterAdmissionAndSettlesInflight();
     testStopUsesReservedCapacityAndFullAdmissionPreservesWork();

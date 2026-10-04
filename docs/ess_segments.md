@@ -172,8 +172,12 @@ no speculative restore was sent. Independent response-source/device-acceptance
 evidence or exact firmware semantics is still required to identify the cause.
 The read path remains usable; the failed write is not hardware-qualified.
 
-On the tested ESP32-S3 ABI, `DriverContext` occupies 3096 bytes,
+On the historical prompt16 ESP32-S3 image, `DriverContext` occupied 3096 bytes,
 `DriverRequest` 88, `DriverPrerequisites` 848 and `SegmentObservation` 152.
+Prompt17 extended the shared settings types; its [named-image measurements](reports/ess_release_17_2026-10-04.md#storage-verification-and-handoff)
+are `DriverContext` 3456 bytes, `DriverRequest` 104 and `DriverPrerequisites` 1192.
+Consumers must size storage using their installed types; these measurements
+are not portable ABI guarantees.
 The application retains larger settings contexts/cache and console storage
 in PSRAM; capture/driver state and stacks remain internal. The report records
 actual memory watermarks and service/capture gaps for the named image.
@@ -184,3 +188,10 @@ request-identical prefix stripping, measurement payload and immediate active
 cancellation cannot stand in for retained checked FC06 evidence, stored
 readback settlement or physical TX settlement. The core imports no FieldCore,
 UART, MCU, console or scheduler types.
+
+The [fresh combined audit](reports/ess_release_16_17_audit_2026-10-04.md) checks
+both families against the full prompts. Write acknowledgement or checked device
+rejection requires qualified frame closure within the retained write budget;
+late checked bytes stay raw evidence with unknown execution. An on-time closure
+delivered later keeps its original classification. The Python checker follows
+the same rule.

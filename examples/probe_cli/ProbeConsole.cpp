@@ -1006,7 +1006,7 @@ void Console::dispatch() noexcept {
         case Command::ENABLE: case Command::MOTOR_RELEASE: case Command::ALARM_CLEAR: case Command::STOP: case Command::POSITION_CLEAR: return host_.startAction && host_.snapshot;
         case Command::MOVE: return host_.startMove && host_.snapshot && host_.axis;
         case Command::VELOCITY: return host_.startVelocity && host_.snapshot && host_.axis;
-        case Command::SEGMENT: case Command::IO: case Command::DRIVER: return host_.startDriver && host_.snapshot;
+        case Command::CONTROL: case Command::SEGMENT: case Command::IO: case Command::DRIVER: return host_.startDriver && host_.snapshot;
         case Command::HOME: return host_.startHome && host_.snapshot && host_.axis;
         case Command::PROFILE: return ((host_.startTypedRead || host_.startAction) && host_.snapshot) ||
             ((host_.startMove || host_.startVelocity || host_.startHome) && host_.snapshot && host_.axis) || (host_.startDriver && host_.snapshot);

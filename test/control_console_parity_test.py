@@ -6,7 +6,7 @@ import subprocess
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-from bench_probe import BenchError, Console, MAX_LINE, driver_arguments
+from bench_probe import BenchError, Console, MAX_LINE, driver_arguments, wire_crc
 
 rows = subprocess.check_output([sys.argv[1], "--control-fixtures"], text=True, timeout=10).splitlines()
 assert len(rows) == 21
@@ -53,6 +53,57 @@ for row in rows:
         pass
     else:
         raise AssertionError("wrong target accepted")
+
+# Synthetic timing variants keep the actual formatter's checked wire bytes and
+# schema. Closure, rather than application delivery, determines whether an
+# acknowledgement or device rejection belongs to the admitted write budget.
+update = next(json.loads(row)["record"] for row in rows if json.loads(row)["case"] == "full_checked_update")
+progress_names = update["progress_columns"]
+evidence_names = update["evidence_columns"]
+def timing_variant(exception, late, stationary_expiry):
+    record = copy.deepcopy(update)
+    record["progress"] = record["progress"][:1]
+    record["evidence"] = record["evidence"][:1]
+    progress = dict(zip(progress_names, record["progress"][0]))
+    evidence = dict(zip(evidence_names, record["evidence"][0]))
+    limit = 500 if stationary_expiry else record["deadline_us"]
+    record.update(fields=progress["field"], effects=progress["field"], ok=False, state="failed",
+                  observation=None, completed_steps=0, stationary_valid_until_us=limit,
+                  serviced_us=record["deadline_us"] + 5, uncertain=late,
+                  outcome="deadline" if late else "reply_error", status="ILLEGAL_VALUE" if late else "EXCEPTION",
+                  detail=13 if late else 2)
+    progress.update(acknowledged=False, execution="unknown" if late else "rejected",
+                    readback_known=False, readback=0)
+    evidence.update(earliest_us=limit + 1 if late else limit - 2,
+                    latest_us=limit + 2 if late else limit - 1,
+                    delivered_us=record["serviced_us"])
+    if exception:
+        raw = bytes((record["address"], 0x86, 2))
+        raw += wire_crc(raw).to_bytes(2, "little")
+        evidence.update(raw_hex=raw.hex(), received_length=5, status="EXCEPTION", detail=2, frame_error=10)
+    record["progress"][0] = [progress[k] for k in progress_names]
+    record["evidence"][0] = [evidence[k] for k in evidence_names]
+    return record
+
+for exception in (False, True):
+    for stationary_expiry in (False, True):
+        record = timing_variant(exception, True, stationary_expiry)
+        Console._check_driver(record, 1, ("set", "algorithm", "algorithm-1"), "control_settings")
+        forged = copy.deepcopy(record)
+        forged["progress"][0][progress_names.index("execution")] = "rejected" if exception else "acknowledged"
+        if exception:
+            forged["uncertain"] = False
+        else:
+            forged["progress"][0][progress_names.index("acknowledged")] = True
+        try:
+            Console._check_driver(forged, 1, ("set", "algorithm", "algorithm-1"), "control_settings")
+        except BenchError:
+            pass
+        else:
+            raise AssertionError("late frame promoted to certain acknowledgement/rejection")
+for stationary_expiry in (False, True):
+    Console._check_driver(timing_variant(True, False, stationary_expiry), 1,
+                          ("set", "algorithm", "algorithm-1"), "control_settings")
 
 for arguments in (("set", "algorithm", "closed-loop"), ("set", "lock-delay", "1/1"),
                   ("set", "lock-delay", "1.0"), ("set", "encoder-resolution", "-1"),

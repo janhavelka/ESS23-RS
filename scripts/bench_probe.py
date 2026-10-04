@@ -1074,7 +1074,7 @@ class Console:
         uncertain = False
         for p in fields.values():
             rows = [(e, raw) for e, raw in steps if e["register"] == p["register"]]
-            acknowledged = any(e["write"] and e["event"] == 0 and e["status"] == "OK" and e["qualified"] and e["response_confirmed"] for e, raw in rows)
+            acknowledged = any(e["write"] and e["event"] == 0 and e["status"] == "OK" and e["qualified"] and e["response_confirmed"] and e["latest_us"] <= item["stationary_valid_until_us"] for e, raw in rows)
             readbacks = [(e, raw) for e, raw in rows if not e["write"] and e["event"] == 0 and e["status"] == "OK" and e["qualified"] and e["response_confirmed"] and e["latest_us"] <= item["deadline_us"]]
             require(p["acknowledged"] == acknowledged and p["readback_known"] == bool(readbacks), "acknowledgement/readback provenance differs")
             if readbacks: require(p["readback"] == int.from_bytes(readbacks[-1][1][3:5], "big"), "readback value differs")
@@ -1083,7 +1083,7 @@ class Console:
             for e in writes:
                 if e["tx_accepted"] or e["execution_unknown"]:
                     effects |= p["field"]; execution = "unknown"
-                if e["event"] == 0 and e["qualified"] and e["response_confirmed"]:
+                if e["event"] == 0 and e["qualified"] and e["response_confirmed"] and e["latest_us"] <= item["stationary_valid_until_us"]:
                     if e["status"] == "OK": execution = "acknowledged"
                     elif e["status"] == "EXCEPTION" and 1 <= e["detail"] <= 7: execution = "rejected"
             require(p["execution"] == execution, "execution differs from write evidence")

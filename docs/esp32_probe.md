@@ -1,5 +1,10 @@
 # ESP32-S3 read-only probe bench
 
+The [fresh16/17 audit](reports/ess_release_16_17_audit_2026-10-04.md) records the
+corrected closure-certainty/help image, all48 indexed reads and exact lock-delay
+stored restoration in114frames. Physical effects and unresolved source semantics
+remain separate from those checked register paths.
+
 Prompt17 adds [control settings](ess_control_settings.md) and the Python `control read|set` scenario. [Current-image evidence](reports/ess_release_17_2026-10-04.md) records66frames, all-field readback and delay200-to201-to200 restoration; mode/encoder/current effects and electrical FC06 source remain unqualified.
 
 

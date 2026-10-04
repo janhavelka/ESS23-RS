@@ -2,6 +2,12 @@
 
 ## Prompt17 control settings
 
+The [fresh16/17 audit](reports/ess_release_16_17_audit_2026-10-04.md) fixes late
+ACK/exception certainty, Python parity and optional-host help availability;
+actual CLI recovery under full result pressure retains interrupted uncertainty.
+42 native suites, installed/four-build checks and114 corrected-image bench frames
+PASS; lock delay restores exactly. Remaining source/physical gaps below stay open.
+
 - [x] Eight typed native reads/writes through the bounded settings sequence, checked exact model/effects context and whole/intermediate candidate validation.
 - [x] Zero closed-loop encoder-scale guard, external-scale invalidation, immutable old results, partial/uncertain updates and CLI/Python parity;42CTest suites and installed/four-build checks PASS.
 - [x] COM13 all-field readback, nine zero-TX gates and reversible lock-delay200-to201-to200 stored restoration PASS; [report](reports/ess_release_17_2026-10-04.md).
@@ -9,6 +15,10 @@
 
 
 ## Prompt16 stored records
+
+The [combined fresh audit](reports/ess_release_16_17_audit_2026-10-04.md) verifies
+all48 indexed records on COM13 and adds actual CLI recovery/no-continuation
+coverage. Shared-start write FAIL and guarded pair/sign semantics remain unchanged.
 
 Fresh [independent audit](reports/ess_release_16_audit_2026-10-04.md) fixes host scenario vocabulary, verifies actual terminal correlation and repeats53 non-changing bench frames; starting-speed acceptance remains unresolved.
 
