@@ -29,7 +29,7 @@ class Coverage(unittest.TestCase):
         self.assertEqual(summary["write"]["NOT_IMPLEMENTED"], 193)
         self.assertEqual(summary["action"]["NOT_IMPLEMENTED"], 2)
         linked = {record for group in INVENTORY["operations"] for record in group["records"]}
-        self.assertEqual(len(linked), 19)
+        self.assertEqual(len(linked), 25)
         self.assertEqual(len(result["records"]), len({record["id"] for record in result["records"]}))
         self.assertTrue(all(choice["default_disposition"] == operations.DEFAULT for choice in result["named_choices"]))
 

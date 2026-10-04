@@ -19,6 +19,19 @@ def encoded(item):
 
 
 def reply(request_id, command, **fields):
+    if command in ("status", "health"):
+        fields.setdefault("state_blocks", [dict(block=i, valid=False, current=False, fresh=False, source="absent",
+            target=0, address=0, generation=0, operation_id=0, attempt_known=False, last_attempt_ok=False,
+            last_attempt_us=0, last_attempt_target=0, last_attempt_address=0, last_attempt_generation=0,
+            last_attempt_operation_id=0, last_attempt_status="OK", last_attempt_detail=0, last_success_us=0,
+            observed_earliest_us=0, observed_latest_us=0, delivered_us=0, age_us=None, value=None) for i in range(3)])
+        for key, value in dict(now_us=20000, stale_after_ms=5000, selected_target=1, selected_address=1,
+            selected_generation=9, monitoring="disabled", atomic_snapshot=False, sample_time="drive_internal_age_undocumented",
+            communication_known=False, communication_target=0, communication_address=0, communication_generation=0,
+            communication_earliest_us=0, communication_latest_us=0, age_source="model_probe", communication_age_us=None).items():
+            fields.setdefault(key, value)
+        if command == "health":
+            fields.setdefault("alarms", "unknown"); fields.setdefault("state", "unknown")
     if command in {"probe", "capture-read", "recover"} and (fields.get("result") == "accepted"
                                            or fields.get("type") in {"probe", "capture_read", "recovery"}):
         fields.setdefault("operation_id", request_id + 100)
@@ -44,6 +57,10 @@ def typed_terminal(request_id, kind):
     fixtures = (
         ((0, 4), "0103000000044409", "0103084EEA12340001A58103E3"),
     ) if kind == "identity" else (
+        ((6, 2), "010300060002240A", "010304000080115BFF"),
+        ((8, 2), "01030008000245C9", "010304A5F5000388CC"),
+        ((10, 3), "0103000A000325C9", "01030612345678FFFF03E2"),
+    ) if kind == "state" else (
         ((0x10, 2), "010300100002C5CE", "01030400010640A9A3"),
         ((0x13, 3), "010300130003F40E", "010306002A00020003D972"),
         ((0x17, 3), "010300170003B5CF", "0103060001000100018CB5"),
@@ -53,7 +70,7 @@ def typed_terminal(request_id, kind):
     steps = []
     for index, ((first, count), tx, rx) in enumerate(fixtures):
         steps.append(dict(step=index, first=first, count=count, event=0, status="OK", detail=0,
-                          frame_error=0, qualified=True, earliest_us=2000 + index * 1000,
+                          frame_error=0, qualified=True, attempted_us=1000 if index == 0 else 1100 + index * 1000, earliest_us=2000 + index * 1000,
                           latest_us=2050 + index * 1000, delivered_us=2100 + index * 1000,
                           tx=tx, rx=rx, received_length=len(rx) // 2, tx_accepted=8,
                           execution_unknown=False, transport_detail=1))
@@ -67,6 +84,18 @@ def typed_terminal(request_id, kind):
                             active_node_known=True, active_node=1, model_resolution=2, version_resolution=3,
                             dip_resolution=4, dip_issues=320, model="mapping_unresolved", firmware="mapping_unresolved",
                             dip="mapping_conflict_unresolved")
+    elif kind == "state":
+        result["decode_config"] = dict(operation_id=90, word_order_known=True, word_order=1, algorithm_known=True, algorithm=2)
+        result["state_blocks"] = [
+            dict(block=0, config_operation_id=90, raw_alarm=0, alarm_known=True, raw_motion=0x8011, unknown_motion_bits=0x8000,
+                 in_position=True, homing_complete=False, running=False, alarm_flag=False, released=True, enabled=False,
+                 positive_soft_limit=False, negative_soft_limit=False),
+            dict(block=1, config_operation_id=90, raw_inputs=0xA5F5, raw_outputs=3, unknown_input_bits=0xA5F0, unknown_output_bits=0,
+                 inputs=[True, False, True, False], outputs=[True, True], levels="logical_valid_not_voltage"),
+            dict(block=2, config_operation_id=90, position_words=[0x1234, 0x5678], raw_speed=0xFFFF, pair_known=True,
+                 raw_position=0x56781234, position_source=2, word_order_resolution=0, position_source_resolution=0,
+                 position_signed_resolution=7, position_scale_resolution=5, speed_signed_resolution=7, speed_unit_resolution=8,
+                 physical_units="unresolved", raw_encoder_counts=None)]
     else:
         result[kind] = dict(raw=dict(direction=1, subdivision=1600, custom_node=42, baud=2, format=3,
                                     over_limit_stop=1, soft_limit_enable=1, word_order=1,
@@ -84,6 +113,23 @@ def typed_terminal(request_id, kind):
     return result
 
 
+def cached_state(request_id, command="health"):
+    item = reply(request_id, command, readiness="unknown", communication="current", alarms="clear", state="observed")
+    values = typed_terminal(2, "state")["state_blocks"]
+    item["now_us"] = 5000
+    if command == "status": item["uptime_ms"] = 5
+    item.update(communication_known=True, communication_target=1, communication_address=1, communication_generation=9,
+                communication_earliest_us=1000, communication_latest_us=4050, communication_age_us=4000)
+    for index, block in enumerate(item["state_blocks"]):
+        block.update(valid=True, current=True, fresh=True, source="checked_rtu_register", target=1, address=1, generation=9,
+            operation_id=102, attempt_known=True, last_attempt_ok=True, last_attempt_us=1000 + index * 1000,
+            last_attempt_target=1, last_attempt_address=1, last_attempt_generation=9, last_attempt_operation_id=102,
+            last_success_us=2050 + index * 1000, observed_earliest_us=1000 + index * 1000,
+            observed_latest_us=2050 + index * 1000, delivered_us=2100 + index * 1000,
+            age_us=4000 - index * 1000, value=values[index])
+    return item
+
+
 class TypedSerial:
     """Read operation storage survives inspections until explicit release."""
     def __init__(self, mutate=None, admission_only=False):
@@ -92,8 +138,8 @@ class TypedSerial:
         self.admission_only = admission_only
 
     def __call__(self, request_id, command, args):
-        if command == "read":
-            kind = args[0]
+        if command == "read" or (command == "health" and args and args[0] == "check"):
+            kind = "state" if command == "health" else args[0]
             terminal = typed_terminal(request_id, kind)
             if self.mutate:
                 self.mutate(terminal)
@@ -243,7 +289,7 @@ class Framing(unittest.TestCase):
         self.assertEqual(len(accepts), 1)
 
     def test_typed_reads_fragmented_and_explicitly_released(self):
-        for kind in ("identity", "config"):
+        for kind in ("identity", "config", "state"):
             with self.subTest(kind=kind):
                 console = self.session(TypedSerial(), fragment=1)
                 terminal = console.command("read-" + kind, address=1, timeout_s=0.1)
@@ -251,6 +297,152 @@ class Framing(unittest.TestCase):
                 self.assertEqual(len(terminal["steps"]), len(bench.TYPED_WINDOWS[kind]))
                 self.assertEqual(self.port.writes[-2:], [f"@2 read {kind} 1\n".encode(), b"@3 release 102\n"])
                 self.assertFalse(console.operations)
+
+    def test_health_check_alias_is_strictly_canonical_state(self):
+        console = self.session(TypedSerial(), fragment=1)
+        terminal = console.command("health-check", address=1, timeout_s=0.1)
+        self.assertEqual(terminal["command"], "read-state")
+        self.assertEqual(self.port.writes[-2:], [b"@2 health check 1\n", b"@3 release 102\n"])
+
+    def test_state_decoder_rejects_fabricated_polarity_units_and_unknown_bits(self):
+        mutations = (lambda r: r["state_blocks"][0].update(enabled=True),
+                     lambda r: r["state_blocks"][0].update(unknown_motion_bits=0),
+                     lambda r: r["state_blocks"][1].update(inputs=[False] * 4),
+                     lambda r: r["state_blocks"][2].update(raw_encoder_counts=1),
+                     lambda r: r["state_blocks"][2].update(raw_position=0x12345678),
+                     lambda r: r["state_blocks"][2].update(speed_unit_resolution=0))
+        for mutate in mutations:
+            with self.subTest(mutate=mutate):
+                console = self.session(TypedSerial(mutate))
+                self.failed(lambda: console.command("read-state", address=1, timeout_s=0.1), "typed-read state")
+                self.assertEqual(self.port.writes[-1], b"@2 read state 1\n")
+
+    def test_state_unknown_configuration_and_alarm_remain_raw(self):
+        def mutate(r):
+            first = r["steps"][0]
+            data = bytes.fromhex("01030400048011")
+            first["rx"] = (data + bench.wire_crc(data).to_bytes(2, "little")).hex()
+            r["state_blocks"][0].update(raw_alarm=4, alarm_known=False)
+            r["decode_config"].update(operation_id=0, word_order_known=False, word_order=0, algorithm_known=False, algorithm=1)
+            for value in r["state_blocks"]:
+                value["config_operation_id"] = 0
+            r["state_blocks"][2].update(pair_known=False, raw_position=0, position_source=0, word_order_resolution=9, position_source_resolution=10)
+        console = self.session(TypedSerial(mutate))
+        result = console.command("read-state", address=1, timeout_s=0.1)
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["state_blocks"][0]["raw_alarm"], 4)
+        self.assertFalse(result["state_blocks"][2]["pair_known"])
+
+    def test_state_partial_failure_preserves_only_successful_blocks(self):
+        def mutate(r):
+            r.update(ok=False, state="failed", outcome="transport_error", status="ILLEGAL_VALUE", detail=11, completed_steps=2)
+            step = r["steps"][2]
+            step.update(event=1, status="ILLEGAL_VALUE", detail=11, qualified=False, earliest_us=0, latest_us=0,
+                        rx="", received_length=0, execution_unknown=True)
+            r["state_blocks"] = r["state_blocks"][:2]
+        console = self.session(TypedSerial(mutate))
+        result = console.command("read-state", address=1, timeout_s=0.1)
+        self.assertFalse(result["ok"])
+        self.assertEqual(len(result["state_blocks"]), 2)
+
+    def test_cached_state_separate_ages_unknown_alarms_and_generation(self):
+        item = cached_state(2)
+        bench.Console._check_cached_state(item)
+        item["state_blocks"][0]["value"].update(raw_alarm=4, alarm_known=False)
+        item["alarms"] = "present"
+        bench.Console._check_cached_state(item)
+        item["state_blocks"][0]["value"].update(raw_alarm=0xBEEF)
+        item["alarms"] = "unknown"
+        bench.Console._check_cached_state(item)
+        item["state_blocks"][0]["value"].update(alarm_flag=True)
+        item["alarms"] = "present"
+        bench.Console._check_cached_state(item)
+        item.update(stale_after_ms=2, communication="stale", state="unknown", alarms="unknown")
+        for block in item["state_blocks"]:
+            block["fresh"] = block["age_us"] <= 2000
+        bench.Console._check_cached_state(item)
+        item["selected_generation"] = 10
+        item["communication"] = "unknown"
+        for block in item["state_blocks"]:
+            block.update(current=False, fresh=False)
+        bench.Console._check_cached_state(item)
+
+    def test_cached_state_rejects_rejuvenation_and_readiness_claims(self):
+        mutations = (lambda r: r["state_blocks"][0].update(age_us=0),
+                     lambda r: r["state_blocks"][1].update(last_success_us=5000),
+                     lambda r: r["state_blocks"][2].update(generation=10),
+                     lambda r: r.update(readiness="ready"),
+                     lambda r: r.update(alarms="present"),
+                     lambda r: r.update(communication_generation=10),
+                     lambda r: r.update(atomic_snapshot=True))
+        for mutate in mutations:
+            item = cached_state(2); mutate(item)
+            with self.assertRaises(bench.BenchError):
+                bench.Console._check_cached_state(item)
+
+    def test_monitor_arguments_are_bounded_before_any_send(self):
+        console = self.session()
+        for request in (True, (99, 1), (100, 0), (100, 1001), (60001, 1), (True, 1), [100, 1]):
+            with self.subTest(request=request), self.assertRaises(ValueError):
+                console.begin("monitor", monitor=request)
+        self.assertEqual(len(self.port.writes), 1)
+
+    def test_stationary_state_health_campaign_uses_explicit_reads_and_retention(self):
+        typed = TypedSerial()
+        latest = None
+        def handler(request_id, command, args):
+            nonlocal latest
+            if command == "health" and args and args[0] == "check":
+                latest = typed_terminal(request_id, "state")
+            if command == "monitor":
+                return encoded(reply(request_id, command, enabled=False, interval_ms=0, count=0, remaining=0,
+                    operation_id=0, next_due_us=0, admitted=0, rejected=0, cancelled=0))
+            if command in ("status", "health") and not args:
+                cached = cached_state(request_id, command)
+                if latest:
+                    for block, step in zip(cached["state_blocks"], latest["steps"]):
+                        block["operation_id"] = block["last_attempt_operation_id"] = latest["operation_id"]
+                        block["observed_earliest_us"] = step["attempted_us"]
+                        block["age_us"] = cached["now_us"] - step["attempted_us"]
+                return encoded(cached)
+            return typed(request_id, command, args)
+        console = self.session(handler)
+        bench.campaign(console, "state-health", count=2, interval_s=0.01, timeout_s=0.1, address=1)
+        commands = [entry.decode().split()[1:] for entry in self.port.writes]
+        self.assertEqual(commands.count(["health", "check", "1"]), 2)
+        self.assertEqual(commands.count(["read", "config", "1"]), 1)
+        self.assertEqual(len([command for command in commands if command[0] == "release"]), 3)
+        self.assertFalse(typed.retained)
+
+    def test_state_health_campaign_rejects_missing_old_or_corrupted_cache(self):
+        for fault in ("missing", "old", "corrupt"):
+            with self.subTest(fault=fault):
+                typed = TypedSerial()
+                latest = None
+                def handler(request_id, command, args):
+                    nonlocal latest
+                    if command == "health" and args and args[0] == "check":
+                        latest = typed_terminal(request_id, "state")
+                    if command == "monitor":
+                        return encoded(reply(request_id, command, enabled=False, interval_ms=0, count=0, remaining=0,
+                            operation_id=0, next_due_us=0, admitted=0, rejected=0, cancelled=0))
+                    if command in ("status", "health") and not args:
+                        cached = cached_state(request_id, command)
+                        if latest:
+                            if fault == "missing":
+                                return encoded(reply(request_id, command, uptime_ms=5, readiness="unknown"))
+                            for block, step in zip(cached["state_blocks"], latest["steps"]):
+                                block["operation_id"] = latest["operation_id"] - (fault == "old")
+                                block["observed_earliest_us"] = step["attempted_us"]
+                                block["age_us"] = cached["now_us"] - step["attempted_us"]
+                            if fault == "corrupt":
+                                cached["state_blocks"][2]["value"]["raw_speed"] ^= 1
+                        return encoded(cached)
+                    return typed(request_id, command, args)
+                console = self.session(handler)
+                with self.assertRaisesRegex(bench.BenchError, "does not match completed refresh"):
+                    bench.campaign(console, "state-health", count=1, interval_s=0, timeout_s=0.1, address=1)
+                self.assertEqual(len([entry for entry in self.port.writes if b"health check" in entry]), 1)
 
     def test_typed_invalid_evidence_never_releases_or_replays(self):
         mutations = (

@@ -21,7 +21,8 @@ struct Fake {
     Probe::Action loadAction = Probe::Action::OK;
     unsigned snapshots = 0, probes = 0, recoveries = 0, resets = 0;
     unsigned loads = 0, loadChanges = 0;
-    unsigned typedReads = 0;
+    unsigned typedReads = 0, monitors = 0, monitorChanges = 0;
+    Probe::MonitorSnapshot monitorData;
     Ess::ReadKind typedKind = Ess::ReadKind::IDENTITY;
     uint32_t id = 0, nextOperation = 100;
     bool blocked = false;
@@ -76,6 +77,11 @@ struct Fake {
         }
         output = self.loadData;
         return self.loadAction;
+    }
+    static Probe::Action monitor(void* context, const Probe::MonitorSettings* request, Probe::MonitorSnapshot& out) {
+        Fake& self = *static_cast<Fake*>(context); ++self.monitors;
+        if (request) { ++self.monitorChanges; self.monitorData.settings = *request; self.monitorData.remaining = request->count; }
+        out = self.monitorData; return Probe::Action::OK;
     }
     static bool result(void* context, uint32_t operation, Probe::ResultView& out) {
         Fake& self = *static_cast<Fake*>(context); ++self.resultQueries;
@@ -588,7 +594,7 @@ void testTypedRoutesAndValidation() {
     send(console, "caps\n"); fake.contains("\"identity\":true"); fake.contains("\"max_steps\":5");
     send(console, "profile ess_rs caps\n"); fake.contains("\"command\":\"caps\"");
     assert(fake.typedReads == 3 && fake.snapshots == snapshots);
-    send(console, "help read\n"); fake.contains("read identity|config [address]");
+    send(console, "help read\n"); fake.contains("read identity|config|state [address]");
     send(console, "help profile\n"); fake.contains("profile ess_rs caps");
     fake.data.cachedIdentityId = 91; fake.data.cachedIdentityAddress = 4; fake.data.cachedIdentityGeneration = 2;
     fake.data.cachedConfigId = 92; fake.data.cachedConfigAddress = 5; fake.data.cachedConfigGeneration = 3;
@@ -648,6 +654,68 @@ void testTypedTerminalInspectionAndBound() {
     assert(fake.lines.back().size() < Probe::OUTPUT_CAPACITY);
 }
 
+void testStateRoutesCacheAndPolling() {
+    Fake fake; auto host = fake.host(); host.startTypedRead = Fake::typedRead; host.monitor = Fake::monitor;
+    Probe::Console console(host);
+    send(console, "@1 read state 247\n@2 profile ess_rs state 247\n@3 health check 247\n");
+    assert(fake.typedReads == 3 && fake.typedKind == Ess::ReadKind::STATE);
+    fake.contains("\"command\":\"read-state\""); fake.contains("\"read_kind\":\"state\"");
+    send(console, "health check 0\nhealth x\nmonitor 99 1\nmonitor 100 0\nmonitor on\nmonitor 100 1001\nmonitor off extra\n");
+    assert(fake.typedReads == 3 && fake.monitors == 0);
+    send(console, "monitor 100 3\n"); fake.contains("\"enabled\":true"); fake.contains("\"remaining\":3");
+    send(console, "monitor\n"); assert(fake.monitors == 2 && fake.monitorChanges == 1);
+    fake.blocked = true; send(console, "status\n"); assert(console.outputPending());
+    send(console, "monitor off\n"); assert(fake.monitorChanges == 2 && !fake.monitorData.settings.enabled);
+    fake.blocked = false; assert(console.serviceOutput());
+    Ess::ReadContext context = typedContext(true, 100);
+    assert(Ess::prepareState(context, context.target, 100, context.startedUs, context.deadlineUs, context.activeSerial));
+    for (unsigned i = 0; i < 3; ++i) completeTypedStep(context);
+    assert(console.reportRead(1, 100, context));
+    fake.contains("\"state_blocks\":[{\"block\":0"); fake.contains("\"released\":true,\"enabled\":false");
+    fake.contains("\"unknown_motion_bits\":65408"); fake.contains("\"raw_encoder_counts\":null");
+    assert(fake.lines.back().size() < Probe::OUTPUT_CAPACITY);
+    Probe::StateCache cache;
+    for (uint8_t i = 0; i < 3; ++i) {
+        Probe::stateAttempt(cache, context.target, 100, i, context.startedUs);
+        Probe::stateResult(cache, context, i, context.observations[i].attemptedUs);
+    }
+    for (auto& block : cache.blocks) {
+        block.lastAttemptTarget = context.target; block.lastAttemptOperationId = UINT32_MAX;
+        block.lastAttemptUs = UINT64_MAX - 1000; block.lastSuccessUs = UINT64_MAX - 800;
+        block.observedEarliestUs = UINT64_MAX - 1000; block.observedLatestUs = UINT64_MAX - 800;
+        block.deliveredUs = UINT64_MAX - 600; block.lastAttemptStatus = MotorControlRS::Status(MotorControlRS::Err::FRAME_ERROR, INT32_MIN, "");
+        block.value.operationId = block.value.configOperationId = UINT32_MAX;
+    }
+    cache.blocks[2].value.pairKnown = true; cache.blocks[2].value.rawPosition = UINT32_MAX;
+    fake.data.uptimeMs = fake.data.ageMs = UINT64_MAX; fake.data.staleAfterMs = UINT32_MAX;
+    fake.data.probeKnown = fake.data.probeOk = fake.data.modelKnown = true;
+    fake.data.rawModel = UINT16_MAX; fake.data.probeAddress = fake.data.modelAddress = 247;
+    fake.data.observedEarliestUs = UINT64_MAX - 1000;
+    fake.data.communicationKnown = true; fake.data.communicationTarget = context.target;
+    fake.data.communicationEarliestUs = UINT64_MAX - 1000; fake.data.communicationLatestUs = UINT64_MAX - 800;
+    fake.data.stateCache = &cache; fake.data.nowUs = UINT64_MAX;
+    fake.data.address = context.target.address; fake.data.bindingGeneration = context.target.generation;
+    send(console, "status\n"); fake.contains("\"atomic_snapshot\":false"); fake.contains("\"source\":\"checked_rtu_register\"");
+    fake.contains("\"current\":false"); // Cache target id differs from address: exact binding matters.
+    std::printf("Maximum-width cached status line: %zu/%zu bytes\n", fake.lines.back().size(), Probe::OUTPUT_CAPACITY);
+    const auto retained = cache.blocks[0].lastSuccessUs;
+    send(console, "health\nhealth\n"); assert(cache.blocks[0].lastSuccessUs == retained);
+    fake.contains("\"readiness\":\"unknown\"");
+    std::printf("Maximum-width cached health line: %zu/%zu bytes\n", fake.lines.back().size(), Probe::OUTPUT_CAPACITY);
+    assert(fake.lines.back().size() < Probe::OUTPUT_CAPACITY);
+    for (auto& block : cache.blocks) block.value.target.id = fake.data.address;
+    cache.blocks[0].value.rawAlarm = 4; cache.blocks[0].value.alarmKnown = false; cache.blocks[0].value.alarmFlag = false;
+    send(console, "health\n"); fake.contains("\"alarms\":\"present\"");
+    cache.blocks[0].value.rawAlarm = 0xBEEF;
+    send(console, "health\n"); fake.contains("\"alarms\":\"unknown\"");
+    cache.blocks[0].value.alarmFlag = true;
+    send(console, "health\n"); fake.contains("\"alarms\":\"present\"");
+    ++fake.data.bindingGeneration; send(console, "status\n"); fake.contains("\"fresh\":false");
+    Fake absent; Probe::Console unsupported(absent.host());
+    send(unsupported, "help\n"); assert(absent.lines.back().find("\"monitor\"") == std::string::npos);
+    send(unsupported, "monitor off\n"); absent.contains("unavailable");
+}
+
 } // namespace
 
 int main() {
@@ -669,4 +737,5 @@ int main() {
     testCaptureReadOptionalHookAndDiagnostics();
     testTypedRoutesAndValidation();
     testTypedTerminalInspectionAndBound();
+    testStateRoutesCacheAndPolling();
 }

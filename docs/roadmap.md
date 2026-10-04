@@ -7,8 +7,8 @@ future version numbers are not commitments.
 
 The [ESS release prompt set](prompts/ess_release/README.md) turns these stages
 into 30 ordered implementation blocks with tests, independent audits and
-evidence handoffs. Prompts 01–05 have implementation and available verification
-dispositions; prompt 06 is next. Independent electrical timing remains open.
+evidence handoffs. Prompts 01–06 have implementation and available verification
+dispositions; prompt 07 is next. Independent electrical timing remains open.
 The [fresh prompt 02 audit](reports/ess_release_02_audit_2026-10-03.md) corrects
 cancellation cutoff precedence and recovery evidence continuity; hardware owner
 integration now has [prompt 03 evidence](reports/ess_release_03_2026-10-03.md).
@@ -113,3 +113,5 @@ dispatched. Independent 05–07 work may proceed; dependent physical actions
 retain their timing, settings, units and stop prerequisites.
 Its [fresh audit](reports/ess_release_04_audit_2026-10-04.md) closes a host
 diagnostic-validation gap; the unchanged image passes repeated read-only tests.
+
+Prompt06 delivers [typed state, separate health and finite polling](reports/ess_release_06_2026-10-04.md). Stationary state reads pass; algorithm3, position source, signed encoding/physical units, motion completion and electrical timing remain unresolved.

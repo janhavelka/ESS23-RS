@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Exercise actual setup/loop and callbacks. Fakes supply SDK/wire/USB evidence.
 #include "../examples/probe_cli/main.cpp"
+#include "../examples/probe_cli/StateCache.h"
 #include <cassert>
 #include <cstdlib>
 #include <cstdio>
@@ -550,7 +551,7 @@ void testTypedReadPartialCancelRecoveryAndRetention() {
 }
 void testTypedReadPressureAndInvalidArguments() {
     fresh(); timerCapture();
-    command("@1 read state\n"); command("@2 read config 0\n"); command("@3 profile other identity\n");
+    command("@1 read unsupported\n"); command("@2 read config 0\n"); command("@3 profile other identity\n");
     command("@4 profile ess_rs config 1 junk\n"); assert(hardware.writes == 0 && app->latestOperationId == 0);
     for (unsigned i = 0; i < 8; ++i) {
         uint32_t operation = 0; assert(typedRead(app, i + 10, 1, ESS::ReadKind::IDENTITY, operation) == Probe::Action::OK);
@@ -640,6 +641,231 @@ void testTypedConfigYieldsBusAndPreservesUnknownHardwareCode() {
     assert(app->configuration.inputFunctions[3] == ESS::InputFunction::UNDEFINED);
     assert(!app->configuration.inputLevelKnown[1] && !app->configuration.inputLevelKnown[2]);
 }
+ESS::ReadContext motionContext(MotorControlRS::ReadTarget target, uint32_t operation,
+                              uint64_t started, uint64_t closed, uint16_t motion = 0) {
+    ESS::ReadContext context;
+    assert(ESS::prepareState(context, target, operation, started, closed + 1000));
+    const auto bytes = registerReply({0, motion});
+    MotorControlRS::ReadEvent event; event.target = target; event.operationId = operation;
+    event.frame = bytes.data(); event.length = bytes.size(); event.qualified = true;
+    event.earliestUs = closed - 10; event.latestUs = closed; event.txAccepted = 8;
+    assert(ESS::advanceRead(context, event, closed + 20)); return context;
+}
+void testStateCacheRetainsValuesAcrossFailureAndGenerationChange() {
+    MotorControlRS::ReadTarget target; target.id = 1; target.address = 1; target.generation = 1;
+    Probe::StateCache cache;
+    assert(!cache.blocks[0].valid && !Probe::fresh(cache.blocks[0], target, 1000, 10000));
+    Probe::stateAttempt(cache, target, 10, 0, 100);
+    const auto success = motionContext(target, 10, 100, 400, 0x10);
+    Probe::stateResult(cache, success, 0, 150);
+    assert(cache.blocks[0].valid && cache.blocks[0].lastAttemptOk && cache.blocks[0].value.released);
+    assert(cache.blocks[0].lastAttemptUs == 100 && cache.blocks[0].lastSuccessUs == 400);
+    assert(cache.blocks[0].observedEarliestUs == 150 && Probe::ageUs(cache.blocks[0], 500) == 350);
+    assert(!cache.blocks[1].valid && !cache.blocks[2].valid);
+    const auto previous = cache.blocks[0];
+    Probe::stateAttempt(cache, target, 11, 0, 600);
+    ESS::ReadContext failed; assert(ESS::prepareState(failed, target, 11, 600, 2000));
+    const uint8_t exception[] = {1, 0x83, 2, 0xC0, 0xF1};
+    MotorControlRS::ReadEvent event; event.target = target; event.operationId = 11;
+    event.frame = exception; event.length = sizeof(exception); event.qualified = true;
+    event.earliestUs = 700; event.latestUs = 710;
+    assert(ESS::advanceRead(failed, event, 720)); Probe::stateResult(cache, failed, 0, 650);
+    assert(cache.blocks[0].valid && !cache.blocks[0].lastAttemptOk);
+    assert(cache.blocks[0].lastAttemptStatus.code == MotorControlRS::Err::EXCEPTION);
+    assert(cache.blocks[0].lastAttemptUs == 600 && cache.blocks[0].lastSuccessUs == previous.lastSuccessUs);
+    assert(cache.blocks[0].value.operationId == previous.value.operationId);
+    assert(cache.blocks[0].observedEarliestUs == previous.observedEarliestUs);
+    ++target.generation;
+    assert(!Probe::current(cache.blocks[0], target) && !Probe::fresh(cache.blocks[0], target, 800, 10000));
+    assert(cache.blocks[0].valid && cache.blocks[0].value.target.generation == 1);
+}
+void testStateCacheLateDeliveryCannotRejuvenateObservation() {
+    MotorControlRS::ReadTarget target; target.id = 1; target.address = 1; target.generation = 1;
+    Probe::StateCache cache;
+    const auto earlier = motionContext(target, 20, 100, 400, 0x10);
+    const auto newer = motionContext(target, 21, 500, 800, 0);
+    Probe::stateAttempt(cache, target, 21, 0, 500); Probe::stateResult(cache, newer, 0, 550);
+    const auto stored = cache.blocks[0];
+    Probe::stateResult(cache, earlier, 0, 150);
+    assert(cache.blocks[0].value.operationId == 21 && cache.blocks[0].value.enabled);
+    assert(cache.blocks[0].lastAttemptOperationId == 21 && cache.blocks[0].lastAttemptOk);
+    assert(cache.blocks[0].observedEarliestUs == stored.observedEarliestUs);
+    assert(Probe::ageUs(cache.blocks[0], 5000) == 4450);
+    assert(!Probe::fresh(cache.blocks[0], target, 5000, 1000));
+    Probe::stateResult(cache, newer, 0, 550);
+    assert(cache.blocks[0].deliveredUs == stored.deliveredUs && cache.blocks[0].lastSuccessUs == 800);
+    ++target.generation;
+    const auto rebound = motionContext(target, 22, 900, 1200, 0);
+    Probe::stateAttempt(cache, target, 22, 0, 900); Probe::stateResult(cache, rebound, 0, 950);
+    Probe::stateResult(cache, earlier, 0, 150);
+    assert(cache.blocks[0].value.operationId == 22 && cache.blocks[0].value.target.generation == 2);
+    assert(Probe::current(cache.blocks[0], target));
+}
+void completeState(uint32_t operation, uint16_t alarm = 0, uint16_t motion = 0) {
+    readStep(operation, 0, registerReply({alarm, motion}));
+    readStep(operation, 1, registerReply({0x8005, 0x4002}));
+    readStep(operation, 2, registerReply({0x1234, 0xABCD, 0xFFFF})); pump(100);
+}
+void testStateReadUnknownBitsAndPassiveQueries() {
+    fresh(); timerCapture(); command("@1 read state\n"); const uint32_t operation = view(0).operationId;
+    readStep(operation, 0, registerReply({4, 0x8010}));
+    assert(app->stateCache.blocks[0].valid && !app->stateCache.blocks[1].valid);
+    assert(!app->stateCache.blocks[0].value.alarmKnown && app->stateCache.blocks[0].value.rawAlarm == 4);
+    assert(app->stateCache.blocks[0].value.released && !app->stateCache.blocks[0].value.enabled);
+    readStep(operation, 1, registerReply({0x8005, 0x4002}));
+    readStep(operation, 2, registerReply({0x1234, 0xABCD, 0xFFFF})); pump(100);
+    assert(view(operation).typedRead->state == ReadState::SUCCEEDED && hardware.writes == 3);
+    const auto& io = app->stateCache.blocks[1].value;
+    assert(io.inputs[0] && !io.inputs[1] && io.inputs[2] && io.outputs[1]);
+    assert(io.unknownInputBits == 0x8000 && io.unknownOutputBits == 0x4000);
+    const auto& feedback = app->stateCache.blocks[2].value;
+    assert(!feedback.pairKnown && feedback.positionSource == ESS::PositionSource::UNRESOLVED);
+    assert(feedback.rawPositionWords[0] == 0x1234 && feedback.rawPositionWords[1] == 0xABCD && feedback.rawSpeed == 0xFFFF);
+    const uint64_t successes[] = {app->stateCache.blocks[0].lastSuccessUs, app->stateCache.blocks[1].lastSuccessUs,
+                                app->stateCache.blocks[2].lastSuccessUs};
+    assert(successes[0] < successes[1] && successes[1] < successes[2]);
+    command("@2 status\n"); command("@3 health\n");
+    assert(hardware.writes == 3);
+    command("@4 read identity\n"); const uint32_t identity = view(0).operationId;
+    readStep(identity, 0, registerReply({0x4EEA, 0x29, 1, 0})); pump(100);
+    for (unsigned i = 0; i < 3; ++i) assert(app->stateCache.blocks[i].lastSuccessUs == successes[i]);
+    assert(hardware.writes == 4);
+}
+void testStatePartialRefreshPreservesPreviousBlocks() {
+    fresh(); timerCapture(); command("@1 health check\n"); const uint32_t first = view(0).operationId;
+    completeState(first);
+    const auto previous = app->stateCache;
+    command("@2 read state\n"); const uint32_t second = view(0).operationId;
+    readStep(second, 0, registerReply({5, 0xC}));
+    assert(app->stateCache.blocks[0].value.operationId == second && app->stateCache.blocks[0].value.running);
+    readStep(second, 1, {1, 0x83, 2, 0xC0, 0xF1}); pump(100);
+    assert(view(second).typedRead->state == ReadState::FAILED && !app->owner.needsRecovery());
+    assert(app->stateCache.blocks[1].value.operationId == first && app->stateCache.blocks[1].valid);
+    assert(!app->stateCache.blocks[1].lastAttemptOk && app->stateCache.blocks[1].lastAttemptStatus.code == MotorControlRS::Err::EXCEPTION);
+    assert(app->stateCache.blocks[1].lastSuccessUs == previous.blocks[1].lastSuccessUs);
+    assert(app->stateCache.blocks[1].lastAttemptUs > previous.blocks[1].lastAttemptUs);
+    assert(app->stateCache.blocks[2].lastAttemptUs == previous.blocks[2].lastAttemptUs);
+    assert(app->stateCache.blocks[2].lastSuccessUs == previous.blocks[2].lastSuccessUs);
+    assert(app->communicationKnown && app->communicationLatestUs > previous.blocks[1].lastSuccessUs);
+    command("@3 health\n"); contains("\"communication\":\"current\"");
+    pump(1000); assert(hardware.writes == 5);
+}
+void testStateDelayedServiceAndStaleConfigurationStayExplicit() {
+    fresh(); timerCapture();
+    app->configuration.target.id = app->configuration.target.address = 1;
+    app->configuration.target.generation = 2; app->configuration.operationId = 77;
+    app->configuration.wordOrderKnown = app->configuration.algorithmKnown = true;
+    app->configuration.wordOrder = ESS::WordOrder::HIGH_WORD_FIRST;
+    app->configuration.algorithm = ESS::ControlAlgorithm::ALGORITHM_1;
+    command("@1 read state\n"); const uint32_t operation = view(0).operationId;
+    assert(view(operation).typedRead->configOperationId == 0);
+    startTx(0); const uint64_t before = hardware.time;
+    scheduleReply(hardware.writeStarted + 8 * 87 + 1000, registerReply({0, 0}));
+    advanceHardware(before + 50000); loop();
+    const auto observed = app->stateCache.blocks[0];
+    assert(observed.valid && observed.observedEarliestUs <= hardware.writeStarted);
+    assert(observed.observedEarliestUs < observed.observedLatestUs);
+    assert(observed.deliveredUs - observed.observedLatestUs > 30000);
+    assert(Probe::ageUs(observed, hardware.time) >= 50000);
+    readStep(operation, 1, registerReply({0, 0})); readStep(operation, 2, registerReply({0, 0, 0})); pump(100);
+    assert(!app->stateCache.blocks[2].value.pairKnown);
+    const uint64_t earliest = app->stateCache.blocks[0].observedEarliestUs;
+    command("@2 status\n"); command("@3 health\n");
+    assert(app->stateCache.blocks[0].observedEarliestUs == earliest && hardware.writes == 3);
+    command("@4 recover\n");
+    MotorControlRS::ReadTarget current; current.id = current.address = 1; current.generation = app->bindingGeneration;
+    assert(app->stateCache.blocks[0].valid && !Probe::current(app->stateCache.blocks[0], current));
+    for (unsigned i = 0; i < 80000 && app->owner.recovering(); ++i) step();
+    assert(!app->owner.recovering() && hardware.writes == 3);
+    assert(app->stateCache.blocks[0].observedEarliestUs == earliest);
+}
+void pollStep(uint8_t index, const std::vector<uint8_t>& bytes) {
+    auto& record = app->records[REQUEST_CAPACITY];
+    assert(record.operationId && record.read.step == index);
+    const unsigned writes = hardware.writes;
+    if (app->runner.phase() != Rtu::Phase::DRAIN) startTx(writes);
+    scheduleReply(std::max(hardware.writeStarted + 8 * 87 + 1000, hardware.time + 1000), bytes);
+    for (unsigned i = 0; i < 25000 && record.operationId && record.read.state == ReadState::ACTIVE && record.read.step == index; ++i) step();
+    assert(!record.operationId || record.read.step != index || record.read.state != ReadState::ACTIVE);
+}
+void testMonitorDisabledFiniteAndOwnResultRelease() {
+    fresh(); timerCapture(); pump(1000); assert(hardware.writes == 0);
+    command("@1 monitor\n"); contains("\"enabled\":false");
+    command("@2 monitor 99 1\n"); contains("invalid_arguments"); assert(hardware.writes == 0);
+    command("@3 monitor 100 1\n");
+    assert(app->monitorState.admitted == 1 && app->monitorState.remaining == 0);
+    assert(app->latestOperationId == 0 && app->records[REQUEST_CAPACITY].monitored);
+    Probe::ResultView unavailable;
+    assert(!lookup(app, app->monitorState.operationId, unavailable));
+    pollStep(0, registerReply({0, 0})); pollStep(1, registerReply({0, 0})); pollStep(2, registerReply({0, 0, 0})); pump(100);
+    assert(!app->monitorState.settings.enabled && !app->monitorState.operationId);
+    assert(!app->records[REQUEST_CAPACITY].operationId && hardware.writes == 3);
+    Probe::Snapshot cached; snapshot(app, cached); assert(cached.retained == 0 && cached.reserved == 0);
+    advanceHardware(hardware.time + 500000); loop(); pump(100); assert(hardware.writes == 3);
+    command("@4 status\n"); command("@5 health\n"); assert(hardware.writes == 3);
+}
+void testMonitorCancellationSettlesTransmission() {
+    fresh(); timerCapture(); hardware.txCharacterUs = 1000;
+    command("@1 monitor 100 3\n"); startTx(0);
+    assert(app->runner.transmitEnabled()); const uint64_t started = hardware.writeStarted;
+    command("@2 monitor off\n");
+    assert(!app->monitorState.settings.enabled && app->monitorState.cancelled == 1);
+    assert(hardware.de == 1 && hardware.writes == 1 && hardware.time < started + 8000);
+    command("@3 monitor off\n"); assert(app->monitorState.cancelled == 1);
+    for (unsigned i = 0; i < 25000 && app->records[REQUEST_CAPACITY].operationId; ++i) step();
+    assert(!app->records[REQUEST_CAPACITY].operationId && !app->runner.transmitEnabled());
+    assert(hardware.deReleasedAt >= started + 8000 && hardware.writes == 1);
+    assert(app->owner.needsRecovery());
+    advanceHardware(hardware.time + 500000); loop(); pump(100); assert(hardware.writes == 1);
+    command("@4 monitor off\n"); assert(app->monitorState.cancelled == 1);
+}
+void testMonitorYieldsToUrgentOwnerAdmission() {
+    fresh(); timerCapture(); command("@1 monitor 100 1\n"); startTx(0);
+    uint8_t bytes[8]; assert(ESS::buildReadRegisters(1, 0, 1, bytes, sizeof(bytes)) == sizeof(bytes));
+    Rtu::BusRequest urgent; urgent.wire.bytes = bytes; urgent.wire.length = sizeof(bytes);
+    urgent.wire.replyLength = REPLY.size(); urgent.wire.responseTimeoutUs = RESPONSE_US;
+    urgent.wire.replyGapUs = REPLY_GAP_US; urgent.wire.deadlineUs = nowUs() + REQUEST_US;
+    urgent.expected.target = urgent.expected.address = 1; urgent.expected.targetGeneration = app->bindingGeneration;
+    urgent.expected.function = 3; urgent.expected.count = 1; urgent.validator = Rtu::essValidator();
+    Rtu::RequestId id; assert(app->owner.admitUrgent(urgent, nowUs(), id) == Rtu::BusAdmission::ACCEPTED);
+    pollStep(0, registerReply({0, 0})); startTx(1);
+    assert(hardware.tx[3] == 0 && hardware.tx[5] == 1); // urgent model read before polling I/O.
+    scheduleReply(hardware.writeStarted + 8 * 87 + 1000, REPLY);
+    for (unsigned i = 0; i < 1000 && !app->owner.result(id); ++i) step();
+    assert(app->owner.result(id) && app->owner.result(id)->outcome == Rtu::Outcome::SUCCESS);
+    assert(app->owner.release(id));
+    pollStep(1, registerReply({0, 0})); pollStep(2, registerReply({0, 0, 0})); pump(100);
+    assert(hardware.writes == 4 && !app->monitorState.settings.enabled);
+}
+void testMonitorPressurePreservesUnreadForegroundResults() {
+    fresh(); timerCapture();
+    for (unsigned i = 0; i < REQUEST_CAPACITY; ++i) {
+        const unsigned before = hardware.writes; const uint32_t operation = admit(i + 1);
+        reply(operation, before);
+    }
+    const auto retained = view(1).probe;
+    command("@20 monitor 100 2\n");
+    assert(app->monitorState.admitted == 0 && app->monitorState.rejected == 1 && app->monitorState.remaining == 1);
+    assert(!app->records[REQUEST_CAPACITY].operationId && hardware.writes == 8);
+    advanceHardware(app->monitorState.nextDueUs + 1); loop(); pump(100);
+    assert(app->monitorState.rejected == 2 && !app->monitorState.settings.enabled);
+    Probe::Snapshot state; snapshot(app, state);
+    assert(state.retained == 8 && state.reserved == 0 && hardware.writes == 8);
+    assert(view(1).probe.transport.endedUs == retained.transport.endedUs && view(1).probe.rawModel == retained.rawModel);
+    assert(!app->stateCache.blocks[0].valid && !app->stateCache.blocks[0].attemptKnown);
+    advanceHardware(hardware.time + 500000); loop(); assert(hardware.writes == 8);
+}
+void testMonitorCheckedFailureHasOneAttemptAndNoFeedback() {
+    fresh(); timerCapture(); command("@1 monitor 100 1\n");
+    pollStep(0, {1, 0x83, 2, 0xC0, 0xF1}); pump(100);
+    assert(!app->records[REQUEST_CAPACITY].operationId && !app->monitorState.settings.enabled);
+    assert(app->monitorState.admitted == 1 && app->monitorState.remaining == 0);
+    assert(app->stateCache.blocks[0].attemptKnown && !app->stateCache.blocks[0].lastAttemptOk);
+    assert(app->stateCache.blocks[0].lastAttemptStatus.code == MotorControlRS::Err::EXCEPTION);
+    assert(!app->stateCache.blocks[0].valid && !app->stateCache.blocks[1].valid && !app->stateCache.blocks[2].valid);
+    assert(!app->owner.needsRecovery() && hardware.writes == 1);
+    advanceHardware(hardware.time + 500000); loop(); pump(100); assert(hardware.writes == 1);
+}
 #if MOTORCONTROLRS_LOAD_FIXTURE
 void testLoadLocalAdmission() {
     fresh(); command("@1 load\n"); contains("\"command\":\"load\"");
@@ -679,9 +905,9 @@ void testLoadDelayExhaustsSetupTxBudgetWithoutTransmission() {
 #endif
 }
 int main() {
-    std::printf("Storage bytes: App=%zu Record=%zu Console=%zu ReadContext=%zu PreparedRead=%zu Identity=%zu Config=%zu\n",
+    std::printf("Storage bytes: App=%zu Record=%zu Console=%zu ReadContext=%zu PreparedRead=%zu Identity=%zu Config=%zu StateCache=%zu StateObservation=%zu\n",
         sizeof(App), sizeof(App::Record), sizeof(Probe::Console), sizeof(ESS::ReadContext), sizeof(ESS::PreparedRead),
-        sizeof(ESS::IdentityObservation), sizeof(ESS::ConfigObservation));
+        sizeof(ESS::IdentityObservation), sizeof(ESS::ConfigObservation), sizeof(Probe::StateCache), sizeof(ESS::StateObservation));
     testSuccessfulProbeAndReset(); testCheckedExceptionAndParserRejection();
     testCaptureReadUsesOwnerAndPreservesModel(); testCaptureReadRejectsMalformedRepliesAndArguments();
     testActiveConsoleAndBoundedInputOutput(); testQueuePressureAndQueuedCancellation();
@@ -700,6 +926,12 @@ int main() {
     testTypedReadAbsoluteBudgetAndDelayedEvidence(); testTypedReadInvalidOwnerEnvelopeCannotReplay();
     testTypedReadCancelSettledIntermediateCannotContinue();
     testTypedConfigYieldsBusAndPreservesUnknownHardwareCode();
+    testStateCacheRetainsValuesAcrossFailureAndGenerationChange();
+    testStateCacheLateDeliveryCannotRejuvenateObservation();
+    testStateReadUnknownBitsAndPassiveQueries(); testStatePartialRefreshPreservesPreviousBlocks();
+    testStateDelayedServiceAndStaleConfigurationStayExplicit(); testMonitorDisabledFiniteAndOwnResultRelease();
+    testMonitorCancellationSettlesTransmission(); testMonitorYieldsToUrgentOwnerAdmission();
+    testMonitorPressurePreservesUnreadForegroundResults(); testMonitorCheckedFailureHasOneAttemptAndNoFeedback();
 #if MOTORCONTROLRS_LOAD_FIXTURE
     testLoadLocalAdmission();
     testLoadDelayExhaustsSetupTxBudgetWithoutTransmission();

@@ -24,5 +24,19 @@ int main() {
     if (!nextRead(operation, 300, request) || request.first != 0x10 || request.count != 2) return 7;
     ReadEvent cancelled; cancelled.target = target; cancelled.operationId = 4; cancelled.kind = ReadEventKind::CANCEL;
     if (!advanceRead(operation, cancelled, 310) || operation.outcome != ReadOutcome::CANCELLED) return 8;
+    if (!readCapabilities().state || !prepareState(operation, target, 5, 400, 2000)) return 9;
+    if (!nextRead(operation, 400, request) || request.first != 6 || request.count != 2) return 10;
+    // Decode a completed block while the multi-read operation is still active.
+    // This proves the installed consumer has the actual public state API.
+    uint8_t motion[] = {1, 3, 4, 0, 0, 0, 0x10, 0, 0};
+    const uint16_t crc = calcCrc16(motion, sizeof(motion) - 2);
+    motion[7] = static_cast<uint8_t>(crc); motion[8] = static_cast<uint8_t>(crc >> 8);
+    event = ReadEvent(); event.target = target; event.operationId = 5;
+    event.frame = motion; event.length = sizeof(motion); event.qualified = true;
+    event.earliestUs = 500; event.latestUs = 520; event.txAccepted = 8;
+    if (!advanceRead(operation, event, 530)) return 11;
+    StateObservation state;
+    if (!getStateBlock(operation, 0, state) || !state.released || state.enabled || !state.alarmKnown) return 12;
+    if (getStateBlock(operation, 2, state) || state.block != StateBlock::MOTION) return 13;
     return 0;
 }

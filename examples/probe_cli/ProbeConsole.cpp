@@ -10,7 +10,7 @@
 namespace MotorControlRSExample { namespace Probe {
 namespace {
 
-enum class Command : uint8_t { HELP, VERSION, CONFIG, STATUS, HEALTH, STATS, PROBE, CAPTURE_READ, RECOVER, RESET, MEMORY, LOAD, DRV, RESULT, CANCEL, RELEASE, READ, PROFILE, CAPS, READ_IDENTITY, READ_CONFIG };
+enum class Command : uint8_t { HELP, VERSION, CONFIG, STATUS, HEALTH, STATS, PROBE, CAPTURE_READ, RECOVER, RESET, MEMORY, LOAD, DRV, RESULT, CANCEL, RELEASE, READ, PROFILE, CAPS, READ_IDENTITY, READ_CONFIG, READ_STATE, HEALTH_CHECK, MONITOR };
 struct Entry { const char* name; Command command; const char* syntax; const char* effect; bool bus; };
 const Entry COMMANDS[] = {
     {"help", Command::HELP, "help [command]", "show_callable_commands", false},
@@ -19,13 +19,14 @@ const Entry COMMANDS[] = {
     {"config", Command::CONFIG, "config", "show_host_settings", false},
     {"settings", Command::CONFIG, "settings", "show_host_settings", false},
     {"status", Command::STATUS, "status", "show_cached_observations", false},
-    {"health", Command::HEALTH, "health", "show_cached_presence", false},
+    {"health", Command::HEALTH, "health [check [address]]", "show_cached_health_or_explicitly_read_state", false},
     {"stats", Command::STATS, "stats [reset]", "show_or_clear_host_counters", false},
     {"probe", Command::PROBE, "probe [address]", "read_model_word_only", true},
     {"ping", Command::PROBE, "ping [address]", "read_model_word_only", true},
     {"capture-read", Command::CAPTURE_READ, "capture-read [address]", "read_0x0130_16_words_for_capture_qualification", true},
-    {"read", Command::READ, "read identity|config [address]", "checked_nonchanging_read", true},
-    {"profile", Command::PROFILE, "profile ess_rs identity|config [address] | profile ess_rs caps", "checked_profile_reads_and_capabilities", true},
+    {"read", Command::READ, "read identity|config|state [address]", "checked_nonchanging_read", true},
+    {"profile", Command::PROFILE, "profile ess_rs identity|config|state [address] | profile ess_rs caps", "checked_profile_reads_and_capabilities", true},
+    {"monitor", Command::MONITOR, "monitor [off | interval_ms count]", "finite_nonconsuming_state_polling", false},
     {"caps", Command::CAPS, "caps", "show_public_read_capabilities", false},
     {"recover", Command::RECOVER, "recover", "recover_host_transport_only", false},
     {"reset", Command::RESET, "reset", "clear_host_counters_only", false},
@@ -38,10 +39,12 @@ const Entry COMMANDS[] = {
 };
 const Entry IDENTITY_ENTRY = {"read-identity", Command::READ_IDENTITY, "read identity [address]", "checked_identity_read", true};
 const Entry CONFIG_ENTRY = {"read-config", Command::READ_CONFIG, "read config [address]", "checked_configuration_read", true};
+const Entry STATE_ENTRY = {"read-state", Command::READ_STATE, "read state [address]", "checked_nonconsuming_state_read", true};
+const Entry HEALTH_ENTRY = {"read-state", Command::HEALTH_CHECK, "health check [address]", "explicit_nonconsuming_state_refresh", true};
 namespace Ess = MotorControlRS::ESS_RS;
 
-const char* readName(Ess::ReadKind kind) { return kind == Ess::ReadKind::IDENTITY ? "identity" : "config"; }
-const char* readCommandName(Ess::ReadKind kind) { return kind == Ess::ReadKind::IDENTITY ? "read-identity" : "read-config"; }
+const char* readName(Ess::ReadKind kind) { return kind == Ess::ReadKind::IDENTITY ? "identity" : kind == Ess::ReadKind::CONFIG ? "config" : "state"; }
+const char* readCommandName(Ess::ReadKind kind) { return kind == Ess::ReadKind::IDENTITY ? "read-identity" : kind == Ess::ReadKind::CONFIG ? "read-config" : "read-state"; }
 const char* readState(MotorControlRS::ReadState state) {
     switch (state) { case MotorControlRS::ReadState::EMPTY: return "empty";
     case MotorControlRS::ReadState::ACTIVE: return "active";
@@ -66,6 +69,65 @@ bool append(char* output, std::size_t capacity, std::size_t& used, const char* f
     va_end(arguments);
     if (written < 0 || static_cast<std::size_t>(written) >= capacity - used) return false;
     used += static_cast<std::size_t>(written); return true;
+}
+
+bool stateValue(char* output, std::size_t capacity, std::size_t& used, const Ess::StateObservation& v) {
+    if (!append(output, capacity, used, "{\"block\":%u,\"config_operation_id\":%lu,", static_cast<unsigned>(v.block), static_cast<unsigned long>(v.configOperationId))) return false;
+    switch (v.block) {
+    case Ess::StateBlock::MOTION:
+        return append(output, capacity, used,
+            "\"raw_alarm\":%u,\"alarm_known\":%s,\"raw_motion\":%u,\"unknown_motion_bits\":%u,\"in_position\":%s,\"homing_complete\":%s,\"running\":%s,\"alarm_flag\":%s,\"released\":%s,\"enabled\":%s,\"positive_soft_limit\":%s,\"negative_soft_limit\":%s}",
+            v.rawAlarm, v.alarmKnown ? "true" : "false", v.rawMotion, v.unknownMotionBits,
+            v.inPosition ? "true" : "false", v.homingComplete ? "true" : "false", v.running ? "true" : "false", v.alarmFlag ? "true" : "false",
+            v.released ? "true" : "false", v.enabled ? "true" : "false", v.positiveSoftLimit ? "true" : "false", v.negativeSoftLimit ? "true" : "false");
+    case Ess::StateBlock::IO:
+        return append(output, capacity, used,
+            "\"raw_inputs\":%u,\"raw_outputs\":%u,\"unknown_input_bits\":%u,\"unknown_output_bits\":%u,\"inputs\":[%s,%s,%s,%s],\"outputs\":[%s,%s],\"levels\":\"logical_valid_not_voltage\"}",
+            v.rawInputs, v.rawOutputs, v.unknownInputBits, v.unknownOutputBits,
+            v.inputs[0] ? "true" : "false", v.inputs[1] ? "true" : "false", v.inputs[2] ? "true" : "false", v.inputs[3] ? "true" : "false",
+            v.outputs[0] ? "true" : "false", v.outputs[1] ? "true" : "false");
+    case Ess::StateBlock::FEEDBACK:
+        return append(output, capacity, used,
+            "\"position_words\":[%u,%u],\"raw_speed\":%u,\"pair_known\":%s,\"raw_position\":%lu,\"position_source\":%u,\"word_order_resolution\":%u,\"position_source_resolution\":%u,\"position_signed_resolution\":%u,\"position_scale_resolution\":%u,\"speed_signed_resolution\":%u,\"speed_unit_resolution\":%u,\"physical_units\":\"unresolved\",\"raw_encoder_counts\":null}",
+            v.rawPositionWords[0], v.rawPositionWords[1], v.rawSpeed, v.pairKnown ? "true" : "false", static_cast<unsigned long>(v.rawPosition),
+            static_cast<unsigned>(v.positionSource), static_cast<unsigned>(v.wordOrderResolution), static_cast<unsigned>(v.positionSourceResolution),
+            static_cast<unsigned>(v.positionSignedResolution), static_cast<unsigned>(v.positionScaleResolution), static_cast<unsigned>(v.speedSignedResolution), static_cast<unsigned>(v.speedUnitResolution));
+    }
+    return false;
+}
+
+bool stateCache(char* output, std::size_t capacity, std::size_t& used, const Snapshot& snapshot) {
+    MotorControlRS::ReadTarget target; target.id = snapshot.address; target.address = snapshot.address; target.generation = snapshot.bindingGeneration;
+    if (!append(output, capacity, used, ",\"now_us\":%llu,\"monitoring\":\"%s\",\"atomic_snapshot\":false,\"sample_time\":\"drive_internal_age_undocumented\",\"state_blocks\":[",
+        static_cast<unsigned long long>(snapshot.nowUs), snapshot.monitorState.settings.enabled ? "enabled" : "disabled")) return false;
+    for (uint8_t i = 0; i < Ess::STATE_BLOCK_COUNT; ++i) {
+        const StateCache::Block* b = snapshot.stateCache ? &snapshot.stateCache->blocks[i] : nullptr;
+        const bool valid = b && b->valid;
+        const bool same = b && current(*b, target);
+        const bool recent = b && fresh(*b, target, snapshot.nowUs, static_cast<uint64_t>(snapshot.staleAfterMs) * 1000);
+        if (!append(output, capacity, used,
+            "%s{\"block\":%u,\"valid\":%s,\"current\":%s,\"fresh\":%s,\"source\":\"%s\",\"target\":%lu,\"address\":%u,\"generation\":%lu,\"operation_id\":%lu,\"attempt_known\":%s,\"last_attempt_ok\":%s,\"last_attempt_us\":%llu,\"last_attempt_target\":%lu,\"last_attempt_address\":%u,\"last_attempt_generation\":%lu,\"last_attempt_operation_id\":%lu,\"last_attempt_status\":\"%s\",\"last_attempt_detail\":%ld,\"last_success_us\":%llu,\"observed_earliest_us\":%llu,\"observed_latest_us\":%llu,\"delivered_us\":%llu,\"age_us\":",
+            i ? "," : "", i, valid ? "true" : "false", same ? "true" : "false", recent ? "true" : "false", valid ? "checked_rtu_register" : "absent",
+            static_cast<unsigned long>(valid ? b->value.target.id : 0), valid ? b->value.target.address : 0, static_cast<unsigned long>(valid ? b->value.target.generation : 0),
+            static_cast<unsigned long>(valid ? b->value.operationId : 0), b && b->attemptKnown ? "true" : "false", b && b->lastAttemptOk ? "true" : "false",
+            static_cast<unsigned long long>(b ? b->lastAttemptUs : 0), static_cast<unsigned long>(b ? b->lastAttemptTarget.id : 0), b ? b->lastAttemptTarget.address : 0,
+            static_cast<unsigned long>(b ? b->lastAttemptTarget.generation : 0), static_cast<unsigned long>(b ? b->lastAttemptOperationId : 0),
+            b ? MotorControlRS::errToString(b->lastAttemptStatus.code) : "OK", static_cast<long>(b ? b->lastAttemptStatus.detail : 0),
+            static_cast<unsigned long long>(valid ? b->lastSuccessUs : 0), static_cast<unsigned long long>(valid ? b->observedEarliestUs : 0),
+            static_cast<unsigned long long>(valid ? b->observedLatestUs : 0), static_cast<unsigned long long>(valid ? b->deliveredUs : 0))) return false;
+        if (valid && snapshot.nowUs >= b->observedEarliestUs) {
+            if (!append(output, capacity, used, "%llu", static_cast<unsigned long long>(ageUs(*b, snapshot.nowUs)))) return false;
+        } else if (!append(output, capacity, used, "null")) return false;
+        if (!append(output, capacity, used, ",\"value\":")) return false;
+        if (valid) { if (!stateValue(output, capacity, used, b->value)) return false; }
+        else if (!append(output, capacity, used, "null")) return false;
+        if (!append(output, capacity, used, "}")) return false;
+    }
+    if (!append(output, capacity, used, "],\"selected_target\":%lu,\"selected_address\":%u,\"selected_generation\":%lu,\"communication_known\":%s,\"communication_target\":%lu,\"communication_address\":%u,\"communication_generation\":%lu,\"communication_earliest_us\":%llu,\"communication_latest_us\":%llu", static_cast<unsigned long>(target.id), target.address, static_cast<unsigned long>(target.generation), snapshot.communicationKnown ? "true" : "false", static_cast<unsigned long>(snapshot.communicationTarget.id), snapshot.communicationTarget.address, static_cast<unsigned long>(snapshot.communicationTarget.generation), static_cast<unsigned long long>(snapshot.communicationEarliestUs), static_cast<unsigned long long>(snapshot.communicationLatestUs))) return false;
+    if (!append(output, capacity, used, ",\"age_source\":\"model_probe\",\"communication_age_us\":")) return false;
+    if (snapshot.communicationKnown && snapshot.nowUs >= snapshot.communicationEarliestUs)
+        return append(output, capacity, used, "%llu", static_cast<unsigned long long>(snapshot.nowUs - snapshot.communicationEarliestUs));
+    return append(output, capacity, used, "null");
 }
 
 const Entry* find(const char* name) {
@@ -172,12 +234,12 @@ void Console::error(uint32_t id, const char* command, const char* reason) noexce
 }
 
 void Console::action(uint32_t id, const char* command, Action result, uint8_t address, uint32_t operationId) noexcept {
-    const bool typed = std::strcmp(command, "read-identity") == 0 || std::strcmp(command, "read-config") == 0;
+    const bool typed = std::strcmp(command, "read-identity") == 0 || std::strcmp(command, "read-config") == 0 || std::strcmp(command, "read-state") == 0;
     std::snprintf(output_, sizeof(output_),
         "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"%s\",\"ok\":%s,\"result\":\"%s\",\"address\":%u,\"operation_id\":%lu%s}",
         static_cast<unsigned long>(id), command, boolean(result == Action::OK),
         result == Action::OK && !typed && (std::strcmp(command, "probe") != 0 && std::strcmp(command, "capture-read") != 0 && std::strcmp(command, "recover") != 0) ? "done" : actionName(result), address,
-        static_cast<unsigned long>(operationId), typed ? (std::strcmp(command, "read-identity") == 0 ? ",\"read_kind\":\"identity\"" : ",\"read_kind\":\"config\"") : "");
+        static_cast<unsigned long>(operationId), typed ? (std::strcmp(command, "read-identity") == 0 ? ",\"read_kind\":\"identity\"" : std::strcmp(command, "read-config") == 0 ? ",\"read_kind\":\"config\"" : ",\"read_kind\":\"state\"") : "");
     emit();
 }
 
@@ -225,9 +287,14 @@ void Console::dispatch() noexcept {
     if (!entry) { error(id, "unknown", "unknown_command"); return; }
     // Keep local cancellation responsive even if USB cannot accept another
     // byte. Every other command is explicitly discarded before host effects.
-    if (outputPending_ && entry->command != Command::CANCEL) { ++inputDropped_; return; }
+    const bool monitorOff = entry->command == Command::MONITOR && count == first + 2 && std::strcmp(tokens[first + 1], "off") == 0;
+    if (outputPending_ && entry->command != Command::CANCEL && !monitorOff) { ++inputDropped_; return; }
     // The asynchronous terminal event uses the canonical probe name too.
     if (entry->command == Command::PROBE) entry = find("probe");
+    if (entry->command == Command::HEALTH && count > first + 1) {
+        if (std::strcmp(tokens[first + 1], "check") != 0) { error(id, "health", "invalid_arguments"); return; }
+        entry = &HEALTH_ENTRY; ++first;
+    }
     const bool profileRoute = entry->command == Command::PROFILE;
     if (entry->command == Command::READ || entry->command == Command::PROFILE) {
         std::size_t kind = first + 1;
@@ -238,6 +305,7 @@ void Console::dispatch() noexcept {
         if (kind >= count) { error(id, entry->name, "invalid_arguments"); return; }
         if (std::strcmp(tokens[kind], "identity") == 0) entry = &IDENTITY_ENTRY;
         else if (std::strcmp(tokens[kind], "config") == 0) entry = &CONFIG_ENTRY;
+        else if (std::strcmp(tokens[kind], "state") == 0) entry = &STATE_ENTRY;
         else if (entry->command == Command::PROFILE && std::strcmp(tokens[kind], "caps") == 0) entry = find("caps");
         else { error(id, entry->name, "invalid_arguments"); return; }
         first = kind;
@@ -245,12 +313,12 @@ void Console::dispatch() noexcept {
     const std::size_t args = count - first - 1;
     const char* arg = args ? tokens[first + 1] : nullptr;
     const bool loadCommand = entry->command == Command::LOAD;
-    const bool typedCommand = entry->command == Command::READ_IDENTITY || entry->command == Command::READ_CONFIG;
+    const bool typedCommand = entry->command == Command::READ_IDENTITY || entry->command == Command::READ_CONFIG || entry->command == Command::READ_STATE || entry->command == Command::HEALTH_CHECK;
     const bool readCommand = entry->command == Command::PROBE || entry->command == Command::CAPTURE_READ || typedCommand;
     const bool optionalArg = entry->command == Command::HELP ||
         entry->command == Command::STATS || readCommand ||
         entry->command == Command::RESULT || entry->command == Command::CANCEL;
-    const bool validArgs = loadCommand ? (args == 0 || args == 3) :
+    const bool validArgs = entry->command == Command::MONITOR ? (args == 0 || args == 1 || args == 2) : loadCommand ? (args == 0 || args == 3) :
         entry->command == Command::RELEASE ? args == 1 : args <= (optionalArg ? 1U : 0U);
     if (!validArgs) {
         error(id, entry->name, "invalid_arguments"); return;
@@ -280,6 +348,15 @@ void Console::dispatch() noexcept {
          !number(tokens[first + 3], loadSettings.consoleBytes) || loadSettings.consoleBytes > 256)) {
         error(id, entry->name, "invalid_arguments"); return;
     }
+    MonitorSettings monitorSettings;
+    if (entry->command == Command::MONITOR && args) {
+        if (args == 1 && std::strcmp(arg, "off") == 0) monitorSettings.enabled = false;
+        else if (args == 2 && number(arg, monitorSettings.intervalMs) &&
+            monitorSettings.intervalMs >= 100 && monitorSettings.intervalMs <= 60000 &&
+            number(tokens[first + 2], monitorSettings.count) && monitorSettings.count >= 1 && monitorSettings.count <= 1000)
+            monitorSettings.enabled = true;
+        else { error(id, "monitor", "invalid_arguments"); return; }
+    }
     const Entry* described = entry->command == Command::HELP && arg ? find(arg) : nullptr;
     if (entry->command == Command::HELP && arg && !described) {
         error(id, entry->name, "unknown_command"); return;
@@ -289,9 +366,10 @@ void Console::dispatch() noexcept {
     }
     const auto callable = [this](Command c) {
         switch (c) {
+        case Command::MONITOR: return host_.monitor != nullptr;
         case Command::LOAD: return host_.load != nullptr;
         case Command::CAPTURE_READ: return host_.startCaptureRead != nullptr;
-        case Command::READ: case Command::PROFILE: case Command::READ_IDENTITY: case Command::READ_CONFIG: return host_.startTypedRead != nullptr;
+        case Command::READ: case Command::PROFILE: case Command::READ_IDENTITY: case Command::READ_CONFIG: case Command::READ_STATE: case Command::HEALTH_CHECK: return host_.startTypedRead != nullptr;
         case Command::RESULT: return host_.result != nullptr;
         case Command::CANCEL: return host_.cancel != nullptr;
         case Command::RELEASE: return host_.release != nullptr;
@@ -305,7 +383,7 @@ void Console::dispatch() noexcept {
         if (described) {
             std::snprintf(output_, sizeof(output_),
                 "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"help\",\"ok\":true,\"syntax\":\"%s\",\"effect\":\"%s\",\"bus_traffic\":%s}",
-                static_cast<unsigned long>(id), described->syntax, described->effect, boolean(described->bus));
+                static_cast<unsigned long>(id), described->command == Command::HEALTH && !host_.startTypedRead ? "health" : described->syntax, described->effect, boolean(described->bus));
         } else {
             const int prefix = std::snprintf(output_, sizeof(output_),
                 "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"help\",\"ok\":true,\"commands\":[", static_cast<unsigned long>(id));
@@ -334,8 +412,8 @@ void Console::dispatch() noexcept {
     if (entry->command == Command::CAPS) {
         const auto caps = Ess::readCapabilities();
         std::snprintf(output_, sizeof(output_),
-            "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"caps\",\"ok\":true,\"probe\":%s,\"identity\":%s,\"config\":%s,\"max_steps\":%u,\"max_reply_bytes\":%u,\"writes\":false,\"motion\":false}",
-            static_cast<unsigned long>(id), boolean(caps.probe), boolean(caps.identity), boolean(caps.config), caps.maxSteps, caps.maxReplyBytes);
+            "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"caps\",\"ok\":true,\"probe\":%s,\"identity\":%s,\"config\":%s,\"state\":%s,\"max_steps\":%u,\"max_reply_bytes\":%u,\"writes\":false,\"motion\":false}",
+            static_cast<unsigned long>(id), boolean(caps.probe), boolean(caps.identity), boolean(caps.config), boolean(caps.state), caps.maxSteps, caps.maxReplyBytes);
         emit(); return;
     }
     if (entry->command == Command::RESET || (entry->command == Command::STATS && arg)) {
@@ -361,12 +439,24 @@ void Console::dispatch() noexcept {
                 "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"result\",\"command_id\":%lu,\"operation_id\":%lu,\"ok\":true,\"result\":\"pending\",\"recovery\":%s,\"capture_read\":%s,\"read_kind\":%s}",
                 static_cast<unsigned long>(id), static_cast<unsigned long>(view.commandId),
                 static_cast<unsigned long>(view.operationId), boolean(view.recovery), boolean(view.captureRead),
-                !view.typedRead ? "null" : view.typedRead->kind == Ess::ReadKind::IDENTITY ? "\"identity\"" : "\"config\"");
+                !view.typedRead ? "null" : view.typedRead->kind == Ess::ReadKind::IDENTITY ? "\"identity\"" : view.typedRead->kind == Ess::ReadKind::CONFIG ? "\"config\"" : "\"state\"");
             emit();
         } else if (view.typedRead) formatRead(id, view.commandId, view.operationId, *view.typedRead, true);
         else if (view.recovery) formatRecovery(id, view.commandId, view.operationId, view.recoveryResult, true);
         else formatProbe(id, view.commandId, view.address, view.operationId, view.probe, true);
         return;
+    }
+    if (entry->command == Command::MONITOR) {
+        MonitorSnapshot state;
+        const Action result = host_.monitor(host_.context, args ? &monitorSettings : nullptr, state);
+        if (result != Action::OK) { action(id, "monitor", result); return; }
+        std::snprintf(output_, sizeof(output_),
+            "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"monitor\",\"ok\":true,\"enabled\":%s,\"interval_ms\":%lu,\"count\":%lu,\"remaining\":%lu,\"operation_id\":%lu,\"next_due_us\":%llu,\"admitted\":%llu,\"rejected\":%llu,\"cancelled\":%llu}",
+            static_cast<unsigned long>(id), boolean(state.settings.enabled), static_cast<unsigned long>(state.settings.intervalMs),
+            static_cast<unsigned long>(state.settings.count), static_cast<unsigned long>(state.remaining), static_cast<unsigned long>(state.operationId),
+            static_cast<unsigned long long>(state.nextDueUs), static_cast<unsigned long long>(state.admitted),
+            static_cast<unsigned long long>(state.rejected), static_cast<unsigned long long>(state.cancelled));
+        emit(); return;
     }
     if (loadCommand) {
         LoadSnapshot data;
@@ -405,7 +495,7 @@ void Console::dispatch() noexcept {
         if (occupied == OUTSTANDING_CAPACITY) { action(id, entry->name, Action::BUSY); return; }
         const auto start = entry->command == Command::CAPTURE_READ ? host_.startCaptureRead : host_.startProbe;
         const Action result = typedCommand ? host_.startTypedRead(host_.context, id, static_cast<uint8_t>(address),
-            entry->command == Command::READ_IDENTITY ? Ess::ReadKind::IDENTITY : Ess::ReadKind::CONFIG, operationId) :
+            entry->command == Command::READ_IDENTITY ? Ess::ReadKind::IDENTITY : entry->command == Command::READ_CONFIG ? Ess::ReadKind::CONFIG : Ess::ReadKind::STATE, operationId) :
             start(host_.context, id, static_cast<uint8_t>(address), operationId);
         if (result == Action::OK) track(id, operationId);
         action(id, entry->name, result, static_cast<uint8_t>(address), result == Action::OK ? operationId : 0);
@@ -465,9 +555,19 @@ void Console::dispatch() noexcept {
         const char* communication = !data.ready ? "unavailable" : data.recoveryRequired ? "failed" :
             !data.probeKnown ? "unknown" : !data.probeOk ? "failed" : !data.observedEarliestUs ? "unknown" :
             data.ageMs > data.staleAfterMs ? "stale" : "current";
+        MotorControlRS::ReadTarget target; target.id = data.address; target.address = data.address; target.generation = data.bindingGeneration;
+        if (data.communicationKnown && data.ready && !data.recoveryRequired) {
+            communication = !sameTarget(data.communicationTarget, target) || data.nowUs < data.communicationEarliestUs ? "unknown" :
+                data.nowUs - data.communicationEarliestUs > static_cast<uint64_t>(data.staleAfterMs) * 1000 ? "stale" : "current";
+        }
+        const StateCache::Block* motion = data.stateCache ? &data.stateCache->blocks[0] : nullptr;
+        const bool motionFresh = motion && fresh(*motion, target, data.nowUs, static_cast<uint64_t>(data.staleAfterMs) * 1000);
+        const char* alarms = !motionFresh ? "unknown" : motion->value.alarmFlag ||
+            (motion->value.rawAlarm >= 1 && motion->value.rawAlarm <= 5) ? "present" :
+            motion->value.rawAlarm == 0 ? "clear" : "unknown";
         std::snprintf(output_, sizeof(output_),
-            "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"health\",\"ok\":true,\"communication\":\"%s\",\"probe_address\":%s,\"model_address\":%s,\"age_ms\":%s,\"stale_after_ms\":%lu,\"readiness\":\"unknown\",\"alarms\":\"unknown\",\"state\":\"unknown\",\"identity\":\"%s\"}",
-            static_cast<unsigned long>(id), communication, probeAddress, modelAddress, age, static_cast<unsigned long>(data.staleAfterMs), data.probeKnown && data.probeOk ? "responder_only" : "unknown");
+            "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"health\",\"ok\":true,\"communication\":\"%s\",\"probe_address\":%s,\"model_address\":%s,\"age_ms\":%s,\"stale_after_ms\":%lu,\"readiness\":\"unknown\",\"alarms\":\"%s\",\"state\":\"%s\",\"identity\":\"%s\"}",
+            static_cast<unsigned long>(id), communication, probeAddress, modelAddress, age, static_cast<unsigned long>(data.staleAfterMs), alarms, motionFresh ? "observed" : "unknown", data.probeKnown && data.probeOk ? "responder_only" : "unknown");
         break;
     }
     case Command::STATS:
@@ -486,6 +586,14 @@ void Console::dispatch() noexcept {
             static_cast<unsigned long>(data.psramLargest), static_cast<unsigned long>(data.stackFreeBytes));
         break;
     default: error(id, entry->name, "unavailable"); return;
+    }
+    if (entry->command == Command::STATUS || entry->command == Command::HEALTH) {
+        std::size_t used = std::strlen(output_);
+        if (!used || output_[used - 1] != '}') { error(id, entry->name, "output_full"); return; }
+        --used;
+        if (!stateCache(output_, sizeof(output_), used, data) || !append(output_, sizeof(output_), used, "}")) {
+            error(id, entry->name, "output_full"); return;
+        }
     }
     emit();
 }
@@ -559,7 +667,7 @@ bool Console::formatRead(uint32_t id, uint32_t commandId, uint32_t operationId,
     std::size_t used = 0;
     const bool identity = context.kind == Ess::ReadKind::IDENTITY;
     const bool decoded = context.state == MotorControlRS::ReadState::SUCCEEDED &&
-        (identity ? Ess::getIdentity(context, identityView_) : Ess::getConfig(context, configView_)).isOk();
+        (identity ? Ess::getIdentity(context, identityView_).isOk() : context.kind == Ess::ReadKind::CONFIG ? Ess::getConfig(context, configView_).isOk() : true);
     bool fits = append(output_, sizeof(output_), used,
         "{\"type\":\"%s\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"%s\",\"command_id\":%lu,\"operation_id\":%lu,\"read_kind\":\"%s\",\"ok\":%s,\"state\":\"%s\",\"outcome\":\"%s\",\"status\":\"%s\",\"detail\":%ld,\"target\":%lu,\"address\":%u,\"generation\":%lu,\"started_us\":%llu,\"deadline_us\":%llu,\"serviced_us\":%llu,\"completed_steps\":%u,\"active_serial\":{\"known\":%s,\"baud\":%lu,\"data_bits\":%u,\"parity\":%u,\"stop_bits\":%u},\"%s\":",
         inspection ? "reply" : "read", static_cast<unsigned long>(id), inspection ? "result" : readCommandName(context.kind),
@@ -569,8 +677,17 @@ bool Console::formatRead(uint32_t id, uint32_t commandId, uint32_t operationId,
         static_cast<unsigned long long>(context.startedUs), static_cast<unsigned long long>(context.deadlineUs),
         static_cast<unsigned long long>(context.servicedUs), context.completedSteps, boolean(context.activeSerial.known),
         static_cast<unsigned long>(context.activeSerial.baud), context.activeSerial.dataBits, static_cast<unsigned>(context.activeSerial.parity),
-        context.activeSerial.stopBits, readName(context.kind));
-    if (!decoded) fits = fits && append(output_, sizeof(output_), used, "null");
+        context.activeSerial.stopBits, context.kind == Ess::ReadKind::STATE ? "state_blocks" : readName(context.kind));
+    if (context.kind == Ess::ReadKind::STATE) {
+        fits = fits && append(output_, sizeof(output_), used, "[");
+        bool first = true;
+        for (uint8_t block = 0; block < Ess::STATE_BLOCK_COUNT && fits; ++block) {
+            if (!Ess::getStateBlock(context, block, stateView_)) continue;
+            fits = append(output_, sizeof(output_), used, "%s", first ? "" : ",") && stateValue(output_, sizeof(output_), used, stateView_);
+            first = false;
+        }
+        fits = fits && append(output_, sizeof(output_), used, "]");
+    } else if (!decoded) fits = fits && append(output_, sizeof(output_), used, "null");
     else if (identity) {
         const auto& v = identityView_;
         fits = fits && append(output_, sizeof(output_), used,
@@ -597,6 +714,11 @@ bool Console::formatRead(uint32_t id, uint32_t commandId, uint32_t operationId,
         fits = fits && append(output_, sizeof(output_), used,
             "],\"stored_serial\":{\"baud_code\":%u,\"format_code\":%u,\"activation\":\"power_cycle_required\"},\"units\":\"command_scale_unresolved_encoder_readback_only\"}", raw.baud, raw.format);
     }
+    if (context.kind == Ess::ReadKind::STATE)
+        fits = fits && append(output_, sizeof(output_), used,
+            ",\"decode_config\":{\"operation_id\":%lu,\"word_order_known\":%s,\"word_order\":%u,\"algorithm_known\":%s,\"algorithm\":%u}",
+            static_cast<unsigned long>(context.configOperationId), boolean(context.stateWordOrderKnown), static_cast<unsigned>(context.stateWordOrder),
+            boolean(context.stateAlgorithmKnown), static_cast<unsigned>(context.stateAlgorithm));
     fits = fits && append(output_, sizeof(output_), used, ",\"steps\":[");
     bool firstStep = true;
     for (std::size_t i = 0; i < Ess::READ_MAX_STEPS && fits; ++i) {
@@ -606,10 +728,10 @@ bool Console::formatRead(uint32_t id, uint32_t commandId, uint32_t operationId,
         const auto txLength = Ess::buildReadRegisters(context.target.address, v.first, v.count, tx, sizeof(tx));
         hex(tx, txLength, txHex, sizeof(txHex)); hex(v.raw, v.length, rxHex, sizeof(rxHex));
         fits = append(output_, sizeof(output_), used,
-            "%s{\"step\":%u,\"first\":%u,\"count\":%u,\"event\":%u,\"status\":\"%s\",\"detail\":%ld,\"frame_error\":%u,\"qualified\":%s,\"earliest_us\":%llu,\"latest_us\":%llu,\"delivered_us\":%llu,\"tx\":\"%s\",\"rx\":\"%s\",\"received_length\":%u,\"tx_accepted\":%u,\"execution_unknown\":%s,\"transport_detail\":%ld}",
+            "%s{\"step\":%u,\"first\":%u,\"count\":%u,\"event\":%u,\"status\":\"%s\",\"detail\":%ld,\"frame_error\":%u,\"qualified\":%s,\"attempted_us\":%llu,\"earliest_us\":%llu,\"latest_us\":%llu,\"delivered_us\":%llu,\"tx\":\"%s\",\"rx\":\"%s\",\"received_length\":%u,\"tx_accepted\":%u,\"execution_unknown\":%s,\"transport_detail\":%ld}",
             firstStep ? "" : ",", static_cast<unsigned>(i), v.first, v.count, static_cast<unsigned>(v.event),
             MotorControlRS::errToString(v.status.code), static_cast<long>(v.status.detail), static_cast<unsigned>(v.frameError), boolean(v.qualified),
-            static_cast<unsigned long long>(v.earliestUs), static_cast<unsigned long long>(v.latestUs), static_cast<unsigned long long>(v.deliveredUs),
+            static_cast<unsigned long long>(v.attemptedUs), static_cast<unsigned long long>(v.earliestUs), static_cast<unsigned long long>(v.latestUs), static_cast<unsigned long long>(v.deliveredUs),
             txHex, rxHex, static_cast<unsigned>(v.receivedLength), static_cast<unsigned>(v.txAccepted), boolean(v.executionUnknown), static_cast<long>(v.transportDetail));
         firstStep = false;
     }

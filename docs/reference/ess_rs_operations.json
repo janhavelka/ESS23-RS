@@ -155,6 +155,53 @@
         ]
       },
       "reason": "Reads only. Stored serial settings, raw unresolved units, input assignments, application wiring and observed levels remain distinct. Observed algorithm raw3 is unknown under the documented1/2 enum; read response evidence does not qualify its meaning or motion."
+    },
+    {
+      "id": "read_state",
+      "kind": "READ",
+      "records": [
+        "ERROR_CODE",
+        "MOTION_STATUS",
+        "INPUT_STATUS",
+        "OUTPUT_STATUS",
+        "CURRENT_POSITION",
+        "CURRENT_SPEED"
+      ],
+      "api": {
+        "header": "include/MotorControlRS/profiles/ess_rs/Reads.h",
+        "symbols": [
+          "prepareState",
+          "nextRead",
+          "advanceRead",
+          "getStateBlock"
+        ]
+      },
+      "cli_commands": [
+        "read state",
+        "profile ess_rs state",
+        "health check",
+        "monitor"
+      ],
+      "implementation": "IMPLEMENTED",
+      "cli": "REACHABLE",
+      "native": {
+        "state": "PASS",
+        "evidence": [
+          "test/reads_test.cpp",
+          "test/probe_app_test.cpp",
+          "test/probe_console_test.cpp",
+          "test/bench_probe_test.py",
+          "test/installed_consumer/main.cpp",
+          "docs/reports/ess_release_06_2026-10-04.md"
+        ]
+      },
+      "hardware": {
+        "state": "PASS",
+        "evidence": [
+          "docs/reports/ess_release_06_2026-10-04.md"
+        ]
+      },
+      "reason": "Three independent non-consuming blocks; configured algorithm raw3 cannot establish actual/commanded position. Unsigned paired bits are decoded only with matching known word order; speed/position signed encoding and physical units remain unresolved. Communication, alarm, readiness and operation outcomes are separate."
     }
   ],
   "coverage_notes": [

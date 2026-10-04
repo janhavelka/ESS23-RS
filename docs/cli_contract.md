@@ -1,6 +1,6 @@
 # MotorControl-RS standalone CLI contract
 
-Prompt 05 implements the bounded [typed identity/configuration read API](ess_reads.md), common/profile read routes and minimal read capabilities. The [linked inventory](reference/ess_rs_operations.json) keeps read/write/action and native/hardware evidence separate. Model/firmware compatibility, state and motion remain unqualified; these reads perform no writes.
+Prompts 05–06 implement bounded [typed identity/configuration/state reads](ess_reads.md), common/profile routes, passive per-block status/health and finite opt-in observation polling. The [linked inventory](reference/ess_rs_operations.json) keeps native/hardware evidence and read/write/action obligations separate. Model/firmware compatibility, units, readiness and motion remain unqualified; these reads perform no writes.
 
 This defines the planned standalone console for the general `MotorControlRS`
 library and its family profiles, beginning with `MotorControlRS::ESS_RS`.
@@ -100,11 +100,11 @@ implemented. Aliases have identical effects on every platform.
 | `ping` / `probe` | `prepareProbe`; smallest supported non-changing presence query, with explicit identity confidence | Minimal query |
 | `read identity` | Implemented `ESS_RS::prepareIdentity`/`getIdentity`; raw identity with unresolved model/firmware mapping | Reads |
 | `discover [manufacturer <id> \| profile <id>] [bounds...]` | Application-owned bounded scan through reviewed probe/identity operations | Non-changing queries |
-| `read state` / `read status` | `prepareReadState`; explicitly requested supported, non-consuming state fields | Reads |
+| `read state` | Implemented `ESS_RS::prepareState`/`getStateBlock`; three independently timed non-consuming blocks | Reads |
 | `read config` | Implemented `ESS_RS::prepareConfig`/`getConfig`; bounded read-only motion-prerequisite subset | Reads |
 | `status` | Cached host, transport, motor and operation state with ages | None |
 | `health` | Cached presence/freshness and motor-readiness assessment | None |
-| `health check` | Bounded identity/state refresh, then assessment | Reads |
+| `health check` | Implemented state refresh; canonical `read-state` correlation, then separate cached assessment | Reads |
 | `stats` | Transport/application counters | None |
 | `stats reset` / `reset` | Clear local counters only | None |
 | `drv` | Transport phase, deadlines, queue/buffer state and adapter capabilities | None |
@@ -345,8 +345,7 @@ Routine telemetry output is rate-limited.
 A validated write acknowledgement is not motion completion. Later readable
 state does not prove that a lost non-idempotent command never executed. Do not
 automatically retry relative movement or replay commands after recovery.
-`auto off` stops future optional polls and lets an in-flight read settle within
-its deadline. `recover` only reinitializes host transport while idle; it does
+Implemented `monitor off` disables finite observation polling and cancels its local continuation while physical TX settles; it is not a motor stop. Other planned automatic modes remain unimplemented. `recover` only reinitializes host transport while idle; it does
 not clear alarms, enable the motor or resend work. `reset` always means local
 statistics only and does not erase uncertain operations or coordinate state.
 

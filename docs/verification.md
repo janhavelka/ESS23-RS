@@ -1,5 +1,13 @@
 # Software verification
 
+## Prompt06 state and health
+
+[Typed state/cache verification](reports/ess_release_06_2026-10-04.md) passes19
+CTest suites, the installed C++11 consumer, all four firmware builds and stationary
+COM13 state/health/polling checks. Per-block age, failed refresh retention,
+generation mismatch, urgent scheduling and cancellation have native regressions.
+Actual feedback units/source and physical motion completion remain unresolved.
+
 ## Fresh prompt 03 audit
 
 The [fresh independent audit](reports/ess_release_03_audit_2026-10-04.md) fixes

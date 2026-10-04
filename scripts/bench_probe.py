@@ -28,14 +28,15 @@ MAX_LINE = 4096
 MAX_INPUT = 32768
 COMMANDS = frozenset({"version", "config", "probe", "capture-read", "status", "health", "memory", "stats", "load",
                       "drv", "result", "release", "cancel", "recover", "reset", "caps",
-                      "read-identity", "read-config"})
+                      "read-identity", "read-config", "read-state", "health-check", "monitor"})
 MAX_COMMANDS = 10  # Eight probes, one recovery and one interleaved local report.
 MAX_OPERATIONS = 9  # Firmware retains eight ordinary results plus one recovery.
 MAX_PROBES = 8
-TYPED_READS = {"read-identity": "identity", "read-config": "config"}
+TYPED_READS = {"read-identity": "identity", "read-config": "config", "read-state": "state"}
 READ_COMMANDS = ("probe", "capture-read", *TYPED_READS)
 TYPED_WINDOWS = {"identity": ((0x0000, 4),),
-                 "config": ((0x0010, 2), (0x0013, 3), (0x0017, 3), (0x0040, 5), (0x0100, 2))}
+                 "config": ((0x0010, 2), (0x0013, 3), (0x0017, 3), (0x0040, 5), (0x0100, 2)),
+                 "state": ((0x0006, 2), (0x0008, 2), (0x000A, 3))}
 LOAD_FIELDS = ("workload_us", "owner_delay_us", "console_bytes")
 LOAD_LIMITS = (5000, 20000, 256)
 LOAD_COUNTERS = (
@@ -397,10 +398,11 @@ class Console:
                     and type(step.get("transport_detail")) is int
                     and -0x80000000 <= step["transport_detail"] <= 0x7FFFFFFF,
                     "step evidence is invalid")
-            check_counts(step, ("earliest_us", "latest_us", "delivered_us", "received_length"), "typed-read step")
+            check_counts(step, ("attempted_us", "earliest_us", "latest_us", "delivered_us", "received_length"), "typed-read step")
             require(type(step.get("detail")) is int and -0x80000000 <= step["detail"] <= 0x7FFFFFFF,
                     "step status detail is invalid")
             require(previous_delivery <= step["delivered_us"] <= item["serviced_us"], "step delivery order is inconsistent")
+            require(previous_delivery <= step["attempted_us"] <= step["delivered_us"], "step eligibility order is inconsistent")
             if step["qualified"]:
                 require(step["event"] == 0 and previous_delivery <= step["earliest_us"]
                         <= step["latest_us"] <= step["delivered_us"], "closure bounds are inconsistent")
@@ -442,8 +444,10 @@ class Console:
                 decoded_words.extend(int.from_bytes(rx[3 + 2 * word:5 + 2 * word], "big") for word in range(count))
             previous_delivery = step["delivered_us"]
         decoded = item.get(kind)
+        if kind == "state":
+            Console._check_state_values(item, decoded_words)
         if not item["ok"]:
-            require(kind in item and decoded is None, "failed operation published a decoded observation")
+            require(kind == "state" or (kind in item and decoded is None), "failed operation published a decoded observation")
             require(bool(steps), "failed operation lacks retained terminal evidence")
             last = steps[-1]
             if outcome == "reply_error":
@@ -465,6 +469,8 @@ class Console:
                 expired_control = last["event"] == 3 and last["delivered_us"] >= item["deadline_us"]
                 require(item["status"] == "ILLEGAL_VALUE" and (expired_frame or partial_budget or expired_control),
                         "deadline outcome lacks absolute expiry evidence")
+            return
+        if kind == "state":
             return
         require(isinstance(decoded, dict), "successful operation lacks decoded observation")
         if kind == "identity":
@@ -512,6 +518,104 @@ class Console:
                     and "level" in entry and entry["level"] is None, "input assignment/wiring/level evidence is inconsistent")
 
     @staticmethod
+    def _check_state_values(item: dict, words: list[int]) -> None:
+        def require(condition, message):
+            if not condition:
+                raise BenchError("typed-read state " + message)
+
+        blocks, config = item.get("state_blocks"), item.get("decode_config")
+        require(isinstance(blocks, list) and len(blocks) == item["completed_steps"], "partial blocks are inconsistent")
+        require(isinstance(config, dict) and type(config.get("operation_id")) is int
+                and 0 <= config["operation_id"] <= 0xFFFFFFFF, "decode configuration is invalid")
+        for flag, code, choices in (("word_order_known", "word_order", (0, 1)),
+                                    ("algorithm_known", "algorithm", (1, 2))):
+            require(type(config.get(flag)) is bool and type(config.get(code)) is int
+                    and config[code] in choices and (not config[flag] or config["operation_id"] != 0),
+                    "decode configuration is invalid")
+        for index, block in enumerate(blocks):
+            require(isinstance(block, dict) and type(block.get("block")) is int and block["block"] == index
+                    and block.get("config_operation_id") == config["operation_id"], "block identity is inconsistent")
+            if index == 0:
+                alarm, motion = words[:2]
+                expected = dict(raw_alarm=alarm, alarm_known=alarm in (0, 1, 2, 3, 5), raw_motion=motion,
+                                unknown_motion_bits=motion & 0xFF80, in_position=bool(motion & 1),
+                                homing_complete=bool(motion & 2), running=bool(motion & 4), alarm_flag=bool(motion & 8),
+                                released=bool(motion & 16), enabled=not bool(motion & 16),
+                                positive_soft_limit=bool(motion & 32), negative_soft_limit=bool(motion & 64))
+            elif index == 1:
+                inputs, outputs = words[2:4]
+                expected = dict(raw_inputs=inputs, raw_outputs=outputs, unknown_input_bits=inputs & 0xFFF0,
+                                unknown_output_bits=outputs & 0xFFFC,
+                                inputs=[bool(inputs & (1 << bit)) for bit in range(4)],
+                                outputs=[bool(outputs & (1 << bit)) for bit in range(2)], levels="logical_valid_not_voltage")
+            else:
+                first, second, speed = words[4:7]
+                pair_known = config["word_order_known"]
+                raw_position = ((first << 16 | second) if config["word_order"] == 0 else (second << 16 | first)) if pair_known else 0
+                expected = dict(position_words=[first, second], raw_speed=speed, pair_known=pair_known,
+                                raw_position=raw_position, position_source=config["algorithm"] if config["algorithm_known"] else 0,
+                                word_order_resolution=0 if pair_known else 9,
+                                position_source_resolution=0 if config["algorithm_known"] else 10,
+                                position_signed_resolution=7, position_scale_resolution=5,
+                                speed_signed_resolution=7, speed_unit_resolution=8,
+                                physical_units="unresolved", raw_encoder_counts=None)
+            for key, value in expected.items():
+                require(key in block and type(block[key]) is type(value) and block[key] == value,
+                        "decoded field differs from retained RX: " + key)
+            if index == 1:
+                require(all(type(value) is bool for value in block["inputs"] + block["outputs"]), "logical levels are not booleans")
+
+    @staticmethod
+    def _check_cached_state(item: dict) -> None:
+        def require(condition, message):
+            if not condition:
+                raise BenchError("cached state " + message)
+        check_counts(item, ("now_us", "stale_after_ms", "selected_target", "selected_address", "selected_generation"), "cached state")
+        require(item.get("monitoring") in ("enabled", "disabled") and item.get("atomic_snapshot") is False
+                and item.get("sample_time") == "drive_internal_age_undocumented", "snapshot claims unsupported certainty")
+        blocks = item.get("state_blocks")
+        require(isinstance(blocks, list) and len(blocks) == 3, "observation blocks are incomplete")
+        for index, block in enumerate(blocks):
+            require(isinstance(block, dict) and type(block.get("block")) is int and block["block"] == index, "block identity is invalid")
+            for key in ("valid", "current", "fresh", "attempt_known", "last_attempt_ok"):
+                require(type(block.get(key)) is bool, "block flags are invalid")
+            check_counts(block, ("target", "address", "generation", "operation_id", "last_attempt_us", "last_attempt_target",
+                               "last_attempt_address", "last_attempt_generation", "last_attempt_operation_id", "last_success_us",
+                               "observed_earliest_us", "observed_latest_us", "delivered_us"), "cached state block")
+            require(block["last_attempt_us"] <= item["now_us"], "last attempt is in the future")
+            require(type(block.get("last_attempt_status")) is str and type(block.get("last_attempt_detail")) is int, "attempt error is unavailable")
+            if not block["valid"]:
+                require(not block["current"] and not block["fresh"] and block.get("value") is None
+                        and block.get("age_us") is None and block.get("source") == "absent", "absent feedback was fabricated")
+                continue
+            require(isinstance(block.get("value"), dict) and block["value"].get("block") == index
+                    and block.get("source") == "checked_rtu_register", "valid observation source is invalid")
+            require(0 <= block["observed_earliest_us"] <= block["observed_latest_us"] <= block["delivered_us"] <= item["now_us"]
+                    and block["last_success_us"] == block["observed_latest_us"], "observation timing bounds are invalid")
+            expected_current = all(block[key] == item["selected_" + key] for key in ("target", "address", "generation"))
+            age = item["now_us"] - block["observed_earliest_us"]
+            require(type(block.get("age_us")) is int and block["age_us"] == age and block["current"] == expected_current
+                    and block["fresh"] == (expected_current and age <= item["stale_after_ms"] * 1000), "observation age or generation is inconsistent")
+        if item.get("command") == "health":
+            require(item.get("readiness") == "unknown", "observation claims unsupported readiness")
+            motion = blocks[0]
+            value = motion.get("value")
+            expected_alarms = "unknown" if not motion["fresh"] else "present" if value["alarm_flag"] or 1 <= value["raw_alarm"] <= 5 else "clear" if value["raw_alarm"] == 0 else "unknown"
+            require(item.get("alarms") == expected_alarms, "alarm presence differs from checked motion evidence")
+            require(item.get("state") == ("observed" if motion["fresh"] else "unknown"), "state freshness differs from block evidence")
+        require(type(item.get("communication_known")) is bool and item.get("age_source") == "model_probe", "communication evidence is unavailable")
+        check_counts(item, ("communication_target", "communication_address", "communication_generation", "communication_earliest_us", "communication_latest_us"), "cached communication")
+        if not item["communication_known"]:
+            require(item.get("communication_age_us") is None, "absent communication age was fabricated")
+        if item["communication_known"]:
+            require(type(item.get("communication_age_us")) is int and item["communication_age_us"] == item["now_us"] - item["communication_earliest_us"], "communication age differs from evidence")
+            require(0 <= item["communication_earliest_us"] <= item["communication_latest_us"] <= item["now_us"], "communication timing bounds are invalid")
+            if item.get("command") == "health" and item.get("communication") not in ("unavailable", "failed"):
+                same = all(item["communication_" + key] == item["selected_" + key] for key in ("target", "address", "generation"))
+                expected = "unknown" if not same else "stale" if item["now_us"] - item["communication_earliest_us"] > item["stale_after_ms"] * 1000 else "current"
+                require(item.get("communication") == expected, "communication freshness differs from evidence")
+
+    @staticmethod
     def _check_recovery(item: dict) -> None:
         outcome = item.get("outcome")
         if (item.get("recovery") is not True
@@ -537,6 +641,14 @@ class Console:
             if item.get("valid") is not True:
                 raise BenchError("memory measurements are unavailable")
             check_counts(item, MEMORY_FIELDS, "memory")
+        if handle.command in ("status", "health") and item["ok"]:
+            self._check_cached_state(item)
+        if handle.command == "monitor" and item["ok"]:
+            if type(item.get("enabled")) is not bool:
+                raise BenchError("monitor enabled state is invalid")
+            check_counts(item, ("interval_ms", "count", "remaining", "operation_id", "next_due_us", "admitted", "rejected", "cancelled"), "monitor")
+            if item["remaining"] > item["count"] or item["count"] > 1000 or (item["enabled"] and not 100 <= item["interval_ms"] <= 60000):
+                raise BenchError("monitor finite budget is inconsistent")
         if handle.command == "status" and item["ok"]:
             uptime = item.get("uptime_ms")
             if type(uptime) is not int or not 0 <= uptime <= 0xFFFFFFFFFFFFFFFF:
@@ -598,7 +710,7 @@ class Console:
                 self.last_operation_id = operation_id
                 return
             expected_type = {"probe": "probe", "capture-read": "capture_read", "recover": "recovery",
-                             "read-identity": "read", "read-config": "read"}[handle.command]
+                             "read-identity": "read", "read-config": "read", "read-state": "read"}[handle.command]
             if item.get("type") != expected_type or not handle.accepted:
                 raise BenchError(f"{handle.command} response sequence is invalid")
             if (not self._operation_id(item.get("operation_id"))
@@ -692,7 +804,7 @@ class Console:
 
     def begin(self, command: str, *, timeout_s: float = 3.0,
               address: int | None = None, load: tuple[int, int, int] | None = None,
-              operation_id: int | None = None) -> Command:
+              operation_id: int | None = None, monitor: tuple[int, int] | bool | None = None) -> Command:
         """Send once and collect admission/local reply; bus completion can stay pending.
 
         Up to ten handles (eight probes, one recovery and one local query) may be
@@ -702,6 +814,15 @@ class Console:
         positive(timeout_s, "command timeout")
         if command not in COMMANDS:
             raise ValueError("command is not in the read-only/host-control harness inventory")
+        health_check = command == "health-check"
+        if health_check:
+            command = "read-state"  # The wire alias returns canonical read-state records.
+        if monitor is not None:
+            if command != "monitor" or (monitor is not False and
+                (not isinstance(monitor, tuple) or len(monitor) != 2 or
+                 type(monitor[0]) is not int or type(monitor[1]) is not int or
+                 not 100 <= monitor[0] <= 60000 or not 1 <= monitor[1] <= 1000)):
+                raise ValueError("monitor requires off or interval 100..60000/count 1..1000")
         if address is not None and (command not in READ_COMMANDS or type(address) is not int
                                     or not 1 <= address <= 247):
             raise ValueError("an ESS probe address must be an integer within 1..247")
@@ -735,7 +856,9 @@ class Console:
                 suffix = " " + " ".join(str(value) for value in load)
             if operation_id is not None:
                 suffix = f" {operation_id}"
-            wire_command = "read " + TYPED_READS[command] if command in TYPED_READS else command
+            if monitor is not None:
+                suffix = " off" if monitor is False else f" {monitor[0]} {monitor[1]}"
+            wire_command = "health check" if health_check else "read " + TYPED_READS[command] if command in TYPED_READS else command
             payload = f"@{request_id} {wire_command}{suffix}\n".encode("ascii")
             self.emit("send", id=request_id, command=command, address=address,
                       load=load, operation_id=operation_id)
@@ -791,10 +914,10 @@ class Console:
 
     def command(self, command: str, *, timeout_s: float = 3.0,
                 address: int | None = None, load: tuple[int, int, int] | None = None,
-                operation_id: int | None = None) -> dict:
+                operation_id: int | None = None, monitor: tuple[int, int] | bool | None = None) -> dict:
         """Send once, wait for its terminal, then explicitly release admitted results."""
         handle = self.begin(command, timeout_s=timeout_s, address=address, load=load,
-                            operation_id=operation_id)
+                            operation_id=operation_id, monitor=monitor)
         return self.wait(handle, release=True)
 
     def identify(self, *, timeout_s: float = 3.0) -> dict:
@@ -839,6 +962,11 @@ def campaign(
     stays explicitly configured, including after a failure or interruption;
     the harness never sends cleanup or recovery commands behind the operator.
     """
+    if mode == "state-health":
+        if load is not None or read_command != "probe":
+            raise ValueError("state-health uses only its reviewed state reads")
+        state_health_campaign(console, count=count, interval_s=interval_s, timeout_s=timeout_s, address=address)
+        return
     if mode == "typed-read":
         if type(count) is not int or count != 1 or interval_s != 0 or load is not None or read_command != "probe":
             raise ValueError("typed-read is one explicit configuration/identity scenario")
@@ -928,8 +1056,8 @@ def typed_read_campaign(console: Console, *, kind: str, timeout_s: float, addres
     A missing/malformed response ends the session without retry or recovery.
     Inspection does not refresh observations, change settings or send motor traffic.
     """
-    if kind not in ("identity", "config", "both"):
-        raise ValueError("typed read kind must be identity, config or both")
+    if kind not in ("identity", "config", "state", "both"):
+        raise ValueError("typed read kind must be identity, config, state or both")
     positive(timeout_s, "command timeout")
     if type(address) is not int or not 1 <= address <= 247:
         raise ValueError("ESS read address must be within 1..247")
@@ -969,6 +1097,65 @@ def typed_read_campaign(console: Console, *, kind: str, timeout_s: float, addres
                      ok=failure is None and completed == len(kinds), error=failure)
 
 
+def state_health_campaign(console: Console, *, count: int, interval_s: float, timeout_s: float, address: int) -> None:
+    """Stationary non-consuming checks; no motor setting/action or hidden replay."""
+    if type(count) is not int or not 1 <= count <= 1_000_000:
+        raise ValueError("invalid campaign count")
+    if not math.isfinite(interval_s) or not 0 <= interval_s <= 60:
+        raise ValueError("interval must be finite and within 0..60 seconds")
+    positive(timeout_s, "command timeout")
+    if type(address) is not int or not 1 <= address <= 247:
+        raise ValueError("ESS read address must be within 1..247")
+    polling = console.command("monitor", timeout_s=timeout_s)
+    if not polling["ok"] or polling["enabled"]:
+        raise BenchError("disable observation polling explicitly before this stationary campaign")
+    typed_read_campaign(console, kind="config", timeout_s=timeout_s, address=address)
+    passed = 0
+    failure = None
+    try:
+        for index in range(count):
+            handle = console.begin("health-check", address=address, timeout_s=timeout_s)
+            terminal = console.wait(handle)
+            if not terminal["ok"]:
+                raise BenchError("health check failed: " + str(terminal.get("outcome")))
+            for control in ("result", "release"):
+                remaining = handle.deadline - console.clock()
+                positive(remaining, "remaining state-read " + control + " budget")
+                result = console.command(control, operation_id=handle.operation_id, timeout_s=remaining)
+                if not result["ok"]:
+                    raise BenchError("state-read " + control + " was rejected")
+            status = successful(console, "status", timeout_s)
+            health = successful(console, "health", timeout_s)
+            if "state_blocks" not in status or "state_blocks" not in health:
+                raise BenchError("state observation cache is unavailable")
+            for block_index, (previous, later) in enumerate(zip(status["state_blocks"], health["state_blocks"])):
+                step = terminal["steps"][block_index]
+                expected = terminal["state_blocks"][block_index]
+                for cached in (previous, later):
+                    if (not cached["valid"] or cached["value"] != expected
+                            or any(cached[key] != terminal[key] for key in ("target", "address", "generation"))
+                            or cached["operation_id"] != handle.operation_id
+                            or cached["last_success_us"] != step["latest_us"]
+                            or cached["observed_latest_us"] != step["latest_us"]
+                            or cached["delivered_us"] != step["delivered_us"]
+                            or not step["attempted_us"] <= cached["observed_earliest_us"] <= step["earliest_us"]):
+                        raise BenchError("state observation cache does not match completed refresh")
+                for key in ("value", "last_success_us", "observed_earliest_us", "observed_latest_us", "delivered_us"):
+                    if previous[key] != later[key]:
+                        raise BenchError("passive health query changed observation evidence")
+                if later["age_us"] < previous["age_us"]:
+                    raise BenchError("passive health query rejuvenated observation age")
+            passed += 1
+            if index + 1 < count:
+                console.sleep(interval_s)
+    except Exception as exc:
+        failure = str(exc)
+        raise
+    finally:
+        console.emit("summary", mode="state-health", checks_attempted=passed + (failure is not None),
+                     checks_passed=passed, ok=failure is None and passed == count, error=failure)
+
+
 def open_port(name: str, baud: int, timeout_s: float):
     try:
         import serial
@@ -998,10 +1185,11 @@ def arguments(argv: list[str] | None) -> argparse.Namespace:
     sub = parser.add_subparsers(dest="mode", required=True)
     sub.add_parser("probe", help="one model-register read and cached observations")
     sub.add_parser("capture-read", help="one fixed 0x0130/16-word timing-fixture read")
-    typed = sub.add_parser("typed-read", help="typed identity/configuration reads, retained inspection and release")
-    typed.add_argument("--kind", choices=("identity", "config", "both"), default="both")
+    typed = sub.add_parser("typed-read", help="typed identity/configuration/state reads, retained inspection and release")
+    typed.add_argument("--kind", choices=("identity", "config", "state", "both"), default="both")
     for mode, default_count, default_interval, description in (
         ("stress", 100, 0.1, "explicit repeated probes"),
+        ("state-health", 5, 0.1, "stationary state/health refresh, retained checks and passive cache age"),
         ("watch", 60, 1.0, "cached status/health/memory only; no motor traffic"),
         ("load", 100, 0.1, "read-only probes with explicit competing host workload"),
     ):

@@ -35,6 +35,7 @@ struct ReadCapabilities {
     bool probe = false;
     bool identity = false;
     bool config = false;
+    bool state = false;
     uint8_t maxSteps = 0;
     uint8_t maxReplyBytes = 0;
 };

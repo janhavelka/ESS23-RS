@@ -338,14 +338,14 @@ possible. This list is not a request for the user to answer everything now.
 | What motor/model/firmware is actually connected? | Read documented identity; compare model markings if identity is insufficient. The project's RS20 target is not a bench measurement. |
 | What firmware/host path is active on COM13? | Latest recorded bench: MotorControl-RS 0.6.0 JSONL probe/load console with timer capture, with original CO2control backup retained. Recheck identity at each new hardware session; it is not a raw RTU bridge. |
 | What are the board pins, DE/RE polarity, echo topology and bus wiring? | Bench pins are TX47/RX48/DE21, UART2/active-high DE; the selected example config owns them. Live polarity, echo and wiring qualification remain. |
-| Which address/baud/format is active despite reported defaults? | Replies are observed at node 1, 115200 8N1. Device configuration/DIP readback and bounded discovery remain pending. |
+| Which address/baud/format is active despite reported defaults? | Replies are observed at node 1, 115200 8N1. Typed configuration and raw DIP readback now have prompt05/06 evidence; DIP mapping and bounded discovery remain pending. |
 | Is the selected ESS probe qualified on the connected firmware? | Repeated checked FC03 0x0000/one-word replies have bench evidence. Exact model/firmware, external timing and communication-watchdog interaction remain unqualified. |
 | Can discovery distinguish a manufacturer/model or only a responder? | Record exact reply evidence and retain ambiguous candidates; no guessed selection. |
 | Which candidate protocols can be probed on the same bus? | Review query effects for the actual attached families; use an isolated target when compatibility is unknown. |
 | What are the actual ESS command/feedback subdivisions and signed limits? | Resolve p69-70 inconsistencies with configuration readback and measured movement. |
 | What are the speed/ramp units and valid ranges? | Reconcile command prose and ESS appendix before physical-unit conversion. |
 | What are the exact FC10 limits and partial-write effects? | Vendor evidence plus bounded firmware qualification; do not use generic maximums as device facts. |
-| Which state/alarm/completion reads are non-consuming and correlated to a new operation? | Profile access ledger and controlled sequencing tests. |
+| Which state/alarm/completion reads are non-consuming and correlated to a new operation? | Three reviewed non-consuming state blocks are implemented and tested in prompt06. Their reads are independent; correlation to future motion completion still requires controlled sequencing tests. |
 | Which optional inputs are wired, disabled or still assigned an active function? | Read exact drive function/polarity/state settings and record external wiring separately. ESS function 0 means no function; serial/external release precedence remains unresolved. Gate only dependent operations. |
 | What persists, applies immediately, waits for save or needs a power cycle? | Resolve access notation and test exact firmware; retain unknown application state after lost writes. |
 | How do collision-homing duplicate parameters and outside-map references apply? | Reconcile original pages/model scope; no guessed aliases or addresses. |
@@ -403,3 +403,21 @@ passed on the unchanged image.
 - [ ] Typed I/O changes remain for 15; no configuration writes, save or motion were added in 05.
 
 See [the typed read API](ess_reads.md) and [current report](reports/ess_release_05_2026-10-04.md) for exact readback and independent hardware disposition.
+
+## Prompt06 disposition
+
+- [x] Typed non-consuming MOTION/IO/FEEDBACK preparation and checked block decoders,
+  retaining unknown alarms/bits and unresolved position/speed interpretation.
+- [x] Per-block application cache with exact generations, independent attempts,
+  conservative age, failure retention and passive status/health.
+- [x] Explicit health check and finite disabled-by-default polling through the
+  existing owner; cancellation, urgent scheduling and pressure tests pass.
+- [x] Installed C++11 consumer and stationary COM13 raw/decoded evidence;
+  [report](reports/ess_release_06_2026-10-04.md) distinguishes native and hardware.
+- [ ] Establish algorithm3 semantics, feedback sign/scale, speed units and actual
+  versus commanded source; these block dependent completion/conversion claims.
+- [ ] External electrical capture, physical encoder/motion/stop qualification.
+
+Logical input levels0 do not establish external wiring or limit/stop effects.
+Identity success and clear alarms do not prove readiness or settle an uncertain
+operation. Prompt07 remains separately dispatched work.

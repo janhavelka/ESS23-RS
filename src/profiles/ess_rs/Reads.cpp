@@ -19,10 +19,18 @@ bool validTuple(const ActiveSerialTuple& tuple) {
         tuple.parity >= SerialParity::NONE && tuple.parity <= SerialParity::ODD &&
         (tuple.stopBits == 1 || tuple.stopBits == 2));
 }
-uint8_t steps(ReadKind kind) { return kind == ReadKind::IDENTITY ? 1 : 5; }
+uint8_t steps(ReadKind kind) { return kind == ReadKind::IDENTITY ? 1 : kind == ReadKind::STATE ? 3 : 5; }
 bool window(ReadKind kind, uint8_t step, uint16_t& first, uint16_t& count) {
     if (kind == ReadKind::IDENTITY && step == 0) {
         first = Registers::DRIVER_MODEL; count = 4; return true;
+    }
+    if (kind == ReadKind::STATE) {
+        switch (step) {
+        case 0: first = Registers::ERROR_CODE; count = 2; return true;
+        case 1: first = Registers::INPUT_STATUS; count = 2; return true;
+        case 2: first = Registers::CURRENT_POSITION; count = 3; return true;
+        default: return false;
+        }
     }
     if (kind != ReadKind::CONFIG) return false;
     switch (step) {
@@ -73,7 +81,7 @@ Status words(const ReadContext& context, uint8_t step, uint16_t* output) {
 
 ReadCapabilities readCapabilities() noexcept {
     ReadCapabilities result;
-    result.probe = result.identity = result.config = true;
+    result.probe = result.identity = result.config = result.state = true;
     result.maxSteps = READ_MAX_STEPS; result.maxReplyBytes = READ_MAX_REPLY_BYTES;
     return result;
 }
@@ -86,6 +94,26 @@ Status prepareConfig(ReadContext& output, const ReadTarget& target, uint32_t ope
                      uint64_t nowUs, uint64_t deadlineUs,
                      const ActiveSerialTuple& activeSerial, const InputWiring* wiring) noexcept {
     return prepare(output, ReadKind::CONFIG, target, operationId, nowUs, deadlineUs, activeSerial, wiring);
+}
+Status prepareState(ReadContext& output, const ReadTarget& target, uint32_t operationId,
+                    uint64_t nowUs, uint64_t deadlineUs,
+                    const ActiveSerialTuple& activeSerial, const ConfigObservation* config) noexcept {
+    if (config && (!sameTarget(config->target, target) || !config->operationId))
+        return invalid(ReadError::WRONG_CORRELATION, "state configuration context mismatch");
+    if (config && ((config->wordOrderKnown && config->wordOrder > WordOrder::LOW_WORD_FIRST) ||
+        (config->algorithmKnown && config->algorithm != ControlAlgorithm::OPEN_LOOP &&
+         config->algorithm != ControlAlgorithm::ALGORITHM_1)))
+        return invalid(ReadError::INVALID_EVENT, "invalid decoded configuration context");
+    ReadContext prepared;
+    const Status status = prepare(prepared, ReadKind::STATE, target, operationId, nowUs, deadlineUs, activeSerial, nullptr);
+    if (!status) return status;
+    if (config) {
+        prepared.configOperationId = config->operationId;
+        prepared.stateWordOrderKnown = config->wordOrderKnown; prepared.stateWordOrder = config->wordOrder;
+        prepared.stateAlgorithmKnown = config->algorithmKnown; prepared.stateAlgorithm = config->algorithm;
+    }
+    output = prepared;
+    return Ok();
 }
 Status nextRead(const ReadContext& context, uint64_t nowUs, PreparedRead& output) noexcept {
     if (context.state != ReadState::ACTIVE) return invalid(ReadError::INVALID_STATE, "read is not active");
@@ -122,7 +150,7 @@ Status advanceRead(ReadContext& context, const ReadEvent& event, uint64_t nowUs)
     ReadStepObservation observation;
     if (!window(context.kind, context.step, observation.first, observation.count))
         return invalid(ReadError::INVALID_STATE, "invalid read step");
-    observation.event = event.kind; observation.deliveredUs = nowUs;
+    observation.event = event.kind; observation.attemptedUs = context.servicedUs; observation.deliveredUs = nowUs;
     observation.transportDetail = event.transportDetail;
     observation.txAccepted = event.txAccepted; observation.executionUnknown = event.executionUnknown;
     observation.qualified = event.qualified;
@@ -222,6 +250,50 @@ Status getConfig(const ReadContext& context, ConfigObservation& output) noexcept
         config.units.encoder.countsPerUnit = UnitScale(config.raw.encoderResolution, 1, ScaleSource::READBACK);
     }
     output = config;
+    return Ok();
+}
+Status getStateBlock(const ReadContext& context, uint8_t block, StateObservation& output) noexcept {
+    if (context.kind != ReadKind::STATE) return invalid(ReadError::WRONG_KIND, "wrong read operation kind");
+    if (block >= STATE_BLOCK_COUNT || block >= context.completedSteps)
+        return invalid(ReadError::NOT_COMPLETE, "state block is unavailable");
+    uint16_t values[5] = {};
+    const Status parsed = words(context, block, values); if (!parsed) return parsed;
+    StateObservation state;
+    state.target = context.target; state.operationId = context.operationId;
+    state.configOperationId = context.configOperationId; state.block = static_cast<StateBlock>(block);
+    state.provenance = context.observations[block];
+    if (block == static_cast<uint8_t>(StateBlock::MOTION)) {
+        state.rawAlarm = values[0]; state.rawMotion = values[1];
+        state.alarmKnown = values[0] <= 3 || values[0] == 5;
+        if (state.alarmKnown) state.alarm = static_cast<AlarmCode>(values[0]);
+        state.unknownMotionBits = values[1] & 0xFF80;
+        state.inPosition = (values[1] & static_cast<uint16_t>(MotionStatusBit::IN_POSITION)) != 0;
+        state.homingComplete = (values[1] & static_cast<uint16_t>(MotionStatusBit::HOMING_COMPLETE)) != 0;
+        state.running = (values[1] & static_cast<uint16_t>(MotionStatusBit::RUNNING)) != 0;
+        state.alarmFlag = (values[1] & static_cast<uint16_t>(MotionStatusBit::ALARM)) != 0;
+        state.released = (values[1] & static_cast<uint16_t>(MotionStatusBit::RELEASED)) != 0;
+        state.enabled = !state.released;
+        state.positiveSoftLimit = (values[1] & static_cast<uint16_t>(MotionStatusBit::POSITIVE_SOFT_LIMIT)) != 0;
+        state.negativeSoftLimit = (values[1] & static_cast<uint16_t>(MotionStatusBit::NEGATIVE_SOFT_LIMIT)) != 0;
+    } else if (block == static_cast<uint8_t>(StateBlock::IO)) {
+        state.rawInputs = values[0]; state.rawOutputs = values[1];
+        state.unknownInputBits = values[0] & 0xFFF0; state.unknownOutputBits = values[1] & 0xFFFC;
+        for (uint8_t i = 0; i < READ_INPUT_COUNT; ++i) state.inputs[i] = (values[0] & (1U << i)) != 0;
+        for (uint8_t i = 0; i < 2; ++i) state.outputs[i] = (values[1] & (1U << i)) != 0;
+    } else {
+        state.rawPositionWords[0] = values[0]; state.rawPositionWords[1] = values[1]; state.rawSpeed = values[2];
+        if (context.stateWordOrderKnown) {
+            const Status decoded = decodeUint32(values, 2, context.stateWordOrder, state.rawPosition);
+            if (!decoded) return decoded;
+            state.pairKnown = true; state.wordOrderResolution = ReadResolution::RESOLVED;
+        }
+        if (context.stateAlgorithmKnown) {
+            state.positionSource = context.stateAlgorithm == ControlAlgorithm::OPEN_LOOP ?
+                PositionSource::COMMAND_GIVEN : PositionSource::SUBDIVISION_EQUIVALENT_FEEDBACK;
+            state.positionSourceResolution = ReadResolution::RESOLVED;
+        }
+    }
+    output = state;
     return Ok();
 }
 }} // namespace MotorControlRS::ESS_RS

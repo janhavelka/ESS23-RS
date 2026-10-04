@@ -2,6 +2,7 @@
 #pragma once
 
 #include "../common/RtuBusOwner.h"
+#include "StateCache.h"
 #include "MotorControlRS/profiles/ess_rs/Codec.h"
 #include "MotorControlRS/profiles/ess_rs/Reads.h"
 
@@ -39,6 +40,18 @@ struct LoadSnapshot {
     bool timer = false, ready = false;
     bool cpuValid = false;
     uint8_t cpu0BusyPct = 0, cpu1BusyPct = 0; ///< Optional scheduler-derived estimate.
+};
+
+/** Finite opt-in state observation polling. No consuming fields or retries. */
+struct MonitorSettings {
+    bool enabled = false;
+    uint32_t intervalMs = 0; ///< Enabled range 100..60000 ms.
+    uint32_t count = 0; ///< Enabled finite count 1..1000.
+};
+struct MonitorSnapshot {
+    MonitorSettings settings;
+    uint32_t remaining = 0, operationId = 0;
+    uint64_t nextDueUs = 0, admitted = 0, rejected = 0, cancelled = 0;
 };
 
 /** Task-context cached host observations. No probe establishes motor readiness. */
@@ -82,6 +95,12 @@ struct Snapshot {
     std::size_t pendingCapacity = 0, resultCapacity = 0, outstandingCapacity = OUTSTANDING_CAPACITY;
     std::size_t outputQueued = 0;
     uint64_t outputBlocked = 0, outputShortWrites = 0, inputBytes = 0, inputLines = 0, inputDropped = 0;
+    const StateCache* stateCache = nullptr; ///< Borrowed for synchronous snapshot formatting only.
+    uint64_t nowUs = 0;
+    MonitorSnapshot monitorState;
+    bool communicationKnown = false;
+    MotorControlRS::ReadTarget communicationTarget;
+    uint64_t communicationEarliestUs = 0, communicationLatestUs = 0;
     Rtu::Stats stats;
     uint64_t maxPollGapUs = 0;
     uint32_t captureFaults = 0, rxErrors = 0;
@@ -126,7 +145,7 @@ struct ResultView {
  * without a newline and must consume/copy it before returning. It must not call
  * back into the console. Return false without copying any bytes for backpressure.
  * The console retains one complete blocked line. With that line pending,
- * only a valid cancel command dispatches; other complete commands and local
+ * only valid cancel and monitor off commands dispatch; other complete commands and local
  * cancel replies are discarded and counted by inputDropped(). Terminal lines
  * remain retained and are never replaced by a discarded command reply.
  * snapshot only reads cached state and must not touch the
@@ -155,6 +174,8 @@ struct Host {
     Action (*recover)(void*, uint32_t commandId, uint32_t& operationId) = nullptr;
     void (*resetStats)(void*) = nullptr;
     Action (*load)(void*, const LoadSettings* requested, LoadSnapshot&) = nullptr;
+    /** Local finite polling control; null queries, disabled cancels local continuation. */
+    Action (*monitor)(void*, const MonitorSettings* requested, MonitorSnapshot&) = nullptr;
     bool (*result)(void*, uint32_t operationId, ResultView&) = nullptr; ///< Zero selects latest.
     Action (*cancel)(void*, uint32_t operationId) = nullptr; ///< Local only; zero selects latest.
     Action (*release)(void*, uint32_t operationId) = nullptr; ///< Explicit terminal retention release.
@@ -174,7 +195,7 @@ struct Host {
 class Console {
 public:
     explicit Console(const Host& host) noexcept : host_(host) {}
-    /** Consume one character. Under output pressure only valid local cancel
+    /** Consume one character. Under output pressure only valid local cancel and monitor off
      * commands dispatch; other completed commands are counted and discarded. */
     void feed(char value) noexcept;
     bool serviceOutput() noexcept;
@@ -211,6 +232,7 @@ private:
     // service stack. Only the selected kind is used during a bounded format.
     MotorControlRS::ESS_RS::IdentityObservation identityView_;
     MotorControlRS::ESS_RS::ConfigObservation configView_;
+    MotorControlRS::ESS_RS::StateObservation stateView_;
     std::size_t length_ = 0;
     uint32_t nextId_ = 1;
     struct Outstanding { uint32_t commandId = 0, operationId = 0; bool transferred = false; } outstanding_[OUTSTANDING_CAPACITY];

@@ -4,6 +4,7 @@
 #include <cassert>
 #include <cstring>
 #include <limits>
+#include <initializer_list>
 
 using namespace MotorControlRS;
 using namespace MotorControlRS::ESS_RS;
@@ -334,9 +335,100 @@ void testUnknownIdentityAndBoundaryTargetsArePreserved() {
     assert(advanceRead(c, frame(c, reply, sizeof(reply)), 230) && getIdentity(c, out));
     assert(out.target.address == 247 && out.rawActiveNode == 1); // Reported active-node register remains independent evidence.
 }
+const uint8_t MOTION_REPLY[] = {1,3,4,0,5,0xAB,0x7F,0xD4,0xE2};
+const uint8_t IO_REPLY[] = {1,3,4,0xCA,0x05,0xF0,0x02,0x10,0x2B};
+const uint8_t FEEDBACK_REPLY[] = {1,3,6,0x12,0x34,0xAB,0xCD,0xFE,0xDC,0x63,0xE1};
+const Fixture STATE[] = {
+    {6,2,MOTION_REPLY,sizeof(MOTION_REPLY),{1,3,0,6,0,2,0x24,0x0A}},
+    {8,2,IO_REPLY,sizeof(IO_REPLY),{1,3,0,8,0,2,0x45,0xC9}},
+    {10,3,FEEDBACK_REPLY,sizeof(FEEDBACK_REPLY),{1,3,0,10,0,3,0x25,0xC9}}
+};
+ReadContext stateRead(const ConfigObservation* config = nullptr) {
+    ReadContext context; assert(prepareState(context,target(),12,100,1000,active(),config)); return context;
+}
+void stateStep(ReadContext& context, uint8_t index) {
+    const uint64_t earliest = 200 + index * 100;
+    uint8_t bytes[11]; std::memcpy(bytes, STATE[index].frame, STATE[index].length);
+    assert(advanceRead(context,frame(context,bytes,STATE[index].length,earliest,earliest+20),earliest+30));
+}
+void testStateWindowsBitfieldsAndAbsentFeedback() {
+    ReadContext context = stateRead(); StateObservation previous;
+    previous.rawAlarm = 0xA55A; const Saved<StateObservation> unchanged(previous);
+    assert(!getStateBlock(context,0,previous)); unchanged.check(previous);
+    for (uint8_t i=0;i<3;++i) {
+        PreparedRead request; assert(nextRead(context,context.servicedUs,request));
+        assert(request.first==STATE[i].first && request.count==STATE[i].count);
+        assert(std::memcmp(request.bytes,STATE[i].request,8)==0);
+        stateStep(context,i);
+        assert(getStateBlock(context,i,previous));
+        assert(previous.block==static_cast<StateBlock>(i) && previous.target.generation==9);
+        assert(previous.provenance.attemptedUs==(i ? 130ULL+i*100 : 100ULL));
+    }
+    assert(context.state==ReadState::SUCCEEDED && context.completedSteps==3);
+    StateObservation motion; assert(getStateBlock(context,0,motion));
+    assert(motion.rawAlarm==5 && motion.alarmKnown && motion.alarm==AlarmCode::POSITION_TOLERANCE);
+    assert(motion.rawMotion==0xAB7F && motion.unknownMotionBits==0xAB00);
+    assert(motion.inPosition && motion.homingComplete && motion.running && motion.alarmFlag);
+    assert(motion.released && !motion.enabled && motion.positiveSoftLimit && motion.negativeSoftLimit);
+    StateObservation io; assert(getStateBlock(context,1,io));
+    assert(io.rawInputs==0xCA05 && io.unknownInputBits==0xCA00);
+    assert(io.inputs[0] && !io.inputs[1] && io.inputs[2] && !io.inputs[3]);
+    assert(io.rawOutputs==0xF002 && io.unknownOutputBits==0xF000 && !io.outputs[0] && io.outputs[1]);
+    StateObservation feedback; assert(getStateBlock(context,2,feedback));
+    assert(feedback.rawPositionWords[0]==0x1234 && feedback.rawPositionWords[1]==0xABCD && feedback.rawSpeed==0xFEDC);
+    assert(!feedback.pairKnown && feedback.positionSource==PositionSource::UNRESOLVED);
+    assert(feedback.wordOrderResolution==ReadResolution::WORD_ORDER_UNRESOLVED);
+    assert(feedback.speedUnitResolution==ReadResolution::UNIT_UNSPECIFIED);
+    const Saved<StateObservation> saved(feedback); assert(!getStateBlock(context,3,feedback)); saved.check(feedback);
+}
+void testStateConfiguredPairsAndUnknownAlarms() {
+    ConfigObservation config = completedConfig();
+    for (unsigned order=0;order<2;++order) for(unsigned algorithm=1;algorithm<=2;++algorithm) {
+        config.wordOrder = static_cast<WordOrder>(order); config.algorithm=static_cast<ControlAlgorithm>(algorithm);
+        ReadContext context = stateRead(&config);
+        config.wordOrder = WordOrder::LOW_WORD_FIRST; // preparation owns its snapshot
+        for(uint8_t i=0;i<3;++i) stateStep(context,i);
+        StateObservation feedback; assert(getStateBlock(context,2,feedback));
+        assert(feedback.pairKnown && feedback.rawPosition==(order ? 0xABCD1234U : 0x1234ABCDU));
+        assert(feedback.configOperationId==config.operationId && feedback.wordOrderResolution==ReadResolution::RESOLVED);
+        assert(feedback.positionSource==(algorithm==1 ? PositionSource::COMMAND_GIVEN : PositionSource::SUBDIVISION_EQUIVALENT_FEEDBACK));
+        assert(feedback.positionSignedResolution==ReadResolution::SIGNED_ENCODING_UNRESOLVED);
+        assert(feedback.positionScaleResolution==ReadResolution::SCALE_UNRESOLVED);
+    }
+    for(const uint16_t alarm : {uint16_t(0),uint16_t(1),uint16_t(2),uint16_t(3),uint16_t(4),uint16_t(5),uint16_t(0xBEEF)}) {
+        ReadContext context=stateRead(); uint8_t bytes[9]={1,3,4,static_cast<uint8_t>(alarm>>8),static_cast<uint8_t>(alarm),0,0,0,0};
+        seal(bytes,sizeof(bytes)); assert(advanceRead(context,frame(context,bytes,sizeof(bytes)),230));
+        StateObservation motion; assert(getStateBlock(context,0,motion));
+        assert(motion.rawAlarm==alarm && motion.alarmKnown==(alarm<=3 || alarm==5));
+        assert(motion.enabled && !motion.released && !motion.running); // polarity from original table
+    }
+    config.wordOrderKnown=false;config.algorithmKnown=false;
+    ReadContext context=stateRead(&config);for(uint8_t i=0;i<3;++i)stateStep(context,i);
+    StateObservation feedback;assert(getStateBlock(context,2,feedback));
+    assert(!feedback.pairKnown && feedback.positionSource==PositionSource::UNRESOLVED);
+}
+void testStatePartialFailureAndConfigurationCorrelation() {
+    StateObservation previous;previous.rawPosition=0xAABBCCDD;const Saved<StateObservation> saved(previous);
+    for(uint8_t failing=0;failing<3;++failing) {
+        ReadContext context=stateRead();for(uint8_t i=0;i<failing;++i)stateStep(context,i);
+        const uint64_t time=200+failing*100;
+        assert(advanceRead(context,frame(context,EXCEPTION,sizeof(EXCEPTION),time,time+20),time+30));
+        assert(context.state==ReadState::FAILED && context.completedSteps==failing);
+        assert(!getStateBlock(context,failing,previous));saved.check(previous);
+        for(uint8_t i=0;i<failing;++i){StateObservation block;assert(getStateBlock(context,i,block));}
+        ConfigObservation configOutput;assert(!getConfig(context,configOutput)); // wrong kind cannot publish config
+    }
+    ConfigObservation config=completedConfig();ReadContext context=stateRead();const Saved<ReadContext> unchanged(context);
+    ++config.target.generation;assert(!prepareState(context,target(),13,100,1000,active(),&config));unchanged.check(context);
+    config=completedConfig();++config.target.id;assert(!prepareState(context,target(),13,100,1000,active(),&config));unchanged.check(context);
+    config=completedConfig();config.target.address=2;assert(!prepareState(context,target(),13,100,1000,active(),&config));unchanged.check(context);
+    config=completedConfig();config.wordOrder=static_cast<WordOrder>(7);assert(!prepareState(context,target(),13,100,1000,active(),&config));unchanged.check(context);
+    ReadEvent stale=frame(context,MOTION_REPLY,sizeof(MOTION_REPLY));++stale.target.generation;
+    assert(!advanceRead(context,stale,230));unchanged.check(context);
+}
 void testCapabilitiesAndFixedStorage() {
     const ReadCapabilities caps = readCapabilities();
-    assert(caps.probe && caps.identity && caps.config && caps.maxSteps == 5 && caps.maxReplyBytes <= 37);
+    assert(caps.probe && caps.identity && caps.config && caps.state && caps.maxSteps == 5 && caps.maxReplyBytes <= 37);
     static_assert(READ_MAX_STEPS == 5 && READ_INPUT_COUNT == 4 && READ_MAX_REPLY_BYTES == 37, "Reviewed read bounds");
     static_assert(sizeof(ReadContext) < 2048 && sizeof(ConfigObservation) < 2048, "Fixed bounded read storage");
 }
@@ -348,4 +440,6 @@ int main() {
     testUnknownEnumsAndZeroEncoderRemainRawEvidence(); testMalformedRepliesRetainFailureWithoutPublishing();
     testTransportProvenanceIsBoundedOwnedAndNotAcknowledgement(); testUnknownIdentityAndBoundaryTargetsArePreserved();
     testCapabilitiesAndFixedStorage();
+    testStateWindowsBitfieldsAndAbsentFeedback();testStateConfiguredPairsAndUnknownAlarms();
+    testStatePartialFailureAndConfigurationCorrelation();
 }

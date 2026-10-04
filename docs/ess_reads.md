@@ -1,6 +1,6 @@
 # Typed non-changing ESS reads
 
-[Reads.h](../include/MotorControlRS/profiles/ess_rs/Reads.h) implements identity
+[Reads.h](../include/MotorControlRS/profiles/ess_rs/Reads.h) implements identity, state
 and the bounded configuration subset needed before motion. The installed core
 depends only on its own headers. It performs no I/O, allocation, clock reads,
 configuration changes or retries. Generated `Types.h` remains generated from
@@ -37,10 +37,11 @@ not merely the last received byte.
 | Operation | Reviewed FC03 windows (first/count) | Maximum success replies |
 | --- | --- | --- |
 | Identity | `0x0000/4` | 13 bytes |
+| State | `0x0006/2`, `0x0008/2`, `0x000A/3` | 9, 9, 11 bytes |
 | Configuration | `0x0010/2`, `0x0013/3`, `0x0017/3`, `0x0040/5`, `0x0100/2` | 9, 11, 11, 15, 9 bytes |
 
 These windows deliberately exclude ledger gaps. No read exceeds 16 words;
-there are no writes or action/latched-state reads. Register constants come from
+there are no writes, actions or reviewed read-to-clear fields. Register constants come from
 the generated descriptors. Identity preserves raw model, version, active node
 and DIP values. Unknown `0x4EEA` and firmware encoding are not mapped to a model
 or version. The function and hardware manuals disagree on DIP layout, so the
@@ -50,7 +51,7 @@ Configuration preserves unknown enum codes and reserved polarity bits while
 marking typed values unknown. It includes direction, subdivision, stored node,
 baud/format, limit settings, paired-word order, input assignments/polarity,
 algorithm and configured encoder resolution. A known word order is required
-before future paired payload decoding; these operations do not read a pair.
+before future paired payload decoding; configuration reads do not themselves read a pair. State feedback uses a matching copied configuration before unsigned pair assembly.
 Stored serial codes are distinct from the actual host tuple used successfully
 for these reads. They do not prove that pending settings are active or saved.
 Subdivision remains SCALE_UNRESOLVED; it never replaces a command scale with
@@ -61,8 +62,7 @@ chip, interface or measured resolution. The rest of `UnitConfig` stays unknown.
 
 Input assignments, declared wiring and observed levels are independent. Function
 0 is the documented no-function assignment. UNKNOWN or UNCONNECTED wiring never
-disables an assigned function. Input levels are unknown because this step does
-not read state. Serial-only reads require no external I/O. Future homing,
+disables an assigned function. Configuration input levels stay unknown; the independently timed state I/O block supplies logical levels. Serial-only reads require no external I/O. Future homing,
 limit, enable/stop and trigger operations must check only their relevant input
 assignments, wiring and state; this operation changes none of them.
 
@@ -95,9 +95,76 @@ the complete denominator, access, pages, source issues and independent read,
 write/action, implementation, CLI and evidence dispositions without creating
 another address catalogue. Reads never satisfy write/action obligations.
 
-Current native/public-package and hardware evidence, memory sizes and remaining
-motion prerequisites are in the [prompt 05 handoff](reports/ess_release_05_2026-10-04.md).
+Historical identity/configuration native/public-package and hardware evidence
+is in the [prompt 05 handoff](reports/ess_release_05_2026-10-04.md).
 
 The [fresh prompt 05 audit](reports/ess_release_05_audit_2026-10-04.md)
 independently rechecks these contracts and repeats native, installed-package,
 build and read-only bench verification.
+
+## State observations and application health
+
+`prepareState` snapshots the same target, operation, immutable deadline and
+active tuple. Its optional `ConfigObservation` must match the exact target and
+binding generation; its operation ID, known word order and algorithm are copied.
+No configuration pointer is retained. Unknown or absent configuration permits
+raw reads while leaving pair/source interpretation unresolved.
+
+`getStateBlock(context, block, output)` publishes a checked MOTION, IO or FEEDBACK
+block once available, including when a later step failed. An absent/failed block
+leaves output unchanged. Other fields in that block's struct are unavailable,
+not observations of zero. Three FC03 windows are not an atomic snapshot.
+None of their fields are consuming/read-to-clear; future consuming fields require
+an explicit consumer and cannot be added implicitly to this poll set.
+
+The original function manual physical pages68/69 establish bits0..6 and released
+polarity: bit4 set means released, clear means enabled. Alarm labels0,1,2,3,5
+are reviewed; raw4 indicates an error but lacks a named decoded label. Unknown
+codes/bits remain raw. I/O flags are logical valid levels, not terminal voltages,
+wiring declarations or proof of an input's operational effect.
+
+Position is given/commanded in reviewed open-loop mode or subdivision-equivalent
+encoder feedback in reviewed closed-loop mode. It is never raw encoder counts.
+Unknown algorithm, including observed raw3, leaves that distinction unresolved.
+Known word order permits unsigned bit assembly only. Signed encoding, position
+scale and speed units remain explicit `ReadResolution` reasons; no RPM, signed
+position, physical angle or motion completion is inferred.
+
+The application-only [StateCache.h](../examples/probe_cli/StateCache.h) retains
+one previous checked value per block plus latest attempt target/operation/error.
+Admission records last attempt. On success, the runner request-start time is a
+conservative lower observation bound including bus wait; qualified closure is
+the upper bound/last success, and delivery is separate. Age uses the lower bound.
+Core provenance `attemptedUs` is the earliest step eligibility time, not physical
+TX. The drive's internal register sample age is undocumented. Repeated queries
+and delayed delivery cannot rejuvenate observations; older evidence/generations
+cannot replace newer values. Failed attempts preserve prior values and bounds.
+Recover changes the binding generation, making old history non-current.
+
+`read state [address]`, `profile ess_rs state [address]` and `health check [address]`
+use this same API; all accepted/terminal records use canonical `read-state`.
+Plain `status`/`health` are passive, include separate per-block ages and source,
+and keep communication freshness, drive alarm, unknown readiness and retained
+operation outcome independent. A checked exception proves communication only.
+Identity/configuration success does not refresh state or settle uncertain writes.
+Legacy `age_ms` explicitly identifies model-probe age; communication has its own
+bound/age. The default freshness budget is5000ms for each block.
+
+`monitor` queries, `monitor <interval_ms> <count>` enables100..60000ms and1..1000
+finite attempts, and `monitor off` disables/cancels future work. Default disabled
+means no polling traffic. One private frontend record yields only these three
+normal-priority read windows through the existing owner; urgent work still wins
+at the next permitted bus opportunity. Admission rejection consumes/counts an
+attempt, with no retry or catch-up burst. Internal results have an explicit cache
+consumer and release; their operation ID is diagnostic, not a foreground command
+result. Eight foreground records/results plus a separate recovery record remain
+available. Owner queue/result capacities and urgent reservation are unchanged.
+Cancellation settles physical TX; it never stops the motor or clears recovery.
+Recovery disables monitoring and invalidates continuations. All access stays in
+one cooperative owner context, with no extra UART/task/synchronized ingress.
+
+The Python `state-health` finite campaign reads configuration once, performs
+explicit health checks, inspects/releases results and verifies passive cache
+queries preserve bounds and increase age. It stops on framing/failure, without
+recovery or replay. Current native/hardware limits and exact stationary baseline
+are in the [06 report](reports/ess_release_06_2026-10-04.md).

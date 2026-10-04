@@ -1,5 +1,5 @@
 /** @file Reads.h
- * @brief Non-changing ESS identity and configuration operations. No I/O.
+ * @brief Non-changing ESS identity, configuration and state operations. No I/O.
  * SPDX-License-Identifier: MIT
  */
 #pragma once
@@ -12,17 +12,21 @@ namespace MotorControlRS { namespace ESS_RS {
 constexpr std::size_t READ_MAX_STEPS = 5;
 constexpr std::size_t READ_MAX_REPLY_BYTES = 37;
 constexpr std::size_t READ_INPUT_COUNT = 4;
-enum class ReadKind : uint8_t { IDENTITY, CONFIG };
+constexpr std::size_t STATE_BLOCK_COUNT = 3;
+enum class ReadKind : uint8_t { IDENTITY, CONFIG, STATE };
+enum class StateBlock : uint8_t { MOTION, IO, FEEDBACK };
 
 /** Copied wire provenance for each consumed step, including a failing reply.
- * Failed and partial operations retain this evidence without publishing a new
- * decoded observation. deliveredUs is application servicing, not freshness. */
+ * Failed and partial operations retain this evidence. Identity/configuration
+ * publish only a whole successful operation; state publishes successful blocks.
+ * deliveredUs is application servicing, not freshness. */
 struct ReadStepObservation {
     uint16_t first = 0, count = 0;
     ReadEventKind event = ReadEventKind::FRAME;
     uint8_t raw[READ_MAX_REPLY_BYTES] = {};
     std::size_t length = 0, receivedLength = 0; ///< Copied prefix and full supplied size.
     bool qualified = false;
+    uint64_t attemptedUs = 0; ///< Earliest step eligibility, not exact drive sample time.
     uint64_t earliestUs = 0, latestUs = 0, deliveredUs = 0;
     int32_t transportDetail = 0; ///< Original application transport reason, if supplied.
     std::size_t txAccepted = 0;
@@ -45,6 +49,10 @@ struct ReadContext {
     Status status;
     ActiveSerialTuple activeSerial;
     InputWiring wiring[READ_INPUT_COUNT] = {};
+    uint32_t configOperationId = 0;
+    bool stateWordOrderKnown = false, stateAlgorithmKnown = false;
+    WordOrder stateWordOrder = WordOrder::HIGH_WORD_FIRST;
+    ControlAlgorithm stateAlgorithm = ControlAlgorithm::OPEN_LOOP;
     ReadStepObservation observations[READ_MAX_STEPS];
 };
 
@@ -63,7 +71,8 @@ struct PreparedRead {
 enum class ReadResolution : uint8_t {
     RESOLVED, UNKNOWN_CODE, MODEL_MAPPING_UNRESOLVED,
     VERSION_MAPPING_UNRESOLVED, DIP_MAPPING_UNRESOLVED,
-    SCALE_UNRESOLVED, ZERO_ENCODER_SCALE
+    SCALE_UNRESOLVED, ZERO_ENCODER_SCALE, SIGNED_ENCODING_UNRESOLVED,
+    UNIT_UNSPECIFIED, WORD_ORDER_UNRESOLVED, ALGORITHM_UNRESOLVED
 };
 
 /** The raw codes are evidence, not a guessed model or firmware interpretation. */
@@ -125,6 +134,42 @@ struct ConfigObservation {
     ReadStepObservation provenance[READ_MAX_STEPS];
 };
 
+/** CURRENT_POSITION is given position in open-loop mode and subdivision-equivalent
+ * encoder feedback in closed-loop mode. Neither is raw encoder counts. Unknown
+ * algorithm/configuration does not establish actual versus commanded feedback. */
+enum class PositionSource : uint8_t {
+    UNRESOLVED, COMMAND_GIVEN, SUBDIVISION_EQUIVALENT_FEEDBACK
+};
+/** One successful non-consuming register block, not an atomic motor snapshot.
+ * Fields outside block are unavailable, even though their raw storage is zero.
+ * pairKnown permits unsigned bit assembly only: signed values and physical units
+ * remain unresolved. Input/output booleans are logical valid levels, not voltage.
+ * Unknown bits/codes remain intact; an alarm decode is independent of readiness. */
+struct StateObservation {
+    ReadTarget target;
+    uint32_t operationId = 0, configOperationId = 0;
+    StateBlock block = StateBlock::MOTION;
+    uint16_t rawAlarm = 0, rawMotion = 0, unknownMotionBits = 0;
+    bool alarmKnown = false;
+    AlarmCode alarm = AlarmCode::NORMAL;
+    bool inPosition = false, homingComplete = false, running = false;
+    bool alarmFlag = false, released = false, enabled = false;
+    bool positiveSoftLimit = false, negativeSoftLimit = false;
+    uint16_t rawInputs = 0, rawOutputs = 0, unknownInputBits = 0, unknownOutputBits = 0;
+    bool inputs[READ_INPUT_COUNT] = {}, outputs[2] = {};
+    uint16_t rawPositionWords[2] = {}, rawSpeed = 0;
+    bool pairKnown = false;
+    uint32_t rawPosition = 0;
+    PositionSource positionSource = PositionSource::UNRESOLVED;
+    ReadResolution wordOrderResolution = ReadResolution::WORD_ORDER_UNRESOLVED;
+    ReadResolution positionSourceResolution = ReadResolution::ALGORITHM_UNRESOLVED;
+    ReadResolution positionSignedResolution = ReadResolution::SIGNED_ENCODING_UNRESOLVED;
+    ReadResolution positionScaleResolution = ReadResolution::SCALE_UNRESOLVED;
+    ReadResolution speedSignedResolution = ReadResolution::SIGNED_ENCODING_UNRESOLVED;
+    ReadResolution speedUnitResolution = ReadResolution::UNIT_UNSPECIFIED;
+    ReadStepObservation provenance;
+};
+
 ReadCapabilities readCapabilities() noexcept;
 /** Output context stays unchanged if arguments are rejected. IDs/generation
  * must be nonzero and address unicast; deadline must be strictly after nowUs. */
@@ -135,6 +180,13 @@ Status prepareConfig(ReadContext& output, const ReadTarget& target, uint32_t ope
                      uint64_t nowUs, uint64_t deadlineUs,
                      const ActiveSerialTuple& activeSerial = ActiveSerialTuple(),
                      const InputWiring* wiring = nullptr) noexcept;
+/** Supplied configuration is copied only if its exact target/generation matches.
+ * Unknown configuration leaves pair/source decoding explicitly unresolved. No
+ * state field in these three reviewed windows is consuming/read-to-clear. */
+Status prepareState(ReadContext& output, const ReadTarget& target, uint32_t operationId,
+                    uint64_t nowUs, uint64_t deadlineUs,
+                    const ActiveSerialTuple& activeSerial = ActiveSerialTuple(),
+                    const ConfigObservation* config = nullptr) noexcept;
 /** Output unchanged on failure. Expiry refuses more traffic; supply a DEADLINE
  * event to terminalize an operation with no retained on-time completion. */
 Status nextRead(const ReadContext&, uint64_t nowUs, PreparedRead& output) noexcept;
@@ -148,5 +200,8 @@ Status advanceRead(ReadContext&, const ReadEvent&, uint64_t nowUs) noexcept;
  * is unchanged on any error, partial result or wrong operation kind. */
 Status getIdentity(const ReadContext&, IdentityObservation& output) noexcept;
 Status getConfig(const ReadContext&, ConfigObservation& output) noexcept;
+/** Publish one successful block even if a later block failed. No output change
+ * for an absent/failed block or wrong kind. Index corresponds to StateBlock. */
+Status getStateBlock(const ReadContext&, uint8_t block, StateObservation& output) noexcept;
 
 }} // namespace MotorControlRS::ESS_RS

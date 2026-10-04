@@ -6,6 +6,7 @@
 #include <cstring>
 #include <algorithm>
 #include "ProbeConsole.h"
+#include "StateCache.h"
 #include "../common/EssRtuValidator.h"
 #include "../common/Esp32S3Uart.h"
 #include "../common/BuildConfig.h"
@@ -62,10 +63,12 @@ struct App {
         uint64_t deliveredUs = 0;
         uint64_t deadlineUs = 0;
         bool observed = false, delivered = false, captureRead = false;
-        bool typedRead = false;
+        bool typedRead = false, monitored = false;
         bool cancelContinuation = false; ///< Cancel the operation after its current frame settles.
         ESS::ReadContext read;
-    } records[REQUEST_CAPACITY];
+    } records[REQUEST_CAPACITY + 1]; // Final slot belongs to the finite poll consumer.
+    Probe::StateCache stateCache;
+    Probe::MonitorSnapshot monitorState;
     struct Recovery {
         uint32_t operationId = 0, commandId = 0;
         uint64_t id = 0, deadlineUs = 0;
@@ -83,6 +86,9 @@ struct App {
     ESS::IdentityObservation identity;
     ESS::ConfigObservation configuration;
     uint32_t bindingGeneration = 1;
+    MotorControlRS::ReadTarget communicationTarget;
+    uint64_t communicationEarliestUs = 0, communicationLatestUs = 0;
+    bool communicationKnown = false;
     MotorControlRS::ESS_RS::FrameError frameError = MotorControlRS::ESS_RS::FrameError::NONE;
     App() : runner(uart.port(), storage(tx, rx, trace), timing()),
         owner(runner, busStorage(pending, results, producers)), console(host(this)) {}
@@ -122,6 +128,11 @@ void snapshot(void* context, Probe::Snapshot& s) {
     App& a = *static_cast<App*>(context);
     s = Probe::Snapshot();
     s.bindingGeneration = a.bindingGeneration;
+    s.nowUs = nowUs(); s.stateCache = &a.stateCache; s.monitorState = a.monitorState;
+    s.communicationKnown = a.communicationKnown;
+    s.communicationTarget = a.communicationTarget;
+    s.communicationEarliestUs = a.communicationEarliestUs;
+    s.communicationLatestUs = a.communicationLatestUs;
     s.cachedIdentityId = a.identity.operationId; s.cachedIdentityAddress = a.identity.target.address;
     s.cachedIdentityGeneration = a.identity.target.generation;
     s.cachedConfigId = a.configuration.operationId; s.cachedConfigAddress = a.configuration.target.address;
@@ -140,7 +151,7 @@ void snapshot(void* context, Probe::Snapshot& s) {
     s.observedEarliestUs = a.observedEarliestUs; s.observedLatestUs = a.observedLatestUs;
     s.deliveredUs = a.deliveredUs; s.recoveryGuardUntilUs = a.recoveryGuardUntilUs;
     s.operationId = a.latestOperationId; s.pending = a.owner.pending(); s.pendingCapacity = 4; s.resultCapacity = REQUEST_CAPACITY;
-    for (const auto& record : a.records) if (record.operationId) {
+    for (const auto& record : a.records) if (record.operationId && !record.monitored) {
         if (terminal(a, record)) ++s.retained; else ++s.reserved;
     }
     s.outputQueued = a.outputCount; s.outputBlocked = a.outputBlocked; s.outputShortWrites = a.outputShortWrites;
@@ -175,7 +186,8 @@ Probe::Action startRead(void* context, uint32_t commandId, uint8_t address, uint
     if (a.owner.needsRecovery() || uart.needsRecovery()) return Probe::Action::RECOVERY_REQUIRED;
     if (!a.nextOperationId) return Probe::Action::IDS_EXHAUSTED;
     App::Record* record = nullptr;
-    for (auto& slot : a.records) if (!slot.operationId) { record = &slot; break; }
+    for (std::size_t i = 0; i < REQUEST_CAPACITY; ++i)
+        if (!a.records[i].operationId) { record = &a.records[i]; break; }
     if (!record) return Probe::Action::RESULTS_FULL;
     uint8_t bytes[8]; Rtu::BusRequest request;
     const uint16_t first = captureRead ? Probe::CAPTURE_FIRST : 0;
@@ -223,24 +235,35 @@ Rtu::BusAdmission admitStep(App& a, App::Record& record, uint64_t sampled) {
     request.expected.target = prepared.target.id; request.expected.targetGeneration = prepared.target.generation;
     request.expected.first = prepared.first; request.expected.count = prepared.count;
     request.validator = Rtu::essValidator();
-    return a.owner.admit(request, sampled, record.requestId);
+    const auto admitted = a.owner.admit(request, sampled, record.requestId);
+    if (admitted == Rtu::BusAdmission::ACCEPTED && record.read.kind == ESS::ReadKind::STATE)
+        Probe::stateAttempt(a.stateCache, record.read.target, record.read.operationId, record.read.step, sampled);
+    return admitted;
 }
-Probe::Action typedRead(void* context, uint32_t commandId, uint8_t address, ESS::ReadKind kind, uint32_t& operationId) {
+Probe::Action startTypedRead(void* context, uint32_t commandId, uint8_t address, ESS::ReadKind kind,
+                             uint32_t& operationId, bool monitored) {
     App& a = *static_cast<App*>(context);
     if (!platformReady) return Probe::Action::UNAVAILABLE;
     const uint64_t sampled = uart.sample();
     if (a.owner.needsRecovery() || uart.needsRecovery()) return Probe::Action::RECOVERY_REQUIRED;
     if (!a.nextOperationId) return Probe::Action::IDS_EXHAUSTED;
     App::Record* record = nullptr;
-    for (auto& slot : a.records) if (!slot.operationId) { record = &slot; break; }
+    if (monitored) {
+        if (!a.records[REQUEST_CAPACITY].operationId) record = &a.records[REQUEST_CAPACITY];
+    } else for (std::size_t i = 0; i < REQUEST_CAPACITY; ++i)
+        if (!a.records[i].operationId) { record = &a.records[i]; break; }
     if (!record) return Probe::Action::RESULTS_FULL;
     MotorControlRS::ReadTarget target; target.id = address; target.address = address; target.generation = a.bindingGeneration;
     MotorControlRS::ActiveSerialTuple serial; serial.known = true; serial.baud = BAUD;
     serial.dataBits = 8; serial.parity = MotorControlRS::SerialParity::NONE; serial.stopBits = 1;
+    const auto* configuration = a.configuration.operationId && Probe::sameTarget(a.configuration.target, target) ?
+        &a.configuration : nullptr;
     const auto prepared = kind == ESS::ReadKind::IDENTITY ?
         ESS::prepareIdentity(record->read, target, a.nextOperationId, sampled, sampled + REQUEST_US, serial) :
+        kind == ESS::ReadKind::STATE ?
+        ESS::prepareState(record->read, target, a.nextOperationId, sampled, sampled + REQUEST_US, serial, configuration) :
         ESS::prepareConfig(record->read, target, a.nextOperationId, sampled, sampled + REQUEST_US, serial);
-    if (!prepared || (kind != ESS::ReadKind::IDENTITY && kind != ESS::ReadKind::CONFIG)) {
+    if (!prepared || (kind != ESS::ReadKind::IDENTITY && kind != ESS::ReadKind::CONFIG && kind != ESS::ReadKind::STATE)) {
         *record = App::Record(); return Probe::Action::INVALID;
     }
     const auto admitted = admitStep(a, *record, sampled);
@@ -251,8 +274,27 @@ Probe::Action typedRead(void* context, uint32_t commandId, uint8_t address, ESS:
     }
     record->operationId = a.nextOperationId++; record->commandId = commandId; record->address = address;
     record->deadlineUs = record->read.deadlineUs; record->typedRead = true;
-    operationId = a.latestOperationId = record->operationId;
+    record->monitored = monitored; operationId = record->operationId;
+    if (!monitored) a.latestOperationId = operationId;
     return Probe::Action::OK;
+}
+Probe::Action typedRead(void* context, uint32_t commandId, uint8_t address, ESS::ReadKind kind, uint32_t& operationId) {
+    return startTypedRead(context, commandId, address, kind, operationId, false);
+}
+void observeCommunication(App& a, const Rtu::Completion& result) {
+    const bool checked = result.outcome == Rtu::Outcome::SUCCESS || result.outcome == Rtu::Outcome::DEVICE_REJECTED;
+    if (!checked || !result.transport.closureQualified || result.transport.txAccepted != result.txLength ||
+        result.transport.startedUs > result.transport.closureEarliestUs ||
+        result.transport.closureEarliestUs > result.transport.closureLatestUs ||
+        result.transport.closureLatestUs > nowUs() ||
+        result.expected.targetGeneration != a.bindingGeneration ||
+        (a.communicationKnown && result.transport.closureLatestUs < a.communicationLatestUs)) return;
+    a.communicationKnown = true;
+    a.communicationTarget.id = result.expected.target;
+    a.communicationTarget.address = result.expected.address;
+    a.communicationTarget.generation = result.expected.targetGeneration;
+    a.communicationEarliestUs = result.transport.startedUs;
+    a.communicationLatestUs = result.transport.closureLatestUs;
 }
 MotorControlRS::ReadEvent readEvent(const App::Record& record, ReadEventKind kind) {
     MotorControlRS::ReadEvent event; event.target = record.read.target;
@@ -267,6 +309,7 @@ void advanceReads(App& a, uint64_t sampled) {
         if (!record.operationId || !record.typedRead || record.read.state != ReadState::ACTIVE) continue;
         if (record.requestId.owner) {
             const auto* result = a.owner.result(record.requestId); if (!result) continue;
+            const uint8_t block = record.read.step;
             const auto kind = result->transport.reason == Rtu::Reason::FRAME ? ReadEventKind::FRAME :
                 result->transport.reason == Rtu::Reason::REQUEST_DEADLINE ||
                 result->outcome == Rtu::Outcome::QUEUE_EXPIRED || result->outcome == Rtu::Outcome::DISPATCH_EXPIRED ? ReadEventKind::DEADLINE :
@@ -294,6 +337,9 @@ void advanceReads(App& a, uint64_t sampled) {
                 failed.frame = event.frame; failed.length = event.length;
                 if (!ESS::advanceRead(record.read, failed, sampled)) continue;
             }
+            observeCommunication(a, *result);
+            if (record.read.kind == ESS::ReadKind::STATE)
+                Probe::stateResult(a.stateCache, record.read, block, result->transport.startedUs);
             if (record.read.state != ReadState::ACTIVE) continue;
             a.owner.release(record.requestId); record.requestId = Rtu::RequestId();
         }
@@ -315,6 +361,7 @@ Probe::Action recover(void* context, uint32_t commandId, uint32_t& operationId) 
     const uint64_t now = uart.sample(); uint64_t id = 0;
     if (a.owner.recover(now, now + 2000000, id) != Rtu::RecoveryAdmission::ACCEPTED) return Probe::Action::FAILED;
     ++a.bindingGeneration;
+    a.monitorState.settings.enabled = false; a.monitorState.remaining = 0;
     for (auto& record : a.records) if (record.operationId && record.typedRead &&
         record.read.state == ReadState::ACTIVE && !record.requestId.owner)
         ESS::advanceRead(record.read, readEvent(record, ReadEventKind::CANCEL), now);
@@ -331,7 +378,7 @@ bool lookup(void* context, uint32_t operationId, Probe::ResultView& out) {
         const auto* result = a.owner.recoveryResult(a.recovery.id);
         out.pending = !result; if (result) out.recoveryResult = *result; return true;
     }
-    const auto* record = findRecord(a, operationId); if (!record) return false;
+    const auto* record = findRecord(a, operationId); if (!record || record->monitored) return false;
     out = Probe::ResultView();
     out.commandId = record->commandId; out.operationId = operationId; out.address = record->address;
     out.captureRead = record->captureRead;
@@ -387,6 +434,47 @@ Probe::Action release(void* context, uint32_t operationId) {
     if (!record->delivered || (record->requestId.owner && !a.owner.release(record->requestId))) return Probe::Action::BUSY;
     *record = App::Record(); return Probe::Action::OK;
 }
+Probe::Action monitor(void* context, const Probe::MonitorSettings* requested, Probe::MonitorSnapshot& out) {
+    App& a = *static_cast<App*>(context);
+    if (!platformReady) return Probe::Action::UNAVAILABLE;
+    if (requested) {
+        if (requested->enabled) {
+            if (requested->intervalMs < 100 || requested->intervalMs > 60000 || !requested->count || requested->count > 1000)
+                return Probe::Action::INVALID;
+            if (a.monitorState.settings.enabled || a.records[REQUEST_CAPACITY].operationId) return Probe::Action::BUSY;
+            if (a.owner.needsRecovery() || uart.needsRecovery()) return Probe::Action::RECOVERY_REQUIRED;
+            a.monitorState = Probe::MonitorSnapshot(); a.monitorState.settings = *requested;
+            a.monitorState.remaining = requested->count; a.monitorState.nextDueUs = nowUs();
+        } else {
+            a.monitorState.settings.enabled = false; a.monitorState.remaining = 0;
+            auto& record = a.records[REQUEST_CAPACITY];
+            if (record.operationId && record.read.state == ReadState::ACTIVE && !record.cancelContinuation) {
+                cancel(&a, record.operationId); ++a.monitorState.cancelled;
+            }
+        }
+    }
+    out = a.monitorState; return Probe::Action::OK;
+}
+/** One opt-in finite consumer. Its ordinary admissions use the same owner queue;
+ * urgent work retains its reserved priority. No catch-up burst or automatic
+ * recovery occurs. Each rejected admission consumes one finite attempt. */
+void serviceMonitor(App& a, uint64_t sampled) {
+    if (!a.monitorState.settings.enabled || a.records[REQUEST_CAPACITY].operationId ||
+        sampled < a.monitorState.nextDueUs) return;
+    if (!a.monitorState.remaining || a.owner.needsRecovery() || uart.needsRecovery()) {
+        a.monitorState.settings.enabled = false; return;
+    }
+    --a.monitorState.remaining;
+    a.monitorState.nextDueUs = sampled + uint64_t(a.monitorState.settings.intervalMs) * 1000;
+    uint32_t operation = 0;
+    const auto result = startTypedRead(&a, 0, 1, ESS::ReadKind::STATE, operation, true);
+    if (result == Probe::Action::OK) {
+        ++a.monitorState.admitted; a.monitorState.operationId = operation;
+    } else {
+        ++a.monitorState.rejected;
+        if (!a.monitorState.remaining) a.monitorState.settings.enabled = false;
+    }
+}
 void reset(void* context) {
     static_cast<App*>(context)->runner.clearStats();
 #if MOTORCONTROLRS_LOAD_FIXTURE
@@ -409,6 +497,7 @@ Probe::Host host(App* a) {
     Probe::Host h; h.context = a; h.emitLine = emit; h.snapshot = snapshot;
     h.startProbe = probe; h.startCaptureRead = captureRead; h.recover = recover; h.resetStats = reset;
     h.startTypedRead = typedRead;
+    h.monitor = monitor;
     h.result = lookup; h.cancel = cancel; h.release = release;
 #if MOTORCONTROLRS_LOAD_FIXTURE
     h.load = load;
@@ -418,6 +507,15 @@ Probe::Host host(App* a) {
 void deliver(App& a) {
     for (auto& record : a.records) {
         if (!record.operationId || record.delivered) continue;
+        if (record.monitored) {
+            if (!terminal(a, record)) continue;
+            // This explicit consumer already harvested each non-consuming block.
+            // It owns release and never uses a user command correlation/retention.
+            if (record.requestId.owner && !a.owner.release(record.requestId)) continue;
+            record = App::Record(); a.monitorState.operationId = 0;
+            if (!a.monitorState.remaining) a.monitorState.settings.enabled = false;
+            continue;
+        }
         Probe::ResultView view; if (!lookup(&a, record.operationId, view) || view.pending) continue;
         if (record.typedRead) {
             if (!record.observed) {
@@ -444,6 +542,7 @@ void deliver(App& a) {
                 a.observedLatestUs = view.probe.timingValid ? view.probe.observedLatestUs : 0;
             }
         }
+        if (const auto* completion = a.owner.result(record.requestId)) observeCommunication(a, *completion);
         view.probe.deliveredUs = nowUs();
         // Output pressure must not prevent harvesting later completed observations.
         if (!a.console.reportProbe(record.commandId, record.address, record.operationId, view.probe)) continue;
@@ -505,6 +604,7 @@ void loop() {
     }
     advanceReads(a, nowUs());
     a.console.serviceOutput(); deliver(a);
+    serviceMonitor(a, nowUs());
     for (unsigned i = 0; i < 32 && Serial.available(); ++i) {
         const char c = static_cast<char>(Serial.read()); ++a.inputBytes;
         if (c == '\n') ++a.inputLines;

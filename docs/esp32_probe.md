@@ -1,9 +1,9 @@
 # ESP32-S3 read-only probe bench
 
-Prompt 05 implements the bounded [typed identity/configuration read API](ess_reads.md), common/profile read routes and minimal read capabilities. The [linked inventory](reference/ess_rs_operations.json) keeps read/write/action and native/hardware evidence separate. Model/firmware compatibility, state and motion remain unqualified; these reads perform no writes.
+Prompts 05–06 implement bounded [typed identity/configuration/state reads](ess_reads.md), common/profile routes, passive per-block status/health and finite opt-in observation polling. The [linked inventory](reference/ess_rs_operations.json) keeps native/hardware evidence and read/write/action obligations separate. Model/firmware compatibility, units, readiness and motion remain unqualified; these reads perform no writes.
 
 This example connects the ESS codecs, application BusOwner, standalone runner and a dedicated
-ESP32-S3 UART adapter. Its motor commands are documented non-changing model/identity/configuration reads and a fixed sixteen-word capture qualification read. It provides a small console and finite Python campaigns
+ESP32-S3 UART adapter. Its motor commands are documented non-changing model/identity/configuration/state reads and a fixed sixteen-word capture qualification read. It provides a small console and finite Python campaigns
 for developing and checking that path before adding motion.
 
 The adapter records bounded timing observations. It does not claim exact UART
@@ -255,10 +255,12 @@ There are no raw writes, motion operations or automatic scans in this build.
 | --- | --- |
 | `help [command]` | Show callable commands or one command's syntax and effects. |
 | `version` / `ver` | Report product, profile, library version and console protocol version. |
-| `config` / `settings` | Show host tuple, address, timing deadline and qualification state. Device settings remain unknown. |
+| `config` / `settings` | Show host tuple, address, timing deadline and qualification state. Complete typed configuration is separately cached with its original target/generation; it never replaces the observed active host tuple. |
 | `probe [address]` / `ping [address]` | Read ESS model register `0x0000`, one word: eight-byte FC03 request, seven-byte normal reply or five-byte exception. |
-| `status` | Show cached transport/codec result, raw exception detail, DE state, model word and age. |
-| `health` | Assess cached communication freshness. Drive readiness, alarms and motion state remain unknown. |
+| `read state [address]` / `profile ess_rs state [address]` / `health check [address]` | Three reviewed non-consuming windows through `prepareState`/`getStateBlock`. |
+| `monitor [off\|<interval_ms> <count>]` | Passive query, cancellation or finite100..60000ms/1..1000 attempts; disabled at startup. |
+| `status` | Cached transport, model and per-block observations with separate attempt/success/age. |
+| `health` | Assess cached communication freshness. State blocks show raw/decoded alarms and flags with independent ages; drive readiness remains unknown. |
 | `capture-read [address]` | Fixed non-consuming FC03 read of `0x0130/16` settings words; eight-byte request, 37-byte normal reply or five-byte exception. Timing fixture only; no model-cache update or interpreted speed values. |
 | `stats` | Show local runner and capture counters, including maximum observed poll gap. |
 | `reset` / `stats reset` | Clear local counters only. Preserve the result and recovery interlock. |
@@ -366,16 +368,17 @@ handles and eight request plus one recovery result; mismatches poison the sessio
 `probe` performs one explicit model read. `stress` repeats that same read a
 finite number of times, with status/health/memory observations between reads.
 `watch` only reads cached host reports and creates no motor bus traffic; presence
-will become stale if no probe refreshes it. These tools do not yet observe motor
-alarms, position, velocity or completion because that read-state API is a later
-implementation block.
+will become stale if no checked communication refreshes it. `state-health` now
+checks raw/decoded alarms, flags, I/O, paired position and speed through the public
+state API. Position source/sign/scale and speed sign/units can remain unresolved;
+readiness and motion completion are not inferred.
 
 ## Memory and verification
 
 The example allocates its `App` once in PSRAM during startup. It contains the
 32-byte TX buffer, 64-byte RX buffer, 128-entry trace, runner, owner, five pending
-slots, nine result slots, eight correlation records, console buffers and eight
-1537-byte output lines. It uses 27136 bytes on ESP32-S3 (27944 native), including
+slots, nine result slots, eight foreground and one private polling record, state caches, console buffers
+and eight4097-byte output lines. It uses62200 bytes on ESP32-S3 (65040 native), including
 all that storage. Driver capture state (1704 bytes), load fixture (4816 bytes,
 including its 4096-byte stack), SDK buffers and owner stack remain internal.
 Failure to allocate PSRAM reports a boot error;
@@ -388,7 +391,7 @@ FIFO submission copies at most 64 bytes to an internal stack array before its
 short critical section. Larger PSRAM storage is never read from that section.
 Task stacks remain under the framework's allocation rules. Memory snapshots
 include largest available blocks as well as free/minimum totals so fragmented
-heaps are visible. Console JSON output is capped at 1536 bytes; retained hex is capped
+heaps are visible. Console JSON output is capped at4096 bytes; retained hex is capped
 at eight TX and 64 RX bytes with an explicit truncation flag.
 
 Native verification covers runner framing/failure cases, adapter snapshot races,
@@ -424,3 +427,5 @@ python scripts/bench_probe.py --port COM13 --log build/bench/my_typed_reads.json
 ```
 
 This finite scenario checks capabilities, each read once, immutable result inspection, release and local diagnostics. It never retries or recovers automatically. Actual raw configuration, current image and resource/latency measurements are in [prompt05](reports/ess_release_05_2026-10-04.md); configured encoder4000 and unknown algorithm3 do not establish motion readiness.
+
+See [typed state/cache contracts](ess_reads.md#state-observations-and-application-health) and [06 stationary evidence](reports/ess_release_06_2026-10-04.md). `python scripts/bench_probe.py --port COM13 --log build/bench/new-state.jsonl state-health --count 5 --interval 0.1` performs non-changing checks with strict correlation and no retries.
