@@ -82,7 +82,13 @@ static Status prepareMove(MoveContext& output, const AxisConfig& axis, const Axi
         return invalid(MoveError::UNRESOLVED_UNITS, "device command increment interpretation is unresolved");
     if (request.position.relative && !prerequisites.relativeBasisVerified)
         return invalid(MoveError::UNRESOLVED_BASIS, "relative basis is unresolved for this configuration");
-    if (!request.position.relative && (!reference || !reference->nativeKnown ||
+    const bool nativeZero = prerequisites.nativeZeroEnvelopeVerified;
+    if (nativeZero && (request.position.relative || request.position.wrapped ||
+        request.position.frame != CoordinateFrame::NATIVE || request.position.unit != PositionUnit::STEPS ||
+        request.position.value.numerator != 0 || request.position.basis != RelativeBasis::ACTUAL ||
+        reference || axis.originKnown || axis.encoderOriginKnown || axis.softLimitsKnown))
+        return invalid(MoveError::INVALID_REQUEST, "native-zero envelope permits only an unreferenced native absolute zero");
+    if (!request.position.relative && !nativeZero && (!reference || !reference->nativeKnown ||
         reference->basis != RelativeBasis::ACTUAL || !reference->stationary))
         return invalid(MoveError::READINESS, "absolute positioning needs established stationary actual command coordinates");
     if (request.ramp != MoveRamp::VERIFIED_CONFIGURED || !prerequisites.configuredRampVerified ||
@@ -108,7 +114,7 @@ static Status prepareMove(MoveContext& output, const AxisConfig& axis, const Axi
     }
     const Status arithmetic = preparePosition(request.position, axis, reference, prepared.prepared);
     if (!arithmetic) return arithmetic;
-    if (prepared.prepared.endpointKnown) {
+    if (prepared.prepared.endpointKnown && reference && reference->nativeKnown) {
         const uint64_t readinessEnd = ageDeadline(prerequisites.observedUs, prerequisites.maximumAgeUs);
         const uint64_t writeEnd = readinessEnd < deadlineUs ? readinessEnd : deadlineUs;
         if (ageDeadline(reference->observedUs, reference->maximumAgeUs) < writeEnd)
@@ -243,7 +249,8 @@ Status advanceMove(MoveContext& c, const ActionEvent& supplied, uint64_t nowUs) 
         failed(MoveError::TIMING_UNQUALIFIED, "move closure timing is unqualified"));
     else if (event.latestUs > stepDeadline(c)) finish(c, ActionOutcome::DEADLINE, expiredStep(c));
     else if (!evidence.status) finish(c, ActionOutcome::REPLY_ERROR, evidence.status);
-    else if (!supplied.responseConfirmed) finish(c, ActionOutcome::UNCONFIRMED_RESPONSE,
+    else if (!supplied.responseConfirmed && !(c.step == 1 && c.options.allowUnconfirmedWriteObservation))
+        finish(c, ActionOutcome::UNCONFIRMED_RESPONSE,
         failed(MoveError::UNCONFIRMED_RESPONSE, "frame source is not confirmed as the drive"));
     else if (c.step < 2) {
         if (nowUs >= c.deadlineUs) finish(c, ActionOutcome::DEADLINE,

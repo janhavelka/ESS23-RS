@@ -5,6 +5,11 @@ Read [the sequence index](README.md); all prerequisite dispositions must be curr
 
 Prerequisite: 03's owner-integrated read-only image. Read-only work in 05–07 may continue after this step's disposition if instruments are missing; dependent physical actions require the relevant evidence.
 
+Apply the execution contract's unattended functional-test policy. Missing
+independent TX/RX/DE capture does not block the authorized short finite free-shaft
+tests; it leaves electrical timing unmeasured. Do not turn software timing or
+drive reports into an independent electrical qualification pass.
+
 ## Read and reuse
 
 Inspect `Esp32S3Uart.*`, `Esp32Load.*`, `test/capture_service_test.cpp`, the pinned SDK source/configuration and `docs/reports/2026-10-03_capture_load.md`. The historical 20-us sampler costs about 19–21% of one core inside capture alone.

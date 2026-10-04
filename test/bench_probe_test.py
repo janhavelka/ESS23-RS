@@ -187,6 +187,30 @@ class TypedSerial:
         return Serial.normal(request_id, command, args)
 
 
+def motion_bench_reply(request_id, action="inspect", restored=False, pending=False):
+    words = [30, 50, 50, 60, 0, 5000]
+    def frame(prefix):
+        return (prefix + bench.wire_crc(prefix).to_bytes(2, "little")).hex()
+    read_tx = frame(bytes((1, 3, 0, 0x20, 0, 6)))
+    write_tx = frame(bytes((1, 16, 0, 0x21, 0, 5, 10)) + b"".join(x.to_bytes(2, "big") for x in words[1:]))
+    data = reply(request_id, "motion-bench", request=action, result="ok", enabled=True, electrical_qualified=False,
+        pending=pending, saved=True, restored=restored and not pending, session_ok=not pending,
+        phase=(2 if pending else 3) if restored else 1, address=1, configuration_generation=3, serial_generation=1,
+        original=list(words), current=list(words), tx_hex=write_tx if restored and pending else read_tx,
+        rx_hex="" if pending else frame(bytes((1, 3, 12)) + b"".join(x.to_bytes(2, "big") for x in words)),
+        tx_accepted=0 if pending else 8, tx_complete=not pending, closure_qualified=not pending,
+        closure_earliest_us=0 if pending else 3000, closure_latest_us=0 if pending else 3200,
+        delivered_us=0 if pending else 3300, deadline_us=10000, execution_unknown=False, error="none",
+        write_tx_hex="", write_reply_hex="", write_tx_accepted=0, write_tx_complete=False,
+        write_closure_qualified=False, write_closure_earliest_us=0, write_closure_latest_us=0,
+        write_delivered_us=0, write_execution_unknown=False)
+    if restored and not pending:
+        data.update(write_tx_hex=write_tx, write_reply_hex=frame(bytes((1, 16, 0, 0x21, 0, 5))),
+            write_tx_accepted=19, write_tx_complete=True, write_closure_qualified=True,
+            write_closure_earliest_us=1100, write_closure_latest_us=1200, write_delivered_us=1300)
+    return data
+
+
 def action_terminal(request_id, command, policy=None):
     tx = {"enable": "0106002D001299CE", "motor-release": "0106002D0011D9CF",
           "alarm-clear": "0106002D0021D9DB", "position-clear": "0106002D0031D817", "stop": "0106002701003851" if policy == "normal" else "01060027020038A1"}[command]
@@ -891,6 +915,42 @@ class Framing(unittest.TestCase):
         wrong["write_evidence"]["raw_hex"] = (raw + bench.wire_crc(raw).to_bytes(2, "little")).hex()
         with self.assertRaises(bench.BenchError): bench.Console._check_action(wrong, "position-clear", 1, None)
 
+    def test_native_zero_envelope_keeps_displacement_and_reference_unknown(self):
+        item = move_terminal(2)
+        item.update(command="move-absolute", move_kind="absolute", effective_native=0, endpoint_native=0,
+            endpoint_known=True, displacement_known=False, displacement_native=0,
+            allow_unconfirmed_write_observation=True, execution="unknown")
+        item["prerequisites"]["native_zero_envelope_verified"] = True
+        item["staging_words"][3:] = [0, 0]
+        item["requested"].update(relative=False, numerator=0)
+        raw = bytes((1, 6, 0, 0x27, 0, 5))
+        item["trigger_evidence"].update(raw_hex=(raw + bench.wire_crc(raw).to_bytes(2, "little")).hex(),
+                                        response_confirmed=False)
+        arguments = ("0", "steps", "native", "60", "configured")
+        bench.Console._check_move(item, 1, arguments, "absolute")
+        mutations = [lambda t: t["prerequisites"].pop("native_zero_envelope_verified"),
+            lambda t: t["prerequisites"].update(native_zero_envelope_verified=False),
+            lambda t: t["prerequisites"].update(native_zero_envelope_verified=1),
+            lambda t: t.pop("displacement_known"), lambda t: t.update(displacement_known=True),
+            lambda t: t.update(displacement_known=0), lambda t: t.update(displacement_native=-99),
+            lambda t: t.update(endpoint_known=False), lambda t: t.update(zero_displacement=True),
+            lambda t: t.update(effective_native=1), lambda t: t.update(endpoint_native=1),
+            lambda t: t["requested"].update(numerator=1), lambda t: t["requested"].update(frame=1),
+            lambda t: t["requested"].update(unit="fullsteps"), lambda t: t["requested"].update(relative=True),
+            lambda t: t["reference"].update(native_known=True), lambda t: t["reference"].update(native_position=99),
+            lambda t: t["reference"].update(source=3), lambda t: t["reference"].update(observed_us=900),
+            lambda t: t["activity_evidence"].update(response_confirmed=False),
+            lambda t: t["last_observation"].update(response_confirmed=False),
+            lambda t: t["staging_evidence"].update(response_confirmed=False)]
+        for mutate in mutations:
+            bad = copy.deepcopy(item); mutate(bad)
+            with self.subTest(mutation=mutate):
+                with self.assertRaises(bench.BenchError): bench.Console._check_move(bad, 1, None, "absolute")
+        for kind in ("relative", "angle"):
+            with self.assertRaises(bench.BenchError): bench.Console._check_move(item, 1, None, kind)
+        ordinary = move_terminal(2); ordinary["displacement_known"] = False
+        with self.assertRaises(bench.BenchError): bench.Console._check_move(ordinary, 1, self.MOVE_ARGS)
+
     def test_zero_radians_absolute_retains_allowance_without_approximating(self):
         item = move_terminal(2)
         item.update(command="move-absolute", move_kind="absolute", effective_native=0, endpoint_native=0,
@@ -1187,6 +1247,115 @@ class Framing(unittest.TestCase):
         self.assertEqual(events[-1][1]["cleanup"], "unknown")
         self.assertIn("framing", events[-1][1]["cleanup_error"])
         self.assertFalse(events[-1][1]["ok"])
+
+    def test_motion_bench_commands_retain_snapshot_and_restore_proof(self):
+        restored = False
+        def handler(request_id, command, args):
+            nonlocal restored
+            if command != "motion-bench": return Serial.normal(request_id, command, args)
+            if args[0] == "restore": restored = True
+            return encoded(motion_bench_reply(request_id, args[0], restored, args[0] != "inspect"))
+        console = self.session(handler)
+        for action in ("read", "inspect", "restore", "inspect"):
+            result = console.command("motion-bench", host_args=(action,))
+            self.assertEqual(result["pending"], action != "inspect")
+        self.assertTrue(result["restored"])
+        self.assertFalse(result["electrical_qualified"])
+        self.assertEqual([line.decode().split()[1:] for line in self.port.writes][1:],
+                         [["motion-bench", x] for x in ("read", "inspect", "restore", "inspect")])
+
+    def test_motion_bench_rejects_false_success_and_malformed_evidence(self):
+        mutations = [lambda x: x.update(electrical_qualified=True),
+            lambda x: x.update(request="read"), lambda x: x.update(tx_complete=False),
+            lambda x: x.update(tx_accepted=7), lambda x: x.update(session_ok=1),
+            lambda x: x.update(pending=True), lambda x: x.update(phase=2),
+            lambda x: x.update(rx_hex=x["rx_hex"][:-4] + "0000"),
+            lambda x: x.update(current=[0]*6), lambda x: x.update(restored=False),
+            lambda x: x.update(write_tx_accepted=18), lambda x: x.update(write_tx_complete=False),
+            lambda x: x.update(write_reply_hex=x["write_reply_hex"][:-4] + "0000"),
+            lambda x: x.update(write_execution_unknown=True), lambda x: x.update(execution_unknown=True),
+            lambda x: x.update(closure_latest_us=10001, delivered_us=10002),
+            lambda x: x.update(write_closure_latest_us=10001, write_delivered_us=10002),
+            lambda x: x.update(closure_earliest_us=1200)]
+        for mutate in mutations:
+            def handler(request_id, command, args):
+                if command != "motion-bench": return Serial.normal(request_id, command, args)
+                item = motion_bench_reply(request_id, restored=True); mutate(item); return encoded(item)
+            console = self.session(handler)
+            with self.subTest(mutation=mutate):
+                with self.assertRaises(bench.BenchError): console.command("motion-bench", host_args=("inspect",))
+                self.assertFalse(console.synchronized)
+
+    def test_motion_bench_grammar_rejects_before_transmission(self):
+        console = self.session()
+        before = len(self.port.writes)
+        for tokens in (None, (), ("read", "1"), ("write",), ("restore\n",), ["read"]):
+            with self.assertRaises(ValueError): console.command("motion-bench", host_args=tokens)
+        self.assertEqual(before, len(self.port.writes))
+
+    def test_functional_action_requires_explicit_policy_and_checked_echo(self):
+        for command, policy in (("enable", None), ("motor-release", None), ("stop", "normal"), ("stop", "direct")):
+            good = action_terminal(1, command, policy)
+            good.update(allow_unconfirmed_write_observation=True, execution="unknown")
+            good["write_evidence"]["response_confirmed"] = False
+            bench.Console._check_action(good, command, 1, policy)
+            mutations = [lambda x: x.pop("allow_unconfirmed_write_observation"),
+                lambda x: x.update(allow_unconfirmed_write_observation=1),
+                lambda x: x.update(allow_unconfirmed_write_observation=False),
+                lambda x: x["write_evidence"].update(raw_hex="0106002D00120000"),
+                lambda x: x["write_evidence"].update(tx_accepted=7, tx_complete=False),
+                lambda x: x["write_evidence"].update(event=1),
+                lambda x: x["write_evidence"].update(qualified=False, earliest_us=0, latest_us=0),
+                lambda x: x["last_observation"].update(response_confirmed=False),
+                lambda x: x["last_observation"].update(earliest_us=1200),
+                lambda x: x.update(deadline_us=1150)]
+            for mutate in mutations:
+                bad = copy.deepcopy(good); mutate(bad)
+                with self.subTest(command=command, mutation=mutate):
+                    with self.assertRaises(bench.BenchError): bench.Console._check_action(bad, command, 1, policy)
+
+    def test_functional_move_keeps_confirmed_staging_and_fresh_completion(self):
+        good = move_terminal(1)
+        good.update(allow_unconfirmed_write_observation=True, execution="unknown")
+        good["trigger_evidence"]["response_confirmed"] = False
+        bench.Console._check_move(good, 1, self.MOVE_ARGS)
+        mutations = [lambda x: x.pop("allow_unconfirmed_write_observation"),
+            lambda x: x.update(allow_unconfirmed_write_observation="true"),
+            lambda x: x.update(allow_unconfirmed_write_observation=False),
+            lambda x: x["trigger_evidence"].update(raw_hex="0106002700010000"),
+            lambda x: x["trigger_evidence"].update(tx_accepted=7, tx_complete=False),
+            lambda x: x["trigger_evidence"].update(event=1),
+            lambda x: x["trigger_evidence"].update(qualified=False, earliest_us=0, latest_us=0),
+            lambda x: x["staging_evidence"].update(response_confirmed=False),
+            lambda x: x["activity_evidence"].update(response_confirmed=False),
+            lambda x: x["last_observation"].update(response_confirmed=False),
+            lambda x: x["last_observation"].update(earliest_us=3100),
+            lambda x: x["prerequisites"].update(maximum_age_us=1150)]
+        for mutate in mutations:
+            bad = copy.deepcopy(good); mutate(bad)
+            with self.subTest(mutation=mutate):
+                with self.assertRaises(bench.BenchError): bench.Console._check_move(bad, 1, self.MOVE_ARGS)
+
+    def test_functional_echo_late_delivery_retains_deadline_without_observation(self):
+        action = action_terminal(1, "enable")
+        action.update(allow_unconfirmed_write_observation=True, execution="unknown", ok=False,
+            state="failed", completion="not_observed", outcome="deadline", observation_known=False,
+            raw_alarm=None, raw_motion=None, polls=0, serviced_us=10000)
+        empty = copy.deepcopy(action["failure_evidence"])
+        action["write_evidence"].update(response_confirmed=False, delivered_us=10000)
+        action["failure_evidence"] = copy.deepcopy(action["write_evidence"])
+        action["last_observation"] = empty
+        bench.Console._check_action(action, "enable", 1, None)
+        move = move_terminal(1)
+        empty = copy.deepcopy(move["failure_evidence"])
+        move.update(allow_unconfirmed_write_observation=True, execution="unknown", ok=False,
+            state="failed", completion="not_observed", outcome="deadline", status="ILLEGAL_VALUE", detail=10,
+            observation_known=False, running_observed=False, uncertain=True,
+            raw_alarm=None, raw_motion=None, polls=0, serviced_us=10000)
+        move["trigger_evidence"].update(response_confirmed=False, delivered_us=10000)
+        move["failure_evidence"] = copy.deepcopy(move["trigger_evidence"])
+        move["last_observation"] = copy.deepcopy(empty); move["activity_evidence"] = empty
+        bench.Console._check_move(move, 1, self.MOVE_ARGS)
 
     def test_action_terminal_and_retained_round_trip(self):
         for command, policy in (("enable", None), ("motor-release", None), ("alarm-clear", None),

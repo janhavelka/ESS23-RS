@@ -5,6 +5,15 @@ Read [the sequence index](README.md); all prerequisite dispositions must be curr
 
 Prerequisite: 07 target checks, 08 implemented stop/action path, 05–06 configuration and state. Live movement requires reviewed transport evidence from 04, resolved units/sign/ramp prerequisites and a recorded small free-shaft test envelope.
 
+Use the execution contract's authorized unattended functional-test policy:
+no analyzer or human presence is required for short finite free-shaft tests.
+Prepare the complete command/stop/restoration procedure before movement. Defer
+the several-hour test. If negative wire encoding remains unresolved, exercise
+reverse direction with a bounded documented absolute return after establishing
+the command/feedback relation, or the explicitly reviewed literal native-zero
+experiment with unknown displacement retained. Do not encode an unproven
+negative target or promote raw feedback to a calibrated coordinate reference.
+
 ## Read and reuse
 
 Review original ESS position/start pages and appendix, `01_implementation_reference.md`, `09_timing_and_gap_audit.md`, existing FC10 policies, units and operation contexts. Use reviewed position windows; do not broaden arbitrary paired writes in this step.
@@ -25,7 +34,7 @@ Review original ESS position/start pages and appendix, `01_implementation_refere
 
 ## Verify
 
-Native fault injection covers each sequence boundary, stale completion, rejected intermediate write, wrong echo, delayed response, cancel and stop during setup/acceleration/movement. On COM13 use small bounded positive/negative moves only where encoding is resolved; compare requested/native/readback values and independently observed shaft movement. Measure dynamic stop and final state. Do not blindly repeat a move after uncertain execution or substitute fake physical observations.
+Native fault injection covers each sequence boundary, stale completion, rejected intermediate write, wrong echo, delayed response, cancel and stop during setup/acceleration/movement. On COM13 use small bounded moves only where encoding is resolved; compare requested/native/readback values and new activity/completion reports. Record dynamic-stop response and final drive-reported state. Independent shaft observation is optional for functional acceptance and must remain unmeasured when unavailable. Do not blindly repeat a move after uncertain execution or substitute fake physical observations.
 
 Inject a second producer's target/speed/configuration write between staging acknowledgement and trigger; verify explicit conflict rejection/defer and that the original prepared values alone can be triggered.
 

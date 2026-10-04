@@ -28,7 +28,7 @@ import time
 MAX_LINE = 8192
 MAX_INPUT = 32768
 COMMANDS = frozenset({"version", "config", "probe", "capture-read", "status", "health", "memory", "stats", "load",
-                      "drv", "result", "release", "cancel", "recover", "reset", "caps", "host", "communication",
+                      "drv", "result", "release", "cancel", "recover", "reset", "caps", "host", "communication", "motion-bench",
                       "read-identity", "read-config", "read-state", "health-check", "monitor", "axis", "prepare", "enable", "motor-release", "alarm-clear", "stop", "position-clear", "move-relative", "move-absolute", "move-angle", "velocity", "driver", "io", "segment", "control", "tuning", "home"})
 MAX_COMMANDS = 11  # Eight ordinary operations, recovery, reserved stop and local query.
 MAX_OPERATIONS = 10  # Eight ordinary operations, one recovery and one reserved stop.
@@ -37,6 +37,13 @@ TYPED_READS = {"read-identity": "identity", "read-config": "config", "read-state
 READ_COMMANDS = ("probe", "capture-read", *TYPED_READS)
 HOST_BAUDS = (9600, 19200, 38400, 115200)
 HOST_FORMATS = ("8N1", "8N2", "8E1", "8O1")
+
+
+def motion_bench_arguments(tokens: tuple[str, ...]) -> str:
+    """One explicit fixture action; inspection never repeats a motor write."""
+    if not isinstance(tokens, tuple) or len(tokens) != 1 or tokens[0] not in ("read", "inspect", "restore"):
+        raise ValueError("motion-bench requires read, inspect or restore")
+    return tokens[0]
 
 
 def communication_arguments(tokens: tuple[str, ...]) -> dict:
@@ -489,6 +496,7 @@ class Console:
         self.serial = None
         self.communication = None
         self.communication_candidate = None
+        self.motion_bench = None
 
     def _lines(self, data: bytes) -> list[bytes]:
         self.buffer.extend(data)
@@ -816,6 +824,8 @@ class Console:
                 raise BenchError("move " + text)
         def integer(value, low=0, high=0xFFFFFFFFFFFFFFFF):
             return type(value) is int and low <= value <= high
+        allow_unconfirmed = item.get("allow_unconfirmed_write_observation", False)
+        require(type(allow_unconfirmed) is bool, "invalid unconfirmed-write observation policy")
         require(item.get("move_kind") == kind and item.get("action_kind") is None and
                 item.get("read_kind") is None and item.get("capture_read") is False and item.get("recovery") is False,
                 "kind is inconsistent")
@@ -835,19 +845,29 @@ class Console:
         for key in ("staging_applied", "uncertain", "running_observed", "observation_known", "interrupted_by_stop",
                     "endpoint_known", "zero_displacement", "exact_arithmetic"):
             require(type(item.get(key)) is bool, "missing " + key)
+        prerequisites = item.get("prerequisites")
+        require(isinstance(prerequisites, dict) and all(prerequisites.get(key) == item[key] for key in
+                ("target", "generation", "configuration_generation")), "qualification binding differs")
+        native_zero = prerequisites.get("native_zero_envelope_verified", False)
+        require(type(native_zero) is bool, "invalid native-zero envelope policy")
+        displacement_known = item.get("displacement_known", True)
+        require(type(displacement_known) is bool, "invalid displacement validity")
         require(integer(item.get("effective_native"), -2**31, 2**31 - 1) and
-                integer(item.get("displacement_native"), -2**63, 2**63 - 1) and item["displacement_native"] != 0 and
+                integer(item.get("displacement_native"), -2**63, 2**63 - 1) and
                 (kind != "relative" or item["displacement_native"] == item["effective_native"]) and item["zero_displacement"] is False and
                 integer(item.get("endpoint_native"), -2**63, 2**63 - 1), "effective target is invalid")
+        if native_zero:
+            require(kind == "absolute" and item.get("displacement_known") is False and item["displacement_native"] == 0 and
+                    item["effective_native"] == item["endpoint_native"] == 0 and item["endpoint_known"] and item["exact_arithmetic"],
+                    "native-zero envelope publishes an inferred displacement or nonzero target")
+        else:
+            require(displacement_known and item["displacement_native"] != 0, "displacement is absent or zero")
         require(integer(item.get("native_rpm"), 1, 3000) and item.get("ramp") == "configured", "speed or ramp is invalid")
         words = item.get("staging_words")
         require(isinstance(words, list) and len(words) == 5 and all(integer(word, 0, 65535) for word in words) and
                 words[0] <= 2000 and words[1] <= 2000 and words[2] == item["native_rpm"], "staged parameter words are inconsistent")
         encoded = item["effective_native"] & 0xFFFFFFFF
         require(words[3:] in ([encoded >> 16, encoded & 65535], [encoded & 65535, encoded >> 16]), "staged target differs from effective target")
-        prerequisites = item.get("prerequisites")
-        require(isinstance(prerequisites, dict) and all(prerequisites.get(key) == item[key] for key in
-                ("target", "generation", "configuration_generation")), "qualification binding differs")
         require(all(prerequisites.get(key) is True for key in ("command_units_verified", "configured_ramp_verified",
                 "serial_inputs_permit", "readiness_qualified", "word_order_known", "start_speed_known")) and
                 type(prerequisites.get("negative_encoding_verified")) is bool and
@@ -867,7 +887,11 @@ class Console:
                 integer(reference.get("native_position"), -2**63, 2**63 - 1) and integer(reference.get("basis"), 0, 2) and
                 integer(reference.get("source"), 0, 4) and integer(reference.get("observed_us")) and integer(reference.get("maximum_age_us")),
                 "reference provenance is invalid")
-        if kind != "relative" or reference["native_known"]:
+        if native_zero:
+            require(reference["native_known"] is False and all(reference[key] == 0 for key in
+                    ("target", "generation", "configuration_generation", "native_position", "basis", "source", "observed_us", "maximum_age_us")),
+                    "native-zero experiment invents a coordinate reference")
+        elif kind != "relative" or reference["native_known"]:
             require(reference["native_known"] and all(reference[key] == item[key] for key in ("target", "generation", "configuration_generation")) and
                     reference["basis"] == 0 and reference["source"] != 0 and reference["maximum_age_us"] > 0 and
                     reference["observed_us"] <= item["started_us"] < min(0xFFFFFFFFFFFFFFFF,
@@ -886,6 +910,10 @@ class Console:
                 integer(requested.get("angle_path"), 0, 2) and integer(requested.get("half_turn_tie"), 0, 2) and requested.get("basis") == 0 and integer(requested.get("rounding"), 0, 4),
                 "request provenance is invalid")
         require(kind != "angle" or (requested["unit"] in ("turn", "deg", "rad") and requested["frame"] != 0), "wrapped request is not an angular frame")
+        if native_zero:
+            require(requested["unit"] == "steps" and requested["frame"] == 0 and requested["numerator"] == 0 and
+                    requested["relative"] is False and requested["wrapped"] is False and requested["basis"] == 0,
+                    "native-zero envelope is not literal native absolute zero")
         def finite(value):
             return type(value) in (int, float) and math.isfinite(value)
         require(type(requested.get("approximate")) is bool and type(requested.get("rational_radians")) is bool and
@@ -987,6 +1015,14 @@ class Console:
                     name + " unknown execution contradicts checked acknowledgement/rejection")
         require(item["staging_applied"] == (item["setup_execution"] == "acknowledged"), "staging validity differs")
         stage, trigger = evidence["staging_evidence"][0], evidence["trigger_evidence"][0]
+        trigger_raw = evidence["trigger_evidence"][1]
+        functional_trigger = (allow_unconfirmed and item["execution"] == "unknown" and
+            trigger["event"] == 0 and trigger["qualified"] and not trigger["response_confirmed"] and
+            trigger["tx_complete"] and trigger["tx_accepted"] == 8 and trigger["status"] == "OK" and
+            trigger["detail"] == trigger["frame_error"] == 0 and len(trigger_raw) == 8 and
+            trigger_raw[:6] == bytes((item["address"], 6, 0, 0x27, 0, 1 if kind == "relative" else 5)) and
+            wire_crc(trigger_raw) == 0 and trigger["latest_us"] <= write_deadline)
+        observable_trigger = item["execution"] == "acknowledged" or functional_trigger
         if not evidence["trigger_evidence"][2]:
             require(item["staging_applied"] and stage["delivered_us"] <= trigger["delivered_us"] and
                     (not trigger["qualified"] or stage["delivered_us"] <= trigger["earliest_us"]), "trigger precedes checked staging")
@@ -1002,7 +1038,7 @@ class Console:
             require(evidence["activity_evidence"][2], "unobserved activity retains a report")
         if item["observation_known"]:
             observed, raw = confirmed("last_observation", (item["address"], 3, 4), 9)
-            require(item["execution"] == "acknowledged" and item["polls"] >= 1 and observed["step"] == item["polls"] + 1 and
+            require(observable_trigger and item["polls"] >= 1 and observed["step"] == item["polls"] + 1 and
                     trigger["delivered_us"] < observed["earliest_us"] and
                     item.get("raw_alarm") == int.from_bytes(raw[3:5], "big") and item.get("raw_motion") == int.from_bytes(raw[5:7], "big"),
                     "last report differs from retained RX")
@@ -1024,7 +1060,7 @@ class Console:
                 require(failure == evidence["staging_evidence" if failure["step"] == 0 else "trigger_evidence"][0],
                         "failed write differs from retained evidence")
             else:
-                require(item["execution"] == "acknowledged" and failure["step"] in (item["polls"] + 1, item["polls"] + 2),
+                require(observable_trigger and failure["step"] in (item["polls"] + 1, item["polls"] + 2),
                         "failure token skips an observation")
                 previous = evidence["last_observation"][0] if item["observation_known"] else trigger
                 if failure["step"] == item["polls"] + 1:
@@ -1043,7 +1079,7 @@ class Console:
                 expected = "deadline"
             elif failure["status"] != "OK":
                 expected = "reply_error"
-            elif not failure["response_confirmed"]:
+            elif not failure["response_confirmed"] and not (failure["step"] == 1 and functional_trigger):
                 expected = "unconfirmed_response"
             elif failure["step"] >= 2 and len(raw) == 9 and (int.from_bytes(raw[3:5], "big") or int.from_bytes(raw[5:7], "big") & 0x78):
                 expected = "reply_error"
@@ -1510,6 +1546,9 @@ class Console:
         def integer(value, maximum=0xFFFFFFFFFFFFFFFF):
             return type(value) is int and 0 <= value <= maximum
 
+        allow_unconfirmed = item.get("allow_unconfirmed_write_observation", False)
+        require(type(allow_unconfirmed) is bool, "invalid unconfirmed-write observation policy")
+
         empty_evidence = dict(step=0, event=0, raw_hex="", received_length=0, tx_accepted=0,
             tx_complete=False, response_confirmed=False, qualified=False, execution_unknown=False,
             earliest_us=0, latest_us=0, delivered_us=0, transport_detail=0, status="OK", detail=0, frame_error=0)
@@ -1583,6 +1622,15 @@ class Console:
             evidence[name] = (entry, raw)
         write, raw = evidence["write_evidence"]
         require(write["step"] == 0 and not empty(write), "write token or evidence is inconsistent")
+        reg, value = {"enable": (0x2D, 0x12), "motor-release": (0x2D, 0x11),
+                      "alarm-clear": (0x2D, 0x21), "position-clear": (0x2D, 0x31),
+                      "stop": (0x27, 0x100 if policy == "normal" else 0x200)}[command]
+        functional_write = (allow_unconfirmed and item["execution"] == "unknown" and
+            write["event"] == 0 and write["qualified"] and not write["response_confirmed"] and
+            write["tx_complete"] and write["tx_accepted"] == 8 and write["status"] == "OK" and
+            len(raw) == 8 and raw[:6] == bytes((item["address"], 6, reg >> 8, reg & 255, value >> 8, value & 255)) and
+            wire_crc(raw) == 0 and write["latest_us"] <= item["deadline_us"])
+        observable_write = item["execution"] == "acknowledged" or functional_write
         if item["execution"] in ("acknowledged", "rejected"):
             require(write["qualified"] and write["response_confirmed"] and write["tx_complete"]
                     and write["event"] == 0 and wire_crc(raw) == 0, "acknowledgement lacks confirmed drive response")
@@ -1606,7 +1654,7 @@ class Console:
                     "unknown execution contradicts a checked acknowledgement or documented rejection")
         if item["observation_known"]:
             obs, raw = evidence["last_observation"]
-            require(item["execution"] == "acknowledged" and item["polls"] >= 1
+            require(observable_write and item["polls"] >= 1
                     and obs["step"] == item["polls"] and obs["event"] == 0 and obs["qualified"]
                     and obs["response_confirmed"] and obs["tx_complete"] and obs["status"] == "OK"
                     and obs["frame_error"] == 0 and obs["received_length"] == 9 and wire_crc(raw) == 0
@@ -1643,7 +1691,7 @@ class Console:
             if failure["step"] == 0:
                 require(failure == write, "failed write differs from retained write evidence")
             else:
-                require(item["execution"] == "acknowledged", "observation failure precedes acknowledgement")
+                require(observable_write, "observation failure precedes a checked write")
                 previous = evidence["last_observation"][0] if item["observation_known"] else write
                 if failure["step"] == item["polls"]:
                     require(failure == previous, "failed observation differs from retained observation")
@@ -1659,7 +1707,7 @@ class Console:
                 expected = "deadline"
             elif failure["status"] != "OK":
                 expected = "reply_error"
-            elif not failure["response_confirmed"]:
+            elif not failure["response_confirmed"] and not (failure["step"] == 0 and functional_write):
                 expected = "unconfirmed_response"
             else:
                 require(item["outcome"] in ("deadline", "observation_limit")
@@ -2361,6 +2409,101 @@ class Console:
             self.communication = json.loads(json.dumps(c))
             self.communication_candidate = candidate_check
 
+    def _check_motion_bench(self, handle: Command, item: dict) -> None:
+        """Check the bounded fixture's snapshot/restoration without promoting electrical evidence."""
+        action = motion_bench_arguments(handle.host_args)
+        def require(condition, message):
+            if not condition:
+                raise BenchError("motion-bench: " + message)
+        def integer(value, low=0, high=0xFFFFFFFFFFFFFFFF):
+            return type(value) is int and low <= value <= high
+        if "enabled" not in item:
+            require(not item["ok"], "successful reply omitted fixture evidence")
+            return
+        require(item.get("request") == action, "request differs")
+        for key in ("enabled", "electrical_qualified", "pending", "saved", "restored", "session_ok",
+                    "tx_complete", "closure_qualified", "execution_unknown", "write_tx_complete",
+                    "write_closure_qualified", "write_execution_unknown"):
+            require(type(item.get(key)) is bool, "invalid " + key)
+        require(not item["electrical_qualified"], "functional fixture claims electrical qualification")
+        require(integer(item.get("phase"), 0, 3) and integer(item.get("address"), 0, 247), "invalid phase/target")
+        for key in ("configuration_generation", "serial_generation"):
+            require(integer(item.get(key), 0, 0xFFFFFFFF), "invalid " + key)
+        for key in ("deadline_us", "delivered_us", "tx_accepted", "closure_earliest_us", "closure_latest_us",
+                    "write_tx_accepted", "write_closure_earliest_us", "write_closure_latest_us", "write_delivered_us"):
+            require(integer(item.get(key)), "invalid " + key)
+        require(item.get("error") in ("none", "admission", "transaction", "readback_admission", "decode", "readback_mismatch"),
+                "invalid session error")
+        for key in ("original", "current"):
+            require(isinstance(item.get(key), list) and len(item[key]) == 6 and
+                    all(integer(word, 0, 65535) for word in item[key]), "invalid " + key + " words")
+        frames = {}
+        for key, capacity in (("tx_hex", 19), ("rx_hex", 64), ("write_tx_hex", 19), ("write_reply_hex", 8)):
+            value = item.get(key)
+            require(isinstance(value, str) and re.fullmatch(r"(?:[0-9a-fA-F]{2})*", value) is not None and
+                    len(value) <= capacity * 2, "invalid " + key)
+            frames[key] = bytes.fromhex(value)
+        phase = item["phase"]
+        require(not item["pending"] or (item["enabled"] and phase in (1, 2, 3) and not item["session_ok"] and not item["restored"]),
+                "invalid pending session")
+        require(not item["session_ok"] or (not item["pending"] and item["saved"] and phase in (1, 3) and item["error"] == "none"),
+                "invalid successful session")
+        require(item["restored"] == (item["session_ok"] and phase == 3), "restoration flag differs")
+        if item["ok"] and action != "inspect":
+            require(item["pending"] and phase == (1 if action == "read" else 2), "accepted request did not start its explicit phase")
+        address = item["address"]
+        read_prefix = bytes((address, 3, 0, 0x20, 0, 6))
+        write_prefix = bytes((address, 16, 0, 0x21, 0, 5, 10)) + b"".join(word.to_bytes(2, "big") for word in item["original"][1:])
+        if phase:
+            require(address >= 1 and item["configuration_generation"] and item["serial_generation"] and item["deadline_us"],
+                    "session lacks endpoint/budget")
+            tx = frames["tx_hex"]
+            require(tx[:-2] == (write_prefix if phase == 2 else read_prefix) and wire_crc(tx) == 0, "request frame differs")
+            require(phase == 1 or item["saved"], "restore lost its original snapshot")
+        else:
+            require(not item["pending"] and not item["saved"] and not item["session_ok"] and
+                    not any(frames.values()), "empty fixture publishes wire evidence")
+        for prefix, tx_key in (("", "tx_hex"), ("write_", "write_tx_hex")):
+            accepted, complete = item[prefix + "tx_accepted"], item[prefix + "tx_complete"]
+            require(accepted <= len(frames[tx_key]) and (not complete or accepted == len(frames[tx_key]) > 0), "invalid accepted TX")
+            first, last, delivered = (item[prefix + key] for key in ("closure_earliest_us", "closure_latest_us", "delivered_us"))
+            if item[prefix + "closure_qualified"]:
+                require(complete and 0 < first <= last <= delivered, "invalid closure interval")
+            else:
+                require(first == last == 0, "unqualified interval has bounds")
+        if phase == 3:
+            write = frames["write_tx_hex"]; response = frames["write_reply_hex"]
+            require(write[:-2] == write_prefix and wire_crc(write) == 0 and
+                    response[:-2] == bytes((address, 16, 0, 0x21, 0, 5)) and len(response) == 8 and wire_crc(response) == 0 and
+                    item["write_tx_complete"] and item["write_closure_qualified"] and not item["write_execution_unknown"] and
+                    item["write_closure_latest_us"] <= item["deadline_us"], "readback lacks checked restoration write")
+            if item["closure_qualified"]:
+                require(item["write_delivered_us"] <= item["closure_earliest_us"], "readback precedes restoration")
+        elif phase == 2 and frames["write_tx_hex"]:
+            require(not item["pending"] and not item["session_ok"] and item["error"] == "transaction" and
+                    frames["write_tx_hex"] == frames["tx_hex"] and
+                    frames["write_reply_hex"] == frames["rx_hex"][:8], "failed restoration lost its write evidence")
+            for key in ("tx_accepted", "tx_complete", "closure_qualified", "closure_earliest_us", "closure_latest_us",
+                        "delivered_us", "execution_unknown"):
+                require(item["write_" + key] == item[key], "failed restoration evidence differs")
+        else:
+            require(not frames["write_tx_hex"] and not frames["write_reply_hex"] and
+                    not item["write_tx_accepted"] and not item["write_tx_complete"] and not item["write_closure_qualified"] and
+                    not item["write_delivered_us"] and not item["write_execution_unknown"], "unexpected retained restoration proof")
+        if item["session_ok"]:
+            rx = frames["rx_hex"]
+            require(item["tx_complete"] and item["closure_qualified"] and not item["execution_unknown"] and
+                    item["closure_latest_us"] <= item["deadline_us"] and len(rx) == 17 and
+                    rx[:3] == bytes((address, 3, 12)) and wire_crc(rx) == 0 and
+                    item["current"] == [int.from_bytes(rx[i:i+2], "big") for i in range(3, 15, 2)],
+                    "successful snapshot lacks checked FC03 payload")
+            require(not item["restored"] or item["current"] == item["original"], "restoration differs from original")
+        old = self.motion_bench
+        if old and old["saved"]:
+            require(item["saved"] and item["original"] == old["original"] and item["address"] == old["address"] and
+                    item["serial_generation"] == old["serial_generation"], "retained original/binding changed")
+        self.motion_bench = json.loads(json.dumps(item))
+
     def _complete(self, handle: Command, item: dict) -> None:
         if self.clock() >= handle.deadline:
             raise BenchError("command response deadline expired; command was not replayed")
@@ -2378,6 +2521,8 @@ class Console:
             self._check_host(handle, item)
         if handle.command == "communication":
             self._check_communication(handle, item)
+        if handle.command == "motion-bench":
+            self._check_motion_bench(handle, item)
         if handle.command in ("status", "config") and item["ok"]:
             self._check_host_serial(item, handle.serial)
             if handle.command == "config" and handle.serial is not None and handle.serial["known"]:
@@ -2614,6 +2759,8 @@ class Console:
         elif command == "communication":
             host_args = () if host_args is None else host_args
             communication_arguments(host_args)
+        elif command == "motion-bench":
+            motion_bench_arguments(host_args)
         elif host_args is not None:
             if (command not in ("axis", "prepare") or not isinstance(host_args, tuple) or
                     not 1 <= len(host_args) <= (9 if command == "prepare" else 8) or any(type(token) is not str or not token or
@@ -3341,6 +3488,8 @@ def arguments(argv: list[str] | None) -> argparse.Namespace:
     host.add_argument("host_tokens", nargs="*")
     communication = sub.add_parser("communication", help="one explicit communication session action; no retries/save/restart")
     communication.add_argument("communication_tokens", nargs="*")
+    motion_bench = sub.add_parser("motion-bench", help="one bounded fixture snapshot, inspection or exact restoration")
+    motion_bench.add_argument("motion_bench_action", choices=("read", "inspect", "restore"))
     commissioning = sub.add_parser("communication-check", help="finite preview, optional one write and explicitly selected confirmation")
     commissioning.add_argument("field", choices=("address", "baud", "format"))
     commissioning.add_argument("value")
@@ -3434,6 +3583,8 @@ def arguments(argv: list[str] | None) -> argparse.Namespace:
         parser.error("interval must be finite and within 0..60 seconds")
     result.move_args = None
     result.host_args = None
+    if result.mode == "motion-bench":
+        result.host_args = (result.motion_bench_action,)
     if result.mode == "communication":
         result.host_args = tuple(result.communication_tokens)
         try: communication_arguments(result.host_args)
@@ -3519,7 +3670,11 @@ def main(argv: list[str] | None = None) -> int:
                 console = Console(port, on_event=evidence)
                 console.drain_startup(args.startup)
                 console.identify(timeout_s=args.timeout)
-                if args.mode == "communication":
+                if args.mode == "motion-bench":
+                    result = console.command("motion-bench", host_args=args.host_args, timeout_s=args.timeout)
+                    if not result["ok"]:
+                        raise BenchError("motion-bench command failed: " + str(result.get("result")))
+                elif args.mode == "communication":
                     result = console.command("communication", host_args=args.host_args, timeout_s=args.timeout)
                     if not result["ok"]:
                         raise BenchError("communication command failed: " + str(result.get("result")))

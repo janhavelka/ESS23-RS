@@ -13,9 +13,10 @@
 namespace MotorControlRSExample { namespace Probe {
 namespace {
 
-enum class Command : uint8_t { HELP, VERSION, CONFIG, STATUS, HEALTH, STATS, PROBE, CAPTURE_READ, RECOVER, RESET, MEMORY, LOAD, DRV, RESULT, CANCEL, RELEASE, READ, PROFILE, CAPS, READ_IDENTITY, READ_CONFIG, READ_STATE, HEALTH_CHECK, MONITOR, AXIS, PREPARE, ENABLE, MOTOR_RELEASE, ALARM_CLEAR, STOP, MOVE, POSITION_CLEAR, VELOCITY, DRIVER, IO, HOME, SEGMENT, CONTROL, TUNING, HOST, COMMUNICATION };
+enum class Command : uint8_t { HELP, VERSION, CONFIG, STATUS, HEALTH, STATS, PROBE, CAPTURE_READ, RECOVER, RESET, MEMORY, LOAD, DRV, RESULT, CANCEL, RELEASE, READ, PROFILE, CAPS, READ_IDENTITY, READ_CONFIG, READ_STATE, HEALTH_CHECK, MONITOR, AXIS, PREPARE, ENABLE, MOTOR_RELEASE, ALARM_CLEAR, STOP, MOVE, POSITION_CLEAR, VELOCITY, DRIVER, IO, HOME, SEGMENT, CONTROL, TUNING, HOST, COMMUNICATION, FUNCTIONAL };
 struct Entry { const char* name; Command command; const char* syntax; const char* effect; bool bus; };
 const Entry COMMANDS[] = {
+    {"motion-bench", Command::FUNCTIONAL, "motion-bench read|inspect|restore", "explicit_bounded_free_shaft_fixture_only", true},
     {"help", Command::HELP, "help [command]", "show_callable_commands", false},
     {"version", Command::VERSION, "version", "show_build", false},
     {"ver", Command::VERSION, "ver", "show_build", false},
@@ -696,6 +697,36 @@ void Console::dispatch() noexcept {
         error(id, capability, "unsupported"); return;
     }
     if (!entry) { error(id, "unknown", "unknown_command"); return; }
+    if (entry->command == Command::FUNCTIONAL) {
+        if (outputPending()) { ++inputDropped_; return; }
+        if (!host_.functional) { error(id, "motion-bench", "unavailable"); return; }
+        if (count != first + 2) { error(id, "motion-bench", "invalid_arguments"); return; }
+        FunctionalCommand command;
+        if (!std::strcmp(tokens[first + 1], "inspect")) command = FunctionalCommand::INSPECT;
+        else if (!std::strcmp(tokens[first + 1], "read")) command = FunctionalCommand::SNAPSHOT;
+        else if (!std::strcmp(tokens[first + 1], "restore")) command = FunctionalCommand::RESTORE;
+        else { error(id, "motion-bench", "invalid_arguments"); return; }
+        FunctionalView v;
+        const Action result = host_.functional(host_.context, command, v);
+        char tx[39], rx[129], write[17], writeTx[39];
+        hex(v.tx,v.txLength,tx,sizeof(tx)); hex(v.rx,v.rxLength,rx,sizeof(rx));
+        hex(v.writeReply,v.writeReplyLength,write,sizeof(write)); hex(v.writeTx,v.writeTxLength,writeTx,sizeof(writeTx));
+        std::size_t used=0;
+        if (append(output_,sizeof(output_),used,
+            "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"motion-bench\",\"ok\":%s,\"result\":\"%s\",\"enabled\":%s,\"electrical_qualified\":false,\"pending\":%s,\"saved\":%s,\"restored\":%s,\"session_ok\":%s,\"phase\":%u,\"address\":%u,\"configuration_generation\":%lu,\"serial_generation\":%lu,\"original\":[%u,%u,%u,%u,%u,%u],\"current\":[%u,%u,%u,%u,%u,%u],\"tx_hex\":\"%s\",\"rx_hex\":\"%s\",\"write_reply_hex\":\"%s\",\"tx_accepted\":%llu,\"closure_qualified\":%s,\"closure_earliest_us\":%llu,\"closure_latest_us\":%llu,\"execution_unknown\":%s,\"error\":\"%s\"}",
+            static_cast<unsigned long>(id),boolean(result==Action::OK),actionName(result),boolean(v.enabled),boolean(v.pending),boolean(v.saved),boolean(v.restored),boolean(v.ok),v.phase,v.address,
+            static_cast<unsigned long>(v.generation),static_cast<unsigned long>(v.serialGeneration),
+            v.original[0],v.original[1],v.original[2],v.original[3],v.original[4],v.original[5],
+            v.current[0],v.current[1],v.current[2],v.current[3],v.current[4],v.current[5],tx,rx,write,
+            static_cast<unsigned long long>(v.txAccepted),boolean(v.closureQualified),static_cast<unsigned long long>(v.closureEarliestUs),static_cast<unsigned long long>(v.closureLatestUs),boolean(v.executionUnknown),v.error)) {
+            --used;
+            if (append(output_,sizeof(output_),used,",\"request\":\"%s\",\"tx_complete\":%s,\"write_tx_complete\":%s,\"deadline_us\":%llu,\"delivered_us\":%llu,\"write_tx_hex\":\"%s\",\"write_tx_accepted\":%llu,\"write_closure_qualified\":%s,\"write_closure_earliest_us\":%llu,\"write_closure_latest_us\":%llu,\"write_delivered_us\":%llu,\"write_execution_unknown\":%s}",
+                tokens[first+1],boolean(v.txComplete),boolean(v.writeTxComplete),static_cast<unsigned long long>(v.deadlineUs),static_cast<unsigned long long>(v.deliveredUs),writeTx,static_cast<unsigned long long>(v.writeTxAccepted),boolean(v.writeQualified),static_cast<unsigned long long>(v.writeEarliestUs),static_cast<unsigned long long>(v.writeLatestUs),static_cast<unsigned long long>(v.writeDeliveredUs),boolean(v.writeExecutionUnknown))) emit();
+            else error(id,"motion-bench","output_capacity");
+        }
+        else error(id,"motion-bench","output_capacity");
+        return;
+    }
     if (entry->command == Command::HOST) {
         if (outputPending()) { ++inputDropped_; return; }
         if (!host_.hostSerial) { error(id, "host", "unavailable"); return; }
@@ -1414,12 +1445,12 @@ void Console::dispatch() noexcept {
     }
     case Command::CONFIG:
         std::snprintf(output_, sizeof(output_),
-            "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"%s\",\"ok\":true,\"address\":%u,\"baud\":%lu,\"format\":\"%s\",\"response_timeout_us\":%lu,\"reply_gap_us\":%lu,\"gap15_us\":%lu,\"gap35_us\":%lu,\"stale_after_ms\":%lu,\"ready\":%s,\"timing_qualified\":%s,\"device_settings\":\"%s\",\"cache_off_supported\":%s,\"sample_gap_limit_us\":%lu,\"cached_identity_id\":%lu,\"cached_identity_address\":%u,\"cached_identity_generation\":%lu,\"cached_config_id\":%lu,\"cached_config_address\":%u,\"cached_config_generation\":%lu,\"binding_generation\":%lu}",
+            "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"%s\",\"ok\":true,\"address\":%u,\"baud\":%lu,\"format\":\"%s\",\"response_timeout_us\":%lu,\"reply_gap_us\":%lu,\"gap15_us\":%lu,\"gap35_us\":%lu,\"stale_after_ms\":%lu,\"ready\":%s,\"timing_qualified\":%s,\"functional_bench\":%s,\"device_settings\":\"%s\",\"cache_off_supported\":%s,\"sample_gap_limit_us\":%lu,\"cached_identity_id\":%lu,\"cached_identity_address\":%u,\"cached_identity_generation\":%lu,\"cached_config_id\":%lu,\"cached_config_address\":%u,\"cached_config_generation\":%lu,\"binding_generation\":%lu}",
             static_cast<unsigned long>(id), entry->name, data.address, static_cast<unsigned long>(data.baud),
             host_.hostSerial ? (data.serial.activeKnown ? formatName(data.serial.active.format) : "unknown") : "8N1",
             static_cast<unsigned long>(data.responseTimeoutUs), static_cast<unsigned long>(data.replyGapUs),
             static_cast<unsigned long>(data.gap15Us), static_cast<unsigned long>(data.gap35Us),
-            static_cast<unsigned long>(data.staleAfterMs), boolean(data.ready), boolean(data.timingQualified),
+            static_cast<unsigned long>(data.staleAfterMs), boolean(data.ready), boolean(data.timingQualified), boolean(data.functionalBench),
             data.cachedConfigId ? "cached" : "unknown", boolean(data.cacheOffSupported), static_cast<unsigned long>(data.sampleGapLimitUs),
             static_cast<unsigned long>(data.cachedIdentityId), data.cachedIdentityAddress, static_cast<unsigned long>(data.cachedIdentityGeneration),
             static_cast<unsigned long>(data.cachedConfigId), data.cachedConfigAddress, static_cast<unsigned long>(data.cachedConfigGeneration),
@@ -1427,8 +1458,8 @@ void Console::dispatch() noexcept {
         break;
     case Command::STATUS:
         std::snprintf(output_, sizeof(output_),
-            "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"status\",\"ok\":true,\"uptime_ms\":%llu,\"ready\":%s,\"timing_qualified\":%s,\"busy\":%s,\"transmit_enabled\":%s,\"recovery_required\":%s,\"phase\":\"%s\",\"transport\":\"%s\",\"codec\":\"%s\",\"detail\":%ld,\"frame_error\":%u,\"last_probe_known\":%s,\"last_probe_ok\":%s,\"probe_address\":%s,\"model_address\":%s,\"raw_model\":%s,\"age_ms\":%s,\"stale_after_ms\":%lu}",
-            static_cast<unsigned long>(id), static_cast<unsigned long long>(data.uptimeMs), boolean(data.ready), boolean(data.timingQualified),
+            "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"status\",\"ok\":true,\"uptime_ms\":%llu,\"ready\":%s,\"timing_qualified\":%s,\"functional_bench\":%s,\"busy\":%s,\"transmit_enabled\":%s,\"recovery_required\":%s,\"phase\":\"%s\",\"transport\":\"%s\",\"codec\":\"%s\",\"detail\":%ld,\"frame_error\":%u,\"last_probe_known\":%s,\"last_probe_ok\":%s,\"probe_address\":%s,\"model_address\":%s,\"raw_model\":%s,\"age_ms\":%s,\"stale_after_ms\":%lu}",
+            static_cast<unsigned long>(id), static_cast<unsigned long long>(data.uptimeMs), boolean(data.ready), boolean(data.timingQualified), boolean(data.functionalBench),
             boolean(data.busy), boolean(data.transmitEnabled), boolean(data.recoveryRequired), Rtu::phaseName(data.phase), Rtu::reasonName(data.transport),
             data.codecChecked ? MotorControlRS::errToString(data.codec.code) : "NOT_CHECKED",
             data.codecChecked ? static_cast<long>(data.codec.detail) : 0L,
@@ -1697,6 +1728,8 @@ bool Console::formatAction(uint32_t id, uint32_t commandId, uint32_t operationId
     fits = fits && append(output_, sizeof(output_), used, "}");
     if (!fits) return false; // Keep the complete host result available; never publish partial JSON.
     if (!appendReportSerial(used)) return false;
+    --used;
+    if (!append(output_,sizeof(output_),used,",\"allow_unconfirmed_write_observation\":%s}", boolean(context.options.allowUnconfirmedWriteObservation))) return false;
     emit(inspection ? 0 : operationId);
     return true;
 }
@@ -1788,7 +1821,7 @@ bool Console::formatMove(uint32_t id, uint32_t commandId, uint32_t operationId,
         std::snprintf(approximateNative, sizeof(approximateNative), "%.17g", p.approximateRequestedNative);
     }
     bool fits = append(output_, sizeof(output_), used,
-        "{\"type\":\"%s\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"%s\",\"command_id\":%lu,\"operation_id\":%lu,\"move_kind\":\"%s\",\"read_kind\":null,\"action_kind\":null,\"capture_read\":false,\"recovery\":false,\"ok\":%s,\"state\":\"%s\",\"outcome\":\"%s\",\"status\":\"%s\",\"detail\":%ld,\"setup_execution\":\"%s\",\"execution\":\"%s\",\"completion\":\"%s\",\"target\":%lu,\"address\":%u,\"generation\":%lu,\"configuration_generation\":%lu,\"started_us\":%llu,\"deadline_us\":%llu,\"serviced_us\":%llu,\"polls\":%u,\"staging_applied\":%s,\"uncertain\":%s,\"running_observed\":%s,\"observation_known\":%s,\"raw_alarm\":%s,\"raw_motion\":%s,\"native_rpm\":%u,\"ramp\":\"configured\",\"staging_words\":[%u,%u,%u,%u,%u],\"requested\":{\"numerator\":%lld,\"denominator\":%llu,\"unit\":\"%s\",\"frame\":%u,\"relative\":%s,\"wrapped\":%s,\"angle_path\":%u,\"half_turn_tie\":%u,\"basis\":%u,\"rounding\":%u,\"approximate\":%s,\"rational_radians\":%s,\"radians\":%s,\"maximum_quantization_error\":%.17g,\"maximum_approximation_error\":%s},\"effective_native\":%lld,\"endpoint_known\":%s,\"endpoint_native\":%lld,\"displacement_native\":%lld,\"zero_displacement\":%s,\"rounding_error\":%.17g,\"approximation_error_bound\":%.17g,\"exact_arithmetic\":%s,\"requested_native_approximate\":%s,\"staging_evidence\":",
+        "{\"type\":\"%s\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"%s\",\"command_id\":%lu,\"operation_id\":%lu,\"move_kind\":\"%s\",\"read_kind\":null,\"action_kind\":null,\"capture_read\":false,\"recovery\":false,\"ok\":%s,\"state\":\"%s\",\"outcome\":\"%s\",\"status\":\"%s\",\"detail\":%ld,\"setup_execution\":\"%s\",\"execution\":\"%s\",\"completion\":\"%s\",\"target\":%lu,\"address\":%u,\"generation\":%lu,\"configuration_generation\":%lu,\"started_us\":%llu,\"deadline_us\":%llu,\"serviced_us\":%llu,\"polls\":%u,\"staging_applied\":%s,\"uncertain\":%s,\"running_observed\":%s,\"observation_known\":%s,\"raw_alarm\":%s,\"raw_motion\":%s,\"native_rpm\":%u,\"ramp\":\"configured\",\"staging_words\":[%u,%u,%u,%u,%u],\"requested\":{\"numerator\":%lld,\"denominator\":%llu,\"unit\":\"%s\",\"frame\":%u,\"relative\":%s,\"wrapped\":%s,\"angle_path\":%u,\"half_turn_tie\":%u,\"basis\":%u,\"rounding\":%u,\"approximate\":%s,\"rational_radians\":%s,\"radians\":%s,\"maximum_quantization_error\":%.17g,\"maximum_approximation_error\":%s},\"effective_native\":%lld,\"endpoint_known\":%s,\"endpoint_native\":%lld,\"displacement_known\":%s,\"displacement_native\":%lld,\"zero_displacement\":%s,\"rounding_error\":%.17g,\"approximation_error_bound\":%.17g,\"exact_arithmetic\":%s,\"requested_native_approximate\":%s,\"staging_evidence\":",
         inspection ? "reply" : "move", static_cast<unsigned long>(id), inspection ? "result" : moveCommand(r),
         static_cast<unsigned long>(commandId), static_cast<unsigned long>(operationId), moveKind(r), boolean(ok),
         c.state == Core::ActionState::SUCCEEDED ? "succeeded" : "failed", motorOutcome(c.outcome), Core::errToString(c.status.code), static_cast<long>(c.status.detail),
@@ -1800,17 +1833,17 @@ bool Console::formatMove(uint32_t id, uint32_t commandId, uint32_t operationId,
         static_cast<long long>(r.value.numerator), static_cast<unsigned long long>(r.value.denominator), unitName(r.unit),
         static_cast<unsigned>(r.frame), boolean(r.relative), boolean(r.wrapped), static_cast<unsigned>(r.path), static_cast<unsigned>(r.tie), static_cast<unsigned>(r.basis), static_cast<unsigned>(r.rounding), boolean(r.approximate), boolean(r.rationalRadians), radians, r.maximumQuantizationError, approximationLimit,
         static_cast<long long>(p.effectiveNative), boolean(p.endpointKnown), static_cast<long long>(p.endpointNative),
-        static_cast<long long>(p.displacementNative), boolean(p.zeroDisplacement), p.roundingError, p.approximationErrorBound, boolean(p.exactArithmetic), approximateNative) &&
+        boolean(p.displacementKnown), static_cast<long long>(p.displacementNative), boolean(p.zeroDisplacement), p.roundingError, p.approximationErrorBound, boolean(p.exactArithmetic), approximateNative) &&
         actionEvidence(output_, sizeof(output_), used, c.stagingEvidence) && append(output_, sizeof(output_), used, ",\"trigger_evidence\":") &&
         actionEvidence(output_, sizeof(output_), used, c.triggerEvidence) && append(output_, sizeof(output_), used, ",\"activity_evidence\":") &&
         actionEvidence(output_, sizeof(output_), used, c.activityEvidence) && append(output_, sizeof(output_), used, ",\"last_observation\":") &&
         actionEvidence(output_, sizeof(output_), used, c.lastObservation) && append(output_, sizeof(output_), used, ",\"failure_evidence\":") &&
         actionEvidence(output_, sizeof(output_), used, c.failureEvidence) && append(output_, sizeof(output_), used,
-        ",\"prerequisites\":{\"target\":%lu,\"generation\":%lu,\"configuration_generation\":%lu,\"observed_us\":%llu,\"maximum_age_us\":%llu,\"raw_alarm\":%u,\"raw_motion\":%u,\"command_units_verified\":%s,\"relative_basis_verified\":%s,\"negative_encoding_verified\":%s,\"configured_ramp_verified\":%s,\"serial_inputs_permit\":%s,\"readiness_qualified\":%s,\"word_order_known\":%s,\"word_order\":%u,\"start_speed_known\":%s,\"start_speed\":%u},\"interrupted_by_stop\":%s",
+        ",\"prerequisites\":{\"target\":%lu,\"generation\":%lu,\"configuration_generation\":%lu,\"observed_us\":%llu,\"maximum_age_us\":%llu,\"raw_alarm\":%u,\"raw_motion\":%u,\"command_units_verified\":%s,\"relative_basis_verified\":%s,\"negative_encoding_verified\":%s,\"native_zero_envelope_verified\":%s,\"configured_ramp_verified\":%s,\"serial_inputs_permit\":%s,\"readiness_qualified\":%s,\"word_order_known\":%s,\"word_order\":%u,\"start_speed_known\":%s,\"start_speed\":%u},\"interrupted_by_stop\":%s",
         static_cast<unsigned long>(c.prerequisites.target.id), static_cast<unsigned long>(c.prerequisites.target.generation),
         static_cast<unsigned long>(c.prerequisites.configurationGeneration), static_cast<unsigned long long>(c.prerequisites.observedUs),
         static_cast<unsigned long long>(c.prerequisites.maximumAgeUs), c.prerequisites.rawAlarm, c.prerequisites.rawMotion,
-        boolean(c.prerequisites.commandUnitsVerified), boolean(c.prerequisites.relativeBasisVerified), boolean(c.prerequisites.negativeTwosComplementVerified),
+        boolean(c.prerequisites.commandUnitsVerified), boolean(c.prerequisites.relativeBasisVerified), boolean(c.prerequisites.negativeTwosComplementVerified), boolean(c.prerequisites.nativeZeroEnvelopeVerified),
         boolean(c.prerequisites.configuredRampVerified), boolean(c.prerequisites.serialInputsPermit), boolean(c.prerequisites.readinessQualified),
         boolean(c.prerequisites.wordOrderKnown), static_cast<unsigned>(c.prerequisites.wordOrder), boolean(c.prerequisites.startSpeedKnown),
         c.prerequisites.startSpeed, boolean(interruptedByStop)) && append(output_, sizeof(output_), used,
@@ -1820,6 +1853,8 @@ bool Console::formatMove(uint32_t id, uint32_t commandId, uint32_t operationId,
         static_cast<unsigned>(c.reference.basis), static_cast<unsigned>(c.reference.source),
         static_cast<unsigned long long>(c.reference.observedUs), static_cast<unsigned long long>(c.reference.maximumAgeUs)) && append(output_, sizeof(output_), used, "}");
     if (!fits || !appendReportSerial(used)) return false;
+    --used;
+    if (!append(output_,sizeof(output_),used,",\"allow_unconfirmed_write_observation\":%s}", boolean(c.options.allowUnconfirmedWriteObservation))) return false;
     emit(inspection ? 0 : operationId);
     return true;
 }

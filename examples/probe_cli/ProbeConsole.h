@@ -29,6 +29,22 @@ enum class Action : uint8_t { OK, BUSY, RECOVERY_REQUIRED, UNAVAILABLE, FAILED,
     QUEUE_FULL, RESULTS_FULL, IDS_EXHAUSTED, INVALID, ALREADY_TERMINAL,
     TIMING_UNQUALIFIED, UNSUPPORTED, AXIS_CONFLICT };
 
+enum class FunctionalCommand : uint8_t { INSPECT, SNAPSHOT, RESTORE };
+/** Explicit free-shaft fixture session, never electrical qualification. */
+struct FunctionalView {
+    bool enabled = false, pending = false, saved = false, restored = false, ok = false;
+    uint8_t phase = 0, address = 0;
+    uint32_t generation = 0, serialGeneration = 0;
+    uint16_t original[6] = {}, current[6] = {};
+    uint8_t tx[19] = {}, rx[64] = {}, writeReply[8] = {}, writeTx[19] = {};
+    std::size_t txLength = 0, rxLength = 0, writeReplyLength = 0, writeTxLength = 0;
+    uint64_t txAccepted = 0, closureEarliestUs = 0, closureLatestUs = 0;
+    uint64_t deadlineUs = 0, deliveredUs = 0, writeTxAccepted = 0, writeEarliestUs = 0, writeLatestUs = 0, writeDeliveredUs = 0;
+    bool writeQualified = false, writeExecutionUnknown = false, txComplete = false, writeTxComplete = false;
+    bool closureQualified = false, executionUnknown = false;
+    const char* error = "none";
+};
+
 /** Host-only qualification workload. Changes never configure the motor. */
 struct LoadSettings {
     uint32_t workUs = 0;       ///< Competing work per 10 ms period, at most 5000 us.
@@ -106,6 +122,7 @@ struct Snapshot {
     uint64_t uptimeMs = 0;
     bool ready = false;
     bool timingQualified = false;
+    bool functionalBench = false;
     bool actionsQualified = false, axisReserved = false;
     bool busy = false;
     bool transmitEnabled = false; ///< Asserted or uncertain DE, including fault cleanup.
@@ -246,6 +263,7 @@ struct Host {
      * command, retry or automatic recovery. Request is consumed during the call. */
     Action (*hostSerial)(void*, const HostRequest* requested, HostSnapshot&) = nullptr;
     Action (*communication)(void*, const CommunicationCommand*, CommunicationView&) = nullptr;
+    Action (*functional)(void*, FunctionalCommand, FunctionalView&) = nullptr;
     bool (*result)(void*, uint32_t operationId, ResultView&) = nullptr; ///< Zero selects latest.
     Action (*cancel)(void*, uint32_t operationId) = nullptr; ///< Local only; zero selects latest.
     Action (*release)(void*, uint32_t operationId) = nullptr; ///< Explicit terminal retention release.

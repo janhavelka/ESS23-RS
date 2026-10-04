@@ -32,10 +32,11 @@ std::vector<uint8_t> motion(uint16_t alarm, uint16_t flags) {
         static_cast<uint8_t>(flags >> 8), static_cast<uint8_t>(flags)};
     crc(b); return b;
 }
-Ess::ActionContext action(ActionKind kind = ActionKind::STOP, uint64_t deadline = 10000) {
+Ess::ActionContext action(ActionKind kind = ActionKind::STOP, uint64_t deadline = 10000, bool allowUnconfirmed = false) {
     Ess::ActionContext c; ActionRequest request; request.kind = kind;
     if (kind == ActionKind::STOP) request.stop.behavior = StopBehavior::CONFIGURED_DECELERATION;
     ActionOptions options; options.pollIntervalUs = 100; options.maxPolls = 3;
+    options.allowUnconfirmedWriteObservation = allowUnconfirmed;
     assert(Ess::prepareAction(c, target(), 12, request, 100, deadline, options)); return c;
 }
 ActionEvent event(const Ess::ActionContext& c, ReadEventKind kind) {
@@ -127,6 +128,59 @@ void testEchoAcknowledgementAndReportedCompletionAreSeparate() {
         assert(c.state == ActionState::SUCCEEDED && c.completion == ActionCompletion::OBSERVED);
         assert(c.execution == ActionExecution::ACKNOWLEDGED && c.rawMotion == met);
         assert(Ess::nextAction(c, c.servicedUs, p) && p.kind == Ess::ActionWork::DONE && p.length == 0);
+    }
+}
+void testOptedInObservationRetainsUnknownExecution() {
+    for (ActionKind kind : {ActionKind::ENABLE, ActionKind::RELEASE, ActionKind::CLEAR_ALARM, ActionKind::STOP}) {
+        auto c = action(kind, 10000, true);
+        Ess::PreparedAction work; assert(Ess::nextAction(c, 100, work));
+        auto e = frame(c, work.bytes, work.length, 200); e.responseConfirmed = false;
+        assert(Ess::advanceAction(c, e, 220));
+        assert(c.state == ActionState::ACTIVE && c.execution == ActionExecution::UNKNOWN && c.step == 1);
+        const Saved<Ess::ActionEvidence> original(c.writeEvidence);
+        assert(Ess::nextAction(c, c.eligibleUs, work));
+        assert(!work.write && work.bytes[1] == 3);
+        observe(c, 0, kind == ActionKind::RELEASE ? 16 : 0);
+        assert(c.state == ActionState::SUCCEEDED && c.completion == ActionCompletion::OBSERVED);
+        assert(c.execution == ActionExecution::UNKNOWN && !c.writeEvidence.responseConfirmed);
+        assert(c.lastObservation.responseConfirmed); original.check(c.writeEvidence);
+        assert(Ess::nextAction(c, c.servicedUs, work) && work.kind == Ess::ActionWork::DONE);
+    }
+    // An unconfirmed FC03 cannot turn a possible local echo into an observation.
+    auto c = action(ActionKind::STOP, 10000, true);
+    auto e = frame(c, NORMAL, sizeof(NORMAL), 200); e.responseConfirmed = false;
+    assert(Ess::advanceAction(c, e, 220));
+    const auto bytes = motion(0, 0);
+    e = frame(c, bytes.data(), bytes.size(), c.eligibleUs); e.responseConfirmed = false;
+    assert(Ess::advanceAction(c, e, c.eligibleUs + 20));
+    assert(c.outcome == ActionOutcome::UNCONFIRMED_RESPONSE && !c.observationKnown);
+    assert(c.execution == ActionExecution::UNKNOWN && c.completion == ActionCompletion::NOT_OBSERVED);
+}
+void testOptedInObservationPreservesWriteFailures() {
+    for (unsigned fault = 0; fault < 8; ++fault) {
+        auto c = action(ActionKind::STOP, 1000, true);
+        std::vector<uint8_t> bytes(NORMAL, NORMAL + sizeof(NORMAL));
+        if (fault == 0) bytes.back() ^= 1;
+        if (fault == 1) bytes.assign(ENABLE, ENABLE + sizeof(ENABLE));
+        if (fault == 2) { bytes = {1, 0x86, 2}; crc(bytes); }
+        auto e = frame(c, bytes.data(), bytes.size(), fault == 4 ? 995 : 200);
+        e.responseConfirmed = false;
+        uint64_t now = fault == 4 ? 1020 : 220;
+        if (fault == 3) { e.transport.qualified = false; e.transport.earliestUs = e.transport.latestUs = 0; }
+        if (fault == 5) { e = event(c, ReadEventKind::TRANSPORT_FAILURE); e.transport.txAccepted = 8; e.txComplete = true; }
+        if (fault == 6) e.txComplete = false;
+        if (fault == 7) { e.transport.txAccepted = 7; e.txComplete = false; }
+        if (fault >= 6) {
+            const Saved<Ess::ActionContext> saved(c);
+            assert(!Ess::advanceAction(c, e, now)); saved.check(c); continue;
+        }
+        assert(Ess::advanceAction(c, e, now));
+        const ActionOutcome expected = fault < 3 ? ActionOutcome::REPLY_ERROR : fault == 3 ?
+            ActionOutcome::TIMING_UNQUALIFIED : fault == 4 ? ActionOutcome::DEADLINE : ActionOutcome::TRANSPORT_ERROR;
+        assert(c.state == ActionState::FAILED && c.outcome == expected && c.execution == ActionExecution::UNKNOWN);
+        assert(!c.observationKnown && c.completion == ActionCompletion::NOT_OBSERVED);
+        Ess::PreparedAction work; assert(Ess::nextAction(c, now, work));
+        assert(work.kind == Ess::ActionWork::DONE && work.length == 0);
     }
 }
 void testInvalidEnvelopesAndDuplicatesDoNotMutate() {
@@ -308,6 +362,7 @@ void testZeroOnlyDeviceClearNeedsQualifiedFreshReadback() {
 }
 } // namespace
 int main() {
+    testOptedInObservationRetainsUnknownExecution(); testOptedInObservationPreservesWriteFailures();
     testExactCommandsAndCommonNativeParity(); testPolicyRejectionPreservesPreparedOperation();
     testEchoAcknowledgementAndReportedCompletionAreSeparate(); testInvalidEnvelopesAndDuplicatesDoNotMutate();
     testFailuresRetainUncertaintyAndNeverReplay(); testBadRepliesAndExceptionPreserveEvidence();

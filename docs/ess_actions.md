@@ -1,5 +1,10 @@
 # ESS bounded actions and priority stop
 
+The explicit [functional bench](functional_bench.md) can follow a checked but
+source-unconfirmed FC06 frame with read-only observations. This opt-in preserves
+UNKNOWN execution and does not establish electrical qualification. Default
+operation policy still requires confirmed response evidence.
+
 Prompt 08 implements the installed `ActionOperation.h` and
 `profiles/ess_rs/Actions.h` contract. Applications own `ActionContext`, the
 clock, transport, scheduling, reservation and retained results. Core functions

@@ -7,6 +7,12 @@ The current core, runner, ESP32-S3 capture and probe/load tools are existing wor
 do not rebuild them from an old prompt as if they were missing.
 
 Read [the execution contract](execution_contract.md) before every prompt.
+
+The later [short functional campaign](../../reports/functional_motion_2026-10-04.md)
+adds drive-reported enable/release, positive/return motion and moving normal/direct
+stop evidence to08-10. Its explicit functional mode and native-zero experiment
+do not qualify calibrated units, exact feedback or electrical timing. Historical
+NOT RUN dispositions below remain historical; several-hour testing was omitted.
 The [roadmap](../../roadmap.md), [backlog](../../backlog.md) and current
 [architecture](../../architecture.md), [axis](../../axis_contract.md),
 [profile](../../profile_contract.md), [CLI](../../cli_contract.md) and
@@ -72,13 +78,20 @@ Never mark all preceding physical work qualified just because code compiles.
 
 ## Dependency and qualification rules
 
+The user's 2026-10-04 instruction adds the execution contract's short unattended
+functional-test policy. Analyzer/human shaft observation is not an admission
+prerequisite for that finite free-shaft subset. Keep checked drive-report
+acceptance separate from unmeasured electrical/shaft evidence, prepare all
+stop/restoration commands in advance, and defer the several-hour campaign.
+
 - 01–02 establish native bus admission/scheduling; 03 connects it to the actual
   console, load fixture and UART owner. No ESS stop or motion is implied by a
   fake urgent-request scheduling test.
 - 04 selects/reviews the capture cost and obtains available electrical evidence.
   A missing analyzer does not prevent 05–07's independent read-only/pure work,
   or native development later. It does prevent claiming unmeasured timing.
-  Dependent physical action/motion tests remain gated by their required evidence.
+  Short functional action/motion tests use the explicit unattended policy;
+  independently measured timing and shaft claims remain gated by their evidence.
 - 05–06 establish typed identity/configuration/state. Unknown `0x4EEA`,
   signedness, feedback/ramp units and encoder provenance remain explicit;
   a defaults helper or green motor LED does not settle them.

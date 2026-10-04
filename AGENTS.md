@@ -92,6 +92,18 @@ permission question. Establish the tested command/stop prerequisites from actual
 evidence; optional unwired I/O is not a blanket blocker for serial-only tests.
 Unwired terminals do not establish disabled drive function assignments.
 
+Updated user direction on 2026-10-04: short functional free-shaft tests may run
+unattended without a logic analyzer or a person at the motor/power switch. Use
+small finite position commands with explicit stop and restoration commands
+prepared in advance, checked drive feedback and retained firmware/transport
+evidence. Independent electrical timing and shaft observation remain unmeasured,
+not admission prerequisites for this subset. Preserve actual encoding, framing,
+stale-evidence and no-replay checks; an echo is still not a confirmed write.
+Defer the several-hour run. Actual motor restart control remains necessary for
+restart-dependent communication/persistence experiments; no remote power control
+is implied. Do not replace finite position tests with unbounded velocity or
+moving link-loss experiments.
+
 ## Read before implementing
 
 1. `README.md` and `docs/README.md`.

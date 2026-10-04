@@ -120,6 +120,32 @@ configuration without coordination with the lead.
 
 ## Native, build and hardware verification
 
+### Authorized unattended functional bench tests
+
+User direction on 2026-10-04 permits short unattended functional tests on the
+secured, free, uncoupled ESS23-RS20 shaft. A logic analyzer, a person watching the
+shaft and an operator standing by at motor power are not admission requirements
+for this bounded test scope. Several-hour/endurance testing is deferred.
+
+Use an explicit functional-test policy, reviewed finite position commands and
+small distance/speed bounds. Prepare stop, status, failure handling and exact
+parameter restoration commands before the first move. Begin with stopped-state
+actions, then one finite move at a time and a stop during a finite move. Do not
+substitute autonomous velocity motion or deliberate moving link-loss tests for
+these finite commands. Missing actual motor restart control still gates tests
+whose recovery requires a restart, such as communication activation.
+
+Acceptance uses checked drive activity, position/speed and completion reports,
+configuration readback, firmware/transport errors and retained outcomes.
+Electrical timing and independently observed shaft motion remain separate,
+unmeasured evidence; they do not block this functional subset. An FC06 echo
+remains source-unconfirmed: an explicit observation policy may follow it with
+read-only verification without relabelling it an acknowledged write. Preserve
+all framing, overflow, stale evidence and no-replay guards. Resolve or bound
+actual command semantics; do not promote unknown encoding into a safe command.
+
+### Verification workflow
+
 Start with focused tests that reproduce the required behavior and failures.
 Test unchanged outputs/no TX on rejected requests, ownership/lifetime, bounded
 memory and service work, cancellation, delayed events, stale generations and

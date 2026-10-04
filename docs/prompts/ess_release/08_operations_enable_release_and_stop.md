@@ -5,6 +5,11 @@ Read [the sequence index](README.md); all prerequisite dispositions must be curr
 
 Prerequisite: 02–03 owner priority/cancellation, 05 identity/configuration and 06 state observations. Physical actions also require the relevant transport disposition from 04 and exact documented drive prerequisites.
 
+The authorized functional subset may run unattended without an analyzer or
+human shaft observation. Keep FC06 echo execution uncertainty separate from
+subsequent checked drive-state observations. Electrical and independently
+measured stopping evidence remain unqualified.
+
 ## Read and reuse
 
 Read axis operation/stop contracts, ESS auxiliary and normal/emergency-stop pages, current codecs and caller-owned typed-read context. Extend that real operation mechanism rather than adding a universal event framework.

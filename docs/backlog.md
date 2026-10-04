@@ -1,5 +1,13 @@
 # Features implementation tasks and open questions
 
+## Short unattended functional campaign (2026-10-04)
+
+- [x] Explicit functional image and prepared bounded host phases; no analyzer or person-at-bench prerequisite for this scope.
+- [x] Drive-reported release/enable, finite positive/reverse activity and normal/direct stops during motion; exact profile restoration and ten-probe regression. [Evidence](reports/functional_motion_2026-10-04.md).
+- [x] Preserve UNKNOWN FC06 execution and observed completion separately; literal native-zero experiment keeps displacement unknown; bounded read-only speed settling retains transient values.
+- [ ] Independent shaft/electrical measurements, algorithm3 and feedback/arrival precision remain unresolved; no calibrated displacement claim. Several-hour soak intentionally NOT RUN.
+
+
 ## Prompt20 drive communication commissioning
 
 The [fresh independent audit](reports/ess_release_20_audit_2026-10-04.md) fixes

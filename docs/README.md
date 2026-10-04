@@ -1,5 +1,10 @@
 # MotorControl-RS documentation
 
+The [short functional bench](functional_bench.md) supports explicitly selected
+unattended finite-motion tests. [Recorded results](reports/functional_motion_2026-10-04.md)
+include drive-reported forward/return motion, moving stops and exact restoration;
+independent shaft/electrical measurements and the omitted soak remain separate.
+
 Prompt20 adds [explicit communication commissioning](ess_communication.md):
 typed settings, exclusive owner admission, retained candidates and bounded
 read-only confirmation. [Native/build/read-only verification](reports/ess_release_20_2026-10-04.md)

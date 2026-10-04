@@ -1,5 +1,13 @@
 # Roadmap to a supported ESS release
 
+The [short unattended functional campaign](reports/functional_motion_2026-10-04.md)
+now records drive-reported positive/reverse finite motion, enable/release and both
+normal/direct stops during motion. Final-image310/310 frames passed, settings
+were restored and zero speed/no alarm reported. Functional acceptance no longer
+requires an analyzer or a person at the bench. Electrical/independent shaft
+qualification and calibrated feedback remain open; the hours-long soak was
+explicitly omitted. This does not qualify communication activation/restart.
+
 The [fresh prompt20 audit](reports/ess_release_20_audit_2026-10-04.md) fixes
 unchanged-host confirmation retention and strict CLI/Python evidence correlation.
 All52 native suites, installed consumption, four firmware builds and37 corrected-

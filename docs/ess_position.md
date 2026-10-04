@@ -1,5 +1,10 @@
 # Finite ESS positioning
 
+The [short functional bench](functional_bench.md) adds an explicit bounded native
+experiment and retains uncertain FC06 execution separately from drive-reported
+activity/completion. Its evidence does not establish physical angle, calibrated
+feedback, electrical timing or the full positioning family.
+
 Prompt09 adds the installed common intent in
 [MoveOperation.h](../include/MotorControlRS/MoveOperation.h) and the concrete ESS
 sequence in [Position.h](../include/MotorControlRS/profiles/ess_rs/Position.h).

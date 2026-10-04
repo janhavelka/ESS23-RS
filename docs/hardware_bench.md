@@ -1,5 +1,19 @@
 # Motor bench and testing authorization
 
+[Current functional evidence](reports/functional_motion_2026-10-04.md): short
+enable/release, positive/return finite moves and normal/direct moving stops PASS
+by drive reports. Final310/310 checked frames have zero errors. Original motion
+settings restored; ending alarm0, motion1, raw speed0, raw position1. Actual shaft
+motion was not independently observed; electrical timing remains unmeasured.
+
+On 2026-10-04 the user explicitly authorized short **unattended functional**
+free-shaft tests and removed analyzer/person-at-bench requirements for that scope.
+Prepare bounded finite moves, explicit stop/status checks and parameter restoration
+in advance. Functional acceptance uses drive feedback and firmware/transport
+evidence; independent shaft motion/electrical timing remain unmeasured. Do not
+run the several-hour test in this session. This does not provide remote motor
+power control or authorize unbounded motion/link-loss experiments.
+
 [Prompt20 fresh audit](reports/ess_release_20_audit_2026-10-04.md) repeats37
 read-only frames on the corrected image with zero failures and unchanged
 configuration. No communication write/save/motor restart occurred; physical

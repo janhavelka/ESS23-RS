@@ -1,5 +1,10 @@
 # ESP32-S3 read-only probe bench
 
+The explicitly selected [functional bench image](functional_bench.md) also
+supports short unattended enable/release, finite-motion and stop experiments.
+Ordinary builds retain their existing qualification gates. See the linked
+procedure for saved settings, prepared commands and retained unknown outcomes.
+
 Prompt19 adds [host-only serial selection](host_serial.md), `host caps`,
 `host set RATE FORMAT` and `host restore`, with retained tuple/generation
 diagnostics. The finite Python `host-check --baud 9600 --fmt 8N1` exercises an

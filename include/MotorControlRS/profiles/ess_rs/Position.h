@@ -18,6 +18,12 @@ struct MovePrerequisites {
     uint32_t configurationGeneration = 0;
     bool commandUnitsVerified = false, relativeBasisVerified = false;
     bool negativeTwosComplementVerified = false;
+    /** Explicit caller-verified envelope for an unreferenced native-zero
+     * experiment: only unwrapped absolute NATIVE/STEPS zero, without supplied
+     * reference, host origins or soft limits. Does not establish a feedback-to-
+     * command relation; prepared displacement remains unknown. Ordinary
+     * absolute positioning still requires an established native reference. */
+    bool nativeZeroEnvelopeVerified = false;
     bool configuredRampVerified = false, serialInputsPermit = false;
     bool readinessQualified = false;
     uint16_t accelerationTime = 0, decelerationTime = 0;
@@ -77,7 +83,8 @@ Status prepareMoveRelative(MoveContext&, const AxisConfig&, const AxisReference*
                            uint64_t nowUs, uint64_t deadlineUs,
                            const ActionOptions& = ActionOptions()) noexcept;
 /** Preserve a multi-turn absolute target. Requires a fresh, established actual
- * command-coordinate reference covering both write budgets. No normalization.
+ * command-coordinate reference covering both write budgets, except the explicit
+ * nativeZeroEnvelopeVerified experiment whose displacement remains unknown. No normalization.
  * Unsupported/unresolved preparation leaves output unchanged and yields no I/O. */
 Status prepareMoveAbsolute(MoveContext&, const AxisConfig&, const AxisReference*,
                            uint32_t operationId, const MoveRequest&, const MovePrerequisites&,

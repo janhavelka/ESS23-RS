@@ -28,6 +28,14 @@ struct ActionRequest {
 struct ActionOptions {
     uint32_t pollIntervalUs = 10000;
     uint8_t maxPolls = 20;
+    /** Explicit functional-bench policy for ESS actions and finite positioning:
+     * after a valid, timely FC06 echo with complete physical TX, permit only
+     * read-only observation when its source remains unconfirmed. Execution
+     * stays UNKNOWN and the original responseConfirmed remains false, even
+     * after observed completion. FC03 observations still require confirmed
+     * sources; FC10 staging and other sequencers retain their strict policy.
+     * This does not qualify electrical timing or authorize a write replay. */
+    bool allowUnconfirmedWriteObservation = false;
 };
 /** Response storage is borrowed only for advanceAction. responseConfirmed must
  * mean the application excluded local echo/foreign/late-response ambiguity;
