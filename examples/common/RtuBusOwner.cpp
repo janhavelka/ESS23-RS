@@ -68,6 +68,7 @@ BusAdmission BusOwner::admitUrgent(const BusRequest& request, uint64_t nowUs, Re
     return admit(request, nowUs, output, true);
 }
 BusAdmission BusOwner::admit(const BusRequest& request, uint64_t nowUs, RequestId& output, bool urgent) noexcept {
+    if (configurationOwned_) return BusAdmission::CONFIGURING;
     if (!valid_ || !clock(nowUs)) return BusAdmission::INVALID;
     if (recovering()) return BusAdmission::RECOVERING;
     const uint64_t dispatch = request.dispatchDeadlineUs ? request.dispatchDeadlineUs : request.wire.deadlineUs;
@@ -214,7 +215,20 @@ void BusOwner::cancelGroup(std::size_t producer, const SequenceId* sequence, uin
             cancelActive(nowUs, cause);
     }
 }
+bool BusOwner::beginConfiguration(uint64_t nowUs) noexcept {
+    if (!valid_ || configurationOwned_ || active() || pending() || needsRecovery() ||
+        runner_.busy() || runner_.transmitEnabled() || !clock(nowUs)) return false;
+    configurationOwned_ = true;
+    return true;
+}
+bool BusOwner::finishConfiguration(const Timing& timing, uint64_t nowUs) noexcept {
+    if (!configurationOwned_ || !runner_.configureTiming(timing, nowUs)) return false;
+    configurationOwned_ = false;
+    return true;
+}
+
 bool BusOwner::beginSequence(std::size_t producer, uint64_t deadline, uint64_t nowUs, SequenceId& output) noexcept {
+    if (configurationOwned_) return false;
     if (!valid_ || !clock(nowUs) || recovering() || producer >= storage_.producerCapacity || deadline <= nowUs ||
         !storage_.producers[producer].generation ||
         storage_.producers[producer].generation == std::numeric_limits<uint64_t>::max()) return false;
@@ -284,6 +298,7 @@ void BusOwner::finishRecovery(RecoveryOutcome outcome, uint64_t nowUs, Reason re
     recoveryState_ = RecoveryState::READY;
 }
 RecoveryAdmission BusOwner::recover(uint64_t nowUs, uint64_t deadline, uint64_t& output) noexcept {
+    if (configurationOwned_) return RecoveryAdmission::INVALID;
     if (!valid_ || !clock(nowUs) || deadline <= nowUs) return RecoveryAdmission::INVALID;
     if (recoveryState_ != RecoveryState::FREE) return RecoveryAdmission::RESULTS_FULL;
     if (recoveryGeneration_ == std::numeric_limits<uint64_t>::max()) return RecoveryAdmission::IDS_EXHAUSTED;
@@ -328,6 +343,7 @@ void BusOwner::serviceRecovery(uint64_t nowUs, bool mayDrain) noexcept {
 }
 
 void BusOwner::service(uint64_t nowUs, bool recoveryReady) noexcept {
+    if (configurationOwned_) return;
     if (!valid_ || !clock(nowUs)) return;
     const bool hadActive = active_ != NONE;
     runner_.poll(nowUs);

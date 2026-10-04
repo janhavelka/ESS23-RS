@@ -1,5 +1,11 @@
 # MotorControl-RS documentation
 
+Prompt19 delivers [host tuple support](host_serial.md): one adapter, exclusive
+configuration ownership, retained historical context and explicit restoration.
+All sixteen SDK setups and two mismatch/restore COM13 scenarios pass without
+device changes. [Current handoff](reports/ess_release_19_2026-10-04.md) keeps
+alternate-tuple communication and electrical qualification separate.
+
 The [fresh prompts 17/18 audit](reports/ess_release_17_18_audit_2026-10-04.md) fixes
 settings freshness, copied provenance, partial-refresh invalidation and strict
 console evidence validation. All 45 native suites, installed consumption and

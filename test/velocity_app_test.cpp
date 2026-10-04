@@ -133,7 +133,7 @@ void gatesAndParity() {
         write.expected.targetGeneration = app->bindingGeneration;
         write.expected.function = 6; write.expected.first = 0x1D; write.expected.count = 1;
         write.wire.bytes = bytes; write.wire.length = ESS::buildWriteSingleRegister(1,0x1D,50,bytes,sizeof(bytes));
-        write.wire.replyLength = 8; write.wire.responseTimeoutUs = RESPONSE_US;
+        write.wire.replyLength = 8; write.wire.responseTimeoutUs = app->serial.timing.responseTimeoutUs;
         write.wire.deadlineUs = nowUs() + REQUEST_US; write.validator = Rtu::essValidator();
         assert(admitAxisWrite(*app,write,nowUs(),other) == Probe::Action::AXIS_CONFLICT);
         velocityStep(id); assert(hardware.tx[1] == 6 && hardware.tx[5] == 2);
@@ -215,7 +215,7 @@ void urgentPressureDefersWithinOriginalDeadline() {
         velocityStep(id,registers(1,{0,4}));
         uint8_t bytes[8]; Rtu::BusRequest r; r.wire.bytes=bytes;
         r.wire.length=ESS::buildProbe(2,bytes,sizeof(bytes)); r.wire.replyLength=7;
-        r.wire.responseTimeoutUs=RESPONSE_US; r.wire.replyGapUs=REPLY_GAP_US;
+        r.wire.responseTimeoutUs=app->serial.timing.responseTimeoutUs; r.wire.replyGapUs=app->serial.timing.replyGapUs;
         r.wire.deadlineUs=nowUs()+REQUEST_US;
         r.expected.address=r.expected.target=2; r.expected.targetGeneration=app->bindingGeneration;
         r.expected.function=3; r.expected.count=1; r.validator=Rtu::essValidator(); Rtu::RequestId reserved;

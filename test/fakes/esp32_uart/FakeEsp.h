@@ -10,7 +10,8 @@ constexpr esp_err_t ESP_OK = 0;
 using uart_port_t = int;
 constexpr uart_port_t UART_NUM_2 = 2;
 constexpr int UART_DATA_8_BITS = 8, UART_PARITY_DISABLE = 0;
-constexpr int UART_STOP_BITS_1 = 1, UART_HW_FLOWCTRL_DISABLE = 0;
+constexpr int UART_PARITY_EVEN = 2, UART_PARITY_ODD = 3;
+constexpr int UART_STOP_BITS_1 = 1, UART_STOP_BITS_2 = 3, UART_HW_FLOWCTRL_DISABLE = 0;
 constexpr int UART_SCLK_XTAL = 1, UART_PIN_NO_CHANGE = -1;
 struct uart_config_t {
     int baud_rate, data_bits, parity, stop_bits, flow_ctrl, source_clk;
@@ -51,6 +52,7 @@ extern uart_dev_t fakeUart;
 
 bool uart_is_driver_installed(uart_port_t);
 esp_err_t uart_param_config(uart_port_t, const uart_config_t*);
+esp_err_t uart_get_baudrate(uart_port_t, uint32_t*);
 esp_err_t uart_set_pin(uart_port_t, int, int, int, int);
 esp_err_t gpio_set_level(gpio_num_t, int);
 esp_err_t gpio_set_direction(gpio_num_t, int);

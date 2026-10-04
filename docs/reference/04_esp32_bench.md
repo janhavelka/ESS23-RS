@@ -21,9 +21,11 @@ service. Keep that label only as bench provenance. GPIO selection is supplied
 by the application through [BoardPins.h](../../examples/common/BoardPins.h).
 [Esp32S3Uart](../../examples/common/Esp32S3Uart.h) takes explicit pins and
 polarity, rejects invalid wiring before setup and has no board-header import.
-The current adapter supports UART2 and 115200 8N1 only. Other controllers or
-serial formats need their own verified adapter changes; configurable pins do
-not qualify every ESP32-S3 board's electrical wiring.
+The adapter supports UART2 with the reviewed four ESS baud rates and four
+8-bit formats through [host tuple selection](../host_serial.md). Only
+115200 8N1 has successful motor-response evidence on this unchanged bench.
+Other tuples have native setup/framing tests and separate host-only hardware
+dispositions; configurable pins or SDK support do not qualify electrical timing.
 
 The [probe guide](../esp32_probe.md) describes commands and timing restrictions.
 The [hardware record](../hardware_bench.md) preserves the original firmware

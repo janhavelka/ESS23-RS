@@ -44,7 +44,7 @@ Esp32S3Uart::~Esp32S3Uart() {
 bool Esp32S3Uart::startCapture(uint32_t periodUs, uint32_t holdUs) noexcept {
     {
         Guard guard;
-        if (!ready_ || failed_ || timer_ || transmitting_ || periodUs < 10 || periodUs > 40 ||
+        if (!ready_ || configurationBlocked_ || failed_ || timer_ || transmitting_ || periodUs < 10 || periodUs > 40 ||
             holdUs > 1000) return false;
     }
     gptimer_config_t config = {};
@@ -72,12 +72,13 @@ bool Esp32S3Uart::startCapture(uint32_t periodUs, uint32_t holdUs) noexcept {
     {
         Guard guard;
         holdUs_ = holdUs;
+        periodUs_ = periodUs;
         // Timer allocation/setup and an earlier stopped interval do not belong
         // to this sampling epoch. Do not manufacture a fresh RX idle watermark.
         sampled_ = now();
         timerRunning_ = true; // Publish capture policy before its first interrupt.
     }
-    if (gptimer_start(timer) == ESP_OK) return true;
+    if (gptimer_start(timer) == ESP_OK) { captureWanted_ = true; return true; }
     { Guard guard; timerRunning_ = false; }
     stopTimer();
     return false;
@@ -101,53 +102,123 @@ bool Esp32S3Uart::stopTimer() noexcept {
 }
 
 bool Esp32S3Uart::stopCapture() noexcept {
-    if (!timer_) return true;
+    if (!timer_) { captureWanted_ = false; return true; }
     {
         Guard guard;
         if (timerRunning_ && (transmitting_ || txPending_ || count_ || !rxIdle_ ||
             !uart_ll_is_tx_idle(hw) || uart_ll_get_rxfifo_len(hw) != 0 ||
             hw->fsm_status.st_urx_out != 0 || !hw->status.rxd)) return false;
     }
-    return stopTimer();
+    if (!stopTimer()) return false;
+    captureWanted_ = false;
+    return true;
 }
 
 bool Esp32S3Uart::begin(const Pins& pins, uint32_t baud) noexcept {
-    if (ready_ || baud != 115200 || !validPin(pins.tx, true) ||
+    HostTuple tuple; tuple.baud = baud;
+    return begin(pins, tuple);
+}
+
+bool Esp32S3Uart::begin(const Pins& pins, const HostTuple& tuple) noexcept {
+    if (ready_ || !supports(tuple) || !validPin(pins.tx, true) ||
         !validPin(pins.rx, false) || !validPin(pins.de, true) ||
         pins.tx == pins.rx || pins.tx == pins.de || pins.rx == pins.de ||
         uart_is_driver_installed(UART_NUM_2)) return false;
-    // Initial slice intentionally fixes the documented default tuple: 115200 8N1.
     pins_ = pins;
     const auto de = static_cast<gpio_num_t>(pins_.de);
     if (gpio_set_level(de, pins_.activeHigh ? 0 : 1) != ESP_OK) return false;
     if (gpio_set_direction(de, GPIO_MODE_OUTPUT) != ESP_OK)
         return false;
+    if (!configure(tuple) || uart_set_pin(UART_NUM_2, pins_.tx, pins_.rx,
+                     UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE) != ESP_OK) return false;
+    newEpoch();
+    ready_ = true;
+    return true;
+}
+
+bool Esp32S3Uart::configure(const HostTuple& tuple) noexcept {
     uart_config_t config = {};
-    config.baud_rate = static_cast<int>(baud);
+    config.baud_rate = static_cast<int>(tuple.baud);
     config.data_bits = UART_DATA_8_BITS;
     config.parity = UART_PARITY_DISABLE;
     config.stop_bits = UART_STOP_BITS_1;
+    switch (tuple.format) {
+    case HostFormat::N8_1: break;
+    case HostFormat::N8_2: config.stop_bits = UART_STOP_BITS_2; break;
+    case HostFormat::E8_1: config.parity = UART_PARITY_EVEN; break;
+    case HostFormat::O8_1: config.parity = UART_PARITY_ODD; break;
+    }
     config.flow_ctrl = UART_HW_FLOWCTRL_DISABLE;
     config.source_clk = UART_SCLK_XTAL;
     // UART setup does not install its driver or ISR. The optional GPTimer samples
     // raw FIFO/state/error registers under the same exclusive owner.
+    uint32_t actual = 0;
     if (uart_param_config(UART_NUM_2, &config) != ESP_OK ||
-        uart_set_pin(UART_NUM_2, pins_.tx, pins_.rx,
-                     UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE) != ESP_OK) return false;
+        uart_get_baudrate(UART_NUM_2, &actual) != ESP_OK ||
+        uint64_t(actual) * 100 < uint64_t(tuple.baud) * 98 ||
+        uint64_t(actual) * 100 > uint64_t(tuple.baud) * 102) return false;
+    tuple_ = tuple;
+    actualBaud_ = actual;
+    // Bounds cover the selected nominal baud's provisional 2% envelope,
+    // including the verified divider; external wire/clock proof remains open.
+    HostTiming timing;
+    if (!hostTiming(tuple, timing)) return false;
+    charMin_ = timing.characterMinUs;
+    charMax_ = timing.characterMaxUs;
+    stopGuard_ = timing.stopGuardUs;
+    return true;
+}
+
+void Esp32S3Uart::newEpoch() noexcept {
+    Guard guard;
     hw->int_ena.val = 0;
     uart_ll_set_tx_idle_num(hw, 0);
     uart_ll_txfifo_rst(hw);
     uart_ll_rxfifo_rst(hw);
     hw->int_clr.val = UINT32_MAX;
-    // 2% baud tolerance and one bit + 2 us publish/sampling guard are engineering
-    // assumptions, exposed as unqualified in the CLI until external trace checks.
-    charMin_ = 9800000U / baud;
-    charMax_ = (10200000U + baud - 1) / baud;
-    stopGuard_ = (1000000U + baud - 1) / baud + 2;
+    head_ = count_ = 0;
+    txBusyAt_ = txEnd_ = directionAt_ = releasedAt_ = 0;
+    txWidth_ = releaseWidth_ = 0;
+    txPending_ = transmitting_ = rxIdle_ = false;
+    txIdle_ = true;
+    failed_ = sampleGapExceeded_ = false;
     sampled_ = emptySince_ = idleThrough_ = now();
-    ready_ = true;
+}
+
+bool Esp32S3Uart::reconfigure(const HostTuple& tuple) noexcept {
+    if (!supports(tuple)) return false; // No GPIO/UART/timer mutation on invalid input.
+    bool repair = false;
+    {
+        Guard guard;
+        repair = configurationBlocked_;
+        if (!ready_ || transmitting_ || txPending_ || (!repair && count_) ||
+            !uart_ll_is_tx_idle(hw) || (!repair && uart_ll_get_rxfifo_len(hw)) ||
+            hw->fsm_status.st_urx_out != 0 || !hw->status.rxd ||
+            uart_is_driver_installed(UART_NUM_2)) return false;
+        // Retain timer intent across partial cleanup/configuration failures.
+        captureWanted_ = captureWanted_ || timerRunning_;
+        configurationBlocked_ = true;
+    }
+    if (!stopTimer()) return false;
+    {
+        Guard guard;
+        if ((!repair && uart_ll_get_rxfifo_len(hw)) || hw->fsm_status.st_urx_out != 0 || !hw->status.rxd)
+            return false;
+    }
+    if (!configure(tuple)) return false;
+    // Explicit repair discards settled old/unknown-tuple FIFO and captured bytes.
+    // They cannot be read while blocked; requiring them empty would make a
+    // stopped/failed capture permanently unrepairable. Physical RX must be idle.
+    newEpoch();
+    { Guard guard; configurationBlocked_ = false; }
+    if (captureWanted_ && !startCapture(periodUs_, holdUs_)) {
+        Guard guard; configurationBlocked_ = true; fault(false); return false;
+    }
     return true;
 }
+
+HostTuple Esp32S3Uart::tuple() const noexcept { Guard guard; return tuple_; }
+bool Esp32S3Uart::configurationBlocked() const noexcept { Guard guard; return configurationBlocked_; }
 
 void Esp32S3Uart::fault(bool uartError) noexcept {
     if (!failed_) { increment(captureFaults_); if (uartError) increment(rxErrors_); }
@@ -241,7 +312,8 @@ uint64_t Esp32S3Uart::captureSample(bool timerCallback) noexcept {
 bool Esp32S3Uart::direction(void* ctx, bool enabled) {
     Esp32S3Uart& self = *static_cast<Esp32S3Uart*>(ctx);
     Guard guard;
-    if (!self.ready_ || !uart_ll_is_tx_idle(hw) || (enabled && self.failed_)) return false;
+    if (!self.ready_ || !uart_ll_is_tx_idle(hw) ||
+        (enabled && (self.failed_ || self.configurationBlocked_))) return false;
     if (!enabled && !self.transmitting_) return true;
     const uint64_t before = now();
     const int level = enabled == self.pins_.activeHigh ? 1 : 0;
@@ -271,7 +343,8 @@ Rtu::WriteResult Esp32S3Uart::write(void* ctx, const uint8_t* bytes, std::size_t
     uint8_t local[64]; // Internal stack: no PSRAM reads in the short FIFO fill.
     std::memcpy(local, bytes, length);
     Guard guard;
-    if (!self.ready_ || self.failed_ || !self.transmitting_) return Rtu::WriteResult(0, true);
+    if (!self.ready_ || self.failed_ || self.configurationBlocked_ || !self.transmitting_)
+        return Rtu::WriteResult(0, true);
     const uint64_t before = now();
     if (!uart_ll_is_tx_idle(hw) || uart_ll_get_txfifo_len(hw) < length) {
         return Rtu::WriteResult(0, true);
@@ -289,7 +362,7 @@ Rtu::WriteResult Esp32S3Uart::write(void* ctx, const uint8_t* bytes, std::size_t
 Rtu::TxState Esp32S3Uart::txState(void* ctx, uint64_t at, Rtu::TxObservation& observation) {
     Esp32S3Uart& self = *static_cast<Esp32S3Uart*>(ctx);
     Guard guard;
-    if (!self.ready_) return Rtu::TxState::ERROR;
+    if (!self.ready_ || self.configurationBlocked_) return Rtu::TxState::ERROR;
     // In timer mode report completion and DE release together. Otherwise a
     // release between this snapshot and a later task direction callback could
     // be mistaken for a release at the earlier poll timestamp.
@@ -306,7 +379,7 @@ Rtu::TxState Esp32S3Uart::txState(void* ctx, uint64_t at, Rtu::TxObservation& ob
 Rtu::ReadState Esp32S3Uart::read(void* ctx, uint64_t at, Rtu::RxByte& byte, uint64_t& through) {
     Esp32S3Uart& self = *static_cast<Esp32S3Uart*>(ctx);
     Guard guard;
-    if (!self.ready_ || self.failed_) return Rtu::ReadState::ERROR;
+    if (!self.ready_ || self.failed_ || self.configurationBlocked_) return Rtu::ReadState::ERROR;
     if (self.count_) {
         if (self.pending_[self.head_].endUs > at) return Rtu::ReadState::PENDING;
         byte = self.pending_[self.head_];
@@ -321,7 +394,7 @@ Rtu::ReadState Esp32S3Uart::read(void* ctx, uint64_t at, Rtu::RxByte& byte, uint
 
 bool Esp32S3Uart::clear() noexcept {
     Guard guard;
-    if (!ready_ || transmitting_ || !uart_ll_is_tx_idle(hw) ||
+    if (!ready_ || configurationBlocked_ || transmitting_ || !uart_ll_is_tx_idle(hw) ||
         hw->fsm_status.st_urx_out != 0 || !hw->status.rxd) return false;
     uart_ll_rxfifo_rst(hw);
     hw->int_clr.val = UINT32_MAX;
@@ -344,7 +417,8 @@ Esp32S3Uart::CaptureStats Esp32S3Uart::stats() const noexcept {
     s.samples = samples_; s.timerCallbacks = timerCallbacks_; s.busyUs = busyUs_; s.txEndUs = txEnd_;
     s.maxGapUs = maxPollGap_; s.faults = captureFaults_; s.rxErrors = rxErrors_;
     s.txWidthUs = txWidth_; s.maxRxWidthUs = maxRxWidth_; s.highWater = highWater_;
-    s.ready = ready_; s.failed = failed_; s.timer = timerRunning_;
+    s.ready = ready_ && !configurationBlocked_; s.failed = failed_ || configurationBlocked_; s.timer = timerRunning_;
+    s.actualBaud = actualBaud_;
     s.sampleGapLimitUs = charMin_; s.sampleGapExceeded = sampleGapExceeded_;
     return s;
 }

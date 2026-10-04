@@ -1,5 +1,11 @@
 # Roadmap to a supported ESS release
 
+Prompt19 delivers [host serial selection](host_serial.md), exclusive failure
+and restoration handling, per-request tuple evidence and independent logical
+generations. Native/package/four-build checks and available COM13 host setup,
+mismatch and restore checks PASS. [Handoff](reports/ess_release_19_2026-10-04.md)
+records unchanged drive settings and open alternate-tuple/electrical evidence.
+
 The [fresh prompts 17/18 audit](reports/ess_release_17_18_audit_2026-10-04.md) fixes
 settings freshness, copied provenance, partial-refresh invalidation and strict
 console evidence validation. All 45 native suites, installed consumption and
@@ -13,7 +19,7 @@ future version numbers are not commitments.
 
 The [ESS release prompt set](prompts/ess_release/README.md) turns these stages
 into 30 ordered implementation blocks with tests, independent audits and
-evidence handoffs. Prompts 01-18 have implementation and available verification
+evidence handoffs. Prompts 01-19 have implementation and available verification
 dispositions. [Prompt12](reports/ess_release_12_2026-10-04.md) consolidates the
 four reviewed FC10 windows into generated policy and records all paired-write
 proof gaps. Its [fresh audit](reports/ess_release_12_audit_2026-10-04.md) fixes

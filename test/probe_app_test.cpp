@@ -1200,8 +1200,8 @@ void testMonitorYieldsToUrgentOwnerAdmission() {
     fresh(); timerCapture(); command("@1 monitor 100 1\n"); startTx(0);
     uint8_t bytes[8]; assert(ESS::buildReadRegisters(1, 0, 1, bytes, sizeof(bytes)) == sizeof(bytes));
     Rtu::BusRequest urgent; urgent.wire.bytes = bytes; urgent.wire.length = sizeof(bytes);
-    urgent.wire.replyLength = REPLY.size(); urgent.wire.responseTimeoutUs = RESPONSE_US;
-    urgent.wire.replyGapUs = REPLY_GAP_US; urgent.wire.deadlineUs = nowUs() + REQUEST_US;
+    urgent.wire.replyLength = REPLY.size(); urgent.wire.responseTimeoutUs = app->serial.timing.responseTimeoutUs;
+    urgent.wire.replyGapUs = app->serial.timing.replyGapUs; urgent.wire.deadlineUs = nowUs() + REQUEST_US;
     urgent.expected.target = urgent.expected.address = 1; urgent.expected.targetGeneration = app->bindingGeneration;
     urgent.expected.function = 3; urgent.expected.count = 1; urgent.validator = Rtu::essValidator();
     Rtu::RequestId id; assert(app->owner.admitUrgent(urgent, nowUs(), id) == Rtu::BusAdmission::ACCEPTED);

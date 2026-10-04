@@ -1,5 +1,12 @@
 # Standalone RTU transaction runner
 
+Prompt19 adds idle-only `Runner::configureTiming` under the bus owner's exclusive
+`beginConfiguration` / `finishConfiguration` lease. It preserves the monotonic
+clock, statistics and retained results; invalid timing leaves the lease held.
+Admissions, dispatch, sequences and recovery are blocked until configuration
+settles. [Host serial support](host_serial.md) supplies per-tuple timing outside
+the installed core.
+
 First implemented in version 0.4.0, extended with timing intervals in 0.5.0, under
 [RtuRunner.h](../examples/common/RtuRunner.h) and
 [RtuRunner.cpp](../examples/common/RtuRunner.cpp), namespace

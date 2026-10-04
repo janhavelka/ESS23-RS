@@ -83,7 +83,20 @@ void fakeExitCritical() {
 }
 bool uart_is_driver_installed(uart_port_t port) { assert(port == UART_NUM_2); return hardware.driverInstalled; }
 esp_err_t uart_param_config(uart_port_t port, const uart_config_t* config) {
-    assert(port == UART_NUM_2); hardware.config = *config; return hardware.configResult;
+    assert(port == UART_NUM_2); hardware.config = *config; ++hardware.configCalls;
+    advanceHardware(hardware.time + hardware.configDelayUs);
+    if (std::find(hardware.configFailCalls.begin(), hardware.configFailCalls.end(),
+                  hardware.configCalls) != hardware.configFailCalls.end()) return -1;
+    return hardware.configResult;
+}
+esp_err_t uart_get_baudrate(uart_port_t port, uint32_t* result) {
+    assert(port == UART_NUM_2 && result); ++hardware.baudCalls;
+    // ESP32-S3 pinned uart_ll divider arithmetic, 40 MHz XTAL.
+    const uint32_t baud = static_cast<uint32_t>(hardware.config.baud_rate);
+    const uint32_t scale = (40000000U + 4095U * baud - 1) / (4095U * baud);
+    const uint32_t divider = 640000000U / (baud * scale);
+    *result = hardware.actualBaud ? hardware.actualBaud : 640000000U / (divider * scale);
+    return hardware.baudResult;
 }
 esp_err_t uart_set_pin(uart_port_t port, int tx, int rx, int rts, int cts) {
     assert(port == UART_NUM_2 && rts == UART_PIN_NO_CHANGE && cts == UART_PIN_NO_CHANGE);

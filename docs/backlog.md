@@ -1,5 +1,14 @@
 # Features implementation tasks and open questions
 
+## Prompt19 host tuple support
+
+- [x] Sixteen reviewed SDK/ESS tuples, UART divider readback, character/gap/capture budgets and default-tuple-only first-reply exception.
+- [x] One idle configuration lease; queued/active/DE/continuation exclusion, failed setup/restoration interlock and explicit repair, preserving unread results.
+- [x] Independent serial versus endpoint/configuration generations; historical tuple retention and current confidence invalidation without erasing host coordinates.
+- [x] Matching application callback, console `host` commands and finite Python checks; 47 native suites, 180 Python cases, installed consumption and four firmware builds PASS.
+- [x] COM13 sixteen host setups and two deliberate mismatched reads/recovery/restoration PASS; ten subsequent probes PASS, unchanged motor settings/state. [Evidence](reports/ess_release_19_2026-10-04.md).
+- [ ] Alternate-tuple successful motor communication, external clock/FIFO/final-stop/TX/RX/DE qualification and loaded tuple-change/endurance tests remain open. Device commissioning/discovery belong to 20/22.
+
 The [fresh prompts 17/18 audit](reports/ess_release_17_18_audit_2026-10-04.md) fixes
 settings freshness, copied provenance, partial-refresh invalidation and strict
 console evidence validation. All 45 native suites, installed consumption and

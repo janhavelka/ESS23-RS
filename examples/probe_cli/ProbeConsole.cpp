@@ -13,7 +13,7 @@
 namespace MotorControlRSExample { namespace Probe {
 namespace {
 
-enum class Command : uint8_t { HELP, VERSION, CONFIG, STATUS, HEALTH, STATS, PROBE, CAPTURE_READ, RECOVER, RESET, MEMORY, LOAD, DRV, RESULT, CANCEL, RELEASE, READ, PROFILE, CAPS, READ_IDENTITY, READ_CONFIG, READ_STATE, HEALTH_CHECK, MONITOR, AXIS, PREPARE, ENABLE, MOTOR_RELEASE, ALARM_CLEAR, STOP, MOVE, POSITION_CLEAR, VELOCITY, DRIVER, IO, HOME, SEGMENT, CONTROL, TUNING };
+enum class Command : uint8_t { HELP, VERSION, CONFIG, STATUS, HEALTH, STATS, PROBE, CAPTURE_READ, RECOVER, RESET, MEMORY, LOAD, DRV, RESULT, CANCEL, RELEASE, READ, PROFILE, CAPS, READ_IDENTITY, READ_CONFIG, READ_STATE, HEALTH_CHECK, MONITOR, AXIS, PREPARE, ENABLE, MOTOR_RELEASE, ALARM_CLEAR, STOP, MOVE, POSITION_CLEAR, VELOCITY, DRIVER, IO, HOME, SEGMENT, CONTROL, TUNING, HOST };
 struct Entry { const char* name; Command command; const char* syntax; const char* effect; bool bus; };
 const Entry COMMANDS[] = {
     {"help", Command::HELP, "help [command]", "show_callable_commands", false},
@@ -21,6 +21,7 @@ const Entry COMMANDS[] = {
     {"ver", Command::VERSION, "ver", "show_build", false},
     {"config", Command::CONFIG, "config", "show_host_settings", false},
     {"settings", Command::CONFIG, "settings", "show_host_settings", false},
+    {"host", Command::HOST, "host [baud RATE | fmt 8N1|8N2|8E1|8O1 | set RATE FORMAT | restore | caps]", "settled_host_serial_only_no_motor_settings", false},
     {"status", Command::STATUS, "status", "show_cached_observations", false},
     {"health", Command::HEALTH, "health [check [address]]", "show_cached_health_or_explicitly_read_state", false},
     {"stats", Command::STATS, "stats [reset]", "show_or_clear_host_counters", false},
@@ -126,6 +127,57 @@ bool append(char* output, std::size_t capacity, std::size_t& used, const char* f
     va_end(arguments);
     if (written < 0 || static_cast<std::size_t>(written) >= capacity - used) return false;
     used += static_cast<std::size_t>(written); return true;
+}
+
+bool parseFormat(const char* token, HostFormat& value) {
+    for (uint8_t i = 0; i < 4; ++i) {
+        const auto format = static_cast<HostFormat>(i);
+        if (!std::strcmp(token, formatName(format))) { value = format; return true; }
+    }
+    return false;
+}
+bool supports(const HostSnapshot& state, const HostTuple& tuple) {
+    if (!reviewedHostTuple(tuple)) return false;
+    const auto format = static_cast<uint8_t>(tuple.format);
+    if (format >= 4 || !state.supportedFormats[format]) return false;
+    for (uint32_t baud : state.supportedBauds) if (baud && baud == tuple.baud) return true;
+    return false;
+}
+const char* hostFailure(HostFailure failure) {
+    switch (failure) { case HostFailure::NONE: return "none"; case HostFailure::ADAPTER: return "adapter";
+    case HostFailure::RUNNER: return "runner"; case HostFailure::RESTORE: return "restore"; }
+    return "unknown";
+}
+bool hostTuple(char* output, std::size_t capacity, std::size_t& used, const HostTuple& tuple) {
+    return append(output, capacity, used, "{\"baud\":%lu,\"format\":\"%s\"}",
+                  static_cast<unsigned long>(tuple.baud), formatName(tuple.format));
+}
+bool hostState(char* output, std::size_t capacity, std::size_t& used, const HostSnapshot& state) {
+    if (!append(output, capacity, used, ",\"original\":") || !hostTuple(output, capacity, used, state.original) ||
+        !append(output, capacity, used, ",\"requested\":") || !hostTuple(output, capacity, used, state.requested) ||
+        !append(output, capacity, used, ",\"active\":") || !hostTuple(output, capacity, used, state.active) ||
+        !append(output, capacity, used, ",\"active_known\":%s,\"blocked\":%s,\"configuring\":%s,\"serial_generation\":%lu,\"actual_baud\":%lu,\"failure\":\"%s\",\"device_settings_changed\":false,\"supported_bauds\":[",
+            state.activeKnown ? "true" : "false", state.blocked ? "true" : "false", state.configuring ? "true" : "false",
+            static_cast<unsigned long>(state.generation), static_cast<unsigned long>(state.actualBaud), hostFailure(state.failure))) return false;
+    bool comma = false;
+    for (uint32_t baud : state.supportedBauds) if (baud) {
+        if (!append(output, capacity, used, "%s%lu", comma ? "," : "", static_cast<unsigned long>(baud))) return false;
+        comma = true;
+    }
+    if (!append(output, capacity, used, "],\"supported_formats\":[")) return false;
+    comma = false;
+    for (uint8_t i = 0; i < 4; ++i) if (state.supportedFormats[i]) {
+        if (!append(output, capacity, used, "%s\"%s\"", comma ? "," : "", formatName(static_cast<HostFormat>(i)))) return false;
+        comma = true;
+    }
+    const auto& t = state.timing;
+    return append(output, capacity, used, "],\"timing\":{\"character_min_us\":%lu,\"character_max_us\":%lu,\"stop_guard_us\":%lu,\"capture_period_us\":%lu,\"gap15_us\":%lu,\"gap35_us\":%lu,\"reply_gap_us\":%lu,\"response_timeout_us\":%lu,\"request_timeout_us\":%lu,\"recovery_guard_us\":%lu,\"tx_timeout_us\":%lu}}",
+        static_cast<unsigned long>(t.characterMinUs), static_cast<unsigned long>(t.characterMaxUs),
+        static_cast<unsigned long>(t.stopGuardUs), static_cast<unsigned long>(t.capturePeriodUs),
+        static_cast<unsigned long>(t.runner.gap15Us), static_cast<unsigned long>(t.runner.gap35Us),
+        static_cast<unsigned long>(t.replyGapUs), static_cast<unsigned long>(t.responseTimeoutUs),
+        static_cast<unsigned long>(t.requestTimeoutUs), static_cast<unsigned long>(t.recoveryGuardUs),
+        static_cast<unsigned long>(t.runner.txTimeoutUs));
 }
 
 bool stateValue(char* output, std::size_t capacity, std::size_t& used, const Ess::StateObservation& v) {
@@ -567,6 +619,19 @@ void Console::feed(char value) noexcept {
     if (!overflow_ && !invalid_) line_[length_++] = value;
 }
 
+void Console::setReportSerial(const HostTuple* tuple, uint32_t generation) noexcept {
+    reportingGeneration_ = tuple && reviewedHostTuple(*tuple) ? generation : 0;
+    reportingTuple_ = tuple ? *tuple : HostTuple();
+}
+bool Console::appendReportSerial(std::size_t& used) noexcept {
+    if (!used || output_[used - 1] != '}') return false;
+    --used;
+    return append(output_, sizeof(output_), used,
+        ",\"host_serial\":{\"known\":%s,\"baud\":%lu,\"format\":\"%s\",\"generation\":%lu}}",
+        boolean(reportingGeneration_ != 0), static_cast<unsigned long>(reportingGeneration_ ? reportingTuple_.baud : 0),
+        reportingGeneration_ ? formatName(reportingTuple_.format) : "unknown", static_cast<unsigned long>(reportingGeneration_));
+}
+
 void Console::dispatch() noexcept {
     char* tokens[20] = {}; // Full-width rationals, path policies and bounded preview options.
     std::size_t count = 0;
@@ -598,6 +663,42 @@ void Console::dispatch() noexcept {
         error(id, capability, "unsupported"); return;
     }
     if (!entry) { error(id, "unknown", "unknown_command"); return; }
+    if (entry->command == Command::HOST) {
+        if (outputPending()) { ++inputDropped_; return; }
+        if (!host_.hostSerial) { error(id, "host", "unavailable"); return; }
+        const std::size_t args = first + 1;
+        HostSnapshot state;
+        const Action queried = host_.hostSerial(host_.context, nullptr, state);
+        if (queried != Action::OK) { error(id, "host", actionName(queried)); return; }
+        HostRequest request; request.tuple = state.active;
+        bool changing = false;
+        if (count == args) {}
+        else if (count == args + 1 && !std::strcmp(tokens[args], "caps")) {}
+        else if (count == args + 1 && !std::strcmp(tokens[args], "restore")) { changing = request.restore = true; }
+        else if (count == args + 2 && !std::strcmp(tokens[args], "baud")) {
+            if (!state.activeKnown) { error(id, "host", "active_tuple_unknown"); return; }
+            if (!number(tokens[args + 1], request.tuple.baud)) { error(id, "host", "invalid_tuple"); return; }
+            changing = true;
+        } else if (count == args + 2 && !std::strcmp(tokens[args], "fmt")) {
+            if (!state.activeKnown) { error(id, "host", "active_tuple_unknown"); return; }
+            if (!parseFormat(tokens[args + 1], request.tuple.format)) { error(id, "host", "invalid_tuple"); return; }
+            changing = true;
+        } else if (count == args + 3 && !std::strcmp(tokens[args], "set")) {
+            if (!number(tokens[args + 1], request.tuple.baud) || !parseFormat(tokens[args + 2], request.tuple.format)) {
+                error(id, "host", "invalid_tuple"); return;
+            }
+            changing = true;
+        } else { error(id, "host", "invalid_arguments"); return; }
+        if (changing && !supports(state, request.restore ? state.original : request.tuple)) { error(id, "host", "unsupported"); return; }
+        const Action result = changing ? host_.hostSerial(host_.context, &request, state) : Action::OK;
+        std::size_t used = 0;
+        const bool fits = append(output_, sizeof(output_), used,
+            "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"host\",\"ok\":%s,\"result\":\"%s\"",
+            static_cast<unsigned long>(id), boolean(result == Action::OK), result == Action::OK ? "done" : actionName(result)) &&
+            hostState(output_, sizeof(output_), used, state);
+        if (!fits) { error(id, "host", "output_full"); return; }
+        emit(); return;
+    }
     const bool nativeHome = entry->command == Command::PROFILE && count > first + 2 &&
         std::strcmp(tokens[first + 1], "ess_rs") == 0 && std::strcmp(tokens[first + 2], "home") == 0;
     if (entry->command == Command::HOME || nativeHome) {
@@ -1040,6 +1141,7 @@ void Console::dispatch() noexcept {
         case Command::AXIS: case Command::PREPARE: return host_.axis != nullptr;
         case Command::MONITOR: return host_.monitor != nullptr;
         case Command::LOAD: return host_.load != nullptr;
+        case Command::HOST: return host_.hostSerial != nullptr;
         case Command::CAPTURE_READ: return host_.startCaptureRead != nullptr;
         case Command::ENABLE: case Command::MOTOR_RELEASE: case Command::ALARM_CLEAR: case Command::STOP: case Command::POSITION_CLEAR: return host_.startAction && host_.snapshot;
         case Command::MOVE: return host_.startMove && host_.snapshot && host_.axis;
@@ -1115,6 +1217,7 @@ void Console::dispatch() noexcept {
     if (entry->command == Command::RESULT) {
         ResultView view;
         if (!host_.result(host_.context, operationId, view)) { error(id, entry->name, "unavailable"); return; }
+        setReportSerial(&view.serialTuple, view.serialGeneration);
         if (view.pending) {
             std::snprintf(output_, sizeof(output_),
                 "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"result\",\"command_id\":%lu,\"operation_id\":%lu,\"ok\":true,\"result\":\"pending\",\"recovery\":%s,\"capture_read\":%s,\"read_kind\":%s,\"action_kind\":%s,\"stop_policy\":%s,\"move_kind\":%s,\"velocity\":%s,\"driver\":%s,\"home\":%s}",
@@ -1123,6 +1226,8 @@ void Console::dispatch() noexcept {
                 !view.typedRead ? "null" : view.typedRead->kind == Ess::ReadKind::IDENTITY ? "\"identity\"" : view.typedRead->kind == Ess::ReadKind::CONFIG ? "\"config\"" : "\"state\"",
                 !view.actionContext ? "null" : view.actionContext->request.kind == Core::ActionKind::ENABLE ? "\"enable\"" : view.actionContext->request.kind == Core::ActionKind::RELEASE ? "\"release\"" : view.actionContext->request.kind == Core::ActionKind::CLEAR_ALARM ? "\"clear_alarm\"" : view.actionContext->request.kind == Core::ActionKind::CLEAR_POSITION ? "\"clear_position\"" : "\"stop\"",
                 view.actionContext ? stopPolicy(view.actionContext->request) : "null", view.moveContext ? (view.moveContext->request.position.wrapped ? "\"angle\"" : view.moveContext->request.position.relative ? "\"relative\"" : "\"absolute\"") : "null", boolean(view.velocityContext != nullptr), boolean(view.driverContext != nullptr), boolean(view.homeContext != nullptr));
+            std::size_t used = std::strlen(output_);
+            if (!appendReportSerial(used)) { error(id, "result", "output_full"); return; }
             emit();
         } else if (view.homeContext) formatHome(id, view.commandId, view.operationId, *view.homeContext, true, view.interruptedByStop);
         else if (view.driverContext) formatDriver(id, view.commandId, view.operationId, *view.driverContext, true);
@@ -1219,8 +1324,9 @@ void Console::dispatch() noexcept {
     }
     case Command::CONFIG:
         std::snprintf(output_, sizeof(output_),
-            "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"%s\",\"ok\":true,\"address\":%u,\"baud\":%lu,\"format\":\"8N1\",\"response_timeout_us\":%lu,\"reply_gap_us\":%lu,\"gap15_us\":%lu,\"gap35_us\":%lu,\"stale_after_ms\":%lu,\"ready\":%s,\"timing_qualified\":%s,\"device_settings\":\"%s\",\"cache_off_supported\":%s,\"sample_gap_limit_us\":%lu,\"cached_identity_id\":%lu,\"cached_identity_address\":%u,\"cached_identity_generation\":%lu,\"cached_config_id\":%lu,\"cached_config_address\":%u,\"cached_config_generation\":%lu,\"binding_generation\":%lu}",
+            "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"%s\",\"ok\":true,\"address\":%u,\"baud\":%lu,\"format\":\"%s\",\"response_timeout_us\":%lu,\"reply_gap_us\":%lu,\"gap15_us\":%lu,\"gap35_us\":%lu,\"stale_after_ms\":%lu,\"ready\":%s,\"timing_qualified\":%s,\"device_settings\":\"%s\",\"cache_off_supported\":%s,\"sample_gap_limit_us\":%lu,\"cached_identity_id\":%lu,\"cached_identity_address\":%u,\"cached_identity_generation\":%lu,\"cached_config_id\":%lu,\"cached_config_address\":%u,\"cached_config_generation\":%lu,\"binding_generation\":%lu}",
             static_cast<unsigned long>(id), entry->name, data.address, static_cast<unsigned long>(data.baud),
+            host_.hostSerial ? (data.serial.activeKnown ? formatName(data.serial.active.format) : "unknown") : "8N1",
             static_cast<unsigned long>(data.responseTimeoutUs), static_cast<unsigned long>(data.replyGapUs),
             static_cast<unsigned long>(data.gap15Us), static_cast<unsigned long>(data.gap35Us),
             static_cast<unsigned long>(data.staleAfterMs), boolean(data.ready), boolean(data.timingQualified),
@@ -1283,14 +1389,22 @@ void Console::dispatch() noexcept {
             error(id, entry->name, "output_full"); return;
         }
     }
+    if (host_.hostSerial && (entry->command == Command::STATUS || entry->command == Command::CONFIG)) {
+        std::size_t used = std::strlen(output_);
+        setReportSerial(data.serial.activeKnown ? &data.serial.active : nullptr, data.serial.activeKnown ? data.serial.generation : 0);
+        if (!appendReportSerial(used)) { error(id, entry->name, "output_full"); return; }
+    }
     emit();
 }
 
-bool Console::reportProbe(uint32_t id, uint8_t address, uint32_t operationId, const ProbeResult& result) noexcept {
+bool Console::reportProbe(uint32_t id, uint8_t address, uint32_t operationId, const ProbeResult& result,
+                          const HostTuple* tuple, uint32_t serialGeneration) noexcept {
+    setReportSerial(tuple, serialGeneration);
     if (outputPending()) return false;
     for (auto& item : outstanding_) if (item.commandId == id && item.operationId == operationId && !item.transferred) {
-        item.transferred = true;
-        return formatProbe(id, id, address, operationId, result, false);
+        if (!formatProbe(id, id, address, operationId, result, false)) return false;
+        if (item.operationId == operationId) item.transferred = true;
+        return true;
     }
     return false;
 }
@@ -1327,20 +1441,27 @@ bool Console::formatProbe(uint32_t id, uint32_t commandId, uint8_t address, uint
         if (!inspection) { if (outputPending_) pendingTerminalOperation_ = operationId; else untrack(operationId); }
         return true;
     }
+    std::size_t used = static_cast<std::size_t>(written);
+    if (!appendReportSerial(used)) return false;
     emit(inspection ? 0 : operationId);
     return true;
 }
 
-bool Console::reportRecovery(uint32_t id, uint32_t operationId, const Rtu::RecoveryResult& result) noexcept {
+bool Console::reportRecovery(uint32_t id, uint32_t operationId, const Rtu::RecoveryResult& result,
+                             const HostTuple* tuple, uint32_t serialGeneration) noexcept {
+    setReportSerial(tuple, serialGeneration);
     if (outputPending()) return false;
     for (auto& item : outstanding_) if (item.commandId == id && item.operationId == operationId && !item.transferred) {
-        item.transferred = true;
-        return formatRecovery(id, id, operationId, result, false);
+        if (!formatRecovery(id, id, operationId, result, false)) return false;
+        if (item.operationId == operationId) item.transferred = true;
+        return true;
     }
     return false;
 }
 
-bool Console::reportAction(uint32_t id, uint32_t operationId, const Ess::ActionContext& context, bool interruptedByStop) noexcept {
+bool Console::reportAction(uint32_t id, uint32_t operationId, const Ess::ActionContext& context, bool interruptedByStop,
+                           const HostTuple* tuple, uint32_t serialGeneration) noexcept {
+    setReportSerial(tuple, serialGeneration);
     if (outputPending() || context.operationId != operationId ||
         (context.state != Core::ActionState::SUCCEEDED && context.state != Core::ActionState::FAILED)) return false;
     for (auto& item : outstanding_) if (item.commandId == id && item.operationId == operationId && !item.transferred) {
@@ -1352,7 +1473,9 @@ bool Console::reportAction(uint32_t id, uint32_t operationId, const Ess::ActionC
     return false;
 }
 
-bool Console::reportDriver(uint32_t id, uint32_t operationId, const Ess::DriverContext& context) noexcept {
+bool Console::reportDriver(uint32_t id, uint32_t operationId, const Ess::DriverContext& context,
+                           const HostTuple* tuple, uint32_t serialGeneration) noexcept {
+    setReportSerial(tuple, serialGeneration);
     if (outputPending() || context.operationId != operationId ||
         (context.state != Core::ReadState::SUCCEEDED && context.state != Core::ReadState::FAILED)) return false;
     for (auto& item : outstanding_) if (item.commandId == id && item.operationId == operationId && !item.transferred) {
@@ -1449,6 +1572,7 @@ bool Console::formatDriver(uint32_t id, uint32_t commandId, uint32_t operationId
         used -= 1;
         if (!append(output_, sizeof(output_), used, ",\"segment_index\":%u,\"execution_path\":\"external_input\",\"storage_capacity\":16,\"maximum_input_selections\":8}", c.request.segmentIndex)) return false;
     }
+    if (!appendReportSerial(used)) return false;
     emit(inspection ? 0 : operationId); return true;
 }
 
@@ -1482,22 +1606,27 @@ bool Console::formatAction(uint32_t id, uint32_t commandId, uint32_t operationId
     }
     fits = fits && append(output_, sizeof(output_), used, "}");
     if (!fits) return false; // Keep the complete host result available; never publish partial JSON.
+    if (!appendReportSerial(used)) return false;
     emit(inspection ? 0 : operationId);
     return true;
 }
 
-bool Console::reportRead(uint32_t id, uint32_t operationId, const Ess::ReadContext& context) noexcept {
+bool Console::reportRead(uint32_t id, uint32_t operationId, const Ess::ReadContext& context,
+                         const HostTuple* tuple, uint32_t serialGeneration) noexcept {
+    setReportSerial(tuple, serialGeneration);
     if (outputPending() || context.operationId != operationId ||
         (context.state != MotorControlRS::ReadState::SUCCEEDED && context.state != MotorControlRS::ReadState::FAILED)) return false;
     for (auto& item : outstanding_) if (item.commandId == id && item.operationId == operationId && !item.transferred) {
-        item.transferred = true;
-        return formatRead(id, id, operationId, context, false);
+        if (!formatRead(id, id, operationId, context, false)) return false;
+        if (item.operationId == operationId) item.transferred = true;
+        return true;
     }
     return false;
 }
 
 bool Console::reportHome(uint32_t id, uint32_t operationId, const Ess::HomeContext& context,
-                         bool interruptedByStop) noexcept {
+                         bool interruptedByStop, const HostTuple* tuple, uint32_t serialGeneration) noexcept {
+    setReportSerial(tuple, serialGeneration);
     if (outputPending() || context.operationId != operationId ||
         (context.state != Core::ActionState::SUCCEEDED && context.state != Core::ActionState::FAILED)) return false;
     for (auto& item : outstanding_) if (item.commandId == id && item.operationId == operationId && !item.transferred) {
@@ -1532,12 +1661,13 @@ bool Console::formatHome(uint32_t id, uint32_t commandId, uint32_t operationId,
         homeEvidence(output_, sizeof(output_), used, c.completionEvidence) && append(output_, sizeof(output_), used, ",\"zero_evidence\":") &&
         homeEvidence(output_, sizeof(output_), used, c.zeroEvidence) && append(output_, sizeof(output_), used, ",\"failure_evidence\":") &&
         homeEvidence(output_, sizeof(output_), used, c.failureEvidence) && append(output_, sizeof(output_), used, "}");
-    if (!fits) return false;
+    if (!fits || !appendReportSerial(used)) return false;
     emit(inspection ? 0 : operationId); return true;
 }
 
 bool Console::reportMove(uint32_t id, uint32_t operationId, const Ess::MoveContext& context,
-                         bool interruptedByStop) noexcept {
+                         bool interruptedByStop, const HostTuple* tuple, uint32_t serialGeneration) noexcept {
+    setReportSerial(tuple, serialGeneration);
     if (outputPending() || context.operationId != operationId ||
         (context.state != Core::ActionState::SUCCEEDED && context.state != Core::ActionState::FAILED)) return false;
     for (auto& item : outstanding_) if (item.commandId == id && item.operationId == operationId && !item.transferred) {
@@ -1599,13 +1729,14 @@ bool Console::formatMove(uint32_t id, uint32_t commandId, uint32_t operationId,
         static_cast<unsigned long>(c.reference.configurationGeneration), boolean(c.reference.nativeKnown), static_cast<long long>(c.reference.nativePosition),
         static_cast<unsigned>(c.reference.basis), static_cast<unsigned>(c.reference.source),
         static_cast<unsigned long long>(c.reference.observedUs), static_cast<unsigned long long>(c.reference.maximumAgeUs)) && append(output_, sizeof(output_), used, "}");
-    if (!fits) return false;
+    if (!fits || !appendReportSerial(used)) return false;
     emit(inspection ? 0 : operationId);
     return true;
 }
 
 bool Console::reportVelocity(uint32_t id, uint32_t operationId, const Ess::VelocityContext& context,
-                             bool interruptedByStop) noexcept {
+                             bool interruptedByStop, const HostTuple* tuple, uint32_t serialGeneration) noexcept {
+    setReportSerial(tuple, serialGeneration);
     if (outputPending() || context.operationId != operationId ||
         (context.state != Core::ActionState::SUCCEEDED && context.state != Core::ActionState::FAILED)) return false;
     for (auto& item : outstanding_) if (item.commandId == id && item.operationId == operationId && !item.transferred) {
@@ -1650,7 +1781,7 @@ bool Console::formatVelocity(uint32_t id, uint32_t commandId, uint32_t operation
         ",\"last_observation\":{\"step\":%u,\"raw_hex\":\"%s\",\"earliest_us\":%llu,\"latest_us\":%llu,\"delivered_us\":%llu}}",
         c.lastObservation.step, observedRaw, static_cast<unsigned long long>(c.lastObservation.earliestUs),
         static_cast<unsigned long long>(c.lastObservation.latestUs), static_cast<unsigned long long>(c.lastObservation.deliveredUs));
-    if (!fits) return false;
+    if (!fits || !appendReportSerial(used)) return false;
     emit(inspection ? 0 : operationId); return true;
 }
 
@@ -1733,6 +1864,7 @@ bool Console::formatRead(uint32_t id, uint32_t commandId, uint32_t operationId,
         if (!inspection) { if (outputPending_) pendingTerminalOperation_ = operationId; else untrack(operationId); }
         return true;
     }
+    if (!appendReportSerial(used)) return false;
     emit(inspection ? 0 : operationId); return true;
 }
 
@@ -1757,6 +1889,8 @@ bool Console::formatRecovery(uint32_t id, uint32_t commandId, uint32_t operation
         if (!inspection) { if (outputPending_) pendingTerminalOperation_ = operationId; else untrack(operationId); }
         return true;
     }
+    std::size_t used = static_cast<std::size_t>(written);
+    if (!appendReportSerial(used)) return false;
     emit(inspection ? 0 : operationId);
     return true;
 }

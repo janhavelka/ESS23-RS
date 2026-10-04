@@ -2,6 +2,7 @@
 #pragma once
 
 #include "../common/RtuBusOwner.h"
+#include "../common/HostSerial.h"
 #include "StateCache.h"
 #include "AxisConsole.h"
 #include "MotorControlRS/profiles/ess_rs/Codec.h"
@@ -61,8 +62,24 @@ struct MonitorSnapshot {
     uint64_t nextDueUs = 0, admitted = 0, rejected = 0, cancelled = 0;
 };
 
+struct HostRequest { HostTuple tuple; bool restore = false; };
+enum class HostFailure : uint8_t { NONE, ADAPTER, RUNNER, RESTORE };
+/** Host session only; unknown active configuration blocks motor traffic until
+ * explicit repair. Tuple generation is separate from device/axis generations. */
+struct HostSnapshot {
+    HostTuple original, requested, active;
+    bool activeKnown = true, blocked = false, configuring = false;
+    uint32_t generation = 1;
+    uint32_t actualBaud = 0; ///< Programmed SDK divider result; zero while unknown.
+    HostTiming timing;
+    HostFailure failure = HostFailure::NONE;
+    uint32_t supportedBauds[4] = {}; ///< Adapter-reported baud list; zero entries absent.
+    bool supportedFormats[4] = {}; ///< Adapter-reported HostFormat slots.
+};
+
 /** Task-context cached host observations. No probe establishes motor readiness. */
 struct Snapshot {
+    HostSnapshot serial;
     uint8_t address = 1;
     uint32_t baud = 0;
     uint32_t responseTimeoutUs = 0;
@@ -141,6 +158,8 @@ struct ProbeResult {
  * Raw frame pointers are borrowed only
  * until the result callback's caller finishes formatting this view. */
 struct ResultView {
+    HostTuple serialTuple;
+    uint32_t serialGeneration = 0; ///< Zero means historical tuple unavailable.
     uint32_t commandId = 0, operationId = 0;
     uint8_t address = 0;
     bool pending = false, recovery = false, captureRead = false;
@@ -205,6 +224,9 @@ struct Host {
     Action (*load)(void*, const LoadSettings* requested, LoadSnapshot&) = nullptr;
     /** Local finite polling control; null queries, disabled cancels local continuation. */
     Action (*monitor)(void*, const MonitorSettings* requested, MonitorSnapshot&) = nullptr;
+    /** Settled bus configuration; null request queries cached host state. No motor
+     * command, retry or automatic recovery. Request is consumed during the call. */
+    Action (*hostSerial)(void*, const HostRequest* requested, HostSnapshot&) = nullptr;
     bool (*result)(void*, uint32_t operationId, ResultView&) = nullptr; ///< Zero selects latest.
     Action (*cancel)(void*, uint32_t operationId) = nullptr; ///< Local only; zero selects latest.
     Action (*release)(void*, uint32_t operationId) = nullptr; ///< Explicit terminal retention release.
@@ -236,22 +258,28 @@ public:
     uint64_t inputDropped() const noexcept { return inputDropped_; }
     /** True transfers the terminal line to the console/sink; false changes nothing.
      * A blocked sink retains exactly one line. Never retry a transferred result. */
-    bool reportProbe(uint32_t id, uint8_t address, uint32_t operationId, const ProbeResult& result) noexcept;
-    bool reportRecovery(uint32_t id, uint32_t operationId, const Rtu::RecoveryResult& result) noexcept;
+    bool reportProbe(uint32_t id, uint8_t address, uint32_t operationId, const ProbeResult& result,
+                     const HostTuple* tuple = nullptr, uint32_t serialGeneration = 0) noexcept;
+    bool reportRecovery(uint32_t id, uint32_t operationId, const Rtu::RecoveryResult& result,
+                        const HostTuple* tuple = nullptr, uint32_t serialGeneration = 0) noexcept;
     /** Same transfer contract as reportProbe. Context is borrowed during this
      * call only; operation identity and terminal state are checked before use. */
-    bool reportRead(uint32_t id, uint32_t operationId, const MotorControlRS::ESS_RS::ReadContext&) noexcept;
+    bool reportRead(uint32_t id, uint32_t operationId, const MotorControlRS::ESS_RS::ReadContext&,
+                    const HostTuple* tuple = nullptr, uint32_t serialGeneration = 0) noexcept;
     bool reportAction(uint32_t id, uint32_t operationId, const MotorControlRS::ESS_RS::ActionContext&,
-                      bool interruptedByStop = false) noexcept;
+                      bool interruptedByStop = false, const HostTuple* tuple = nullptr, uint32_t serialGeneration = 0) noexcept;
     bool reportMove(uint32_t id, uint32_t operationId, const MotorControlRS::ESS_RS::MoveContext&,
-                    bool interruptedByStop = false) noexcept;
+                    bool interruptedByStop = false, const HostTuple* tuple = nullptr, uint32_t serialGeneration = 0) noexcept;
     bool reportVelocity(uint32_t id, uint32_t operationId, const MotorControlRS::ESS_RS::VelocityContext&,
-                        bool interruptedByStop = false) noexcept;
-    bool reportDriver(uint32_t id, uint32_t operationId, const MotorControlRS::ESS_RS::DriverContext&) noexcept;
+                        bool interruptedByStop = false, const HostTuple* tuple = nullptr, uint32_t serialGeneration = 0) noexcept;
+    bool reportDriver(uint32_t id, uint32_t operationId, const MotorControlRS::ESS_RS::DriverContext&,
+                      const HostTuple* tuple = nullptr, uint32_t serialGeneration = 0) noexcept;
     bool reportHome(uint32_t id, uint32_t operationId, const MotorControlRS::ESS_RS::HomeContext&,
-                    bool interruptedByStop = false) noexcept;
+                    bool interruptedByStop = false, const HostTuple* tuple = nullptr, uint32_t serialGeneration = 0) noexcept;
 
 private:
+    void setReportSerial(const HostTuple*, uint32_t generation) noexcept;
+    bool appendReportSerial(std::size_t& used) noexcept;
     void dispatch() noexcept;
     void error(uint32_t id, const char* command, const char* reason) noexcept;
     void action(uint32_t id, const char* command, Action result, uint8_t address = 0, uint32_t operationId = 0) noexcept;
@@ -277,6 +305,8 @@ private:
                     const MotorControlRS::ESS_RS::HomeContext&, bool inspection, bool interruptedByStop) noexcept;
 
     Host host_;
+    HostTuple reportingTuple_;
+    uint32_t reportingGeneration_ = 0;
     char line_[LINE_CAPACITY] = {};
     char output_[OUTPUT_CAPACITY] = {};
     char pendingOutput_[OUTPUT_CAPACITY] = {};

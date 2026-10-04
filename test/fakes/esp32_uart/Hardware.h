@@ -22,6 +22,11 @@ struct Hardware {
     bool driverInstalled = false;
     unsigned rxChecks = 0, publishOnCheck = 0;
     int levelResult = ESP_OK, directionResult = ESP_OK, configResult = ESP_OK;
+    int baudResult = ESP_OK;
+    uint32_t actualBaud = 0; ///< Zero derives the real SDK XTAL divider result.
+    unsigned configCalls = 0, baudCalls = 0;
+    uint32_t configDelayUs = 0; ///< SDK setup interval outside capture's next epoch.
+    std::vector<unsigned> configFailCalls;
     int pinResult = ESP_OK, de = -1, dePin = -1, txPin = -1, rxPin = -1;
     int transmitLevel = 1; // Physical fake transceiver polarity, independent of adapter settings.
     uart_config_t config = {};

@@ -1,5 +1,11 @@
 # Roadmap and requirement coverage
 
+Prompt19 [host tuple handoff](../../reports/ess_release_19_2026-10-04.md)
+maps the application callback, adapter and exclusive owner lease to native and
+host-only hardware evidence. Sixteen setups and two mismatch/restore checks
+PASS; alternate motor communication and electrical qualification remain open.
+This adds no register-ledger write credit: device settings are unchanged.
+
 The [fresh16/17 audit](../../reports/ess_release_16_17_audit_2026-10-04.md)
 maps both complete prompts to actual public APIs, owner/CLI paths, tests and
 separate bench dispositions. All48 indexed records now have checked read

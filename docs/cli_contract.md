@@ -1,5 +1,15 @@
 # MotorControl-RS standalone CLI contract
 
+Prompt19 implements host-only `host`, `host caps`, `host baud RATE`,
+`host fmt 8N1|8N2|8E1|8O1`, `host set RATE FORMAT` and `host restore` through
+the application serial callback. Supported rates are 9600, 19200, 38400 and
+115200; support means adapter capability, not motor communication qualification.
+Changes require settled queues, operation continuations, capture and DE, with
+monitoring disabled. A failed change holds exclusive configuration ownership
+and blocks admissions until explicit repair. `recover` cannot clear that failure.
+See [host serial contracts](host_serial.md) for timing, generation isolation,
+immutable `host_serial` result provenance and the finite Python `host-check`.
+
 Prompt18 implements `profile ess_rs tuning GROUP read|set FIELD INTEGER ...`
 for filters, current-loop, LA and collision through the same public typed
 preparations. Native units, group masks, partial progress and stored versus

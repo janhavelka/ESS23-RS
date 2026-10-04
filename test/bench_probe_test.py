@@ -2909,5 +2909,219 @@ class Framing(unittest.TestCase):
         self.assertEqual(len(self.port.writes), 2)
 
 
+class HostDevice:
+    """Host configuration state and immutable retained operation records."""
+    def __init__(self):
+        self.original = dict(baud=115200, format="8N1")
+        self.active = dict(self.original); self.requested = dict(self.original)
+        self.generation = 1; self.blocked = False; self.failure = "none"
+        self.retained = {}; self.mutate = None; self.mismatch_transport = "NO_RESPONSE"
+        self.setup_failure = False; self.restore_failure = False
+        self.recovery_required = False
+
+    def serial(self):
+        return dict(known=True, **self.active, generation=self.generation)
+
+    def __call__(self, i, command, args):
+        if command == "host":
+            requested = bench.host_arguments(tuple(args))
+            ok = True; result = "done"
+            if args and args != ["caps"]:
+                selected = dict(self.original if requested.get("restore") else self.active)
+                selected.update({key: value for key, value in requested.items() if key != "restore"})
+                if self.recovery_required and not self.blocked:
+                    ok = False; result = "recovery_required"
+                elif self.blocked or selected != self.active:
+                    self.requested = selected; self.generation += 1
+                    failed = self.restore_failure if requested.get("restore") else self.setup_failure
+                    self.blocked = failed
+                    self.failure = ("restore" if requested.get("restore") else "adapter") if failed else "none"
+                    if failed: ok = False; result = "failed"
+                    else: self.active = dict(selected)
+            state = reply(i, command, ok=ok, result=result, original=dict(self.original),
+                          requested=dict(self.requested), active=dict(self.active), active_known=not self.blocked,
+                          blocked=self.blocked, configuring=False, serial_generation=self.generation,
+                          actual_baud=0 if self.blocked else self.active["baud"], failure=self.failure,
+                          device_settings_changed=False, supported_bauds=list(bench.HOST_BAUDS),
+                          supported_formats=list(bench.HOST_FORMATS), timing=bench.host_timing(**dict(baud=self.active["baud"], fmt=self.active["format"])))
+            if self.mutate: self.mutate(state)
+            return encoded(state)
+        if command == "result":
+            value = dict(self.retained[int(args[0])], id=i, type="reply", command="result")
+            if self.mutate: self.mutate(value)
+            return encoded(value)
+        if command == "release":
+            del self.retained[int(args[0])]
+            return Serial.normal(i, command, args)
+        if command in ("probe", "recover"):
+            admission, terminal = [json.loads(line) for line in Serial.normal(i, command, args).splitlines()]
+            terminal["host_serial"] = self.serial()
+            if command == "probe" and self.active != self.original:
+                terminal.update(ok=False, transport=self.mismatch_transport, codec="NOT_CHECKED", outcome="transport",
+                                raw_model=None, execution_unknown=True, tx_bytes=8, rx_bytes=0,
+                                timing_valid=False, raw_truncated=False)
+                self.recovery_required = True
+            if command == "recover": self.recovery_required = False
+            if self.mutate: self.mutate(terminal)
+            self.retained[terminal["operation_id"]] = copy.deepcopy(terminal)
+            return encoded(admission) + encoded(terminal)
+        if command == "read" and args == ["identity", "1"]:
+            terminal = typed_terminal(i, "identity")
+            terminal["host_serial"] = self.serial()
+            parity, stops = {"8N1": (1, 1), "8N2": (1, 2), "8E1": (2, 1), "8O1": (3, 1)}[self.active["format"]]
+            terminal["active_serial"] = dict(known=True, baud=self.active["baud"], data_bits=8, parity=parity, stop_bits=stops)
+            if self.mutate: self.mutate(terminal)
+            self.retained[terminal["operation_id"]] = copy.deepcopy(terminal)
+            return encoded(reply(i, "read-identity", result="accepted", read_kind="identity", address=1,
+                                 operation_id=terminal["operation_id"])) + encoded(terminal)
+        return Serial.normal(i, command, args)
+
+
+class HostSerialTests(unittest.TestCase):
+    def session(self):
+        self.device = HostDevice(); self.clock = Clock(); self.events = []
+        self.port = Serial(self.device)
+        self.console = bench.Console(self.port, clock=self.clock, sleeper=self.clock.sleep,
+                                    on_event=lambda event, **fields: self.events.append(dict(event=event, **fields)))
+        self.console.identify(timeout_s=0.1)
+        return self.console
+
+    def test_all_reviewed_tuples_and_bounded_arguments(self):
+        c = self.session(); c.command("host")
+        for baud in bench.HOST_BAUDS:
+            for fmt in bench.HOST_FORMATS:
+                item = c.command("host", host_args=("set", str(baud), fmt))
+                self.assertEqual(item["active"], dict(baud=baud, format=fmt))
+                self.assertEqual(item["timing"], bench.host_timing(baud, fmt))
+                bits = 2 if fmt == "8N2" else 1
+                self.assertEqual(item["timing"]["stop_guard_us"], (bits * 100000000 + baud * 98 - 1) // (baud * 98) + 2)
+                self.assertEqual(item["timing"]["reply_gap_us"], 304 if (baud, fmt) == (115200, "8N1") else item["timing"]["gap35_us"])
+        before = len(self.port.writes)
+        for tokens in (("baud", "57600"), ("fmt", "7E1"), ("set", "9600", "8E2"), ("set", "9600", "8N1", "again"), ("baud", "9600\nprobe")):
+            with self.assertRaises(ValueError): c.command("host", host_args=tokens)
+        self.assertEqual(len(self.port.writes), before)
+        c.command("host", host_args=("restore",))
+        previous = c.serial["serial_generation"]
+        c.command("host", host_args=("restore",))
+        self.assertEqual(c.serial["serial_generation"], previous)
+        args = bench.arguments(["--port", "FAKE", "--log", "unused", "host-check", "--baud", "9600", "--fmt", "8E1"])
+        self.assertEqual((args.baud, args.host_baud, args.fmt), (115200, 9600, "8E1"))
+
+    def test_host_state_mutations_rejected(self):
+        changes = [lambda x: x.update(active_known=False), lambda x: x.update(device_settings_changed=True),
+                   lambda x: x.update(supported_bauds=[9600] * 5), lambda x: x.update(serial_generation=True),
+                   lambda x: x["timing"].update(character_max_us=87), lambda x: x["active"].update(format="8E2"),
+                   lambda x: x.update(failure="adapter"), lambda x: x.update(actual_baud=-1),
+                   lambda x: x.update(actual_baud=0), lambda x: x.update(actual_baud=117505)]
+        for mutation in changes:
+            with self.subTest(mutation=mutation):
+                c = self.session(); self.device.mutate = mutation
+                with self.assertRaises(bench.BenchError): c.command("host")
+
+    def test_successful_change_must_match_request_and_generation(self):
+        for mutation in (lambda x: x.update(serial_generation=1), lambda x: x["active"].update(baud=38400)):
+            c = self.session(); c.command("host"); self.device.mutate = mutation
+            with self.assertRaises(bench.BenchError): c.command("host", host_args=("baud", "9600"))
+
+    def test_8n2_requires_two_slow_stop_bits_of_publication_guard(self):
+        c = self.session(); c.command("host")
+        self.device.mutate = lambda x: x["timing"].update(stop_guard_us=bench.host_timing(9600, "8N1")["stop_guard_us"])
+        with self.assertRaisesRegex(bench.BenchError, "timing does not match"):
+            c.command("host", host_args=("set", "9600", "8N2"))
+
+    def test_failed_setup_query_explicit_repair_and_failed_restore(self):
+        c = self.session(); c.command("host"); self.device.setup_failure = True
+        failed = c.command("host", host_args=("set", "9600", "8N2"))
+        self.assertFalse(failed["ok"]); self.assertTrue(failed["blocked"])
+        self.assertFalse(c.command("host")["active_known"])
+        self.device.setup_failure = False
+        fixed = c.command("host", host_args=("set", "9600", "8N2"))
+        self.assertTrue(fixed["ok"]); self.assertEqual(fixed["serial_generation"], 3)
+        self.device.restore_failure = True
+        failed = c.command("host", host_args=("restore",))
+        self.assertEqual(failed["failure"], "restore"); self.assertFalse(failed["active_known"])
+        self.device.restore_failure = False
+        self.assertTrue(c.command("host", host_args=("restore",))["ok"])
+        self.assertNotIn("recover", [line.decode().split()[1] for line in self.port.writes])
+
+    def test_failed_attempt_must_retain_exact_request_and_generation(self):
+        mutations = (lambda x: x["requested"].update(baud=38400), lambda x: x["requested"].update(format="8O1"),
+                     lambda x: x.update(serial_generation=1), lambda x: x.update(serial_generation=3),
+                     lambda x: x.update(failure="restore"), lambda x: x["active"].update(baud=9600))
+        for mutation in mutations:
+            c = self.session(); c.command("host"); self.device.setup_failure = True; self.device.mutate = mutation
+            with self.assertRaises(bench.BenchError): c.command("host", host_args=("set", "9600", "8N2"))
+        c = self.session(); c.command("host"); self.device.restore_failure = True
+        c.command("host", host_args=("baud", "9600"))
+        self.device.mutate = lambda x: x["requested"].update(baud=19200)
+        with self.assertRaises(bench.BenchError): c.command("host", host_args=("restore",))
+
+    def test_query_cannot_fabricate_repair_or_change_requested_tuple(self):
+        for tokens in ((), ("caps",)):
+            for mutate in (lambda x: x.update(active_known=True, blocked=False, failure="none", actual_baud=115200),
+                           lambda x: x["requested"].update(baud=19200)):
+                c = self.session(); c.command("host"); self.device.setup_failure = True
+                self.assertFalse(c.command("host", host_args=("set", "9600", "8N2"))["ok"])
+                self.device.mutate = mutate
+                with self.assertRaisesRegex(bench.BenchError, "query changed saved host state"):
+                    c.command("host", host_args=tokens)
+
+    def test_historical_operation_tuple_survives_host_change(self):
+        c = self.session(); c.command("host")
+        h = c.begin("probe", address=1); original = c.wait(h)
+        c.command("host", host_args=("set", "9600", "8E1"))
+        inspected = c.command("result", operation_id=h.operation_id)
+        self.assertEqual(inspected["host_serial"], original["host_serial"])
+        self.assertNotEqual(inspected["host_serial"]["generation"], c.serial["serial_generation"])
+        c.command("release", operation_id=h.operation_id)
+
+    def test_fabricated_historical_tuple_and_typed_tuple_disagreement_rejected(self):
+        for field, value in (("baud", 9600), ("format", "8N2"), ("generation", 2), ("known", False)):
+            c = self.session(); c.command("host")
+            self.device.mutate = lambda x: x["host_serial"].update({field: value})
+            with self.assertRaises(bench.BenchError): c.command("probe", address=1)
+        c = self.session(); c.command("host", host_args=("set", "9600", "8E1"))
+        self.assertTrue(c.command("read-identity", address=1)["ok"])
+        self.device.mutate = lambda x: x["active_serial"].update(stop_bits=2)
+        with self.assertRaises(bench.BenchError): c.command("read-identity", address=1)
+
+    def test_finite_host_check_has_exact_declared_reads_recovery_restore(self):
+        c = self.session()
+        bench.host_check_campaign(c, baud=9600, fmt="8N1", timeout_s=1, address=1)
+        commands = [line.decode().split()[1] for line in self.port.writes]
+        self.assertEqual(commands.count("probe"), 3); self.assertEqual(commands.count("recover"), 1)
+        self.assertEqual(commands.count("result"), 3); self.assertEqual(commands.count("release"), 4)
+        self.assertEqual(self.device.active, self.device.original)
+        summary = self.events[-1]
+        self.assertTrue(summary["ok"]); self.assertTrue(summary["restored"])
+        self.assertEqual((summary["motor_writes"], summary["automatic_retries"]), (0, 0))
+
+    def test_unexpected_mismatch_failure_has_no_read_replay_or_recovery(self):
+        c = self.session(); self.device.mismatch_transport = "RX_ERROR"
+        with self.assertRaisesRegex(bench.BenchError, "expected read-only"):
+            bench.host_check_campaign(c, baud=9600, fmt="8N1", timeout_s=1, address=1)
+        commands = [line.decode().split()[1] for line in self.port.writes]
+        self.assertEqual(commands.count("probe"), 2); self.assertNotIn("recover", commands)
+        self.assertFalse(self.events[-1]["restored"])
+
+    def test_two_host_checks_release_all_retained_recovery_results(self):
+        c = self.session()
+        for baud, fmt in ((9600, "8N1"), (115200, "8E1")):
+            bench.host_check_campaign(c, baud=baud, fmt=fmt, timeout_s=1, address=1)
+            self.assertFalse(self.device.retained)
+            self.assertFalse(c.operations)
+        commands = [line.decode().split()[1] for line in self.port.writes]
+        self.assertEqual(commands.count("recover"), 2); self.assertEqual(commands.count("probe"), 6)
+
+    def test_failed_declared_restoration_is_not_replayed(self):
+        c = self.session(); self.device.restore_failure = True
+        with self.assertRaisesRegex(bench.BenchError, "restoration failed"):
+            bench.host_check_campaign(c, baud=9600, fmt="8N1", timeout_s=1, address=1)
+        restores = [line for line in self.port.writes if line.decode().split()[1:] == ["host", "restore"]]
+        self.assertEqual(len(restores), 1)
+        self.assertTrue(self.device.blocked); self.assertFalse(self.events[-1]["restored"])
+        self.assertTrue(self.events[-1]["restoration_attempted"])
+
+
 if __name__ == "__main__":
     unittest.main()

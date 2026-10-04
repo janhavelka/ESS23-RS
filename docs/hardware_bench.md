@@ -1,5 +1,13 @@
 # Motor bench and testing authorization
 
+[Prompt19 current-image evidence](reports/ess_release_19_2026-10-04.md) passes
+sixteen host-only tuple setups, retained historical context, two deliberate
+nonresponse/recovery/restore scenarios and ten unloaded probes. Motor settings
+and raw state are unchanged. Final 115200 8N1, owner empty, DE released,
+load/monitor off; 51 frames and exactly two intended timeouts, no unexpected
+transport/capture errors. Alternate-tuple motor communication and independent
+electrical timing remain unqualified.
+
 The [fresh prompts 17/18 audit](reports/ess_release_17_18_audit_2026-10-04.md) fixes
 settings freshness, copied provenance, partial-refresh invalidation and strict
 console evidence validation. All 45 native suites, installed consumption and

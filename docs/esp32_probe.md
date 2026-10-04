@@ -1,5 +1,13 @@
 # ESP32-S3 read-only probe bench
 
+Prompt19 adds [host-only serial selection](host_serial.md), `host caps`,
+`host set RATE FORMAT` and `host restore`, with retained tuple/generation
+diagnostics. The finite Python `host-check --baud 9600 --fmt 8N1` exercises an
+expected mismatch, explicit recovery and original restoration without changing
+the drive. [Evidence](reports/ess_release_19_2026-10-04.md) records all sixteen
+host setups and restored 115200 8N1 motor probes; other motor tuples stay
+unqualified. Timing values below describe the default tuple unless stated.
+
 The [fresh prompts 17/18 audit](reports/ess_release_17_18_audit_2026-10-04.md) fixes
 settings freshness, copied provenance, partial-refresh invalidation and strict
 console evidence validation. All 45 native suites, installed consumption and
@@ -210,8 +218,10 @@ raw adapter instances cannot detect one another automatically.
 `Esp32S3Uart::begin(pins, baud)` receives TX, RX, DE and direction polarity
 from the application. It does not include the bench board header. The example
 passes its explicit `BoardPins.h` preset; another ESP32-S3 application can
-supply different valid pins. UART2 and 115200 8N1 remain the adapter's current
-limits. Alternate pins and active-low DE have native tests, not bench evidence.
+supply different valid pins. UART2 remains exclusive; the adapter now supports
+the [reviewed host tuples](host_serial.md). It boots at 115200 8N1 and changes
+only under a settled owner configuration lease. Alternate pins and active-low
+DE have native tests, not bench evidence.
 
 This is a focused bench implementation. Later FieldCore integration must use
 or improve FieldCore's existing bus owner; it must not start this adapter beside

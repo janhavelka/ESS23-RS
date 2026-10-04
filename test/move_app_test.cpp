@@ -117,8 +117,8 @@ Rtu::BusRequest configurationWrite(uint8_t* bytes, std::size_t capacity) {
     r.expected.address = 1; r.expected.target = 1; r.expected.targetGeneration = app->bindingGeneration;
     r.expected.function = 6; r.expected.first = 0x10; r.expected.count = r.expected.value = 1;
     r.wire.length = ESS::buildWriteSingleRegister(1, 0x10, 1, bytes, capacity);
-    r.wire.bytes = bytes; r.wire.replyLength = 8; r.wire.responseTimeoutUs = RESPONSE_US;
-    r.wire.replyGapUs = REPLY_GAP_US; r.wire.deadlineUs = nowUs() + REQUEST_US;
+    r.wire.bytes = bytes; r.wire.replyLength = 8; r.wire.responseTimeoutUs = app->serial.timing.responseTimeoutUs;
+    r.wire.replyGapUs = app->serial.timing.replyGapUs; r.wire.deadlineUs = nowUs() + REQUEST_US;
     r.validator = Rtu::essValidator(); return r;
 }
 void testProductionGateAndImmutableAdmission() {
@@ -186,7 +186,7 @@ void testStageReservationAndFreshCompletion() {
         competing.wire.length = reg == 0x24 ? ESS::buildWriteMultipleRegisters(1, reg, words, 2, bytes, sizeof(bytes)) :
             ESS::buildWriteSingleRegister(1, reg, 1, bytes, sizeof(bytes));
         competing.wire.bytes = bytes; competing.wire.replyLength = 8;
-        competing.wire.responseTimeoutUs = RESPONSE_US; competing.wire.deadlineUs = nowUs() + REQUEST_US;
+        competing.wire.responseTimeoutUs = app->serial.timing.responseTimeoutUs; competing.wire.deadlineUs = nowUs() + REQUEST_US;
         competing.validator = Rtu::essValidator(); Rtu::RequestId id;
         assert(admitAxisWrite(*app, competing, nowUs(), id) == Probe::Action::AXIS_CONFLICT);
         assert(!id.owner && app->owner.pending() == pending && hardware.writes == writes);
@@ -310,6 +310,7 @@ void deliverChangedConfiguration(unsigned field) {
     auto& record = app->records[REQUEST_CAPACITY - 1];
     assert(!record.operationId);
     record.operationId = record.commandId = 1000; record.address = 1; record.typedRead = true;
+    record.serialTuple = app->serial.active; record.serialGeneration = app->serial.generation;
     record.configurationGeneration = app->axis.generation;
     assert(ESS::prepareConfig(record.read, app->axis.target, 1000, hardware.time - 1000, hardware.time + REQUEST_US));
     const std::vector<uint8_t> replies[] = {

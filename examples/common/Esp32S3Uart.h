@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 #pragma once
-#include "RtuRunner.h"
+#include "HostSerial.h"
 
 namespace MotorControlRSExample {
 
@@ -29,11 +29,23 @@ public:
      * Transceiver polarity is explicit; disconnected DE is not supported.
      */
     struct Pins { int tx, rx, de; bool activeHigh; };
-    /** Configure UART2 at the currently supported 115200 8N1.
+    /** Configure UART2 using one of the sixteen reviewed ESS baud/format tuples.
      * Invalid pins/baud fail before GPIO changes. This adapter is example
      * support, not part of the framework-independent motor library.
      */
     bool begin(const Pins& pins, uint32_t baud = 115200) noexcept;
+    bool begin(const Pins& pins, const HostTuple& tuple) noexcept;
+    static bool supports(const HostTuple& tuple) noexcept { return reviewedHostTuple(tuple); }
+    /** Explicit idle-only host change/restoration. Application reserves the bus
+     * and settles all queued/active work first. Any setup/cleanup failure blocks
+     * traffic until another explicit reconfigure succeeds; clear() cannot repair
+     * it. The last confirmed tuple is historical while blocked. No motor write.
+     * Repair may discard settled old-tuple RX data; physical TX/RX and DE must
+     * still be idle. An ordinary change refuses retained or FIFO receive data.
+     */
+    bool reconfigure(const HostTuple& tuple) noexcept;
+    HostTuple tuple() const noexcept;
+    bool configurationBlocked() const noexcept;
     static constexpr unsigned CAPTURE_CAPACITY = 64;
     static constexpr bool CACHE_OFF_SUPPORTED = false;
     bool startCapture(uint32_t periodUs = 20, uint32_t holdUs = 20) noexcept;
@@ -46,6 +58,7 @@ public:
         uint32_t maxGapUs = 0, faults = 0, rxErrors = 0;
         uint32_t txWidthUs = 0, maxRxWidthUs = 0, highWater = 0;
         uint32_t sampleGapLimitUs = 0; ///< Timer gaps must be strictly below this limit.
+        uint32_t actualBaud = 0; ///< SDK readback of the programmed divider.
         bool ready = false, failed = false, timer = false;
         bool sampleGapExceeded = false; ///< Sticky cause; statistics reset preserves it.
     };
@@ -68,8 +81,11 @@ private:
     void fault(bool uartError) noexcept;
     uint64_t captureSample(bool timerCallback) noexcept;
     bool stopTimer() noexcept; // Retains failed cleanup stages for an explicit retry.
+    bool configure(const HostTuple& tuple) noexcept;
+    void newEpoch() noexcept;
 
     Pins pins_{-1, -1, -1, true};
+    HostTuple tuple_;
     Rtu::RxByte pending_[CAPTURE_CAPACITY]; // ISR working set; internal RAM only.
     void* timer_ = nullptr;
     unsigned head_ = 0, count_ = 0;
@@ -78,6 +94,7 @@ private:
     uint64_t directionAt_ = 0;
     uint64_t releasedAt_ = 0, samples_ = 0, timerCallbacks_ = 0, busyUs_ = 0;
     uint32_t releaseWidth_ = 0, holdUs_ = 0, highWater_ = 0;
+    uint32_t periodUs_ = 20, actualBaud_ = 0;
     uint32_t charMin_ = 0, charMax_ = 0, stopGuard_ = 0;
     uint32_t txWidth_ = 0, maxRxWidth_ = 0, maxPollGap_ = 0;
     uint32_t captureFaults_ = 0, rxErrors_ = 0;
@@ -85,5 +102,6 @@ private:
     bool txPending_ = false, txIdle_ = true, rxIdle_ = false;
     bool timerEnabled_ = false, timerRunning_ = false;
     bool sampleGapExceeded_ = false;
+    bool configurationBlocked_ = false, captureWanted_ = false;
 };
 } // namespace MotorControlRSExample

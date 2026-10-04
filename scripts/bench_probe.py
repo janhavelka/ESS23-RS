@@ -28,13 +28,56 @@ import time
 MAX_LINE = 8192
 MAX_INPUT = 32768
 COMMANDS = frozenset({"version", "config", "probe", "capture-read", "status", "health", "memory", "stats", "load",
-                      "drv", "result", "release", "cancel", "recover", "reset", "caps",
+                      "drv", "result", "release", "cancel", "recover", "reset", "caps", "host",
                       "read-identity", "read-config", "read-state", "health-check", "monitor", "axis", "prepare", "enable", "motor-release", "alarm-clear", "stop", "position-clear", "move-relative", "move-absolute", "move-angle", "velocity", "driver", "io", "segment", "control", "tuning", "home"})
 MAX_COMMANDS = 11  # Eight ordinary operations, recovery, reserved stop and local query.
 MAX_OPERATIONS = 10  # Eight ordinary operations, one recovery and one reserved stop.
 MAX_PROBES = 8
 TYPED_READS = {"read-identity": "identity", "read-config": "config", "read-state": "state"}
 READ_COMMANDS = ("probe", "capture-read", *TYPED_READS)
+HOST_BAUDS = (9600, 19200, 38400, 115200)
+HOST_FORMATS = ("8N1", "8N2", "8E1", "8O1")
+
+
+def host_arguments(arguments: tuple[str, ...]) -> dict:
+    """Only reviewed host tuples; no device configuration or recovery is implied."""
+    if not isinstance(arguments, tuple) or any(type(t) is not str for t in arguments):
+        raise ValueError("host arguments require ASCII tokens")
+    if arguments in ((), ("caps",), ("restore",)):
+        return {"restore": arguments == ("restore",)}
+    if len(arguments) == 2 and arguments[0] == "baud":
+        candidate = {"baud": arguments[1]}
+    elif len(arguments) == 2 and arguments[0] == "fmt":
+        candidate = {"format": arguments[1]}
+    elif len(arguments) == 3 and arguments[0] == "set":
+        candidate = {"baud": arguments[1], "format": arguments[2]}
+    else:
+        raise ValueError("host requires baud RATE, fmt FORMAT, set RATE FORMAT, restore or caps")
+    if "baud" in candidate:
+        value = candidate["baud"]
+        if not re.fullmatch(r"[0-9]+", value) or len(value) > 6 or int(value) not in HOST_BAUDS:
+            raise ValueError("host baud is outside reviewed tuples")
+        candidate["baud"] = int(value)
+    if "format" in candidate and candidate["format"] not in HOST_FORMATS:
+        raise ValueError("host format is outside reviewed tuples")
+    return candidate
+
+
+def host_timing(baud: int, fmt: str) -> dict:
+    """Independent integer bounds for the reviewed host policy, not qualification."""
+    if baud not in HOST_BAUDS or fmt not in HOST_FORMATS:
+        raise ValueError("unreviewed host tuple")
+    bits = 10 if fmt == "8N1" else 11
+    ceil = lambda numerator, denominator: (numerator + denominator - 1) // denominator
+    gap15 = 750 if baud > 19200 else ceil(bits * 3000000, baud * 2)
+    gap35 = 1750 if baud > 19200 else ceil(bits * 7000000, baud * 2)
+    maximum = ceil(bits * 100000000, baud * 98)
+    return dict(character_min_us=bits * 100000000 // (baud * 102), character_max_us=maximum,
+                stop_guard_us=ceil((2 if fmt == "8N2" else 1) * 100000000, baud * 98) + 2, capture_period_us=20,
+                gap15_us=gap15, gap35_us=gap35,
+                reply_gap_us=304 if (baud, fmt) == (115200, "8N1") else gap35,
+                response_timeout_us=200000, request_timeout_us=500000,
+                recovery_guard_us=500000, tx_timeout_us=max(20000, 32 * maximum + 10040))
 ACTION_COMMANDS = ("enable", "motor-release", "alarm-clear", "stop", "position-clear")
 MOVE_COMMANDS = ("move-relative", "move-absolute", "move-angle")
 ACTION_KINDS = {"enable": "enable", "motor-release": "release", "alarm-clear": "clear_alarm", "stop": "stop", "position-clear": "clear_position"}
@@ -383,6 +426,8 @@ class Command:
         self.velocity_args = None
         self.driver_args = None
         self.home_args = None
+        self.host_args = None
+        self.serial = None
 
 
 class Console:
@@ -414,6 +459,7 @@ class Console:
         self.pending: dict[int, Command] = {}
         self.operations: dict[int, Command] = {}
         self.last_operation_id = 0
+        self.serial = None
 
     def _lines(self, data: bytes) -> list[bytes]:
         self.buffer.extend(data)
@@ -1634,8 +1680,9 @@ class Console:
         for key, maximum in (("baud", 0xFFFFFFFF), ("data_bits", 255), ("parity", 3), ("stop_bits", 255)):
             require(integer(serial.get(key), maximum), "active tuple is invalid")
         if serial["known"]:
-            require(serial["baud"] > 0 and 5 <= serial["data_bits"] <= 8
-                    and 1 <= serial["parity"] <= 3 and serial["stop_bits"] in (1, 2), "active tuple is invalid")
+            require(serial["baud"] in HOST_BAUDS and serial["data_bits"] == 8
+                    and (serial["parity"], serial["stop_bits"]) in ((1, 1), (1, 2), (2, 1), (3, 1)),
+                    "active tuple is outside reviewed ESS host formats")
         windows = TYPED_WINDOWS[kind]
         steps = item.get("steps")
         complete = item["completed_steps"]
@@ -1995,6 +2042,104 @@ class Console:
             require(native is None and requested["unit"] == "rad" and type(value) in (int, float)
                     and math.isfinite(value), "approximate native provenance is invalid")
 
+    @staticmethod
+    def _check_host_serial(item: dict, expected: dict | None = None) -> None:
+        serial = item.get("host_serial")
+        if serial is None and expected is None:
+            return  # Older fake/consumer hooks do not supply serial provenance.
+        if not isinstance(serial, dict) or type(serial.get("known")) is not bool:
+            raise BenchError("host serial provenance is missing or invalid")
+        if serial["known"]:
+            valid = (type(serial.get("baud")) is int and serial["baud"] in HOST_BAUDS
+                     and serial.get("format") in HOST_FORMATS
+                     and Console._operation_id(serial.get("generation")))
+        else:
+            valid = (type(serial.get("baud")) is int and serial["baud"] == 0
+                     and serial.get("format") == "unknown"
+                     and type(serial.get("generation")) is int and serial["generation"] == 0)
+        if not valid or (expected is not None and serial != expected):
+            raise BenchError("host serial provenance does not match operation admission")
+        active = item.get("active_serial")
+        if isinstance(active, dict) and serial["known"]:
+            parity, stops = {"8N1": (1, 1), "8N2": (1, 2), "8E1": (2, 1), "8O1": (3, 1)}[serial["format"]]
+            if active != dict(known=True, baud=serial["baud"], data_bits=8, parity=parity, stop_bits=stops):
+                raise BenchError("typed-read active serial differs from historical host tuple")
+
+    def _check_host(self, handle: Command, item: dict) -> None:
+        def require(condition, message):
+            if not condition:
+                raise BenchError("host " + message)
+
+        if "active" not in item:
+            require(item["ok"] is False and item.get("result") in
+                    {"unavailable", "invalid_tuple", "unsupported", "active_tuple_unknown", "invalid_arguments", "output_full"},
+                    "reply lacks tuple state")
+            return
+        for name in ("original", "requested", "active"):
+            value = item.get(name)
+            require(isinstance(value, dict) and set(value) == {"baud", "format"}
+                    and type(value["baud"]) is int and value["baud"] in HOST_BAUDS
+                    and value["format"] in HOST_FORMATS, "tuple is unreviewed")
+        for name in ("active_known", "blocked", "configuring"):
+            require(type(item.get(name)) is bool, "state flags are invalid")
+        require(item["configuring"] is False and Console._operation_id(item.get("serial_generation")), "change is unsettled")
+        require(item.get("device_settings_changed") is False, "claims device settings changed")
+        require(item.get("failure") in {"none", "adapter", "runner", "restore"}, "failure is invalid")
+        require(type(item.get("actual_baud")) is int and 0 <= item["actual_baud"] <= 4000000,
+                "programmed baud is invalid")
+        require((item["active_known"] and not item["blocked"] and item["failure"] == "none")
+                or (not item["active_known"] and item["blocked"] and item["failure"] != "none"),
+                "failure and active state disagree")
+        require(item["active_known"] or item["actual_baud"] == 0, "unknown tuple claims a programmed baud")
+        require(not item["active_known"] or item["active"]["baud"] * 98 <= item["actual_baud"] * 100 <= item["active"]["baud"] * 102,
+                "programmed baud is unknown or outside character timing tolerance")
+        rates, formats = item.get("supported_bauds"), item.get("supported_formats")
+        require(isinstance(rates, list) and 1 <= len(rates) <= 4
+                and all(type(rate) is int and rate in HOST_BAUDS for rate in rates)
+                and len(set(rates)) == len(rates), "baud capabilities are invalid")
+        require(isinstance(formats, list) and 1 <= len(formats) <= 4
+                and all(type(fmt) is str and fmt in HOST_FORMATS for fmt in formats)
+                and len(set(formats)) == len(formats), "format capabilities are invalid")
+        require(all(item[name]["baud"] in rates and item[name]["format"] in formats
+                    for name in ("original", "requested", "active")), "tuple exceeds adapter capabilities")
+        timing = item.get("timing")
+        require(isinstance(timing, dict) and all(type(value) is int and 0 <= value <= 0xFFFFFFFF
+                                               for value in timing.values()), "timing is invalid")
+        require(timing == host_timing(item["active"]["baud"], item["active"]["format"]), "timing does not match active tuple")
+        old = self.serial
+        args = host_arguments(handle.host_args)
+        changes = handle.host_args not in ((), ("caps",))
+        selected = dict(item["original"] if args.get("restore") else
+                        (old["active"] if old is not None else item["active"]))
+        selected.update({key: value for key, value in args.items() if key != "restore"})
+        if old is not None:
+            require(item["original"] == old["original"] and item["serial_generation"] >= old["serial_generation"],
+                    "original tuple or serial generation changed")
+        if item["ok"]:
+            require(item.get("result") == "done", "success result is not explicit")
+            if changes:
+                require(item["active_known"] and not item["blocked"]
+                        and item["active"] == item["requested"] == selected, "success differs from requested tuple")
+                if old is not None:
+                    changed = not old["active_known"] or old["blocked"] or selected != old["active"]
+                    require(item["serial_generation"] == old["serial_generation"] + int(changed), "generation differs from settled change")
+            elif old is not None:
+                require(all(item[key] == value for key, value in old.items()), "query changed saved host state")
+        else:
+            require(item.get("result") in {"busy", "recovery_required", "unavailable", "unsupported", "failed", "ids_exhausted"}, "failure result is invalid")
+            if item["result"] == "failed":
+                require(changes and item["requested"] == selected and item["blocked"] and not item["active_known"],
+                        "failed attempt differs from requested tuple")
+                require(item["failure"] == "restore" if args.get("restore") else item["failure"] in {"adapter", "runner"},
+                        "failed attempt reason differs from request")
+                if old is not None:
+                    require(item["active"] == old["active"] and item["serial_generation"] == old["serial_generation"] + 1,
+                            "failed attempt tuple or generation differs")
+            elif old is not None:
+                require(all(item[key] == value for key, value in old.items()), "refused change altered host state")
+        self.serial = {key: dict(item[key]) if isinstance(item[key], dict) else item[key]
+                       for key in ("original", "requested", "active", "active_known", "blocked", "serial_generation")}
+
     def _complete(self, handle: Command, item: dict) -> None:
         if self.clock() >= handle.deadline:
             raise BenchError("command response deadline expired; command was not replayed")
@@ -2008,6 +2153,13 @@ class Console:
             self._check_cached_state(item)
         if handle.command in ("axis", "prepare") and (item["ok"] or "code" in item):
             self._check_axis(item, handle.command == "prepare")
+        if handle.command == "host":
+            self._check_host(handle, item)
+        if handle.command in ("status", "config") and item["ok"]:
+            self._check_host_serial(item, handle.serial)
+            if handle.command == "config" and handle.serial is not None and handle.serial["known"]:
+                if item.get("baud") != handle.serial["baud"] or item.get("format") != handle.serial["format"]:
+                    raise BenchError("config differs from current host tuple")
         if handle.command == "monitor" and item["ok"]:
             if type(item.get("enabled")) is not bool:
                 raise BenchError("monitor enabled state is invalid")
@@ -2083,6 +2235,7 @@ class Console:
                     or item["operation_id"] != handle.operation_id
                     or type(item.get("command_id")) is not int or item["command_id"] != handle.id):
                 raise BenchError("terminal operation ID or original command ID does not match acceptance")
+            self._check_host_serial(item, handle.serial)
             if handle.command == "probe":
                 self._check_probe(item, handle.address)
             elif handle.command == "capture-read":
@@ -2111,6 +2264,7 @@ class Console:
                     raise BenchError("host control operation ID does not match request")
                 if handle.command == "result" and operation_id is not None:
                     original = self.operations.get(operation_id)
+                    self._check_host_serial(item, original.serial if original else None)
                     original_id = item.get("command_id")
                     if (not self._operation_id(original_id)
                             or (original is not None and original_id != original.id)):
@@ -2231,7 +2385,10 @@ class Console:
             raise ValueError("command is not in the explicit harness inventory")
         if (command == "stop" and stop_policy not in ("normal", "direct")) or (command != "stop" and stop_policy is not None):
             raise ValueError("stop requires explicit normal or direct policy")
-        if host_args is not None:
+        if command == "host":
+            host_args = () if host_args is None else host_args
+            host_arguments(host_args)
+        elif host_args is not None:
             if (command not in ("axis", "prepare") or not isinstance(host_args, tuple) or
                     not 1 <= len(host_args) <= (9 if command == "prepare" else 8) or any(type(token) is not str or not token or
                     any(ord(char) < 33 or ord(char) > 126 for char in token) for token in host_args)):
@@ -2303,6 +2460,12 @@ class Console:
             handle.velocity_args = velocity_args
             handle.driver_args = driver_args
             handle.home_args = home_args
+            handle.host_args = host_args
+            if self.serial is not None:
+                known = self.serial["active_known"] and not self.serial["blocked"]
+                handle.serial = dict(known=known, baud=self.serial["active"]["baud"] if known else 0,
+                                     format=self.serial["active"]["format"] if known else "unknown",
+                                     generation=self.serial["serial_generation"] if known else 0)
             self.pending[request_id] = handle
             suffix = "" if address is None else f" {address}"
             if load is not None:
@@ -2579,6 +2742,91 @@ def typed_read_campaign(console: Console, *, kind: str, timeout_s: float, addres
                      ok=failure is None and completed == len(kinds), error=failure)
 
 
+def host_check_campaign(console: Console, *, baud: int, fmt: str, timeout_s: float, address: int) -> None:
+    """Explicit finite host mismatch, one read, recovery, restore and one final read.
+
+    Recovery is a declared step only after the expected no-response terminal.
+    An unexpected failure never causes a read retry or automatic bus recovery.
+    """
+    tokens = ("set", str(baud), fmt)
+    host_arguments(tokens)
+    positive(timeout_s, "host check timeout")
+    changed = False; restored = False; restoration_attempted = False; failure = None; mismatch = None
+    reads = 0; recoveries = 0
+
+    def read_once():
+        nonlocal reads
+        handle = console.begin("probe", timeout_s=timeout_s, address=address)
+        reads += 1
+        try:
+            terminal = console.wait(handle)
+            if handle.accepted:
+                console.command("result", operation_id=handle.operation_id, timeout_s=timeout_s)
+            return terminal
+        finally:
+            if handle.accepted and handle.terminal is not None and not handle.released and console.synchronized:
+                release = console.command("release", operation_id=handle.operation_id, timeout_s=timeout_s)
+                if not release["ok"]:
+                    raise BenchError("host check result release failed")
+
+    try:
+        initial = console.command("host", timeout_s=timeout_s)
+        if (not initial["ok"] or not initial.get("active_known") or initial.get("blocked")
+                or initial["active"] != initial["original"]):
+            raise BenchError("host check requires the original working tuple active")
+        if initial["active"] == dict(baud=baud, format=fmt):
+            raise ValueError("host check requires a deliberate different tuple")
+        if baud not in initial["supported_bauds"] or fmt not in initial["supported_formats"]:
+            raise ValueError("host check tuple is unsupported by selected adapter")
+        if not read_once()["ok"]:
+            raise BenchError("host check baseline probe failed; mismatch was not attempted")
+        selected = console.command("host", host_args=tokens, timeout_s=timeout_s)
+        changed = selected.get("active") != initial["original"] or not selected.get("active_known", False)
+        if not selected["ok"]:
+            raise BenchError("host check tuple setup failed")
+        mismatch = read_once()
+        if (mismatch["ok"] is not False or mismatch.get("transport") != "NO_RESPONSE"
+                or mismatch.get("outcome") != "transport" or mismatch.get("codec") != "NOT_CHECKED"
+                or mismatch.get("execution_unknown") is not True
+                or type(mismatch.get("tx_bytes")) is not int or mismatch["tx_bytes"] != 8
+                or type(mismatch.get("rx_bytes")) is not int or mismatch["rx_bytes"] != 0
+                or mismatch.get("raw_model") is not None or mismatch.get("timing_valid") is not False):
+            raise BenchError("host mismatch did not produce the expected read-only no-response evidence")
+        console.emit("host_recovery_step", reason="expected_mismatch_no_response", automatic_retry=False)
+        recoveries += 1
+        recovered = console.command("recover", timeout_s=timeout_s)
+        if not recovered["ok"]:
+            raise BenchError("explicit host mismatch recovery failed")
+        restoration_attempted = True
+        restoration = console.command("host", host_args=("restore",), timeout_s=timeout_s)
+        restored = restoration["ok"] and restoration.get("active") == initial["original"]
+        if not restored:
+            raise BenchError("host original tuple restoration failed")
+        if not read_once()["ok"]:
+            raise BenchError("host restored probe failed; read was not replayed")
+    except BaseException as exc:
+        failure = str(exc) or "interrupted"
+        raise
+    finally:
+        if changed and not restoration_attempted and console.synchronized:
+            try:
+                restoration_attempted = True
+                restoration = console.command("host", host_args=("restore",), timeout_s=timeout_s)
+                restored = restoration["ok"] and restoration.get("active") == initial["original"]
+                if not restored and failure is None:
+                    raise BenchError("host original tuple cleanup failed")
+            except BaseException as exc:
+                console.emit("host_restore_failure", error=str(exc) or "interrupted")
+                if failure is None:
+                    failure = str(exc) or "interrupted"
+                    raise
+        console.emit("summary", mode="host-check", ok=failure is None, reads_attempted=reads,
+                     recoveries_attempted=recoveries, restored=restored,
+                     restoration_attempted=restoration_attempted,
+                     requested_host=dict(baud=baud, format=fmt), mismatch_result=mismatch,
+                     motor_writes=0, automatic_retries=0, error=failure)
+
+
 def driver_read_campaign(console: Console, *, timeout_s: float, address: int, command: str = "driver",
                          driver_args: tuple[str, ...] = ("read",)) -> None:
     """One settings attempt, immutable inspection and release; never replay/rollback."""
@@ -2783,6 +3031,11 @@ def arguments(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument("--startup", type=float, default=0.5, help="bounded boot-log collection in seconds")
     sub = parser.add_subparsers(dest="mode", required=True)
     sub.add_parser("probe", help="one model-register read and cached observations")
+    host = sub.add_parser("host", help="one host-only serial query or explicit tuple change; no motor writes")
+    host.add_argument("host_tokens", nargs="*")
+    host_check = sub.add_parser("host-check", help="finite deliberate host mismatch/read/recover/restore; no read replay")
+    host_check.add_argument("--baud", dest="host_baud", type=int, required=True, choices=HOST_BAUDS)
+    host_check.add_argument("--fmt", required=True, choices=HOST_FORMATS)
     sub.add_parser("capture-read", help="one fixed 0x0130/16-word timing-fixture read")
     for name in ACTION_COMMANDS:
         action = sub.add_parser(name, help="one explicit action attempt; never retried")
@@ -2866,6 +3119,11 @@ def arguments(argv: list[str] | None) -> argparse.Namespace:
     if not math.isfinite(result.interval) or not 0 <= result.interval <= 60:
         parser.error("interval must be finite and within 0..60 seconds")
     result.move_args = None
+    result.host_args = None
+    if result.mode == "host":
+        result.host_args = tuple(result.host_tokens)
+        try: host_arguments(result.host_args)
+        except ValueError as exc: parser.error(str(exc))
     if result.mode in MOVE_COMMANDS:
         tokens = [result.value, result.unit, result.frame]
         if result.mode == "move-angle": tokens.extend((result.path, result.tie))
@@ -2936,7 +3194,14 @@ def main(argv: list[str] | None = None) -> int:
                 console = Console(port, on_event=evidence)
                 console.drain_startup(args.startup)
                 console.identify(timeout_s=args.timeout)
-                if args.mode in ACTION_COMMANDS:
+                if args.mode == "host":
+                    result = console.command("host", host_args=args.host_args, timeout_s=args.timeout)
+                    if not result["ok"]:
+                        raise BenchError("host command failed: " + str(result.get("result")))
+                elif args.mode == "host-check":
+                    host_check_campaign(console, baud=args.host_baud, fmt=args.fmt,
+                                        timeout_s=args.timeout, address=args.address)
+                elif args.mode in ACTION_COMMANDS:
                     result = console.command(args.mode, timeout_s=args.timeout, address=args.address,
                                              stop_policy=getattr(args, "stop_policy", None))
                     if not result["ok"]:

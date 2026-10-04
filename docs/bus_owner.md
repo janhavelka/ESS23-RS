@@ -1,5 +1,13 @@
 # Bounded RTU admission, scheduling and retained results
 
+Host tuple selection uses `beginConfiguration(now)` and
+`finishConfiguration(timing, now)` in the same cooperative owner context.
+The lease requires no queued or active work, no transport fault and settled DE;
+it preserves unread results and logical endpoint/producer generations.
+While held, ordinary/urgent admission returns `CONFIGURING`, service cannot
+dispatch, and sequence/recovery entry is refused. Failure keeps the lease until
+explicit successful repair. See [host serial support](host_serial.md).
+
 `MotorControlRSExample::Rtu::BusOwner` in
 [RtuBusOwner.h](../examples/common/RtuBusOwner.h) is application support outside
 the installed library. It owns bounded admission, one active Runner transaction

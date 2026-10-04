@@ -202,6 +202,9 @@ public:
      * budgets; later replies cannot succeed. Other phases use cancel(). No reads. */
     void cancelCaptured(uint64_t nowUs) noexcept;
     bool recover(uint64_t nowUs) noexcept;
+    /** Quiescent host-only timing change. Preserves result, statistics and clock;
+     * refuses fault, physical TX and invalid budgets. Owner excludes producers. */
+    bool configureTiming(const Timing&, uint64_t nowUs) noexcept;
     bool busy() const noexcept;
     bool needsRecovery() const noexcept { return phase_ == Phase::FAULT; }
     bool transmitEnabled() const noexcept { return de_; } ///< True also if DE is uncertain.

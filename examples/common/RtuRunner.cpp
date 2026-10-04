@@ -641,6 +641,16 @@ void Runner::cancelCaptured(uint64_t nowUs) noexcept {
     }
 }
 
+bool Runner::configureTiming(const Timing& timing, uint64_t nowUs) noexcept {
+    if (!valid() || busy() || needsRecovery() || de_ || !timing.gap15Us ||
+        timing.gap35Us <= timing.gap15Us || !timing.busTimeoutUs ||
+        timing.busTimeoutUs < timing.gap35Us ||
+        timing.txTimeoutUs <= static_cast<uint64_t>(timing.setupUs) + timing.holdUs ||
+        !timing.captureTimeoutUs || !clock(nowUs)) return false;
+    timing_ = timing;
+    return true;
+}
+
 bool Runner::recover(uint64_t nowUs) noexcept {
     if (!valid() || !clock(nowUs) || busy()) return false;
     phase_ = Phase::FAULT; // Failed recovery must never reopen admission.

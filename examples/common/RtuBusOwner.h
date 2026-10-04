@@ -55,7 +55,7 @@ struct BusRequest {
 };
 
 enum class BusAdmission : uint8_t {
-    ACCEPTED, INVALID, EXPIRED, QUEUE_FULL, RESULTS_FULL, IDS_EXHAUSTED, URGENT_FULL, RECOVERING
+    ACCEPTED, INVALID, EXPIRED, QUEUE_FULL, RESULTS_FULL, IDS_EXHAUSTED, URGENT_FULL, RECOVERING, CONFIGURING
 };
 enum class Outcome : uint8_t {
     QUEUE_EXPIRED, TRANSPORT, SUCCESS, DEVICE_REJECTED, INVALID_REPLY, CANCELLED, DISPATCH_EXPIRED
@@ -197,6 +197,12 @@ public:
     std::size_t pending() const noexcept { return count_; }
     bool active() const noexcept { return active_ != NONE; }
     bool valid() const noexcept { return valid_; }
+    /** Cooperative exclusive host configuration ownership. Refuses queued,
+     * active, recovering, faulted or DE-unsettled work. Retained results survive.
+     * Keep ownership after failed setup until explicit repair succeeds. */
+    bool beginConfiguration(uint64_t nowUs) noexcept;
+    bool finishConfiguration(const Timing&, uint64_t nowUs) noexcept;
+    bool configurationOwned() const noexcept { return configurationOwned_; }
 
 private:
     static constexpr std::size_t NONE = static_cast<std::size_t>(-1);
@@ -224,6 +230,7 @@ private:
     RecoveryResult recovery_;
     uint64_t recoveryGeneration_ = 0, recoveryQuietUs_ = 0;
     bool valid_ = false;
+    bool configurationOwned_ = false;
 };
 
 }} // namespace MotorControlRSExample::Rtu

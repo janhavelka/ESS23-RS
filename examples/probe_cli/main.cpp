@@ -28,8 +28,8 @@ namespace ESS = MotorControlRS::ESS_RS;
 using MotorControlRS::ReadState;
 using MotorControlRS::ReadEventKind;
 namespace {
-constexpr uint32_t BAUD = 115200, REPLY_GAP_US = 304;
-constexpr uint32_t RESPONSE_US = 200000, REQUEST_US = 500000, RECOVER_US = 500000;
+constexpr uint32_t BAUD = 115200;
+constexpr uint32_t REQUEST_US = 500000, RECOVER_US = 500000;
 constexpr std::size_t REQUEST_CAPACITY = 8, OUTPUT_LINES = 8;
 Esp32S3Uart uart; // Internal driver/ISR state; App storage is PSRAM.
 #if MOTORCONTROLRS_LOAD_FIXTURE
@@ -46,10 +46,8 @@ Rtu::Storage storage(uint8_t* tx, uint8_t* rx, Rtu::Trace* trace) {
     s.trace = trace; s.traceCapacity = 128; return s;
 }
 Rtu::Timing timing() {
-    Rtu::Timing t; Rtu::setRtuTiming(BAUD, 10, t);
-    t.setupUs = 20; t.holdUs = 20;
-    t.busTimeoutUs = 100000; t.txTimeoutUs = 20000; t.captureTimeoutUs = 10000;
-    return t;
+    HostTiming t; hostTiming(HostTuple(), t);
+    return t.runner;
 }
 Rtu::BusStorage busStorage(Rtu::PendingSlot* p, Rtu::ResultSlot* r, Rtu::ProducerSlot* producers) {
     Rtu::BusStorage s; s.pending = p; s.pendingCapacity = 5;
@@ -64,11 +62,14 @@ struct App {
     Rtu::PendingSlot pending[5];
     Rtu::ResultSlot results[9];
     Rtu::ProducerSlot producers[1];
+    Probe::HostSnapshot serial;
     Rtu::Runner runner;
     Rtu::BusOwner owner;
     Probe::Console console;
     struct Record {
         uint32_t operationId = 0, commandId = 0;
+        HostTuple serialTuple;
+        uint32_t serialGeneration = 0;
         uint8_t address = 0;
         Rtu::RequestId requestId;
         uint64_t deliveredUs = 0;
@@ -94,6 +95,8 @@ struct App {
     Probe::MonitorSnapshot monitorState;
     struct Recovery {
         uint32_t operationId = 0, commandId = 0;
+        HostTuple serialTuple;
+        uint32_t serialGeneration = 0;
         uint64_t id = 0, deadlineUs = 0;
         bool delivered = false, prepared = false;
     } recovery;
@@ -134,6 +137,21 @@ struct App {
     MotorControlRS::ESS_RS::FrameError frameError = MotorControlRS::ESS_RS::FrameError::NONE;
     App() : runner(uart.port(), storage(tx, rx, trace), timing()),
         owner(runner, busStorage(pending, results, producers)), console(host(this)) {
+        hostTiming(serial.active, serial.timing);
+        serial.original = serial.requested = serial.active;
+        serial.activeKnown = platformReady;
+        serial.actualBaud = platformReady ? uart.stats().actualBaud : 0;
+        const uint32_t bauds[] = {9600, 19200, 38400, 115200};
+        for (uint8_t i = 0; i < 4; ++i) {
+            HostTuple candidate; candidate.baud = bauds[i];
+            if (Esp32S3Uart::supports(candidate)) serial.supportedBauds[i] = bauds[i];
+            serial.supportedFormats[i] = true;
+            candidate.format = static_cast<HostFormat>(i);
+            for (auto baud : bauds) {
+                candidate.baud = baud;
+                serial.supportedFormats[i] = serial.supportedFormats[i] && Esp32S3Uart::supports(candidate);
+            }
+        }
         axis.target.id = axis.target.address = 1; axis.target.generation = bindingGeneration;
         // Application bench declaration: only power/RS485, no terminal wiring.
         for (auto& wiring : inputWiring) wiring = MotorControlRS::InputWiring::UNCONNECTED;
@@ -332,12 +350,13 @@ void snapshot(void* context, Probe::Snapshot& s) {
     s.cachedIdentityGeneration = a.identity.target.generation;
     s.cachedConfigId = a.configuration.operationId; s.cachedConfigAddress = a.configuration.target.address;
     s.cachedConfigGeneration = a.configuration.target.generation;
-    s.address = 1; s.probeAddress = a.address; s.baud = BAUD; s.responseTimeoutUs = RESPONSE_US;
-    s.replyGapUs = REPLY_GAP_US; s.gap15Us = timing().gap15Us; s.gap35Us = timing().gap35Us;
-    s.uptimeMs = nowUs() / 1000; s.ready = platformReady; s.timingQualified = false;
+    s.address = 1; s.probeAddress = a.address; s.baud = a.serial.activeKnown ? a.serial.active.baud : 0; s.responseTimeoutUs = a.serial.timing.responseTimeoutUs;
+    s.serial = a.serial;
+    s.replyGapUs = a.serial.timing.replyGapUs; s.gap15Us = a.serial.timing.runner.gap15Us; s.gap35Us = a.serial.timing.runner.gap35Us;
+    s.uptimeMs = nowUs() / 1000; s.ready = platformReady && a.serial.activeKnown && !a.serial.blocked; s.timingQualified = false;
     s.actionsQualified = actionTimingQualified; s.axisReserved = axisReserved(a);
     s.busy = a.owner.active() || a.owner.pending() || a.owner.recovering() || reading(a) || acting(a);
-    s.recoveryRequired = a.owner.needsRecovery() || uart.needsRecovery();
+    s.recoveryRequired = a.serial.blocked || a.owner.needsRecovery() || uart.needsRecovery();
     s.phase = a.runner.phase(); s.transport = a.runner.result().reason; s.transmitEnabled = a.runner.transmitEnabled();
     s.codecChecked = a.codecChecked; s.codec = a.codec; s.frameError = a.frameError;
     s.probeKnown = a.known; s.probeOk = a.ok; s.rawModel = a.model;
@@ -378,6 +397,7 @@ MotorControlRS::Status checkProbe(const Rtu::Expectation& e, const uint8_t* byte
 Probe::Action startRead(void* context, uint32_t commandId, uint8_t address, uint32_t& operationId, bool captureRead) {
     App& a = *static_cast<App*>(context);
     if (!platformReady) return Probe::Action::UNAVAILABLE;
+    if (a.serial.blocked || a.serial.configuring || a.owner.configurationOwned()) return Probe::Action::RECOVERY_REQUIRED;
     const uint64_t sampled = uart.sample();
     if (a.owner.needsRecovery() || uart.needsRecovery()) return Probe::Action::RECOVERY_REQUIRED;
     if (!a.nextOperationId) return Probe::Action::IDS_EXHAUSTED;
@@ -392,8 +412,8 @@ Probe::Action startRead(void* context, uint32_t commandId, uint8_t address, uint
     request.wire.length = captureRead ? MotorControlRS::ESS_RS::buildReadRegisters(address, first, count, bytes, sizeof(bytes)) :
         MotorControlRS::ESS_RS::buildProbe(address, bytes, sizeof(bytes));
     request.wire.replyLength = MotorControlRS::ESS_RS::expectedReadRegistersLen(count);
-    request.wire.responseTimeoutUs = RESPONSE_US;
-    request.wire.replyGapUs = REPLY_GAP_US; // Bench turnaround exception; final t3.5 is still 1750 us.
+    request.wire.responseTimeoutUs = a.serial.timing.responseTimeoutUs;
+    request.wire.replyGapUs = a.serial.timing.replyGapUs; // Only the default bench tuple has a reviewed first-reply override.
     request.wire.deadlineUs = sampled + REQUEST_US;
     request.expected.address = address; request.expected.function = 3; request.expected.first = first; request.expected.count = count;
     request.expected.target = address; request.expected.targetGeneration = a.bindingGeneration;
@@ -407,6 +427,7 @@ Probe::Action startRead(void* context, uint32_t commandId, uint8_t address, uint
     case Rtu::BusAdmission::IDS_EXHAUSTED: return Probe::Action::IDS_EXHAUSTED;
     default: return Probe::Action::FAILED;
     }
+    record->serialTuple = a.serial.active; record->serialGeneration = a.serial.generation;
     record->operationId = a.nextOperationId++; record->commandId = commandId; record->address = address;
     record->requestId = id; operationId = a.latestOperationId = record->operationId;
     record->deadlineUs = request.wire.deadlineUs;
@@ -425,7 +446,7 @@ Rtu::BusAdmission admitStep(App& a, App::Record& record, uint64_t sampled) {
     Rtu::BusRequest request;
     request.wire.bytes = prepared.bytes; request.wire.length = prepared.length;
     request.wire.replyLength = ESS::expectedReadRegistersLen(prepared.count);
-    request.wire.responseTimeoutUs = RESPONSE_US; request.wire.replyGapUs = REPLY_GAP_US;
+    request.wire.responseTimeoutUs = a.serial.timing.responseTimeoutUs; request.wire.replyGapUs = a.serial.timing.replyGapUs;
     request.wire.deadlineUs = prepared.deadlineUs;
     request.expected.address = prepared.target.address; request.expected.function = 3;
     request.expected.target = prepared.target.id; request.expected.targetGeneration = prepared.target.generation;
@@ -440,6 +461,7 @@ Probe::Action startTypedRead(void* context, uint32_t commandId, uint8_t address,
                              uint32_t& operationId, bool monitored) {
     App& a = *static_cast<App*>(context);
     if (!platformReady) return Probe::Action::UNAVAILABLE;
+    if (a.serial.blocked || a.serial.configuring || a.owner.configurationOwned()) return Probe::Action::RECOVERY_REQUIRED;
     const uint64_t sampled = uart.sample();
     if (a.owner.needsRecovery() || uart.needsRecovery()) return Probe::Action::RECOVERY_REQUIRED;
     if (!a.nextOperationId) return Probe::Action::IDS_EXHAUSTED;
@@ -450,8 +472,10 @@ Probe::Action startTypedRead(void* context, uint32_t commandId, uint8_t address,
         if (!a.records[i].operationId) { record = &a.records[i]; break; }
     if (!record) return Probe::Action::RESULTS_FULL;
     MotorControlRS::ReadTarget target; target.id = address; target.address = address; target.generation = a.bindingGeneration;
-    MotorControlRS::ActiveSerialTuple serial; serial.known = true; serial.baud = BAUD;
-    serial.dataBits = 8; serial.parity = MotorControlRS::SerialParity::NONE; serial.stopBits = 1;
+    MotorControlRS::ActiveSerialTuple serial; serial.known = true; serial.baud = a.serial.active.baud;
+    serial.dataBits = 8; serial.parity = a.serial.active.format == HostFormat::E8_1 ? MotorControlRS::SerialParity::EVEN :
+        a.serial.active.format == HostFormat::O8_1 ? MotorControlRS::SerialParity::ODD : MotorControlRS::SerialParity::NONE;
+    serial.stopBits = a.serial.active.format == HostFormat::N8_2 ? 2 : 1;
     const auto* configuration = a.configuration.operationId && Probe::sameTarget(a.configuration.target, target) ?
         &a.configuration : nullptr;
     const auto prepared = kind == ESS::ReadKind::IDENTITY ?
@@ -469,6 +493,7 @@ Probe::Action startTypedRead(void* context, uint32_t commandId, uint8_t address,
         return admitted == Rtu::BusAdmission::QUEUE_FULL ? Probe::Action::QUEUE_FULL :
             admitted == Rtu::BusAdmission::RESULTS_FULL ? Probe::Action::RESULTS_FULL : Probe::Action::FAILED;
     }
+    record->serialTuple = a.serial.active; record->serialGeneration = a.serial.generation;
     record->operationId = a.nextOperationId++; record->commandId = commandId; record->address = address;
     record->deadlineUs = record->read.deadlineUs; record->typedRead = true;
     record->configurationGeneration = a.axis.generation;
@@ -490,7 +515,7 @@ Rtu::BusAdmission admitActionStep(App& a, App::Record& record, const ESS::Prepar
     Rtu::BusRequest request;
     request.wire.bytes = prepared.bytes; request.wire.length = prepared.length;
     request.wire.replyLength = prepared.write ? ESS::WRITE_RESPONSE_LEN : ESS::expectedReadRegistersLen(prepared.count);
-    request.wire.responseTimeoutUs = RESPONSE_US; request.wire.replyGapUs = REPLY_GAP_US;
+    request.wire.responseTimeoutUs = a.serial.timing.responseTimeoutUs; request.wire.replyGapUs = a.serial.timing.replyGapUs;
     request.wire.deadlineUs = prepared.deadlineUs;
     request.expected.address = prepared.target.address; request.expected.function = prepared.write ? 6 : 3;
     request.expected.target = prepared.target.id; request.expected.targetGeneration = prepared.target.generation;
@@ -504,6 +529,7 @@ Probe::Action startAction(void* context, uint32_t commandId, uint8_t address,
     using namespace MotorControlRS;
     App& a = *static_cast<App*>(context);
     if (!platformReady) return Probe::Action::UNAVAILABLE;
+    if (a.serial.blocked || a.serial.configuring || a.owner.configurationOwned()) return Probe::Action::RECOVERY_REQUIRED;
     if (!a.nextOperationId) return Probe::Action::IDS_EXHAUSTED;
     const uint64_t now = uart.sample();
     ActionRequest admittedRequest = request;
@@ -549,6 +575,7 @@ Probe::Action startAction(void* context, uint32_t commandId, uint8_t address,
             admitted == Rtu::BusAdmission::RESULTS_FULL || admitted == Rtu::BusAdmission::URGENT_FULL ?
             Probe::Action::RESULTS_FULL : Probe::Action::FAILED;
     }
+    record->serialTuple = a.serial.active; record->serialGeneration = a.serial.generation;
     record->operationId = a.nextOperationId++; record->commandId = commandId; record->address = address;
     record->deadlineUs = preparedContext.deadlineUs; record->actionOperation = record->axisReserved = true;
     operationId = a.latestOperationId = record->operationId;
@@ -568,7 +595,7 @@ Probe::Action admissionResult(Rtu::BusAdmission result) {
     case Rtu::BusAdmission::RESULTS_FULL: return Probe::Action::RESULTS_FULL;
     case Rtu::BusAdmission::URGENT_FULL: return Probe::Action::RESULTS_FULL;
     case Rtu::BusAdmission::IDS_EXHAUSTED: return Probe::Action::IDS_EXHAUSTED;
-    case Rtu::BusAdmission::RECOVERING: return Probe::Action::RECOVERY_REQUIRED;
+    case Rtu::BusAdmission::RECOVERING: case Rtu::BusAdmission::CONFIGURING: return Probe::Action::RECOVERY_REQUIRED;
     default: return Probe::Action::INVALID;
     }
 }
@@ -581,6 +608,7 @@ Probe::Action checkAxisWrite(const App& a, const Rtu::BusRequest& request) {
         request.expected.target != request.expected.address ||
         request.expected.targetGeneration != a.bindingGeneration) return Probe::Action::INVALID;
     if (!platformReady) return Probe::Action::UNAVAILABLE;
+    if (a.serial.blocked || a.serial.configuring || a.owner.configurationOwned()) return Probe::Action::RECOVERY_REQUIRED;
     if (!actionTimingQualified) return Probe::Action::TIMING_UNQUALIFIED;
     if (a.owner.needsRecovery() || uart.needsRecovery()) return Probe::Action::RECOVERY_REQUIRED;
     if (!(a.knownTargets[request.expected.address / 8] & (1U << (request.expected.address % 8))))
@@ -610,7 +638,7 @@ Probe::Action admitMoveStep(App& a, App::Record& record, const ESS::PreparedMove
     Rtu::BusRequest request;
     request.wire.bytes = prepared.bytes; request.wire.length = prepared.length;
     request.wire.replyLength = prepared.write ? ESS::WRITE_RESPONSE_LEN : ESS::expectedReadRegistersLen(prepared.count);
-    request.wire.responseTimeoutUs = RESPONSE_US; request.wire.replyGapUs = REPLY_GAP_US;
+    request.wire.responseTimeoutUs = a.serial.timing.responseTimeoutUs; request.wire.replyGapUs = a.serial.timing.replyGapUs;
     request.wire.deadlineUs = prepared.deadlineUs;
     request.expected.address = prepared.target.address; request.expected.function = prepared.function;
     request.expected.target = prepared.target.id; request.expected.targetGeneration = prepared.target.generation;
@@ -627,6 +655,7 @@ Probe::Action startMove(void* context, uint32_t commandId, uint8_t address,
     using namespace MotorControlRS;
     App& a = *static_cast<App*>(context);
     if (!platformReady) return Probe::Action::UNAVAILABLE;
+    if (a.serial.blocked || a.serial.configuring || a.owner.configurationOwned()) return Probe::Action::RECOVERY_REQUIRED;
     if (!ESS::isValidAddress(address) || !supplied.speedRpm ||
         supplied.ramp != MoveRamp::VERIFIED_CONFIGURED) return Probe::Action::INVALID;
     if (!a.commandPolarityKnown && supplied.position.frame != CoordinateFrame::NATIVE)
@@ -673,6 +702,7 @@ Probe::Action startMove(void* context, uint32_t commandId, uint8_t address,
     if (!ESS::nextMove(record->move, now, work)) { clearRecord(*record); return Probe::Action::FAILED; }
     const auto admitted = admitMoveStep(a, *record, work, now);
     if (admitted != Probe::Action::OK) { clearRecord(*record); return admitted; }
+    record->serialTuple = a.serial.active; record->serialGeneration = a.serial.generation;
     record->operationId = a.nextOperationId++; record->commandId = commandId; record->address = address;
     record->deadlineUs = deadline; record->moveOperation = record->axisReserved = true;
     operationId = a.latestOperationId = record->operationId;
@@ -682,7 +712,7 @@ Probe::Action admitVelocityStep(App& a, App::Record& record, const ESS::Prepared
     Rtu::BusRequest request;
     request.wire.bytes = prepared.bytes; request.wire.length = prepared.length;
     request.wire.replyLength = prepared.write ? ESS::WRITE_RESPONSE_LEN : ESS::expectedReadRegistersLen(prepared.count);
-    request.wire.responseTimeoutUs = RESPONSE_US; request.wire.replyGapUs = REPLY_GAP_US;
+    request.wire.responseTimeoutUs = a.serial.timing.responseTimeoutUs; request.wire.replyGapUs = a.serial.timing.replyGapUs;
     request.wire.deadlineUs = prepared.deadlineUs;
     request.expected.address = prepared.target.address; request.expected.function = prepared.function;
     request.expected.target = prepared.target.id; request.expected.targetGeneration = prepared.target.generation;
@@ -699,6 +729,7 @@ Probe::Action startVelocity(void* context, uint32_t commandId, uint8_t address,
     using namespace MotorControlRS;
     App& a = *static_cast<App*>(context);
     if (!platformReady) return Probe::Action::UNAVAILABLE;
+    if (a.serial.blocked || a.serial.configuring || a.owner.configurationOwned()) return Probe::Action::RECOVERY_REQUIRED;
     if (!ESS::isValidAddress(address) || !supplied.durationUs || supplied.durationUs > 1000000)
         return Probe::Action::INVALID;
     if (!a.commandPolarityKnown && supplied.frame != CoordinateFrame::NATIVE) return Probe::Action::UNAVAILABLE;
@@ -739,6 +770,7 @@ Probe::Action startVelocity(void* context, uint32_t commandId, uint8_t address,
     if (!ESS::nextVelocity(record->velocity, now, work)) { clearRecord(*record); return Probe::Action::FAILED; }
     const auto admitted = admitVelocityStep(a, *record, work, now);
     if (admitted != Probe::Action::OK) { clearRecord(*record); return admitted; }
+    record->serialTuple = a.serial.active; record->serialGeneration = a.serial.generation;
     record->operationId = a.nextOperationId++; record->commandId = commandId; record->address = address;
     record->deadlineUs = deadline; record->velocityOperation = record->axisReserved = true;
     operationId = a.latestOperationId = record->operationId; return Probe::Action::OK;
@@ -747,7 +779,7 @@ Probe::Action admitHomeStep(App& a, App::Record& record, const ESS::PreparedHome
     Rtu::BusRequest request;
     request.wire.bytes = work.bytes; request.wire.length = work.length;
     request.wire.replyLength = work.write ? ESS::WRITE_RESPONSE_LEN : ESS::expectedReadRegistersLen(work.count);
-    request.wire.responseTimeoutUs = RESPONSE_US; request.wire.replyGapUs = REPLY_GAP_US;
+    request.wire.responseTimeoutUs = a.serial.timing.responseTimeoutUs; request.wire.replyGapUs = a.serial.timing.replyGapUs;
     request.wire.deadlineUs = work.deadlineUs;
     request.expected.address = work.target.address; request.expected.function = work.function;
     request.expected.target = work.target.id; request.expected.targetGeneration = work.target.generation;
@@ -763,6 +795,7 @@ Probe::Action startHome(void* context, uint32_t commandId, uint8_t address,
     using namespace MotorControlRS;
     App& a = *static_cast<App*>(context);
     if (!platformReady) return Probe::Action::UNAVAILABLE;
+    if (a.serial.blocked || a.serial.configuring || a.owner.configurationOwned()) return Probe::Action::RECOVERY_REQUIRED;
     if (!ESS::isValidAddress(address)) return Probe::Action::INVALID;
     const auto* method = ESS::homeMethod(supplied.method);
     if (!method || supplied.offset != 0) return Probe::Action::UNSUPPORTED;
@@ -796,6 +829,7 @@ Probe::Action startHome(void* context, uint32_t commandId, uint8_t address,
     if (!ESS::nextHome(record->home, now, work)) { clearRecord(*record); return Probe::Action::FAILED; }
     const auto admitted = admitHomeStep(a, *record, work, now);
     if (admitted != Probe::Action::OK) { clearRecord(*record); return admitted; }
+    record->serialTuple = a.serial.active; record->serialGeneration = a.serial.generation;
     record->operationId = a.nextOperationId++; record->commandId = commandId; record->address = address;
     record->deadlineUs = deadline; record->homeOperation = record->axisReserved = true;
     record->configurationGeneration = a.axis.generation;
@@ -850,6 +884,7 @@ Probe::Action checkIoWrite(const App& a, const Rtu::BusRequest& request) {
         reg == ESS::Registers::CUSTOM_OUTPUT;
     if (!ioRegister || request.expected.count != 1) return Probe::Action::INVALID;
     if (!platformReady) return Probe::Action::UNAVAILABLE;
+    if (a.serial.blocked || a.serial.configuring || a.owner.configurationOwned()) return Probe::Action::RECOVERY_REQUIRED;
     if (request.expected.address != a.axis.target.address || request.expected.function != 6 ||
         request.expected.target != request.expected.address ||
         request.expected.targetGeneration != a.bindingGeneration) return Probe::Action::INVALID;
@@ -868,6 +903,7 @@ Probe::Action checkControlWrite(const App& a, const Rtu::BusRequest& request) {
         request.expected.target != request.expected.address || request.expected.targetGeneration != a.bindingGeneration)
         return Probe::Action::INVALID;
     if (!platformReady) return Probe::Action::UNAVAILABLE;
+    if (a.serial.blocked || a.serial.configuring || a.owner.configurationOwned()) return Probe::Action::RECOVERY_REQUIRED;
     if (a.owner.needsRecovery() || uart.needsRecovery()) return Probe::Action::RECOVERY_REQUIRED;
     if (!(a.knownTargets[request.expected.address / 8] & (1U << (request.expected.address % 8))))
         return Probe::Action::UNAVAILABLE;
@@ -890,6 +926,7 @@ Probe::Action checkTuningWrite(const App& a, const Rtu::BusRequest& request) {
         request.expected.address != a.axis.target.address || request.expected.target != request.expected.address ||
         request.expected.targetGeneration != a.bindingGeneration) return Probe::Action::INVALID;
     if (!platformReady) return Probe::Action::UNAVAILABLE;
+    if (a.serial.blocked || a.serial.configuring || a.owner.configurationOwned()) return Probe::Action::RECOVERY_REQUIRED;
     if (a.owner.needsRecovery() || uart.needsRecovery()) return Probe::Action::RECOVERY_REQUIRED;
     if (!(a.knownTargets[request.expected.address / 8] & (1U << (request.expected.address % 8)))) return Probe::Action::UNAVAILABLE;
     return axisReserved(a, request.expected.address) ? Probe::Action::AXIS_CONFLICT : Probe::Action::OK;
@@ -914,6 +951,7 @@ Probe::Action checkSegmentWrite(const App& a, const Rtu::BusRequest& request) {
         request.expected.address != a.axis.target.address || request.expected.target != request.expected.address ||
         request.expected.targetGeneration != a.bindingGeneration) return Probe::Action::INVALID;
     if (!platformReady) return Probe::Action::UNAVAILABLE;
+    if (a.serial.blocked || a.serial.configuring || a.owner.configurationOwned()) return Probe::Action::RECOVERY_REQUIRED;
     if (a.owner.needsRecovery() || uart.needsRecovery()) return Probe::Action::RECOVERY_REQUIRED;
     if (!(a.knownTargets[request.expected.address / 8] & (1U << (request.expected.address % 8)))) return Probe::Action::UNAVAILABLE;
     return axisReserved(a, request.expected.address) ? Probe::Action::AXIS_CONFLICT : Probe::Action::OK;
@@ -922,7 +960,7 @@ Probe::Action admitDriverStep(App& a, App::Record& record, const ESS::PreparedDr
     Rtu::BusRequest request;
     request.wire.bytes = work.bytes; request.wire.length = work.length;
     request.wire.replyLength = work.write ? ESS::WRITE_RESPONSE_LEN : ESS::expectedReadRegistersLen(work.count);
-    request.wire.responseTimeoutUs = RESPONSE_US; request.wire.replyGapUs = REPLY_GAP_US;
+    request.wire.responseTimeoutUs = a.serial.timing.responseTimeoutUs; request.wire.replyGapUs = a.serial.timing.replyGapUs;
     request.wire.deadlineUs = work.deadlineUs;
     request.expected.address = work.target.address; request.expected.function = work.write ? 6 : 3;
     request.expected.target = work.target.id; request.expected.targetGeneration = work.target.generation;
@@ -944,6 +982,7 @@ Probe::Action startDriver(void* context, uint32_t commandId, uint8_t address, ES
     App& a = *static_cast<App*>(context);
     if (supplied.group > ESS::DriverGroup::COLLISION) return Probe::Action::INVALID;
     if (!platformReady) return Probe::Action::UNAVAILABLE;
+    if (a.serial.blocked || a.serial.configuring || a.owner.configurationOwned()) return Probe::Action::RECOVERY_REQUIRED;
     if (!ESS::isValidAddress(address)) return Probe::Action::INVALID;
     if (!a.nextOperationId) return Probe::Action::IDS_EXHAUSTED;
     if (a.owner.needsRecovery() || uart.needsRecovery()) return Probe::Action::RECOVERY_REQUIRED;
@@ -1075,6 +1114,7 @@ Probe::Action startDriver(void* context, uint32_t commandId, uint8_t address, ES
     if (!ESS::nextDriver(record->driver, now, work)) { clearRecord(*record); return Probe::Action::FAILED; }
     const auto admitted = admitDriverStep(a, *record, work, now);
     if (admitted != Probe::Action::OK) { clearRecord(*record); return admitted; }
+    record->serialTuple = a.serial.active; record->serialGeneration = a.serial.generation;
     record->operationId = a.nextOperationId++; record->commandId = commandId; record->address = address;
     record->deadlineUs = record->driver.deadlineUs; record->configurationGeneration = generation;
     record->driverOperation = true; record->axisReserved = kind == ESS::DriverKind::UPDATE;
@@ -1252,7 +1292,7 @@ void updateActionReservation(App& a, App::Record& record) {
             record.driver.kind == ESS::DriverKind::READ && record.driver.state == ReadState::FAILED &&
             !record.effectsInvalidated && record.address == a.axis.target.address &&
             record.configurationGeneration == a.axis.generation && record.driver.target.generation == a.bindingGeneration &&
-            cache.operationId && cache.group == record.driver.group && Probe::sameTarget(cache.target, record.driver.target) &&
+            cache.target.id && cache.group == record.driver.group && Probe::sameTarget(cache.target, record.driver.target) &&
             record.operationId > cache.operationId && record.operationId > a.configuration.operationId) {
             uint32_t changed = 0;
             for (uint8_t step = 0; step < record.driver.completedSteps; ++step) {
@@ -1286,7 +1326,7 @@ void updateActionReservation(App& a, App::Record& record) {
                 cache = observed;
                 return; // Different indexed records do not invalidate a shared scale.
             }
-            if (cache.operationId && cache.group == observed.group && Probe::sameTarget(cache.target, observed.target)) {
+            if (cache.target.id && cache.group == observed.group && Probe::sameTarget(cache.target, observed.target)) {
                 for (uint8_t i = first; i < end; ++i)
                     if (cache.raw[i] != observed.raw[i]) changed |= static_cast<uint32_t>(ESS::driverFieldAt(i, record.driver.group));
                 if (record.driver.group == ESS::DriverGroup::DRIVE &&
@@ -1461,6 +1501,7 @@ void advanceActions(App& a, uint64_t now) {
 Probe::Action recover(void* context, uint32_t commandId, uint32_t& operationId) {
     App& a = *static_cast<App*>(context);
     if (!platformReady) return Probe::Action::UNAVAILABLE;
+    if (a.serial.blocked || a.serial.configuring || a.owner.configurationOwned()) return Probe::Action::RECOVERY_REQUIRED;
     if (a.recovery.operationId) return Probe::Action::RESULTS_FULL;
     if (!a.nextOperationId) return Probe::Action::IDS_EXHAUSTED;
     if (a.bindingGeneration == UINT32_MAX) return Probe::Action::IDS_EXHAUSTED;
@@ -1479,6 +1520,7 @@ Probe::Action recover(void* context, uint32_t commandId, uint32_t& operationId) 
             updateActionReservation(a, record);
         }
     }
+    a.recovery.serialTuple = a.serial.active; a.recovery.serialGeneration = a.serial.generation;
     a.recovery.id = id; a.recovery.commandId = commandId; a.recovery.operationId = a.nextOperationId++;
     a.recovery.deadlineUs = now + 2000000;
     a.recoveryGuardUntilUs = std::max(a.recoveryGuardUntilUs, now + RECOVER_US);
@@ -1488,12 +1530,14 @@ bool lookup(void* context, uint32_t operationId, Probe::ResultView& out) {
     App& a = *static_cast<App*>(context); if (!operationId) operationId = a.latestOperationId;
     if (operationId && operationId == a.recovery.operationId) {
         out = Probe::ResultView();
-        out.operationId = operationId; out.commandId = a.recovery.commandId; out.recovery = true;
+        out.operationId = operationId; out.commandId = a.recovery.commandId;
+        out.serialTuple = a.recovery.serialTuple; out.serialGeneration = a.recovery.serialGeneration; out.recovery = true;
         const auto* result = a.owner.recoveryResult(a.recovery.id);
         out.pending = !result; if (result) out.recoveryResult = *result; return true;
     }
     const auto* record = findRecord(a, operationId); if (!record || record->monitored) return false;
     out = Probe::ResultView();
+    out.serialTuple = record->serialTuple; out.serialGeneration = record->serialGeneration;
     out.commandId = record->commandId; out.operationId = operationId; out.address = record->address;
     out.captureRead = record->captureRead;
     if (record->homeOperation) {
@@ -1580,6 +1624,7 @@ Probe::Action release(void* context, uint32_t operationId) {
 Probe::Action monitor(void* context, const Probe::MonitorSettings* requested, Probe::MonitorSnapshot& out) {
     App& a = *static_cast<App*>(context);
     if (!platformReady) return Probe::Action::UNAVAILABLE;
+    if (a.serial.blocked || a.serial.configuring || a.owner.configurationOwned()) return Probe::Action::RECOVERY_REQUIRED;
     if (requested) {
         if (requested->enabled) {
             if (requested->intervalMs < 100 || requested->intervalMs > 60000 || !requested->count || requested->count > 1000)
@@ -1636,13 +1681,73 @@ Probe::Action load(void* context, const Probe::LoadSettings* requested, Probe::L
     return result;
 }
 #endif
+void invalidateSerialConfidence(App& a, uint64_t now) {
+    a.known = a.ok = a.modelKnown = a.communicationKnown = false;
+    a.codecChecked = false;
+    std::memset(a.knownTargets, 0, sizeof(a.knownTargets));
+    a.identity.operationId = a.configuration.operationId = 0;
+    a.driverSettings.operationId = a.ioSettings.operationId = a.controlSettings.operationId = a.segmentSettings.operationId = 0;
+    for (auto& cache : a.tuningSettings) cache.operationId = 0;
+    for (auto& block : a.stateCache.blocks) block.invalidatedUs = now;
+    a.driverInputsQualified = false;
+    a.movePrerequisites.readinessQualified = false;
+    a.velocityPrerequisites.readinessQualified = false;
+    a.homePrerequisites.readinessQualified = false;
+    actionTimingQualified = false;
+    // Endpoint/configuration generations and physical uncertainty do not belong
+    // to a temporary UART selection. Historical records and host origins survive.
+}
+Probe::Action hostSerial(void* context, const Probe::HostRequest* requested, Probe::HostSnapshot& out) {
+    App& a = *static_cast<App*>(context);
+    if (!requested) {
+        if (!platformReady) return Probe::Action::UNAVAILABLE;
+        out = a.serial; return Probe::Action::OK;
+    }
+    const HostTuple tuple = requested->restore ? a.serial.original : requested->tuple;
+    HostTiming policy;
+    if (!Esp32S3Uart::supports(tuple) || !hostTiming(tuple, policy)) return Probe::Action::UNSUPPORTED;
+    if (!platformReady) return Probe::Action::UNAVAILABLE;
+    if (a.serial.configuring || a.owner.active() || a.owner.pending() || a.owner.recovering() ||
+        a.runner.busy() || a.runner.transmitEnabled() || reading(a) || acting(a) ||
+        a.monitorState.settings.enabled) return Probe::Action::BUSY;
+    if (!a.serial.blocked && (a.owner.needsRecovery() || uart.needsRecovery())) return Probe::Action::RECOVERY_REQUIRED;
+    if (!a.serial.blocked && a.serial.activeKnown && sameTuple(tuple, a.serial.active)) {
+        out = a.serial; return Probe::Action::OK;
+    }
+    if (a.serial.generation == UINT32_MAX) return Probe::Action::IDS_EXHAUSTED;
+    if (!a.owner.configurationOwned() && !a.owner.beginConfiguration(nowUs())) return Probe::Action::BUSY;
+    a.serial.configuring = true;
+    a.serial.requested = tuple;
+    ++a.serial.generation;
+    invalidateSerialConfidence(a, nowUs());
+    // A first attempt may have refused captured stale RX before touching UART
+    // setup. Explicit repair owns its discard; ordinary recovery cannot reopen
+    // the configuration lease, and normal tuple changes never discard silently.
+    const bool cleared = !a.serial.blocked || uart.configurationBlocked() || uart.clear();
+    const bool configured = cleared && uart.reconfigure(tuple);
+    const bool settled = configured && a.owner.finishConfiguration(policy.runner, nowUs());
+    a.serial.configuring = false;
+    a.serial.blocked = !settled;
+    a.serial.activeKnown = settled;
+    a.serial.actualBaud = settled ? uart.stats().actualBaud : 0;
+    if (settled) {
+        a.serial.active = tuple; a.serial.timing = policy;
+        a.serial.failure = Probe::HostFailure::NONE;
+    } else {
+        a.serial.failure = requested->restore ? Probe::HostFailure::RESTORE :
+            configured ? Probe::HostFailure::RUNNER : Probe::HostFailure::ADAPTER;
+    }
+    out = a.serial;
+    return settled ? Probe::Action::OK : Probe::Action::FAILED;
+}
+
 Probe::Host host(App* a) {
     Probe::Host h; h.context = a; h.emitLine = emit; h.snapshot = snapshot;
     h.startProbe = probe; h.startCaptureRead = captureRead; h.recover = recover; h.resetStats = reset;
     h.startTypedRead = typedRead;
     h.startAction = startAction; h.startMove = startMove; h.startVelocity = startVelocity; h.startDriver = startDriver; h.startHome = startHome;
     h.monitor = monitor;
-    h.axis = axisCommand;
+    h.axis = axisCommand; h.hostSerial = hostSerial;
     h.result = lookup; h.cancel = cancel; h.release = release;
 #if MOTORCONTROLRS_LOAD_FIXTURE
     h.load = load;
@@ -1663,27 +1768,27 @@ void deliver(App& a) {
         }
         Probe::ResultView view; if (!lookup(&a, record.operationId, view) || view.pending) continue;
         if (record.homeOperation) {
-            if (!a.console.reportHome(record.commandId, record.operationId, record.home, record.interruptedByStop)) continue;
+            if (!a.console.reportHome(record.commandId, record.operationId, record.home, record.interruptedByStop, &record.serialTuple, record.serialGeneration)) continue;
             record.delivered = true; record.deliveredUs = nowUs(); continue;
         }
         if (record.driverOperation) {
-            if (!a.console.reportDriver(record.commandId, record.operationId, record.driver)) continue;
+            if (!a.console.reportDriver(record.commandId, record.operationId, record.driver, &record.serialTuple, record.serialGeneration)) continue;
             record.delivered = true; record.deliveredUs = nowUs(); continue;
         }
         if (record.velocityOperation) {
-            if (!a.console.reportVelocity(record.commandId, record.operationId, record.velocity, record.interruptedByStop)) continue;
+            if (!a.console.reportVelocity(record.commandId, record.operationId, record.velocity, record.interruptedByStop, &record.serialTuple, record.serialGeneration)) continue;
             record.delivered = true; record.deliveredUs = nowUs(); continue;
         }
         if (record.moveOperation) {
-            if (!a.console.reportMove(record.commandId, record.operationId, record.move, record.interruptedByStop)) continue;
+            if (!a.console.reportMove(record.commandId, record.operationId, record.move, record.interruptedByStop, &record.serialTuple, record.serialGeneration)) continue;
             record.delivered = true; record.deliveredUs = nowUs(); continue;
         }
         if (record.actionOperation) {
-            if (!a.console.reportAction(record.commandId, record.operationId, record.action, record.interruptedByStop)) continue;
+            if (!a.console.reportAction(record.commandId, record.operationId, record.action, record.interruptedByStop, &record.serialTuple, record.serialGeneration)) continue;
             record.delivered = true; record.deliveredUs = nowUs(); continue;
         }
         if (record.typedRead) {
-            if (!record.observed) {
+            if (!record.observed && record.serialGeneration == a.serial.generation) {
                 record.observed = true;
                 if (record.read.kind == ESS::ReadKind::IDENTITY && record.operationId > a.identity.operationId)
                     ESS::getIdentity(record.read, a.identity);
@@ -1693,7 +1798,7 @@ void deliver(App& a) {
                     record.operationId > a.controlSettings.operationId &&
                     record.configurationGeneration == a.axis.generation && record.read.target.generation == a.bindingGeneration) {
                     const ESS::RawConfig old = a.configuration.raw;
-                    const bool same = a.configuration.operationId && Probe::sameTarget(a.configuration.target, record.read.target);
+                    const bool same = a.configuration.target.id && Probe::sameTarget(a.configuration.target, record.read.target);
                     if (ESS::getConfig(record.read, a.configuration)) {
                         const auto& updated = a.configuration.raw;
                         const bool inputsChanged = !same || old.inputPolarity != updated.inputPolarity ||
@@ -1728,10 +1833,10 @@ void deliver(App& a) {
                     }
                 }
             }
-            if (!a.console.reportRead(record.commandId, record.operationId, record.read)) continue;
+            if (!a.console.reportRead(record.commandId, record.operationId, record.read, &record.serialTuple, record.serialGeneration)) continue;
             record.delivered = true; record.deliveredUs = nowUs(); continue;
         }
-        if (!record.observed && !record.captureRead) {
+        if (!record.observed && !record.captureRead && record.serialGeneration == a.serial.generation) {
             record.observed = true;
             if (view.probe.transport.txAccepted && record.operationId > a.cacheOperationId) {
                 a.cacheOperationId = record.operationId; a.known = true; a.address = record.address;
@@ -1745,16 +1850,17 @@ void deliver(App& a) {
                 a.observedLatestUs = view.probe.timingValid ? view.probe.observedLatestUs : 0;
             }
         }
-        if (const auto* completion = a.owner.result(record.requestId)) observeCommunication(a, *completion);
+        if (record.serialGeneration == a.serial.generation)
+            if (const auto* completion = a.owner.result(record.requestId)) observeCommunication(a, *completion);
         view.probe.deliveredUs = nowUs();
         // Output pressure must not prevent harvesting later completed observations.
-        if (!a.console.reportProbe(record.commandId, record.address, record.operationId, view.probe)) continue;
+        if (!a.console.reportProbe(record.commandId, record.address, record.operationId, view.probe, &record.serialTuple, record.serialGeneration)) continue;
         record.delivered = true; record.deliveredUs = view.probe.deliveredUs;
         if (a.modelKnown && record.operationId == a.modelOperationId) a.deliveredUs = record.deliveredUs;
     }
     if (a.recovery.operationId && !a.recovery.delivered) {
         const auto* result = a.owner.recoveryResult(a.recovery.id);
-        if (result && a.console.reportRecovery(a.recovery.commandId, a.recovery.operationId, *result)) {
+        if (result && a.console.reportRecovery(a.recovery.commandId, a.recovery.operationId, *result, &a.recovery.serialTuple, a.recovery.serialGeneration)) {
             a.recovery.delivered = true;
         }
     }

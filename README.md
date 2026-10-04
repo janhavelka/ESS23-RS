@@ -1,5 +1,10 @@
 # MotorControl-RS
 
+[Host serial support](docs/host_serial.md) adds sixteen reviewed baud/format
+tuples, exclusive idle configuration and explicit failure/restoration handling
+to the standalone owner. Native and host-only COM13 checks pass; the motor
+remains at 115200 8N1. [Evidence](docs/reports/ess_release_19_2026-10-04.md).
+
 [Typed ESS tuning settings](docs/ess_tuning.md) cover twenty native filter,
 tracking, current-loop, LA and collision parameters through the existing bounded
 settings sequence. Bench reads and input-filter restoration pass; physical

@@ -1,5 +1,11 @@
 # MotorControl-RS architecture
 
+Prompt19 adds [application-owned host serial selection](host_serial.md).
+One bus owner reserves settled configuration, one adapter changes UART2, and
+each request retains its admitted tuple/generation. Transient serial selection
+does not rebind logical endpoints or erase prepared motor intent. Failed setup
+blocks dispatch until explicit repair; no UART or SDK types enter the core.
+
 Prompt14 adds [bounded homing](ess_homing.md) through the same application owner, checked codecs and stop reservation. Methods33/34/35 require qualified method/native/active-auxiliary prerequisites. Fresh evidence may establish only a qualified native reference; host origin remains separate.
 
 Prompt13 adds [bounded typed driver settings](ess_driver_settings.md), checked

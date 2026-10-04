@@ -6,6 +6,11 @@
 #include <vector>
 
 using MotorControlRSExample::Esp32S3Uart;
+using MotorControlRSExample::HostTuple;
+using MotorControlRSExample::HostFormat;
+using MotorControlRSExample::HostTiming;
+using MotorControlRSExample::hostTiming;
+using MotorControlRSExample::sameTuple;
 namespace Rtu = MotorControlRSExample::Rtu;
 namespace {
 constexpr Esp32S3Uart::Pins PINS = {47, 48, 21, true};
@@ -28,7 +33,7 @@ void testInitialization() {
     assert(port.txState(port.context, 1000, tx) == Rtu::TxState::ERROR);
     assert(read(port, 1000, byte, through) == Rtu::ReadState::ERROR);
     assert(!uart.clear());
-    assert(!uart.begin(PINS, 9600));
+    assert(!uart.begin(PINS, 4800));
     hardware.driverInstalled = true;
     assert(!uart.begin(PINS));
     assert(hardware.de == -1); // Refuse another driver's peripheral before GPIO changes.
@@ -554,6 +559,222 @@ void testRunnerProbe() {
     assert(std::vector<uint8_t>(rx, rx + sizeof(reply)) == std::vector<uint8_t>(reply, reply + sizeof(reply)));
     assert(hardware.writes == 1 && hardware.de == 0 && uart.captureFaults() == 0);
 }
+
+void testHostTupleMatrix() {
+    for (uint32_t baud : {9600U, 19200U, 38400U, 115200U}) {
+        for (HostFormat format : {HostFormat::N8_1, HostFormat::N8_2, HostFormat::E8_1, HostFormat::O8_1}) {
+            resetHardware();
+            hardware.clockStep = 0;
+            HostTuple tuple; tuple.baud = baud; tuple.format = format;
+            Esp32S3Uart uart;
+            assert(Esp32S3Uart::supports(tuple) && uart.begin(PINS, tuple));
+            assert(sameTuple(uart.tuple(), tuple));
+            assert(hardware.config.baud_rate == static_cast<int>(baud));
+            const int parity = format == HostFormat::E8_1 ? UART_PARITY_EVEN :
+                format == HostFormat::O8_1 ? UART_PARITY_ODD : UART_PARITY_DISABLE;
+            assert(hardware.config.parity == parity);
+            assert(hardware.config.stop_bits == (format == HostFormat::N8_2 ? UART_STOP_BITS_2 : UART_STOP_BITS_1));
+            HostTiming timing;
+            assert(hostTiming(tuple, timing));
+            const uint32_t bits = format == HostFormat::N8_1 ? 10 : 11;
+            assert(uint64_t(timing.characterMinUs) * baud * 102 <= uint64_t(bits) * 100000000U);
+            assert(uint64_t(timing.characterMaxUs) * baud * 98 >= uint64_t(bits) * 100000000U);
+            assert(uart.stats().sampleGapLimitUs == timing.characterMinUs);
+            assert(uint64_t(uart.stats().actualBaud) * 100 >= uint64_t(baud) * 98);
+            assert(uint64_t(uart.stats().actualBaud) * 100 <= uint64_t(baud) * 102);
+            if (baud <= 19200) {
+                assert(timing.runner.gap15Us == (bits * 1500000U + baud - 1) / baud);
+                assert(timing.runner.gap35Us == (bits * 3500000U + baud - 1) / baud);
+            } else assert(timing.runner.gap15Us == 750 && timing.runner.gap35Us == 1750);
+            assert(timing.replyGapUs == (baud == 115200 && format == HostFormat::N8_1 ? 304 : timing.runner.gap35Us));
+            assert(timing.runner.txTimeoutUs >= 32 * timing.characterMaxUs + 10000 + 40);
+            assert(timing.responseTimeoutUs > 37 * timing.characterMaxUs + timing.runner.gap35Us);
+            // Duration bounds must follow the actual selected character length.
+            sample(uart, 2000);
+            hardware.rx.push_back(0x5A);
+            sample(uart, 2020);
+            Rtu::Port port = uart.port(); Rtu::RxByte byte; uint64_t through = 0;
+            assert(read(port, 3000, byte, through) == Rtu::ReadState::BYTE);
+            assert(byte.startUs == 2000 && byte.endUs == 2020 + timing.stopGuardUs);
+            assert(byte.uncertaintyUs >= timing.characterMaxUs - timing.characterMinUs);
+            assert(uart.clear() && uart.startCapture(timing.capturePeriodUs, timing.runner.holdUs));
+            advanceHardware(4000);
+            assert(!uart.needsRecovery());
+        }
+    }
+}
+
+void testHostInvalidNoMutation() {
+    resetHardware(); Esp32S3Uart uart; assert(uart.begin(PINS) && uart.startCapture());
+    const unsigned configs = hardware.configCalls, timerCalls = hardware.timerCalls, resets = hardware.rxResets;
+    for (uint32_t baud : {0U, 4800U, 57600U, 230400U, UINT32_MAX}) {
+        HostTuple invalid; invalid.baud = baud;
+        HostTiming timing; timing.replyGapUs = 123;
+        assert(!Esp32S3Uart::supports(invalid) && !uart.reconfigure(invalid));
+        assert(!hostTiming(invalid, timing) && timing.replyGapUs == 123);
+    }
+    HostTuple invalid; invalid.format = static_cast<HostFormat>(255);
+    assert(!uart.reconfigure(invalid));
+    assert(hardware.configCalls == configs && hardware.timerCalls == timerCalls && hardware.rxResets == resets);
+    assert(hardware.writes == 0 && hardware.de == 0 && uart.ready() && !uart.configurationBlocked());
+}
+
+void testHostIdleRefusalAndEpoch() {
+    resetHardware(); hardware.clockStep = 0;
+    Esp32S3Uart uart; assert(uart.begin(PINS));
+    Rtu::Port port = uart.port(); HostTuple changed; changed.baud = 9600; changed.format = HostFormat::E8_1;
+    const unsigned configs = hardware.configCalls;
+    assert(port.setTransmit(port.context, true));
+    assert(!uart.reconfigure(changed) && hardware.configCalls == configs && hardware.de == 1);
+    const uint8_t frame[] = {1, 3, 0, 0};
+    assert(!port.write(port.context, frame, sizeof(frame)).error);
+    assert(!uart.reconfigure(changed));
+    fakeUart.status.txfifo_cnt = 0; fakeUart.fsm_status.st_utx_out = 0;
+    sample(uart, 1500); assert(port.setTransmit(port.context, false));
+    Rtu::TxObservation old; assert(port.txState(port.context, 1600, old) == Rtu::TxState::IDLE && old.endedUs);
+    fakeUart.fsm_status.st_urx_out = 1; assert(!uart.reconfigure(changed));
+    fakeUart.fsm_status.st_urx_out = 0;
+    hardware.rx.push_back(0x5A); assert(!uart.reconfigure(changed));
+    sample(uart, 1600); assert(!uart.reconfigure(changed)); // Captured old-tuple data must be consumed/settled.
+    Rtu::RxByte byte; uint64_t through = 0; assert(read(port, 1700, byte, through) == Rtu::ReadState::BYTE);
+    assert(uart.reconfigure(changed));
+    Rtu::TxObservation fresh;
+    assert(port.txState(port.context, 1700, fresh) == Rtu::TxState::IDLE);
+    assert(fresh.endedUs == 0 && !fresh.released && uart.txEndUs() == 0);
+    through = 123;
+    assert(read(port, 1700, byte, through) == Rtu::ReadState::PENDING && through == 123);
+    assert(sample(uart, 1800) == 1800);
+    assert(read(port, 1800, byte, through) == Rtu::ReadState::EMPTY && through == 1800);
+    assert(hardware.writes == 1 && hardware.de == 0);
+}
+
+void assertHostBlocked(Esp32S3Uart& uart) {
+    assert(uart.configurationBlocked() && !uart.ready() && uart.needsRecovery());
+    const bool failed = uart.needsRecovery(); uart.resetStats(); assert(uart.needsRecovery() == failed);
+    assert(!uart.clear());
+    Rtu::Port port = uart.port(); Rtu::TxObservation tx; Rtu::RxByte byte; uint64_t through = 123;
+    assert(!port.setTransmit(port.context, true));
+    const uint8_t frame[] = {1, 3};
+    assert(port.write(port.context, frame, sizeof(frame)).error);
+    assert(port.txState(port.context, hardware.time, tx) == Rtu::TxState::ERROR);
+    assert(read(port, hardware.time, byte, through) == Rtu::ReadState::ERROR && through == 123);
+    assert(hardware.writes == 0 && hardware.de == 0);
+}
+
+void testHostFailuresAndExplicitRestoration() {
+    for (unsigned stage = 0; stage < 10; ++stage) {
+        resetHardware(); hardware.clockStep = 0;
+        Esp32S3Uart uart; assert(uart.begin(PINS) && uart.startCapture(20, 20));
+        advanceHardware(2000);
+        const HostTuple original = uart.tuple(); HostTuple changed; changed.baud = 9600; changed.format = HostFormat::O8_1;
+        // Stop/disable/delete; config/divider; create/callback/alarm/enable/start.
+        if (stage < 3) hardware.timerFailCalls = {hardware.timerCalls + stage + 1};
+        if (stage == 3) hardware.configFailCalls = {hardware.configCalls + 1};
+        if (stage == 4) hardware.baudResult = -1;
+        if (stage >= 5) hardware.timerFailCalls = {hardware.timerCalls + 3 + (stage - 5) + 1};
+        assert(!uart.reconfigure(changed));
+        assertHostBlocked(uart);
+        // A failed explicit restoration stays blocked; no claim of old-tuple survival.
+        hardware.timerFailCalls.clear(); hardware.configFailCalls.clear(); hardware.baudResult = ESP_OK;
+        hardware.configFailCalls = {hardware.configCalls + 1};
+        assert(!uart.reconfigure(original)); assertHostBlocked(uart);
+        hardware.configFailCalls.clear();
+        advanceHardware(hardware.time + 5000);
+        assert(uart.reconfigure(original));
+        assert(sameTuple(uart.tuple(), original) && uart.ready() && uart.stats().timer);
+        assert(!uart.needsRecovery() && !uart.configurationBlocked());
+        advanceHardware(hardware.time + 200);
+        assert(!uart.needsRecovery()); // Stopped interval is outside the new capture epoch.
+        assert(uart.stats().sampleGapLimitUs == 85 && hardware.writes == 0);
+    }
+    resetHardware(); Esp32S3Uart uart; assert(uart.begin(PINS));
+    HostTuple changed; changed.baud = 19200;
+    hardware.actualBaud = 25000;
+    assert(!uart.reconfigure(changed)); assertHostBlocked(uart);
+    hardware.actualBaud = 0;
+    assert(uart.reconfigure(HostTuple()) && !uart.stats().timer && uart.ready());
+}
+
+void testHostTimerChangePreservesPolicyAndClock() {
+    resetHardware(); hardware.clockStep = 0;
+    Esp32S3Uart uart; assert(uart.begin(PINS) && uart.startCapture(30, 75));
+    advanceHardware(2000);
+    hardware.configDelayUs = 5000;
+    HostTuple changed; changed.baud = 9600; changed.format = HostFormat::E8_1;
+    const uint64_t before = hardware.time;
+    assert(uart.reconfigure(changed));
+    assert(hardware.time == before + 5000 && hardware.timerPeriod == 30);
+    assert(uart.sample() >= before + 5000 && !uart.needsRecovery());
+    advanceHardware(hardware.time + 300);
+    assert(!uart.needsRecovery() && uart.stats().timer && uart.stats().sampleGapLimitUs == 1123);
+    hardware.txCharacterUs = 1146;
+    Rtu::Port port = uart.port(); const uint8_t frame[] = {1, 3, 0, 0};
+    assert(port.setTransmit(port.context, true));
+    assert(!port.write(port.context, frame, sizeof(frame)).error);
+    const uint64_t end = hardware.writeStarted + sizeof(frame) * hardware.txCharacterUs;
+    advanceHardware(end + 74);
+    assert(hardware.de == 1);
+    advanceHardware(end + 135);
+    Rtu::TxObservation tx;
+    assert(port.txState(port.context, hardware.time, tx) == Rtu::TxState::IDLE && tx.released);
+    assert(tx.releasedUs >= end + 75 && hardware.de == 0);
+    assert(uart.reconfigure(HostTuple()) && hardware.timerPeriod == 30);
+    advanceHardware(hardware.time + 300);
+    assert(!uart.needsRecovery() && uart.stats().sampleGapLimitUs == 85);
+}
+void testBlockedRepairSettlesOldTupleTraffic() {
+    for (bool captured : {false, true}) {
+        resetHardware(); hardware.clockStep = 0;
+        Esp32S3Uart uart; assert(uart.begin(PINS) && uart.startCapture());
+        advanceHardware(2000);
+        hardware.timerFailCalls = {hardware.timerCalls + 1}; // Stop fails: callback remains live.
+        HostTuple changed; changed.baud = 9600;
+        assert(!uart.reconfigure(changed) && uart.configurationBlocked());
+        hardware.timerFailCalls.clear();
+        hardware.rx.push_back(0x5A);
+        if (captured) advanceHardware(2040); // Retained old-tuple byte is unreadable while blocked.
+        assert(!uart.clear());
+        fakeUart.fsm_status.st_urx_out = 1;
+        assert(!uart.reconfigure(HostTuple())); // Repair must still preserve an in-progress byte.
+        fakeUart.fsm_status.st_urx_out = 0;
+        assert(uart.reconfigure(HostTuple()));
+        assert(uart.ready() && !uart.configurationBlocked() && hardware.rx.empty());
+        advanceHardware(hardware.time + 100);
+        Rtu::Port port = uart.port(); Rtu::RxByte byte; uint64_t through = 0;
+        assert(read(port, hardware.time, byte, through) == Rtu::ReadState::EMPTY);
+        assert(hardware.writes == 0);
+    }
+}
+void testTwoStopFifoPublicationBeforeFinalStop() {
+    for (uint32_t baud : {9600U, 19200U, 38400U, 115200U}) {
+        resetHardware(); hardware.clockStep = 0;
+        HostTuple tuple; tuple.baud = baud; tuple.format = HostFormat::N8_2;
+        Esp32S3Uart uart; assert(uart.begin(PINS, tuple));
+        HostTiming timing; assert(hostTiming(tuple, timing));
+        const uint64_t start = 5000;
+        const uint64_t firstStopMiddle = start + (9500000U + baud - 1) / baud;
+        const uint64_t finalStop = start + (11000000U + baud - 1) / baud;
+        sample(uart, start - 100);
+        fakeUart.fsm_status.st_urx_out = 1;
+        sample(uart, firstStopMiddle - 10);
+        // A deliberately conservative publication schedule. The fake does not
+        // establish when ESP32-S3 really publishes; final-stop qualification
+        // remains external. One-bit guard fails to bound this plausible case.
+        hardware.rx.push_back(0x5A);
+        sample(uart, firstStopMiddle);
+        Rtu::Port port = uart.port(); Rtu::RxByte byte; uint64_t through = 123;
+        assert(read(port, firstStopMiddle, byte, through) == Rtu::ReadState::PENDING && through == 123);
+        fakeUart.fsm_status.st_urx_out = 0;
+        sample(uart, finalStop);
+        const uint64_t publishedEnd = firstStopMiddle + timing.stopGuardUs;
+        assert(publishedEnd >= finalStop);
+        sample(uart, publishedEnd);
+        assert(read(port, publishedEnd, byte, through) == Rtu::ReadState::BYTE && byte.value == 0x5A);
+        assert(byte.endUs - byte.uncertaintyUs <= finalStop && byte.endUs >= finalStop);
+        assert(byte.startUs <= start && byte.startUs + byte.uncertaintyUs >= start);
+        assert(!uart.needsRecovery() && hardware.writes == 0);
+    }
+}
 } // namespace
 
 int main() {
@@ -569,5 +790,10 @@ int main() {
     testTimerStopChecksCurrentReceiveState(); testUnrepresentableTimingFails();
     testTimerTxObservationWaitsForRelease();
     testRunnerProbe();
+    testHostTupleMatrix(); testHostInvalidNoMutation(); testHostIdleRefusalAndEpoch();
+    testHostFailuresAndExplicitRestoration();
+    testHostTimerChangePreservesPolicyAndClock();
+    testBlockedRepairSettlesOldTupleTraffic();
+    testTwoStopFifoPublicationBeforeFinalStop();
     return 0;
 }
