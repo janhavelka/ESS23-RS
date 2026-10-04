@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 #include "../examples/probe_cli/ProbeConsole.h"
+#include <MotorControlRS/profiles/ess_rs/Tuning.h>
 
 #include <cassert>
 #include <cstdint>
@@ -1628,6 +1629,110 @@ void testMaximumHomeOutputAndRetention() {
     f.contains("\"result\":\"pending\""); f.contains("\"home\":true");
 }
 
+void tuningFixtures() {
+    using namespace MotorControlRS;
+    ReadTarget target;target.id=target.address=1;target.generation=9;
+    const Ess::DriverGroup groups[]={Ess::DriverGroup::FILTERS,Ess::DriverGroup::CURRENT_LOOP,Ess::DriverGroup::LA,Ess::DriverGroup::COLLISION};
+    const char* names[]={"filters","current-loop","la","collision"};
+    const uint16_t defaults[4][8]={{2,5,4000,5,10,512},{4096,1024,28,1228},{10,32,320,15,33,320,20,35},{200,50}};
+    const uint16_t updates[4][8]={{3,6,4001,6,11,511},{4097,1025,29,1229},{11,33,321,16,34,321,21,36},{201,51}};
+    auto consume = [&](Ess::DriverContext& c,unsigned g,int fault) {
+        Ess::PreparedDriver w;assert(Ess::nextDriver(c,c.servicedUs,w));
+        uint8_t raw[15]={};const size_t length=w.write?8:5+2*w.count;
+        if(w.write)std::memcpy(raw,w.bytes,8);
+        else {
+            raw[0]=1;raw[1]=3;raw[2]=2*w.count;
+            Ess::TuningParameterInfo info;assert(Ess::tuningParameterInfo(Ess::tuningParameter(c.group,0),info));
+            for(unsigned i=0;i<w.count;++i) {
+                const unsigned slot=w.reg-info.reg+i;
+                uint16_t value=c.kind==Ess::DriverKind::UPDATE?w.value:defaults[g][slot];
+                if(fault==2)++value;
+                if(fault==3) {if(g==0&&slot==1)value=65535;if(g==3&&slot==0)value=0;}
+                raw[3+2*i]=value>>8;raw[4+2*i]=value;
+            }
+            sealTypedReply(raw,length);
+        }
+        ActionEvent e;e.transport.target=c.target;e.transport.operationId=c.operationId;e.transport.step=c.step;
+        e.transport.kind=ReadEventKind::FRAME;e.transport.frame=raw;e.transport.length=length;e.transport.txAccepted=8;
+        e.transport.qualified=true;e.transport.earliestUs=c.servicedUs+1;e.transport.latestUs=c.servicedUs+2;
+        e.txComplete=true;e.responseConfirmed=!w.write||!c.prerequisites.allowEchoReadback;
+        if(fault==1) {e.transport.kind=ReadEventKind::CANCEL;e.transport.frame=nullptr;e.transport.length=0;
+            e.transport.qualified=false;e.transport.earliestUs=e.transport.latestUs=0;e.responseConfirmed=false;}
+        assert(Ess::advanceDriver(c,e,c.servicedUs+3));
+    };
+    auto emit = [&](const char* name,unsigned g,const Ess::DriverContext& c) {
+        Fake f;f.nextOperation=c.operationId;auto h=f.host(false,true);h.startDriver=Fake::startDriver;Probe::Console console(h);
+        send(console,std::string("@77 profile ess_rs tuning ")+names[g]+" read\n");f.lines.clear();
+        assert(console.reportDriver(77,c.operationId,c));assert(f.lines.size()==1);
+        std::printf("{\"case\":\"%s\",\"record\":%s}\n",name,f.lines[0].c_str());
+    };
+    for(unsigned g=0;g<4;++g) {
+        Ess::DriverContext c;assert(Ess::prepareTuningRead(c,target,101,3,100,10000,groups[g]));
+        while(c.state==ReadState::ACTIVE) consume(c,g,0);
+        emit("read",g,c);
+        Ess::DriverPrerequisites p;assert(Ess::getDriver(c,p.previous));
+        if(g==0||g==3) {
+            assert(Ess::prepareTuningRead(c,target,101,3,100,10000,groups[g]));
+            while(c.state==ReadState::ACTIVE) consume(c,g,3);
+            emit("unknown_raw",g,c);
+        }
+        Ess::ReadContext identity;assert(Ess::prepareIdentity(identity,target,9,80,10000));
+        uint8_t raw[13]={1,3,8,0x4e,0xea,0,0x29,0,1,0,0};sealTypedReply(raw,sizeof(raw));
+        ReadEvent event;event.target=target;event.operationId=9;event.txAccepted=8;event.frame=raw;event.length=sizeof(raw);
+        event.qualified=true;event.earliestUs=90;event.latestUs=91;
+        assert(Ess::advanceRead(identity,event,92));assert(Ess::getIdentity(identity,p.controlIdentity));
+        p.configurationGeneration=3;p.stationaryQualified=true;p.stationaryTarget=target;p.rawMotion=1;
+        p.stationaryEarliestUs=110;p.stationaryLatestUs=120;p.maxAgeUs=20000;
+        p.exactModelQualified=true;p.modelSourceId=2;p.qualifiedModelCode=0x4eea;p.qualifiedFirmwareCode=0x29;
+        p.tuningEarliestUs=110;p.tuningLatestUs=120;
+        Ess::DriverRequest request;request.configurationGeneration=3;
+        const uint8_t count=Ess::tuningFieldCount(groups[g]);
+        for(uint8_t i=0;i<count;++i)assert(Ess::prepareTuningValue(request,Ess::tuningParameter(groups[g],i),updates[g][i]));
+        p.qualifiedTuning=request;p.tuningEffectsQualifiedFields=request.fields;
+        assert(Ess::prepareTuningSettings(c,target,101,request,p,200,10000));
+        while(c.state==ReadState::ACTIVE) consume(c,g,0);
+        emit("full_checked_update",g,c);
+        p.allowEchoReadback=true;
+        assert(Ess::prepareTuningSettings(c,target,101,request,p,200,10000));
+        while(c.state==ReadState::ACTIVE) consume(c,g,0);
+        emit("full_echo_readback_update",g,c);
+        for(unsigned step=0;step<2u*count;++step) {
+            assert(Ess::prepareTuningSettings(c,target,101,request,p,200,10000));for(unsigned i=0;i<step;++i)consume(c,g,0);
+            consume(c,g,1);emit("cancelled_boundary",g,c);
+        }
+        assert(Ess::prepareTuningSettings(c,target,101,request,p,200,10000));consume(c,g,0);consume(c,g,2);emit("readback_disagreement",g,c);
+    }
+}
+void testTuningRoutes() {
+    Fake absent;auto ah=absent.host(false,true);ah.startDriver=nullptr;Probe::Console unavailable(ah);
+    send(unavailable,"@80 help\n");assert(absent.lines.back().find("\"tuning\"")==std::string::npos);
+    send(unavailable,"@81 help tuning\n");absent.contains("\"result\":\"unavailable\"");
+    send(unavailable,"@82 caps\n");absent.contains("\"tuning\":false");
+    send(unavailable,"@83 profile ess_rs tuning filters read\n");absent.contains("\"result\":\"unavailable\"");assert(!absent.drivers);
+    Fake f;auto h=f.host(false,true);h.startDriver=Fake::startDriver;Probe::Console c(h);
+    send(c,"@84 profile ess_rs tuning filters read 2\n");assert(f.drivers==1&&f.address==2&&f.driverRequest.group==Ess::DriverGroup::FILTERS);f.contains("\"result\":\"accepted\"");
+    send(c,"@85 profile ess_rs tuning filters set arrival-time 0 pulse-mean 512\n");
+    assert(f.drivers==2&&f.driverRequest.tuningValues[4]==0&&f.driverRequest.tuningValues[5]==512&&f.driverRequest.fields==48);
+    send(c,"@86 profile ess_rs tuning current-loop set multiplier 65535 kp 65535 ki 65535 kc 0\n");
+    assert(f.drivers==3&&f.driverRequest.group==Ess::DriverGroup::CURRENT_LOOP&&f.driverRequest.fields==15&&f.driverRequest.tuningValues[3]==0);
+    send(c,"@87 profile ess_rs tuning la set node1 0 node2 65535 kvf 65535 position-ki 65535\n");
+    assert(f.drivers==4&&f.driverRequest.group==Ess::DriverGroup::LA&&f.driverRequest.fields==228&&f.driverRequest.tuningValues[7]==65535);
+    send(c,"@88 profile ess_rs tuning collision set threshold 200 current 20\n");
+    assert(f.drivers==5&&f.driverRequest.group==Ess::DriverGroup::COLLISION&&f.driverRequest.fields==3&&f.driverRequest.tuningValues[1]==20);
+    for(const char* bad:{"tuning filters read","profile ess_rs tuning bogus read","profile ess_rs tuning filters set kp 1","profile ess_rs tuning filters set arrival-time 1.0","profile ess_rs tuning filters set arrival-time 1/1","profile ess_rs tuning filters set arrival-time -1","profile ess_rs tuning filters set arrival-time 201","profile ess_rs tuning filters set arrival-window 0","profile ess_rs tuning filters set pulse-low-pass 1025","profile ess_rs tuning la set node1 65536","profile ess_rs tuning collision set threshold 50","profile ess_rs tuning collision set current 19","profile ess_rs tuning collision set 0x003B 200","profile ess_rs tuning filters set input-filter 1 input-filter 2"})send(c,std::string(bad)+"\n");
+    assert(f.drivers==5);
+    send(c,"@89 help tuning\n");f.contains("qualified_stopped_native_tuning_and_checked_readback");
+    send(c,"@90 caps\n");f.contains("\"tuning\":true");f.contains("\"tuning_physical_scaling_known\":false");
+    const Ess::DriverGroup groups[]={Ess::DriverGroup::FILTERS,Ess::DriverGroup::CURRENT_LOOP,Ess::DriverGroup::LA,Ess::DriverGroup::COLLISION};
+    const char* names[]={"filters","current-loop","la","collision"};
+    const char* fields[4][8]={{"input-filter","pulse-low-pass","deviation-threshold","arrival-window","arrival-time","pulse-mean"},{"multiplier","kp","ki","kc"},{"kp1","kv1","node1","kp2","kv2","node2","kvf","position-ki"},{"threshold","current"}};
+    for(unsigned g=0;g<4;++g)for(uint8_t slot=0;slot<Ess::tuningFieldCount(groups[g]);++slot) {
+        Ess::TuningParameterInfo info;assert(Ess::tuningParameterInfo(Ess::tuningParameter(groups[g],slot),info));
+        Fake one;auto hook=one.host(false,true);hook.startDriver=Fake::startDriver;Probe::Console console(hook);
+        send(console,std::string("@1 profile ess_rs tuning ")+names[g]+" set "+fields[g][slot]+" "+std::to_string(info.maximum)+"\n");
+        assert(one.drivers==1&&one.driverRequest.group==groups[g]&&one.driverRequest.fields==(1u<<slot)&&one.driverRequest.tuningValues[slot]==info.maximum);
+    }
+}
 void controlFixtures() {
     using namespace MotorControlRS;
     ReadTarget target; target.id=target.address=1; target.generation=9;
@@ -1772,6 +1877,7 @@ void testSegmentGrammarAndCorrelation() {
     assert(f.drivers == 3);
 }
 int main(int argc, char** argv) {
+    if (argc == 2 && !std::strcmp(argv[1], "--tuning-fixtures")) { tuningFixtures(); return 0; }
     if (argc == 2 && !std::strcmp(argv[1], "--control-fixtures")) { controlFixtures(); return 0; }
     if (argc == 2 && !std::strcmp(argv[1], "--segment-fixtures")) { segmentFixtures(); return 0; }
     if (argc == 2 && std::strcmp(argv[1], "--velocity-fixtures") == 0) {
@@ -1784,6 +1890,7 @@ int main(int argc, char** argv) {
     if (argc == 2 && std::strcmp(argv[1], "--io-fixtures") == 0) { driverFixtures(true); return 0; }
     testSegmentGrammarAndCorrelation();
     testControlRoutes();
+    testTuningRoutes();
     testIoRoutes();
     testHomeRoutesAndDescriptors();
     testMaximumHomeOutputAndRetention();

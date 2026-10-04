@@ -1,5 +1,10 @@
 # ESP32-S3 read-only probe bench
 
+Prompt18 adds [typed tuning](ess_tuning.md) and a bounded Python `tuning GROUP
+read|set` route. [Current-image evidence](reports/ess_release_18_2026-10-04.md)
+records twenty native reads and input-filter stored restoration. Physical tuning
+effects and general standalone write qualification remain explicit gates.
+
 The [fresh16/17 audit](reports/ess_release_16_17_audit_2026-10-04.md) records the
 corrected closure-certainty/help image, all48 indexed reads and exact lock-delay
 stored restoration in114frames. Physical effects and unresolved source semantics

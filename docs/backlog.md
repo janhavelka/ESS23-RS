@@ -1,5 +1,14 @@
 # Features implementation tasks and open questions
 
+## Prompt18 filters, tracking and tuning
+
+- [x] Twenty reviewed typed native reads/writes, four bounded groups and two-stage LA helpers; one existing settings sequencer and public/CLI/Python validation path.
+- [x] Whole candidates, exact model/effects evidence, local-mask isolation, partial/uncertain updates and immutable deadline/progress; 45 native suites, installed consumer and four firmware builds PASS.
+- [x] Independent cache/effects review; per-group baselines preserve external threshold-change detection and failed-refresh history. All20 named fields and58 actual Console/Python terminals PASS.
+- [x] COM13 all-field readback and finite input-filter2→3→2 stored restoration PASS; originals restored, zero transport/capture errors and owner empty. [Evidence](reports/ess_release_18_2026-10-04.md).
+- [ ] Earlier collision003B/003C access remains unavailable; later collision0/0 is outside documented ranges on firmware0029 and preserved unknown. Exact firmware applicability remains unresolved.
+- [ ] Physical filter timing, gain stability/scaling, arrival/deviation and collision effects NOT RUN. No gain sweep, alias, engineering-unit guess or universal tuning default.
+
 ## Prompt17 control settings
 
 The [fresh16/17 audit](reports/ess_release_16_17_audit_2026-10-04.md) fixes late

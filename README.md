@@ -1,5 +1,10 @@
 # MotorControl-RS
 
+[Typed ESS tuning settings](docs/ess_tuning.md) cover twenty native filter,
+tracking, current-loop, LA and collision parameters through the existing bounded
+settings sequence. Bench reads and input-filter restoration pass; physical
+effects and ambiguous collision fields retain explicit qualification gaps.
+
 [Typed ESS control settings](docs/ess_control_settings.md) add bounded algorithm/encoder/current/lock configuration and checked readback. Current/model uncertainties remain guarded; a reversible stored lock-delay change and restoration have separate bench evidence.
 
 

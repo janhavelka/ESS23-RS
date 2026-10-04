@@ -7,7 +7,7 @@ future version numbers are not commitments.
 
 The [ESS release prompt set](prompts/ess_release/README.md) turns these stages
 into 30 ordered implementation blocks with tests, independent audits and
-evidence handoffs. Prompts 01-17 have implementation and available verification
+evidence handoffs. Prompts 01-18 have implementation and available verification
 dispositions. [Prompt12](reports/ess_release_12_2026-10-04.md) consolidates the
 four reviewed FC10 windows into generated policy and records all paired-write
 proof gaps. Its [fresh audit](reports/ess_release_12_audit_2026-10-04.md) fixes
@@ -19,6 +19,11 @@ settlement and axis prerequisite caches. Prompt14 adds bounded methods33/34/35. 
 adds typed optional I/O and selected stored-setting disable/readback/restoration
 evidence; external physical function qualification remains open. Prompt16 adds [indexed record operations](ess_segments.md), boundary reads and PT/PV scalar restoration. Shared-start readback mismatch and physical triggering remain open in [the report](reports/ess_release_16_2026-10-04.md).
 Prompt17 adds [typed control settings](ess_control_settings.md), all-field readback and reversible stored lock-delay restoration. Mode/encoder/current effects and exact current semantics remain open in [the report](reports/ess_release_17_2026-10-04.md).
+Prompt18 adds [typed tuning](ess_tuning.md), twenty native reads/writes and
+input-filter stored restoration through the same bounded settings engine.
+Per-group observation baselines retain threshold-change invalidation. Physical
+effects and collision firmware/access differences remain open in
+[the report](reports/ess_release_18_2026-10-04.md).
 The [fresh16/17 audit](reports/ess_release_16_17_audit_2026-10-04.md) fixes
 deadline certainty/help parity and verifies all48 indexed reads plus lock-delay
 restoration on the corrected image. Software passes independently of unresolved

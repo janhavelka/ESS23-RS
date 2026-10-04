@@ -1,5 +1,11 @@
 # MotorControl-RS standalone CLI contract
 
+Prompt18 implements `profile ess_rs tuning GROUP read|set FIELD INTEGER ...`
+for filters, current-loop, LA and collision through the same public typed
+preparations. Native units, group masks, partial progress and stored versus
+active settings remain explicit; [tuning contracts](ess_tuning.md) describe
+the command bounds and actual standalone qualification policy.
+
 Prompt17 implements `profile ess_rs control read|set FIELD VALUE ... [address]` through `ControlSettings.h` and the existing settings sequence. Strict native integer fields and named algorithms share direct API validation. Unknown codes, partial progress and stored versus acknowledged/active settings remain separate; [control contracts](ess_control_settings.md) state the128-byte/20-token candidate limit.
 
 

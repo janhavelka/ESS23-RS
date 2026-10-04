@@ -1,5 +1,10 @@
 # Drive profile and complete native API contract
 
+Prompt18 implements [typed native tuning](ess_tuning.md): twenty reviewed
+parameters reuse bounded settings preparation, sequencing and raw observation.
+Ambiguous earlier collision access, unknown physical scaling and independent
+effects qualification remain guarded before traffic.
+
 Prompt17 adds [typed control configuration](ess_control_settings.md): two bounded reads and checked single-word updates with whole-candidate model/effects/current validation. These are settings, not commanded current or torque modes. Raw algorithm3 and conflicting percent/current semantics remain explicit.
 
 

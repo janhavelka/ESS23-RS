@@ -12,7 +12,8 @@ constexpr uint8_t DRIVER_FIELD_COUNT = 16;
 constexpr uint8_t DRIVER_READ_STEPS = 4;
 constexpr uint8_t DRIVER_MAX_STEPS = 18;
 constexpr std::size_t DRIVER_MAX_REPLY_BYTES = 15;
-enum class DriverGroup : uint8_t { DRIVE, IO, POSITION_SEGMENT, SPEED_SEGMENT, SEGMENT_START_SPEED, CONTROL_SETTINGS };
+enum class DriverGroup : uint8_t { DRIVE, IO, POSITION_SEGMENT, SPEED_SEGMENT, SEGMENT_START_SPEED, CONTROL_SETTINGS,
+    FILTERS, CURRENT_LOOP, LA, COLLISION };
 enum class DriverField : uint32_t {
     DIRECTION = 1, SUBDIVISION = 2, WORD_ORDER = 4, SOFT_LIMIT_ENABLE = 8,
     OVER_LIMIT_STOP = 16, INTERRUPTION = 32, POSITION_MODE = 64,
@@ -43,7 +44,8 @@ enum class DriverError : int32_t {
     IO_EFFECTS_REQUIRED, OUTPUT_FUNCTION_UNRESOLVED, CUSTOM_DEPENDENCY,
     SEGMENT_INDEX, SEGMENT_SIGN_UNRESOLVED, TRIGGER_POLICY_REQUIRED,
     MODEL_REQUIRED, CONTROL_EFFECTS_REQUIRED, CURRENT_LIMIT_UNRESOLVED,
-    CURRENT_BASE_UNRESOLVED, CURRENT_DEPENDENCY, ZERO_ENCODER_SCALE
+    CURRENT_BASE_UNRESOLVED, CURRENT_DEPENDENCY, ZERO_ENCODER_SCALE,
+    TUNING_EFFECTS_REQUIRED, TUNING_ACCESS_UNRESOLVED
 };
 /** Select fields explicitly; values in unselected fields are ignored. Pair
  * candidates are present for explicit unavailable reporting, never split writes.
@@ -71,6 +73,7 @@ struct DriverRequest {
     uint16_t encoderResolution = 0, maximumEffectiveCurrentMa = 0;
     uint16_t closedMaximumPercent = 0, closedBasePercent = 0,
              openMaximumPercent = 0, lockPercent = 0, lockDelayMs = 0;
+    uint16_t tuningValues[DRIVER_FIELD_COUNT] = {}; ///< Tuning groups use local fields bits 0..count-1; native words only.
 };
 /** Copied closure/transport and checked-parser evidence. Raw prefix retains the
  * full supplied size separately. Delivery is not observation freshness. */
@@ -139,7 +142,7 @@ struct DriverPrerequisites {
     DriverRequest qualifiedIo;
     /** IO verification policy for known UNCONNECTED affected terminals, or
      * segment configuration with independently qualified trigger inhibition,
-     * or exact independently qualified control-setting effects.
+     * or exact independently qualified control/tuning-setting effects.
      * A checked, on-time unconfirmed write echo may lead to a separate confirmed
      * readback. It never becomes an acknowledgement or proves activation. */
     bool allowEchoReadback = false;
@@ -164,6 +167,12 @@ struct DriverPrerequisites {
     uint32_t controlEffectsQualifiedFields = 0;
     DriverRequest qualifiedControl;
     uint64_t controlEarliestUs = 0, controlLatestUs = 0;
+    /** Independent effects qualification for the exact native tuning candidate,
+     * including all intermediate writes. Shares the checked exact-model identity
+     * above; no gain, filter-delay or arrival-time formula is inferred. */
+    uint32_t tuningEffectsQualifiedFields = 0;
+    DriverRequest qualifiedTuning;
+    uint64_t tuningEarliestUs = 0, tuningLatestUs = 0;
 };
 /** Each selected field's exact progress. Active/persistence remain unknown:
  * checked echo and matching readback do not document activation or rollback. */
@@ -224,7 +233,7 @@ Status nextDriver(const DriverContext&, uint64_t nowUs, PreparedDriver&) noexcep
 /** Invalid correlations/envelopes leave state unchanged. Qualified on-time final
  * completion can succeed when delivered later. A nonfinal late delivery cannot
  * start another transaction. Reads and update readbacks require responseConfirmed;
- * only explicit unconnected-IO, inhibited-segment or qualified-control readback policy can continue an unconfirmed
+ * only explicit unconnected-IO, inhibited-segment or qualified-control/tuning readback policy can continue an unconfirmed
  * source write echo. CANCEL is local and never restores settings. */
 Status advanceDriver(DriverContext&, const ActionEvent&, uint64_t nowUs) noexcept;
 /** Only a complete READ publishes, leaving output unchanged on all failures. */
@@ -232,7 +241,9 @@ Status getDriver(const DriverContext&, DriverObservation&) noexcept;
 
 /** Logical raw/progress indices 0..6 are DRIVE, 7..15 are IO; pairs have no
  * logical writable index. Segment groups use local indices 0..2 (shared start
- * speed only 0). An out-of-range index returns the empty field. */
+ * speed only 0). Tuning groups use local bits 0..count-1, interpreted with their
+ * group rather than the named global DriverField values. An out-of-range index
+ * returns the empty field. */
 DriverField driverFieldAt(uint8_t index, DriverGroup group = DriverGroup::DRIVE) noexcept;
 /** These setters select the same checked update engine; UNDEFINED explicitly
  * assigns function zero. Bounds/choices fail without changing the request. */

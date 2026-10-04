@@ -1,5 +1,10 @@
 # MotorControl-RS documentation
 
+Prompt18 adds [typed tuning settings](ess_tuning.md) and shared API/CLI/Python
+routes. All twenty native reads and input-filter stored restoration pass on
+COM13; gain, arrival and collision effects remain unqualified in
+[the handoff](reports/ess_release_18_2026-10-04.md).
+
 Prompt17 implements [control settings](ess_control_settings.md) through the existing bounded sequence. Native/API/CLI/Python checks and all-field COM13 reads pass; delay200-to201-to200 stored restoration passes. Mode/encoder/current effects remain unqualified in [the report](reports/ess_release_17_2026-10-04.md).
 
 

@@ -11,6 +11,7 @@
 #include <MotorControlRS/profiles/ess_rs/DriverSettings.h>
 #include <MotorControlRS/profiles/ess_rs/Segments.h>
 #include <MotorControlRS/profiles/ess_rs/ControlSettings.h>
+#include <MotorControlRS/profiles/ess_rs/Tuning.h>
 
 int main() {
     using namespace MotorControlRS;
@@ -149,5 +150,12 @@ int main() {
         !nextDriver(driver, 2700, setting) || setting.reg != 0x100 || setting.count != 4) return 42;
     ControlObservation control;
     if (getControl(driver, control)) return 43;
+    if (!prepareTuningRead(driver, target, 16, axis.generation, 2800, 100000, DriverGroup::LA) ||
+        !nextDriver(driver, 2800, setting) || setting.reg != 0x112 || setting.count != 4) return 44;
+    TuningObservation tuning;
+    if (getTuning(driver, tuning)) return 45;
+    DriverRequest tuningCandidate;
+    if (!prepareTuningValue(tuningCandidate, laStageParameter(2, LaStageField::NODE), 65535) ||
+        tuningCandidate.group != DriverGroup::LA || tuningCandidate.fields != 32 || tuningCandidate.tuningValues[5] != 65535) return 46;
     return 0;
 }

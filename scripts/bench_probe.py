@@ -29,7 +29,7 @@ MAX_LINE = 8192
 MAX_INPUT = 32768
 COMMANDS = frozenset({"version", "config", "probe", "capture-read", "status", "health", "memory", "stats", "load",
                       "drv", "result", "release", "cancel", "recover", "reset", "caps",
-                      "read-identity", "read-config", "read-state", "health-check", "monitor", "axis", "prepare", "enable", "motor-release", "alarm-clear", "stop", "position-clear", "move-relative", "move-absolute", "move-angle", "velocity", "driver", "io", "segment", "control", "home"})
+                      "read-identity", "read-config", "read-state", "health-check", "monitor", "axis", "prepare", "enable", "motor-release", "alarm-clear", "stop", "position-clear", "move-relative", "move-absolute", "move-angle", "velocity", "driver", "io", "segment", "control", "tuning", "home"})
 MAX_COMMANDS = 11  # Eight ordinary operations, recovery, reserved stop and local query.
 MAX_OPERATIONS = 10  # Eight ordinary operations, one recovery and one reserved stop.
 MAX_PROBES = 8
@@ -45,6 +45,18 @@ IO_REGISTERS = (0x40, 0x41, 0x42, 0x43, 0x44, 0x4B, 0x4C, 0x4D, 0x4F)
 CONTROL_FIELDS = ("algorithm", "encoder-resolution", "maximum-effective-current", "closed-maximum-current", "closed-base-current", "open-maximum-current", "lock-current", "lock-delay")
 CONTROL_REGISTERS = tuple(range(0x100, 0x108))
 CONTROL_WINDOWS = ((0x100, 4), (0x104, 4))
+TUNING_GROUPS = {"filters": "filters", "current-loop": "current_loop", "la": "la", "collision": "collision"}
+TUNING_FIELDS = {"filters": ("input-filter", "pulse-low-pass", "deviation-threshold", "arrival-window", "arrival-time", "pulse-mean"),
+                 "current_loop": ("multiplier", "kp", "ki", "kc"),
+                 "la": ("kp1", "kv1", "node1", "kp2", "kv2", "node2", "kvf", "position-ki"),
+                 "collision": ("threshold", "current")}
+TUNING_REGISTERS = {"filters": tuple(range(0x108, 0x10E)), "current_loop": tuple(range(0x10E, 0x112)),
+                    "la": tuple(range(0x112, 0x11A)), "collision": (0x122, 0x123)}
+TUNING_WINDOWS = {"filters": ((0x108, 4), (0x10C, 2)), "current_loop": ((0x10E, 4),),
+                  "la": ((0x112, 4), (0x116, 4)), "collision": ((0x122, 2),)}
+TUNING_RANGES = {"filters": ((0, 65535), (0, 1024), (1, 65535), (1, 256), (0, 200), (0, 512)),
+                 "current_loop": ((0, 65535),) * 4, "la": ((0, 65535),) * 8,
+                 "collision": ((200, 4000), (20, 100))}
 IO_WINDOWS = ((0x40, 5), (0x4B, 3), (0x4F, 1))
 HOME_EVIDENCE_COLUMNS = ["step", "event", "raw_hex", "received_length", "tx_accepted", "tx_complete", "response_confirmed", "qualified", "execution_unknown", "earliest_us", "latest_us", "delivered_us", "transport_detail", "status", "detail", "frame_error"]
 DRIVER_PROGRESS_COLUMNS = ["field", "register", "previous", "requested", "acknowledged", "readback_known", "readback", "active_known", "active", "execution"]
@@ -78,18 +90,26 @@ def segment_arguments(arguments: tuple[str, ...]) -> tuple[str, int, dict]:
     return group, index, driver_arguments(arguments[2:], group)
 
 
+def tuning_arguments(arguments: tuple[str, ...]) -> tuple[str, dict]:
+    """Named native groups only; physical scales and legacy access stay guarded."""
+    if not isinstance(arguments, tuple) or len(arguments) < 2 or arguments[0] not in TUNING_GROUPS:
+        raise ValueError("tuning requires filters|current-loop|la|collision read|set")
+    group = TUNING_GROUPS[arguments[0]]
+    return group, driver_arguments(arguments[1:], group)
+
+
 def driver_arguments(arguments: tuple[str, ...], group: str = "drive") -> dict:
     """Strict typed profile grammar; value semantics remain in the public API."""
     if (not isinstance(arguments, tuple) or not 1 <= len(arguments) <= 19 or
             any(type(token) is not str or not token or any(ord(c) < 33 or ord(c) > 126 for c in token) for token in arguments)):
         raise ValueError("driver requires bounded ASCII tokens")
-    if group not in ("drive", "io", "control_settings", *SEGMENT_GROUPS.values()):
+    if group not in ("drive", "io", "control_settings", *SEGMENT_GROUPS.values(), *TUNING_FIELDS):
         raise ValueError("unknown settings group")
     if arguments == ("read",):
         return {}
     if arguments[0] != "set" or len(arguments) < 3 or len(arguments) % 2 != 1:
         raise ValueError("driver requires read or complete set field/integer pairs")
-    names = CONTROL_FIELDS if group == "control_settings" else IO_FIELDS if group == "io" else ("value",) if group == "segment_start_speed" else ("speed", "acceleration", "deceleration", "target") if group == "position_segment" else ("speed", "acceleration", "deceleration") if group == "speed_segment" else DRIVER_FIELDS
+    names = TUNING_FIELDS[group] if group in TUNING_FIELDS else CONTROL_FIELDS if group == "control_settings" else IO_FIELDS if group == "io" else ("value",) if group == "segment_start_speed" else ("speed", "acceleration", "deceleration", "target") if group == "position_segment" else ("speed", "acceleration", "deceleration") if group == "speed_segment" else DRIVER_FIELDS
     result = {}
     for index in range(1, len(arguments), 2):
         field, value = arguments[index:index + 2]
@@ -949,7 +969,8 @@ class Console:
 
         group = item.get("driver_group", "drive")
         segment = group in SEGMENT_GROUPS.values()
-        require(group in ("drive", "io", "control_settings", *SEGMENT_GROUPS.values()) and (expected_group is None or group == expected_group or expected_group == "segment" and segment), "group differs from command")
+        tuning = group in TUNING_FIELDS
+        require(group in ("drive", "io", "control_settings", *SEGMENT_GROUPS.values(), *TUNING_FIELDS) and (expected_group is None or group == expected_group or expected_group == "segment" and segment or expected_group == "tuning" and tuning), "group differs from command")
         if segment:
             require(integer(item.get("segment_index"), 16) and item["segment_index"] >= 1, "record index differs")
             require(item.get("execution_path") == "external_input" and item.get("storage_capacity") == 16 and item.get("maximum_input_selections") == 8, "invented segment execution")
@@ -957,14 +978,18 @@ class Console:
                 requested_group, requested_index, unused = segment_arguments(arguments)
                 require(group == requested_group and item["segment_index"] == requested_index, "record correlation differs")
                 arguments = arguments[2:]
+        if tuning and arguments is not None:
+            requested_group, unused = tuning_arguments(arguments)
+            require(group == requested_group, "tuning group correlation differs")
+            arguments = arguments[1:]
         io = group == "io"
         control = group == "control_settings"
-        stored = io or segment or control
-        names = CONTROL_FIELDS if control else IO_FIELDS if io else DRIVER_FIELDS[:7]
-        registers = CONTROL_REGISTERS if control else IO_REGISTERS if io else DRIVER_REGISTERS
+        stored = io or segment or control or tuning
+        names = TUNING_FIELDS[group] if tuning else CONTROL_FIELDS if control else IO_FIELDS if io else DRIVER_FIELDS[:7]
+        registers = TUNING_REGISTERS[group] if tuning else CONTROL_REGISTERS if control else IO_REGISTERS if io else DRIVER_REGISTERS
         masks = tuple(1 << (index + (23 if control else 9 if io else 0)) for index in range(len(names)))
         by_field = dict(zip(masks, zip(names, registers)))
-        windows = CONTROL_WINDOWS if control else IO_WINDOWS if io else ((0x10, 2), (0x17, 3), (0x37, 4), (0x50, 2))
+        windows = TUNING_WINDOWS[group] if tuning else CONTROL_WINDOWS if control else IO_WINDOWS if io else ((0x10, 2), (0x17, 3), (0x37, 4), (0x50, 2))
         if segment:
             record_index = item["segment_index"]
             if group == "position_segment":
@@ -991,6 +1016,9 @@ class Console:
         def legal(field, value):
             name = by_field[field][0]
             if segment: return value <= (180 if name == "value" else 3000 if name == "speed" else 2000)
+            if tuning:
+                minimum, maximum = TUNING_RANGES[group][names.index(name)]
+                return minimum <= value <= maximum
             if control:
                 index = CONTROL_FIELDS.index(name)
                 return value in (1, 2) if index == 0 else 1 <= value <= 65535 if index == 1 else value <= (5600, 150, 75, 100, 100, 20000)[index - 2]
@@ -1054,7 +1082,7 @@ class Console:
                 require(index < read_steps and not e["write"] and (e["register"], e["count"]) == windows[index], "read window differs")
             else:
                 selected = sorted(fields.values(), key=lambda p: p["field"])
-                if 8 in fields and fields[8]["requested"] == 0:
+                if group == "drive" and 8 in fields and fields[8]["requested"] == 0:
                     selected = [fields[8]] + [p for p in selected if p["field"] != 8]
                 require(index // 2 < len(selected) and e["register"] == selected[index // 2]["register"] and e["count"] == 1 and
                         e["write"] == (index % 2 == 0), "update sequence differs")
@@ -1120,6 +1148,11 @@ class Console:
                 require(v.get("unknown_input_polarity_bits") == values[0] & ~15 and
                         v.get("unknown_output_polarity_bits") == values[5] & ~3 and
                         v.get("unknown_custom_output_bits") == values[8] & ~3, "reserved IO bits were lost")
+            elif tuning:
+                values = [value for window in words for value in window]
+                require(v.get("raw") == values and v.get("known_fields") == sum(mask for mask, value in zip(masks, values) if legal(mask, value)), "native tuning observation differs")
+                require(v.get("native_units_only") is True and v.get("physical_scaling_known") is False and v.get("active_settings_known") is False, "tuning physical meaning fabricated")
+                require(not any(k in v for k in ("arrival_time_ms", "position_error_counts", "node_rpm", "filter_delay_us", "current_ma", "pair_known")), "unknown tuning units fabricated")
             elif control:
                 values = words[0] + words[1]
                 require(v.get("raw") == values and v.get("known_fields") == sum(mask for mask, value in zip(masks, values) if legal(mask, value)), "unknown control values were normalized")
@@ -1975,7 +2008,7 @@ class Console:
         if self.clock() >= handle.deadline:
             raise BenchError("command response deadline expired; command was not replayed")
         self.emit("reply", response=item)
-        asynchronous = handle.command in (*READ_COMMANDS, *ACTION_COMMANDS, "recover", *MOVE_COMMANDS, "velocity", "driver", "io", "segment", "control", "home")
+        asynchronous = handle.command in (*READ_COMMANDS, *ACTION_COMMANDS, "recover", *MOVE_COMMANDS, "velocity", "driver", "io", "segment", "control", "tuning", "home")
         if asynchronous:
             if item.get("type") == "reply" and not handle.accepted:
                 if not item["ok"]:
@@ -1983,7 +2016,7 @@ class Console:
                     return
                 if item.get("result") != "accepted":
                     raise BenchError(f"{handle.command} acceptance is not explicit")
-                if handle.command in (*READ_COMMANDS, *ACTION_COMMANDS, *MOVE_COMMANDS, "velocity", "driver", "io", "segment", "control", "home"):
+                if handle.command in (*READ_COMMANDS, *ACTION_COMMANDS, *MOVE_COMMANDS, "velocity", "driver", "io", "segment", "control", "tuning", "home"):
                     address = item.get("address")
                     if (type(address) is not int or not 1 <= address <= 247
                             or (handle.address is not None and address != handle.address)):
@@ -2007,7 +2040,7 @@ class Console:
                 return
             expected_type = {"probe": "probe", "capture-read": "capture_read", "recover": "recovery",
                              "read-identity": "read", "read-config": "read", "read-state": "read",
-                             **dict.fromkeys(ACTION_COMMANDS, "action"), **dict.fromkeys(MOVE_COMMANDS, "move"), "velocity": "velocity", "driver": "driver", "io": "io", "segment": "segment", "control": "control", "home": "home"}[handle.command]
+                             **dict.fromkeys(ACTION_COMMANDS, "action"), **dict.fromkeys(MOVE_COMMANDS, "move"), "velocity": "velocity", "driver": "driver", "io": "io", "segment": "segment", "control": "control", "tuning": "tuning", "home": "home"}[handle.command]
             if item.get("type") != expected_type or not handle.accepted:
                 raise BenchError(f"{handle.command} response sequence is invalid")
             if (not self._operation_id(item.get("operation_id"))
@@ -2026,8 +2059,8 @@ class Console:
                 self._check_velocity(item, handle.address, handle.velocity_args)
             elif handle.command == "home":
                 self._check_home(item, handle.address, handle.home_args)
-            elif handle.command in ("driver", "io", "segment", "control"):
-                self._check_driver(item, handle.address, handle.driver_args, "segment" if handle.command == "segment" else "control_settings" if handle.command == "control" else "io" if handle.command == "io" else "drive")
+            elif handle.command in ("driver", "io", "segment", "control", "tuning"):
+                self._check_driver(item, handle.address, handle.driver_args, "tuning" if handle.command == "tuning" else "segment" if handle.command == "segment" else "control_settings" if handle.command == "control" else "io" if handle.command == "io" else "drive")
             elif handle.command in MOVE_COMMANDS:
                 self._check_move(item, handle.address, handle.move_args, handle.command[5:])
             else:
@@ -2058,7 +2091,7 @@ class Console:
                             (original is not None and home != (original.command == "home"))):
                         raise BenchError("result home kind does not match retained operation")
                     if (type(driver) is not bool or (driver and (velocity or move_kind is not None or action_kind is not None or recovery or capture_read or read_kind is not None)) or
-                            (original is not None and driver != (original.command in ("driver", "io", "segment", "control")))):
+                            (original is not None and driver != (original.command in ("driver", "io", "segment", "control", "tuning")))):
                         raise BenchError("result driver kind does not match retained operation")
                     if type(velocity) is not bool or (velocity and (move_kind is not None or action_kind is not None or recovery or capture_read or read_kind is not None)) or (original is not None and velocity != (original.command == "velocity")):
                         raise BenchError("result velocity kind does not match retained operation")
@@ -2090,7 +2123,7 @@ class Console:
                     elif home:
                         self._check_home(item, original.address if original else None, original.home_args if original else None)
                     elif driver:
-                        self._check_driver(item, original.address if original else None, original.driver_args if original else None, ("segment" if original.command == "segment" else "control_settings" if original.command == "control" else "io" if original.command == "io" else "drive") if original else None)
+                        self._check_driver(item, original.address if original else None, original.driver_args if original else None, ("tuning" if original.command == "tuning" else "segment" if original.command == "segment" else "control_settings" if original.command == "control" else "io" if original.command == "io" else "drive") if original else None)
                     elif velocity:
                         self._check_velocity(item, original.address if original else None, original.velocity_args if original else None)
                     elif move_kind is not None:
@@ -2177,8 +2210,8 @@ class Console:
             velocity_arguments(velocity_args)
         elif velocity_args is not None:
             raise ValueError("velocity arguments require velocity command")
-        if command in ("driver", "io", "segment", "control"):
-            segment_arguments(driver_args) if command == "segment" else driver_arguments(driver_args, "control_settings" if command == "control" else "io" if command == "io" else "drive")
+        if command in ("driver", "io", "segment", "control", "tuning"):
+            tuning_arguments(driver_args) if command == "tuning" else segment_arguments(driver_args) if command == "segment" else driver_arguments(driver_args, "control_settings" if command == "control" else "io" if command == "io" else "drive")
         elif driver_args is not None:
             raise ValueError("driver arguments require driver command")
         if command == "home":
@@ -2194,7 +2227,7 @@ class Console:
                  type(monitor[0]) is not int or type(monitor[1]) is not int or
                  not 100 <= monitor[0] <= 60000 or not 1 <= monitor[1] <= 1000)):
                 raise ValueError("monitor requires off or interval 100..60000/count 1..1000")
-        if address is not None and (command not in (*READ_COMMANDS, *ACTION_COMMANDS, *MOVE_COMMANDS, "velocity", "driver", "io", "segment", "control", "home") or type(address) is not int
+        if address is not None and (command not in (*READ_COMMANDS, *ACTION_COMMANDS, *MOVE_COMMANDS, "velocity", "driver", "io", "segment", "control", "tuning", "home") or type(address) is not int
                                     or not 1 <= address <= 247):
             raise ValueError("an ESS probe address must be an integer within 1..247")
         if load is not None:
@@ -2256,7 +2289,7 @@ class Console:
                 suffix = " " + " ".join(driver_args) + suffix
             wire_command = "health check" if health_check else "read " + TYPED_READS[command] if command in TYPED_READS else command
             if command in MOVE_COMMANDS: wire_command = "move " + command[5:]
-            if command in ("driver", "io", "segment", "control"): wire_command = "profile ess_rs " + command
+            if command in ("driver", "io", "segment", "control", "tuning"): wire_command = "profile ess_rs " + command
             payload = f"@{request_id} {wire_command}{suffix}\n".encode("ascii")
             if len(payload) > 128:
                 raise ValueError("command exceeds the console line bound")
@@ -2513,8 +2546,8 @@ def typed_read_campaign(console: Console, *, kind: str, timeout_s: float, addres
 def driver_read_campaign(console: Console, *, timeout_s: float, address: int, command: str = "driver",
                          driver_args: tuple[str, ...] = ("read",)) -> None:
     """One settings attempt, immutable inspection and release; never replay/rollback."""
-    if command not in ("driver", "io", "segment", "control"): raise ValueError("unknown settings command")
-    candidate = segment_arguments(driver_args)[2] if command == "segment" else driver_arguments(driver_args, "control_settings" if command == "control" else "io" if command == "io" else "drive")
+    if command not in ("driver", "io", "segment", "control", "tuning"): raise ValueError("unknown settings command")
+    candidate = tuning_arguments(driver_args)[1] if command == "tuning" else segment_arguments(driver_args)[2] if command == "segment" else driver_arguments(driver_args, "control_settings" if command == "control" else "io" if command == "io" else "drive")
     positive(timeout_s, "driver read timeout")
     handle = None; terminal = None; inspected = None; failure = None
     try:
@@ -2747,6 +2780,8 @@ def arguments(argv: list[str] | None) -> argparse.Namespace:
     sub.add_parser("driver-read", help="one checked four-window drive-settings read with retained inspection; no writes")
     segment = sub.add_parser("segment", help="indexed stored record read/update; no external execution")
     segment.add_argument("segment_tokens", nargs="+")
+    tuning = sub.add_parser("tuning", help="one named native tuning read or exact qualified setting attempt; no gain sweep or replay")
+    tuning.add_argument("tuning_tokens", nargs="+", help="filters|current-loop|la|collision read|set FIELD INTEGER ...")
     control = sub.add_parser("control", help="one explicit stopped native control read or settings attempt; never replayed")
     control.add_argument("control_tokens", nargs="+", help="read | set FIELD INTEGER ...; algorithm open-loop|algorithm-1")
     io = sub.add_parser("io", help="one explicit typed IO read or settings attempt with retained inspection; never replayed")
@@ -2829,6 +2864,10 @@ def arguments(argv: list[str] | None) -> argparse.Namespace:
         result.driver_args = tuple(result.segment_tokens)
         try: segment_arguments(result.driver_args)
         except ValueError as exc: parser.error(str(exc))
+    if result.mode == "tuning":
+        result.driver_args = tuple(result.tuning_tokens)
+        try: tuning_arguments(result.driver_args)
+        except ValueError as exc: parser.error(str(exc))
     if result.mode == "control":
         result.driver_args = tuple(result.control_tokens)
         try: driver_arguments(result.driver_args, "control_settings")
@@ -2871,7 +2910,7 @@ def main(argv: list[str] | None = None) -> int:
                                   cleanup_stop=args.cleanup_stop, timeout_s=args.timeout, address=args.address)
                 elif args.mode == "driver-read":
                     driver_read_campaign(console, timeout_s=args.timeout, address=args.address)
-                elif args.mode in ("io", "segment", "control"):
+                elif args.mode in ("io", "segment", "control", "tuning"):
                     driver_read_campaign(console, timeout_s=args.timeout, address=args.address, command=args.mode, driver_args=args.driver_args)
                 elif args.mode == "velocity":
                     velocity_campaign(console, velocity_args=args.velocity_args, cleanup_stop=args.cleanup_stop,

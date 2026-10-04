@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "register_ledger": "docs/reference/ess_rs_registers.json",
-  "scope": "Typed ESS reads, bounded actions/motion/homing, stopped-state driver/I/O settings and indexed stored PT/PV records and exact-model guarded control settings; ledger-linked obligations with independent native and hardware evidence.",
+  "scope": "Typed ESS reads, bounded actions/motion/homing, stopped-state driver/I/O settings and indexed stored PT/PV records and exact-model guarded control settings; ledger-linked obligations with independent native and hardware evidence. Native filter/tracking, current-loop/LA and guarded collision tuning settings remain separate from physical tuning effects.",
   "default_disposition": {
     "implementation": "NOT_IMPLEMENTED",
     "cli": "NOT_REACHABLE",
@@ -20,20 +20,36 @@
     "reason": "Bench SKU user-confirmed 2026-10-04 (docs/reference/11_ess23_rs20_identity.md); raw 0x4EEA association is observed, not a universal wire-code mapping or firmware/motion qualification."
   },
   "shared_records": [
+    "ARRIVAL_TIME",
     "AUXILIARY_COMMAND",
     "BASE_CURRENT_PERCENT",
     "CLOSED_LOOP_CURRENT_PERCENT",
+    "COLLISION_CURRENT_0123",
+    "COLLISION_THRESHOLD_0122",
     "CONTROL_ALGORITHM",
+    "CURRENT_LOOP_KC",
+    "CURRENT_LOOP_KI",
+    "CURRENT_LOOP_KP",
+    "CURRENT_LOOP_KP_MULTIPLIER",
     "CUSTOM_OUTPUT",
     "DEFAULT_DIRECTION",
     "DRIVER_MODEL",
     "ENCODER_RESOLUTION",
     "EXTERNAL_POSITION_MODE",
+    "INPUT_FILTER",
     "INPUT_POLARITY",
     "INPUT_X0_FUNCTION",
     "INPUT_X1_FUNCTION",
     "INPUT_X2_FUNCTION",
     "INPUT_X3_FUNCTION",
+    "LA_POSITION_KI",
+    "LA_SPEED_FEEDFORWARD_KVF",
+    "LA_SPEED_KP1",
+    "LA_SPEED_KP2",
+    "LA_SPEED_KV1",
+    "LA_SPEED_KV2",
+    "LA_SPEED_NODE1",
+    "LA_SPEED_NODE2",
     "LOCK_CURRENT_PERCENT",
     "LOCK_TIME",
     "MAXIMUM_CURRENT",
@@ -44,6 +60,8 @@
     "OUTPUT_Y0_FUNCTION",
     "OUTPUT_Y1_FUNCTION",
     "OVER_LIMIT_STOP",
+    "POSITION_ARRIVAL_WINDOW",
+    "POSITION_ERROR_ALARM_THRESHOLD",
     "POSITION_SEGMENT_01_ACCELERATION_TIME",
     "POSITION_SEGMENT_01_DECELERATION_TIME",
     "POSITION_SEGMENT_01_PULSES",
@@ -109,6 +127,8 @@
     "POSITION_SEGMENT_16_PULSES",
     "POSITION_SEGMENT_16_SPEED",
     "POSITIVE_SOFT_LIMIT",
+    "PULSE_LOW_PASS_FILTER",
+    "PULSE_MEAN_FILTER",
     "PV_TRIGGER_MODE",
     "SEGMENT_START_SPEED_01_VALUE",
     "SEGMENT_START_SPEED_02_VALUE",
@@ -1845,6 +1865,371 @@
         "reason": "Only stopped-state stored-value path: native200ms-to201ms then explicit restoration200ms, confirmed separate FC03 readbacks. Every FC06 source/ACK remains unconfirmed/executionUNKNOWN; no active lock timing, torque or persistence effect qualification."
       },
       "reason": "Explicit bounded millisecond setting uses the same whole-candidate validation and FC06/FC03 sequence. Model identity and stopped effects are independently qualified; current denominator is unrelated. Stored settlement is distinct from physical lock behavior."
+    },
+    {
+      "id": "tuning_filters_read",
+      "kind": "READ",
+      "records": [
+        "INPUT_FILTER",
+        "PULSE_LOW_PASS_FILTER",
+        "POSITION_ERROR_ALARM_THRESHOLD",
+        "POSITION_ARRIVAL_WINDOW",
+        "ARRIVAL_TIME",
+        "PULSE_MEAN_FILTER"
+      ],
+      "api": {
+        "header": "include/MotorControlRS/profiles/ess_rs/Tuning.h",
+        "symbols": [
+          "prepareTuningRead",
+          "getTuning"
+        ]
+      },
+      "cli_commands": [
+        "profile ess_rs tuning filters read"
+      ],
+      "implementation": "IMPLEMENTED",
+      "cli": "REACHABLE",
+      "native": {
+        "state": "PASS",
+        "evidence": [
+          "test/tuning_test.cpp",
+          "test/tuning_app_test.cpp",
+          "test/probe_console_test.cpp",
+          "test/tuning_console_parity_test.py",
+          "test/installed_consumer/main.cpp"
+        ],
+        "reason": "Current integrated verification passes: exact native ranges/group masks/selectors, complete bounded reads/updates, partial uncertainty/cancellation, actual application cross-group cache invalidation and failed-refresh preservation, all20 CLI fields and58 actual Console/Python terminal fixtures; installed header consumer compiles."
+      },
+      "hardware": {
+        "state": "PASS",
+        "evidence": [
+          "docs/reports/ess_release_18_2026-10-04.json"
+        ],
+        "reason": "COM13 current-image typed reads before and after finite stored-filter restoration retain all20 raw fields. Read-path evidence only; unknown physical scaling, active behavior and model applicability are not qualified."
+      },
+      "reason": "Reviewed single-word native values and checked bounded read windows; unknown physical units and conflicting collision mappings remain explicit."
+    },
+    {
+      "id": "tuning_filters_update",
+      "kind": "WRITE",
+      "records": [
+        "PULSE_LOW_PASS_FILTER",
+        "POSITION_ERROR_ALARM_THRESHOLD",
+        "POSITION_ARRIVAL_WINDOW",
+        "ARRIVAL_TIME",
+        "PULSE_MEAN_FILTER"
+      ],
+      "api": {
+        "header": "include/MotorControlRS/profiles/ess_rs/Tuning.h",
+        "symbols": [
+          "prepareTuningValue",
+          "prepareTuningSettings"
+        ]
+      },
+      "cli_commands": [
+        "profile ess_rs tuning filters set FIELD INTEGER"
+      ],
+      "implementation": "IMPLEMENTED",
+      "cli": "REACHABLE",
+      "native": {
+        "state": "PASS",
+        "evidence": [
+          "test/tuning_test.cpp",
+          "test/tuning_app_test.cpp",
+          "test/probe_console_test.cpp",
+          "test/tuning_console_parity_test.py",
+          "test/installed_consumer/main.cpp"
+        ],
+        "reason": "Current integrated verification passes: exact native ranges/group masks/selectors, complete bounded reads/updates, partial uncertainty/cancellation, actual application cross-group cache invalidation and failed-refresh preservation, all20 CLI fields and58 actual Console/Python terminal fixtures; installed header consumer compiles."
+      },
+      "hardware": {
+        "state": "NOT_RUN",
+        "evidence": [],
+        "reason": "No gain/arrival/deviation/collision perturbation performed; physical effects unqualified."
+      },
+      "reason": "Whole candidate, native range, exact target/model context, fresh stopped state and independently qualified effects validate before traffic; shared sequence retains partial progress and uncertainty without replay or rollback."
+    },
+    {
+      "id": "tuning_current_loop_read",
+      "kind": "READ",
+      "records": [
+        "CURRENT_LOOP_KP_MULTIPLIER",
+        "CURRENT_LOOP_KP",
+        "CURRENT_LOOP_KI",
+        "CURRENT_LOOP_KC"
+      ],
+      "api": {
+        "header": "include/MotorControlRS/profiles/ess_rs/Tuning.h",
+        "symbols": [
+          "prepareTuningRead",
+          "getTuning"
+        ]
+      },
+      "cli_commands": [
+        "profile ess_rs tuning current-loop read"
+      ],
+      "implementation": "IMPLEMENTED",
+      "cli": "REACHABLE",
+      "native": {
+        "state": "PASS",
+        "evidence": [
+          "test/tuning_test.cpp",
+          "test/tuning_app_test.cpp",
+          "test/probe_console_test.cpp",
+          "test/tuning_console_parity_test.py",
+          "test/installed_consumer/main.cpp"
+        ],
+        "reason": "Current integrated verification passes: exact native ranges/group masks/selectors, complete bounded reads/updates, partial uncertainty/cancellation, actual application cross-group cache invalidation and failed-refresh preservation, all20 CLI fields and58 actual Console/Python terminal fixtures; installed header consumer compiles."
+      },
+      "hardware": {
+        "state": "PASS",
+        "evidence": [
+          "docs/reports/ess_release_18_2026-10-04.json"
+        ],
+        "reason": "COM13 current-image typed reads before and after finite stored-filter restoration retain all20 raw fields. Read-path evidence only; unknown physical scaling, active behavior and model applicability are not qualified."
+      },
+      "reason": "Reviewed single-word native values and checked bounded read windows; unknown physical units and conflicting collision mappings remain explicit."
+    },
+    {
+      "id": "tuning_current_loop_update",
+      "kind": "WRITE",
+      "records": [
+        "CURRENT_LOOP_KP_MULTIPLIER",
+        "CURRENT_LOOP_KP",
+        "CURRENT_LOOP_KI",
+        "CURRENT_LOOP_KC"
+      ],
+      "api": {
+        "header": "include/MotorControlRS/profiles/ess_rs/Tuning.h",
+        "symbols": [
+          "prepareTuningValue",
+          "prepareTuningSettings"
+        ]
+      },
+      "cli_commands": [
+        "profile ess_rs tuning current-loop set FIELD INTEGER"
+      ],
+      "implementation": "IMPLEMENTED",
+      "cli": "REACHABLE",
+      "native": {
+        "state": "PASS",
+        "evidence": [
+          "test/tuning_test.cpp",
+          "test/tuning_app_test.cpp",
+          "test/probe_console_test.cpp",
+          "test/tuning_console_parity_test.py",
+          "test/installed_consumer/main.cpp"
+        ],
+        "reason": "Current integrated verification passes: exact native ranges/group masks/selectors, complete bounded reads/updates, partial uncertainty/cancellation, actual application cross-group cache invalidation and failed-refresh preservation, all20 CLI fields and58 actual Console/Python terminal fixtures; installed header consumer compiles."
+      },
+      "hardware": {
+        "state": "NOT_RUN",
+        "evidence": [],
+        "reason": "No gain/arrival/deviation/collision perturbation performed; physical effects unqualified."
+      },
+      "reason": "Whole candidate, native range, exact target/model context, fresh stopped state and independently qualified effects validate before traffic; shared sequence retains partial progress and uncertainty without replay or rollback."
+    },
+    {
+      "id": "tuning_la_read",
+      "kind": "READ",
+      "records": [
+        "LA_SPEED_KP1",
+        "LA_SPEED_KV1",
+        "LA_SPEED_NODE1",
+        "LA_SPEED_KP2",
+        "LA_SPEED_KV2",
+        "LA_SPEED_NODE2",
+        "LA_SPEED_FEEDFORWARD_KVF",
+        "LA_POSITION_KI"
+      ],
+      "api": {
+        "header": "include/MotorControlRS/profiles/ess_rs/Tuning.h",
+        "symbols": [
+          "prepareTuningRead",
+          "getTuning"
+        ]
+      },
+      "cli_commands": [
+        "profile ess_rs tuning la read"
+      ],
+      "implementation": "IMPLEMENTED",
+      "cli": "REACHABLE",
+      "native": {
+        "state": "PASS",
+        "evidence": [
+          "test/tuning_test.cpp",
+          "test/tuning_app_test.cpp",
+          "test/probe_console_test.cpp",
+          "test/tuning_console_parity_test.py",
+          "test/installed_consumer/main.cpp"
+        ],
+        "reason": "Current integrated verification passes: exact native ranges/group masks/selectors, complete bounded reads/updates, partial uncertainty/cancellation, actual application cross-group cache invalidation and failed-refresh preservation, all20 CLI fields and58 actual Console/Python terminal fixtures; installed header consumer compiles."
+      },
+      "hardware": {
+        "state": "PASS",
+        "evidence": [
+          "docs/reports/ess_release_18_2026-10-04.json"
+        ],
+        "reason": "COM13 current-image typed reads before and after finite stored-filter restoration retain all20 raw fields. Read-path evidence only; unknown physical scaling, active behavior and model applicability are not qualified."
+      },
+      "reason": "Reviewed single-word native values and checked bounded read windows; unknown physical units and conflicting collision mappings remain explicit."
+    },
+    {
+      "id": "tuning_la_update",
+      "kind": "WRITE",
+      "records": [
+        "LA_SPEED_KP1",
+        "LA_SPEED_KV1",
+        "LA_SPEED_NODE1",
+        "LA_SPEED_KP2",
+        "LA_SPEED_KV2",
+        "LA_SPEED_NODE2",
+        "LA_SPEED_FEEDFORWARD_KVF",
+        "LA_POSITION_KI"
+      ],
+      "api": {
+        "header": "include/MotorControlRS/profiles/ess_rs/Tuning.h",
+        "symbols": [
+          "prepareTuningValue",
+          "prepareTuningSettings"
+        ]
+      },
+      "cli_commands": [
+        "profile ess_rs tuning la set FIELD INTEGER"
+      ],
+      "implementation": "IMPLEMENTED",
+      "cli": "REACHABLE",
+      "native": {
+        "state": "PASS",
+        "evidence": [
+          "test/tuning_test.cpp",
+          "test/tuning_app_test.cpp",
+          "test/probe_console_test.cpp",
+          "test/tuning_console_parity_test.py",
+          "test/installed_consumer/main.cpp"
+        ],
+        "reason": "Current integrated verification passes: exact native ranges/group masks/selectors, complete bounded reads/updates, partial uncertainty/cancellation, actual application cross-group cache invalidation and failed-refresh preservation, all20 CLI fields and58 actual Console/Python terminal fixtures; installed header consumer compiles."
+      },
+      "hardware": {
+        "state": "NOT_RUN",
+        "evidence": [],
+        "reason": "No gain/arrival/deviation/collision perturbation performed; physical effects unqualified."
+      },
+      "reason": "Whole candidate, native range, exact target/model context, fresh stopped state and independently qualified effects validate before traffic; shared sequence retains partial progress and uncertainty without replay or rollback."
+    },
+    {
+      "id": "tuning_collision_read",
+      "kind": "READ",
+      "records": [
+        "COLLISION_THRESHOLD_0122",
+        "COLLISION_CURRENT_0123"
+      ],
+      "api": {
+        "header": "include/MotorControlRS/profiles/ess_rs/Tuning.h",
+        "symbols": [
+          "prepareTuningRead",
+          "getTuning"
+        ]
+      },
+      "cli_commands": [
+        "profile ess_rs tuning collision read"
+      ],
+      "implementation": "IMPLEMENTED",
+      "cli": "REACHABLE",
+      "native": {
+        "state": "PASS",
+        "evidence": [
+          "test/tuning_test.cpp",
+          "test/tuning_app_test.cpp",
+          "test/probe_console_test.cpp",
+          "test/tuning_console_parity_test.py",
+          "test/installed_consumer/main.cpp"
+        ],
+        "reason": "Current integrated verification passes: exact native ranges/group masks/selectors, complete bounded reads/updates, partial uncertainty/cancellation, actual application cross-group cache invalidation and failed-refresh preservation, all20 CLI fields and58 actual Console/Python terminal fixtures; installed header consumer compiles."
+      },
+      "hardware": {
+        "state": "PASS",
+        "evidence": [
+          "docs/reports/ess_release_18_2026-10-04.json"
+        ],
+        "reason": "COM13 current-image typed reads before and after finite stored-filter restoration retain all20 raw fields. Read-path evidence only; unknown physical scaling, active behavior and model applicability are not qualified. Later collision words repeatedly return0/0, outside documented ranges, with known_fields0; raw evidence stays explicit and does not qualify collision operation."
+      },
+      "reason": "Reviewed single-word native values and checked bounded read windows; unknown physical units and conflicting collision mappings remain explicit."
+    },
+    {
+      "id": "tuning_collision_update",
+      "kind": "WRITE",
+      "records": [
+        "COLLISION_THRESHOLD_0122",
+        "COLLISION_CURRENT_0123"
+      ],
+      "api": {
+        "header": "include/MotorControlRS/profiles/ess_rs/Tuning.h",
+        "symbols": [
+          "prepareTuningValue",
+          "prepareTuningSettings"
+        ]
+      },
+      "cli_commands": [
+        "profile ess_rs tuning collision set FIELD INTEGER"
+      ],
+      "implementation": "IMPLEMENTED",
+      "cli": "REACHABLE",
+      "native": {
+        "state": "PASS",
+        "evidence": [
+          "test/tuning_test.cpp",
+          "test/tuning_app_test.cpp",
+          "test/probe_console_test.cpp",
+          "test/tuning_console_parity_test.py",
+          "test/installed_consumer/main.cpp"
+        ],
+        "reason": "Current integrated verification passes: exact native ranges/group masks/selectors, complete bounded reads/updates, partial uncertainty/cancellation, actual application cross-group cache invalidation and failed-refresh preservation, all20 CLI fields and58 actual Console/Python terminal fixtures; installed header consumer compiles."
+      },
+      "hardware": {
+        "state": "NOT_RUN",
+        "evidence": [],
+        "reason": "No gain/arrival/deviation/collision perturbation performed; physical effects unqualified."
+      },
+      "reason": "Whole candidate, native range, exact target/model context, fresh stopped state and independently qualified effects validate before traffic; shared sequence retains partial progress and uncertainty without replay or rollback."
+    },
+    {
+      "id": "tuning_input_filter_update",
+      "kind": "WRITE",
+      "records": [
+        "INPUT_FILTER"
+      ],
+      "api": {
+        "header": "include/MotorControlRS/profiles/ess_rs/Tuning.h",
+        "symbols": [
+          "prepareTuningValue",
+          "prepareTuningSettings"
+        ]
+      },
+      "cli_commands": [
+        "profile ess_rs tuning filters set input-filter INTEGER"
+      ],
+      "implementation": "IMPLEMENTED",
+      "cli": "REACHABLE",
+      "native": {
+        "state": "PASS",
+        "evidence": [
+          "test/tuning_test.cpp",
+          "test/tuning_app_test.cpp",
+          "test/probe_console_test.cpp",
+          "test/tuning_console_parity_test.py",
+          "test/installed_consumer/main.cpp"
+        ],
+        "reason": "Current integrated verification passes: exact native ranges/group masks/selectors, complete bounded reads/updates, partial uncertainty/cancellation, actual application cross-group cache invalidation and failed-refresh preservation, all20 CLI fields and58 actual Console/Python terminal fixtures; installed header consumer compiles."
+      },
+      "hardware": {
+        "state": "PASS",
+        "evidence": [
+          "docs/reports/ess_release_18_2026-10-04.json"
+        ],
+        "reason": "Finite stopped/passive known-unconnected ESS23-RS20 experiment2?3?2 passes exact stored readback and restoration. Source-unconfirmed FC06 keeps acknowledgedfalse/executionunknown; separate confirmed FC03 settles stored codes. Physical filter delay, external-input operation and persistence remain NOT_RUN."
+      },
+      "reason": "Same filters-group candidate and checked sequence; this separate evidence disposition cannot qualify other filter fields or physical filter timing."
     }
   ],
   "coverage_notes": [
@@ -1861,6 +2246,7 @@
     "Prompt15 implements all18 documented input assignments and eight resolved output assignments; custom2 remains unresolved. Register readback is distinct from physical switch/load operation and unconfirmed FC06 execution. No external switch/load is required for independent serial-only modes.",
     "Prompt16 accounts separately for all16 PT records, all16 PV records and all16 shared start-speed words; all16 PT reserved slots remain ACCOUNTED_RESERVED. Stored PT target-pair setters remain UNSUPPORTED; negative PV/start encoding remains guarded. Storage16 is distinct from maximum8 externally selected combinations on four-input ESS drives. PT5ms setup/hold is not inherited by PV. No serial segment execution command exists. Shared EXTERNAL_POSITION_MODE and PV_TRIGGER_MODE reuse existing driver_settings_read/update coverage rather than duplicate operations.",
     "Prompt17 control settings are native configuration, not commanded torque/current modes. Raw algorithm3 remains unknown; RS20 peak-current dial ratings do not establish maximum-effective-current0102 limits, and percent prose referencing2042 does not establish an0102 denominator. Exact independent qualification is required before affected writes.",
-    "Fresh16/17audit fixes closure-budget certainty and optional-host help parity, repeats all48 indexed reads and reversible lock-delay stored restoration. The original shared-start write FAIL remains unresolved; no pair permission, current formula or physical trigger qualification is inferred."
+    "Fresh16/17audit fixes closure-budget certainty and optional-host help parity, repeats all48 indexed reads and reversible lock-delay stored restoration. The original shared-start write FAIL remains unresolved; no pair permission, current formula or physical trigger qualification is inferred.",
+    "Prompt18 accounts for all20 reviewed scalar tuning fields with group-local masks and fixed bounded read/write sequences. Native filter coefficients, arrival-time/deviation/LA-node/gain codes retain unspecified physical units. Earlier COLLISION_THRESHOLD_003B/COLLISION_CURRENT_003C have unspecified access and remain separate unresolved records, never aliased to0122/0123 or read through a forbidden window. Native gain/collision/arrival writes require exact independent effects qualification; physical effects remain separately unqualified."
   ]
 }

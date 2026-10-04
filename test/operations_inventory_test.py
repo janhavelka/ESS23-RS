@@ -14,6 +14,24 @@ LEDGER = json.loads(operations.catalogue.LEDGER.read_text(encoding="utf-8"))
 
 
 class Coverage(unittest.TestCase):
+    def test_tuning_coverage_keeps_unresolved_access_and_effects_separate(self):
+        result = operations.check(INVENTORY, LEDGER)
+        records = {row["id"]: row for row in result["records"]}
+        tuning = [group for group in INVENTORY["operations"] if group["id"].startswith("tuning_")]
+        reads = {record for group in tuning if "read" in group["id"] for record in group["records"]}
+        writes = {record for group in tuning if "update" in group["id"] for record in group["records"]}
+        self.assertEqual(len(reads), 20)
+        self.assertEqual(writes, reads)
+        for record in reads:
+            self.assertEqual(records[record]["obligations"]["read"], "IMPLEMENTED")
+            self.assertEqual(records[record]["obligations"]["write"], "IMPLEMENTED")
+        for record in ("COLLISION_THRESHOLD_003B", "COLLISION_CURRENT_003C"):
+            self.assertNotIn(record, reads)
+            self.assertEqual(records[record]["obligations"]["write"], "UNRESOLVED_ACCESS")
+        for group in tuning:
+            if "update" in group["id"] and group["id"] != "tuning_input_filter_update":
+                self.assertEqual(group["hardware"]["state"], "NOT_RUN")
+
     def test_pair_write_dispositions_do_not_create_implementation_credit(self):
         records = {row["id"]: row for row in operations.check(INVENTORY, LEDGER)["records"]}
         pairs = [row for row in records.values() if "pair_write_policy" in row]
@@ -43,11 +61,11 @@ class Coverage(unittest.TestCase):
         self.assertEqual((summary["records"], summary["reserved"], summary["unresolved_access"], summary["named_choices"]),
                          (221, 16, 2, 135))
         self.assertEqual(sum(count for state, count in summary["read"].items() if state in operations.IMPLEMENTATION), 201)
-        self.assertEqual(summary["write"]["NOT_IMPLEMENTED"], 25)
+        self.assertEqual(summary["write"]["NOT_IMPLEMENTED"], 5)
         self.assertEqual(summary["write"]["UNSUPPORTED"], 18)
         self.assertEqual(summary["action"]["IN_PROGRESS"], 2)
         linked = {record for group in INVENTORY["operations"] for record in group["records"]}
-        self.assertEqual(len(linked), 181)
+        self.assertEqual(len(linked), 201)
         self.assertEqual(len(result["records"]), len({record["id"] for record in result["records"]}))
         self.assertTrue(all(choice["default_disposition"] == operations.DEFAULT for choice in result["named_choices"]))
 

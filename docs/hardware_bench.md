@@ -1,5 +1,11 @@
 # Motor bench and testing authorization
 
+[Prompt18](reports/ess_release_18_2026-10-04.md) is the current named timer
+image: 108 cumulative frames, all20 native tuning reads and exact input-filter
+2→3→2 stored restoration, zero transport/capture errors. Settings/state restored,
+owner empty, DEreleased, load/monitor off. Physical tuning effects and repeated
+out-of-range collision0/0 remain unqualified; no motion or gain change was sent.
+
 The [fresh16/17 audit](reports/ess_release_16_17_audit_2026-10-04.md) is the latest
 named image:114frames/1206RX bytes, all48 indexed reads, lock-delay200-to201-to200
 stored restoration and zero transport/capture errors. Settings/state unchanged,
