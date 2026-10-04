@@ -1,5 +1,12 @@
 # Motor bench and testing authorization
 
+[Prompt20 final-image evidence](reports/ess_release_20_2026-10-04.md) passes
+37 read-only frames with unchanged identity/configuration/state and zero errors
+at node1/1152008N1. Address/baud/format begin gates reject before TX; no motor
+write, save or restart occurred. Physical commissioning remains NOT RUN without
+an actual motor restart and qualified route back. Prompt19's malformed mismatch
+traffic remains unresolved; original-tuple reads do not resolve its source.
+
 [Prompt19 fresh audit](reports/ess_release_19_audit_2026-10-04.md) records the
 corrected image, all sixteen host setups, exact unchanged motor reads and ten
 restored probes. Strict mismatch campaigns failed on reproduced malformed

@@ -13,7 +13,8 @@ set(MOTORCONTROLRS_SOURCES
     "src/profiles/ess_rs/Segments.cpp"
     "src/profiles/ess_rs/ControlSettings.cpp"
     "src/profiles/ess_rs/Tuning.cpp"
-    "src/profiles/ess_rs/Homing.cpp")
+    "src/profiles/ess_rs/Homing.cpp"
+    "src/profiles/ess_rs/Communication.cpp")
 
 # ESP-IDF component consumption requires no Arduino or FieldCore dependency.
 if(COMMAND idf_component_register)
@@ -45,7 +46,7 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     include(CTest)
     # Distributed source packages contain the core; repository tests stay here.
     if(BUILD_TESTING AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/test/units_test.cpp")
-        foreach(suite units axis registers codec reads actions position velocity homing driver_settings segments control_settings control_app tuning tuning_app host_app host_console io io_app driver_app home_app runner bus_owner bus_scheduling probe_console esp32_uart probe_app move_app velocity_app capture_service)
+        foreach(suite communication communication_console communication_app commissioning_owner units axis registers codec reads actions position velocity homing driver_settings segments control_settings control_app tuning tuning_app host_app host_console io io_app driver_app home_app runner bus_owner bus_scheduling probe_console esp32_uart probe_app move_app velocity_app capture_service)
             add_executable(${suite}_test "test/${suite}_test.cpp")
             target_link_libraries(${suite}_test PRIVATE MotorControlRS)
             set_target_properties(${suite}_test PROPERTIES
@@ -76,7 +77,10 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
             examples/common/RtuBusOwner.cpp examples/common/EssRtuValidator.cpp)
         target_sources(probe_console_test PRIVATE examples/probe_cli/ProbeConsole.cpp examples/common/RtuRunner.cpp)
         target_sources(host_console_test PRIVATE examples/probe_cli/ProbeConsole.cpp examples/common/RtuRunner.cpp)
-        foreach(suite esp32_uart probe_app move_app velocity_app driver_app home_app io_app control_app tuning_app host_app capture_service)
+        target_sources(communication_console_test PRIVATE examples/probe_cli/ProbeConsole.cpp examples/common/RtuRunner.cpp)
+        target_sources(communication_app_test PRIVATE examples/probe_cli/ProbeConsole.cpp examples/common/RtuBusOwner.cpp examples/common/EssRtuValidator.cpp)
+        target_sources(commissioning_owner_test PRIVATE examples/common/RtuRunner.cpp examples/common/RtuBusOwner.cpp examples/common/EssRtuValidator.cpp)
+        foreach(suite communication_app esp32_uart probe_app move_app velocity_app driver_app home_app io_app control_app tuning_app host_app capture_service)
             target_sources(${suite}_test PRIVATE examples/common/Esp32S3Uart.cpp examples/common/RtuRunner.cpp
                 test/fakes/esp32_uart/FakeEsp.cpp)
             target_include_directories(${suite}_test PRIVATE test/fakes/esp32_uart)
@@ -121,6 +125,7 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
         endif()
         find_package(Python3 3.10 COMPONENTS Interpreter)
         if(Python3_Interpreter_FOUND)
+            add_test(NAME communication_harness COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test/communication_harness_test.py)
             add_test(NAME version_generated COMMAND ${Python3_EXECUTABLE}
                 ${CMAKE_CURRENT_SOURCE_DIR}/scripts/generate_version.py check)
             add_test(NAME registers_generated COMMAND ${Python3_EXECUTABLE}

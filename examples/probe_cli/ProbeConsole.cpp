@@ -13,7 +13,7 @@
 namespace MotorControlRSExample { namespace Probe {
 namespace {
 
-enum class Command : uint8_t { HELP, VERSION, CONFIG, STATUS, HEALTH, STATS, PROBE, CAPTURE_READ, RECOVER, RESET, MEMORY, LOAD, DRV, RESULT, CANCEL, RELEASE, READ, PROFILE, CAPS, READ_IDENTITY, READ_CONFIG, READ_STATE, HEALTH_CHECK, MONITOR, AXIS, PREPARE, ENABLE, MOTOR_RELEASE, ALARM_CLEAR, STOP, MOVE, POSITION_CLEAR, VELOCITY, DRIVER, IO, HOME, SEGMENT, CONTROL, TUNING, HOST };
+enum class Command : uint8_t { HELP, VERSION, CONFIG, STATUS, HEALTH, STATS, PROBE, CAPTURE_READ, RECOVER, RESET, MEMORY, LOAD, DRV, RESULT, CANCEL, RELEASE, READ, PROFILE, CAPS, READ_IDENTITY, READ_CONFIG, READ_STATE, HEALTH_CHECK, MONITOR, AXIS, PREPARE, ENABLE, MOTOR_RELEASE, ALARM_CLEAR, STOP, MOVE, POSITION_CLEAR, VELOCITY, DRIVER, IO, HOME, SEGMENT, CONTROL, TUNING, HOST, COMMUNICATION };
 struct Entry { const char* name; Command command; const char* syntax; const char* effect; bool bus; };
 const Entry COMMANDS[] = {
     {"help", Command::HELP, "help [command]", "show_callable_commands", false},
@@ -22,6 +22,7 @@ const Entry COMMANDS[] = {
     {"config", Command::CONFIG, "config", "show_host_settings", false},
     {"settings", Command::CONFIG, "settings", "show_host_settings", false},
     {"host", Command::HOST, "host [baud RATE | fmt 8N1|8N2|8E1|8O1 | set RATE FORMAT | restore | caps]", "settled_host_serial_only_no_motor_settings", false},
+    {"communication", Command::COMMUNICATION, "profile ess_rs communication [inspect | plan|begin address|baud|format VALUE [address] | host before|requested | confirm before|requested | finish]", "explicit_communication_session_no_save_restart_or_replay", true},
     {"status", Command::STATUS, "status", "show_cached_observations", false},
     {"health", Command::HEALTH, "health [check [address]]", "show_cached_health_or_explicitly_read_state", false},
     {"stats", Command::STATS, "stats [reset]", "show_or_clear_host_counters", false},
@@ -623,6 +624,38 @@ void Console::setReportSerial(const HostTuple* tuple, uint32_t generation) noexc
     reportingGeneration_ = tuple && reviewedHostTuple(*tuple) ? generation : 0;
     reportingTuple_ = tuple ? *tuple : HostTuple();
 }
+const char* communicationField(Ess::CommunicationField field) {
+    return field == Ess::CommunicationField::ADDRESS ? "address" : field == Ess::CommunicationField::BAUD ? "baud" : "format";
+}
+bool communicationEndpoint(char* output, std::size_t capacity, std::size_t& used,
+                           const Core::ReadTarget& target, const Core::ActiveSerialTuple& serial) {
+    return append(output, capacity, used, "{\"target\":%lu,\"address\":%u,\"generation\":%lu,\"baud\":%lu,\"data_bits\":%u,\"parity\":%u,\"stop_bits\":%u,\"serial_known\":%s}",
+        static_cast<unsigned long>(target.id), target.address, static_cast<unsigned long>(target.generation),
+        static_cast<unsigned long>(serial.baud), serial.dataBits, static_cast<unsigned>(serial.parity), serial.stopBits, boolean(serial.known));
+}
+bool communicationEvidence(char* output, std::size_t capacity, std::size_t& used, const Ess::CommunicationEvidence& e) {
+    return append(output, capacity, used, "{\"endpoint\":") && communicationEndpoint(output, capacity, used, e.target, e.serial) &&
+        append(output, capacity, used, ",\"eligible_us\":%llu,\"deadline_us\":%llu,\"readback_known\":%s,\"readback\":%u,\"wire\":",
+            static_cast<unsigned long long>(e.eligibleUs), static_cast<unsigned long long>(e.deadlineUs), boolean(e.readbackKnown), e.readback) &&
+        actionEvidence(output, capacity, used, e.wire) && append(output, capacity, used, "}");
+}
+bool communicationContext(char* output, std::size_t capacity, std::size_t& used, const Ess::CommunicationContext* c) {
+    if (!c) return append(output, capacity, used, "null");
+    if (!append(output, capacity, used,
+        "{\"operation_id\":%lu,\"field\":\"%s\",\"register\":%u,\"previous\":%u,\"requested\":%u,\"readback\":%u,\"readback_known\":%s,\"observed_active_known\":%s,\"activation_unknown\":%s,\"effects\":%s,\"uncertain\":%s,\"execution\":%u,\"state\":%u,\"outcome\":%u,\"write_outcome\":%u,\"step\":%u,\"confirmations\":%u,\"save\":\"%s\",\"restart\":\"%s\",\"status\":\"%s\",\"detail\":%ld,\"deadline_us\":%llu,\"before\":",
+        static_cast<unsigned long>(c->operationId), communicationField(c->request.field), c->reg,c->previous,c->requested,c->readback,
+        boolean(c->readbackKnown),boolean(c->observedActiveKnown),boolean(c->activationUnknown),boolean(c->effects),boolean(c->uncertain),
+        static_cast<unsigned>(c->execution),static_cast<unsigned>(c->state),static_cast<unsigned>(c->outcome),static_cast<unsigned>(c->writeOutcome),c->step,c->confirmations,
+        c->save==Ess::CommunicationRequirement::REQUIRED?"required":"unresolved", c->restart==Ess::CommunicationRequirement::REQUIRED?"required":"unresolved",
+        Core::errToString(c->status.code),static_cast<long>(c->status.detail),static_cast<unsigned long long>(c->deadlineUs)) ||
+        !communicationEndpoint(output,capacity,used,c->beforeTarget,c->beforeSerial) || !append(output,capacity,used,",\"requested_endpoint\":") ||
+        !communicationEndpoint(output,capacity,used,c->requestedTarget,c->requestedSerial) || !append(output,capacity,used,",\"observed_active\":") ||
+        !communicationEndpoint(output,capacity,used,c->observedActiveTarget,c->observedActiveSerial) || !append(output,capacity,used,",\"write_evidence\":") ||
+        !communicationEvidence(output,capacity,used,c->writeEvidence) || !append(output,capacity,used,",\"confirmation_evidence\":[")) return false;
+    for (uint8_t i=0;i<c->confirmations && i<2;++i)
+        if ((i && !append(output,capacity,used,",")) || !communicationEvidence(output,capacity,used,c->confirmationEvidence[i])) return false;
+    return append(output,capacity,used,"]}");
+}
 bool Console::appendReportSerial(std::size_t& used) noexcept {
     if (!used || output_[used - 1] != '}') return false;
     --used;
@@ -697,6 +730,62 @@ void Console::dispatch() noexcept {
             static_cast<unsigned long>(id), boolean(result == Action::OK), result == Action::OK ? "done" : actionName(result)) &&
             hostState(output_, sizeof(output_), used, state);
         if (!fits) { error(id, "host", "output_full"); return; }
+        emit(); return;
+    }
+    const bool nativeCommunication = entry->command == Command::PROFILE && count > first + 2 &&
+        !std::strcmp(tokens[first+1],"ess_rs") && !std::strcmp(tokens[first+2],"communication");
+    if (entry->command == Command::COMMUNICATION || nativeCommunication) {
+        if (outputPending()) { ++inputDropped_; return; }
+        if (!host_.communication) { error(id,"communication","unavailable"); return; }
+        const std::size_t args=first+(nativeCommunication?3:1);
+        CommunicationCommand request; bool inspect=false, plan=false;
+        uint16_t reg=0,value=0;
+        if (count==args || (count==args+1 && !std::strcmp(tokens[args],"inspect"))) inspect=true;
+        else if (count==args+1 && !std::strcmp(tokens[args],"finish")) request.kind=CommunicationCommandKind::FINISH;
+        else if (count==args+2 && (!std::strcmp(tokens[args],"host") || !std::strcmp(tokens[args],"confirm"))) {
+            const bool before=!std::strcmp(tokens[args+1],"before");
+            if (!before && std::strcmp(tokens[args+1],"requested")) { error(id,"communication","invalid_candidate"); return; }
+            request.kind=!std::strcmp(tokens[args],"host") ? (before?CommunicationCommandKind::SELECT_BEFORE:CommunicationCommandKind::SELECT_REQUESTED) :
+                (before?CommunicationCommandKind::CONFIRM_BEFORE:CommunicationCommandKind::CONFIRM_REQUESTED);
+        } else if ((count==args+3 || count==args+4) && (!std::strcmp(tokens[args],"plan") || !std::strcmp(tokens[args],"begin"))) {
+            plan=!std::strcmp(tokens[args],"plan"); request.kind=plan?CommunicationCommandKind::PREVIEW:CommunicationCommandKind::BEGIN;
+            Snapshot snapshot; if (host_.snapshot) host_.snapshot(host_.context,snapshot); request.address=snapshot.address;
+            uint32_t numberValue=0;
+            if (!std::strcmp(tokens[args+1],"address")) {
+                if (!number(tokens[args+2],numberValue) || numberValue<1 || numberValue>247) { error(id,"communication","invalid_address"); return; }
+                request.request.field=Ess::CommunicationField::ADDRESS; request.request.address=static_cast<uint16_t>(numberValue); reg=0x0013; value=request.request.address;
+            } else if (!std::strcmp(tokens[args+1],"baud")) {
+                if (!number(tokens[args+2],numberValue) || (numberValue!=115200 && numberValue!=38400 && numberValue!=19200 && numberValue!=9600)) { error(id,"communication","invalid_baud"); return; }
+                value=numberValue==115200?0:numberValue==38400?1:numberValue==19200?2:3;
+                request.request.field=Ess::CommunicationField::BAUD; request.request.baud=static_cast<Ess::BaudRateCode>(value); reg=0x0014;
+            } else if (!std::strcmp(tokens[args+1],"format")) {
+                HostFormat format;
+                if (!parseFormat(tokens[args+2],format)) { error(id,"communication","invalid_format"); return; }
+                value=static_cast<uint16_t>(format); request.request.field=Ess::CommunicationField::FORMAT;
+                request.request.format=static_cast<Ess::SerialFormatCode>(value); reg=0x0015;
+            } else { error(id,"communication","invalid_field"); return; }
+            if (count==args+4) {
+                if (!number(tokens[args+3],numberValue) || numberValue<1 || numberValue>247) { error(id,"communication","invalid_address"); return; }
+                request.address=static_cast<uint8_t>(numberValue);
+            }
+        } else { error(id,"communication","invalid_arguments"); return; }
+        CommunicationView view;
+        const Action result=host_.communication(host_.context,inspect?nullptr:&request,view);
+        std::size_t used=0;
+        bool fits=append(output_,sizeof(output_),used,
+            "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"communication\",\"ok\":%s,\"result\":\"%s\",\"action\":%d,\"pending\":%s,\"owned\":%s,\"route_ready\":%s,\"save_sent\":false,\"restart_performed\":false,\"write_replayed\":false,\"plan\":",
+            static_cast<unsigned long>(id),boolean(result==Action::OK),result==Action::OK?"done":actionName(result),inspect?-1:static_cast<int>(request.kind),
+            boolean(view.pending),boolean(view.owned),boolean(view.routeReady));
+        if (plan || request.kind==CommunicationCommandKind::BEGIN) {
+            fits=fits && append(output_,sizeof(output_),used,
+                "{\"field\":\"%s\",\"address\":%u,\"register\":%u,\"value\":%u,\"writes\":1,\"save\":\"%s\",\"restart\":\"%s\",\"activation\":\"unresolved\",\"prerequisites\":\"fresh_checked_config_exact_candidate_stationary_effects_route_back%s\"}",
+                communicationField(request.request.field),request.address,reg,value,reg==0x0013?"required":"unresolved",reg==0x0013?"unresolved":"required",reg==0x0013?"_address_dip_off":"");
+        } else fits=fits && append(output_,sizeof(output_),used,"null");
+        fits=fits && append(output_,sizeof(output_),used,",\"context\":") && communicationContext(output_,sizeof(output_),used,view.context) &&
+            append(output_,sizeof(output_),used,",\"host\":{\"active\":") && hostTuple(output_,sizeof(output_),used,view.host.active) &&
+            append(output_,sizeof(output_),used,",\"active_known\":%s,\"blocked\":%s,\"serial_generation\":%lu,\"actual_baud\":%lu,\"failure\":\"%s\"}}",
+                boolean(view.host.activeKnown),boolean(view.host.blocked),static_cast<unsigned long>(view.host.generation),static_cast<unsigned long>(view.host.actualBaud),hostFailure(view.host.failure));
+        if (!fits) { error(id,"communication","output_full"); return; }
         emit(); return;
     }
     const bool nativeHome = entry->command == Command::PROFILE && count > first + 2 &&
@@ -1142,6 +1231,7 @@ void Console::dispatch() noexcept {
         case Command::MONITOR: return host_.monitor != nullptr;
         case Command::LOAD: return host_.load != nullptr;
         case Command::HOST: return host_.hostSerial != nullptr;
+        case Command::COMMUNICATION: return host_.communication != nullptr;
         case Command::CAPTURE_READ: return host_.startCaptureRead != nullptr;
         case Command::ENABLE: case Command::MOTOR_RELEASE: case Command::ALARM_CLEAR: case Command::STOP: case Command::POSITION_CLEAR: return host_.startAction && host_.snapshot;
         case Command::MOVE: return host_.startMove && host_.snapshot && host_.axis;

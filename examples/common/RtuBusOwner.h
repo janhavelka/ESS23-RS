@@ -203,13 +203,27 @@ public:
     bool beginConfiguration(uint64_t nowUs) noexcept;
     bool finishConfiguration(const Timing&, uint64_t nowUs) noexcept;
     bool configurationOwned() const noexcept { return configurationOwned_; }
+    /** Exclusive application commissioning lease, scoped to this owner's lifetime.
+     * Requires healthy settled idle; invalidates waiting producer sequences but
+     * preserves retained results. Rejection leaves token unchanged. Application
+     * checks operation/monitor reservations before entry and known host/target
+     * context before exit. Recovery and host configuration never release it. */
+    bool beginCommissioning(uint64_t nowUs, uint64_t& token) noexcept;
+    bool endCommissioning(uint64_t token, uint64_t nowUs) noexcept;
+    bool commissioningOwned() const noexcept { return commissioningToken_ != 0; }
+    /** Ordinary-capacity work for the current lease only. Zero/stale tokens are
+     * invalid. Normal/urgent admission returns CONFIGURING during a lease;
+     * host configuration still excludes this privileged path. No retries. */
+    BusAdmission admitCommissioning(const BusRequest&, uint64_t token,
+                                    uint64_t nowUs, RequestId& output) noexcept;
 
 private:
     static constexpr std::size_t NONE = static_cast<std::size_t>(-1);
     bool clock(uint64_t nowUs) noexcept;
     ResultSlot* find(const RequestId& id) const noexcept;
     ResultSlot* reservation(const RequestId& id) const noexcept;
-    BusAdmission admit(const BusRequest&, uint64_t, RequestId&, bool urgent) noexcept;
+    BusAdmission admit(const BusRequest&, uint64_t, RequestId&, bool urgent,
+                       uint64_t commissioningToken = 0) noexcept;
     bool sequenceValid(const BusRequest& request) const noexcept;
     void advanceGeneration(std::size_t producer) noexcept;
     void cancelGroup(std::size_t producer, const SequenceId* sequence, uint64_t nowUs, Cancellation cause) noexcept;
@@ -231,6 +245,7 @@ private:
     uint64_t recoveryGeneration_ = 0, recoveryQuietUs_ = 0;
     bool valid_ = false;
     bool configurationOwned_ = false;
+    uint64_t commissioningGeneration_ = 0, commissioningToken_ = 0;
 };
 
 }} // namespace MotorControlRSExample::Rtu

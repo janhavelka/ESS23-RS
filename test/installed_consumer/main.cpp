@@ -12,6 +12,7 @@
 #include <MotorControlRS/profiles/ess_rs/Segments.h>
 #include <MotorControlRS/profiles/ess_rs/ControlSettings.h>
 #include <MotorControlRS/profiles/ess_rs/Tuning.h>
+#include <MotorControlRS/profiles/ess_rs/Communication.h>
 
 int main() {
     using namespace MotorControlRS;
@@ -158,5 +159,10 @@ int main() {
     DriverRequest tuningCandidate;
     if (!prepareTuningValue(tuningCandidate, laStageParameter(2, LaStageField::NODE), 65535) ||
         tuningCandidate.group != DriverGroup::LA || tuningCandidate.fields != 32 || tuningCandidate.tuningValues[5] != 65535) return 46;
+    CommunicationContext commissioning; PreparedCommunication communicationWork;
+    if (nextCommunication(commissioning, 0, communicationWork)) return 48;
+    CommunicationRequest communicationRequest; CommunicationPrerequisites communicationPrerequisites;
+    communicationRequest.field = CommunicationField::BAUD;
+    if (prepareCommunication(commissioning, target, 17, communicationRequest, communicationPrerequisites, 3000, 100000)) return 49;
     return 0;
 }

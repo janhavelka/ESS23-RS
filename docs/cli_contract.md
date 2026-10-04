@@ -1,5 +1,11 @@
 # MotorControl-RS standalone CLI contract
 
+Prompt20 implements `profile ess_rs communication inspect|plan|begin|host|confirm|finish`
+through the public communication preparation. Candidate selection is explicit;
+ordinary producers remain excluded until the session settles. The finite Python
+`communication-check` defaults to planning and never saves, restarts or replays
+a write. See [communication commands and prerequisites](ess_communication.md).
+
 Prompt19 implements host-only `host`, `host caps`, `host baud RATE`,
 `host fmt 8N1|8N2|8E1|8O1`, `host set RATE FORMAT` and `host restore` through
 the application serial callback. Supported rates are 9600, 19200, 38400 and

@@ -23,6 +23,7 @@
     "ARRIVAL_TIME",
     "AUXILIARY_COMMAND",
     "BASE_CURRENT_PERCENT",
+    "BAUD_RATE",
     "CLOSED_LOOP_CURRENT_PERCENT",
     "COLLISION_CURRENT_0123",
     "COLLISION_THRESHOLD_0122",
@@ -31,6 +32,7 @@
     "CURRENT_LOOP_KI",
     "CURRENT_LOOP_KP",
     "CURRENT_LOOP_KP_MULTIPLIER",
+    "CUSTOM_NODE",
     "CUSTOM_OUTPUT",
     "DEFAULT_DIRECTION",
     "DRIVER_MODEL",
@@ -146,6 +148,7 @@
     "SEGMENT_START_SPEED_14_VALUE",
     "SEGMENT_START_SPEED_15_VALUE",
     "SEGMENT_START_SPEED_16_VALUE",
+    "SERIAL_FORMAT",
     "SOFT_LIMIT_ENABLE",
     "SPEED_SEGMENT_01_ACCELERATION_TIME",
     "SPEED_SEGMENT_01_DECELERATION_TIME",
@@ -2249,6 +2252,59 @@
         "reason": "Finite stopped/passive known-unconnected ESS23-RS20 experiment2?3?2 passes exact stored readback and restoration. Source-unconfirmed FC06 keeps acknowledgedfalse/executionunknown; separate confirmed FC03 settles stored codes. Physical filter delay, external-input operation and persistence remain NOT_RUN. Final audit image repeats this register path in104 frames with zero transport/capture errors; originals restored. Physical effects remain unqualified."
       },
       "reason": "Same filters-group candidate and checked sequence; this separate evidence disposition cannot qualify other filter fields or physical filter timing."
+    },
+    {
+      "id": "communication_setting",
+      "kind": "WRITE",
+      "records": [
+        "CUSTOM_NODE",
+        "BAUD_RATE",
+        "SERIAL_FORMAT"
+      ],
+      "api": {
+        "header": "include/MotorControlRS/profiles/ess_rs/Communication.h",
+        "symbols": [
+          "prepareCommunication",
+          "nextCommunication",
+          "advanceCommunication",
+          "prepareCommunicationConfirmation"
+        ]
+      },
+      "cli_commands": [
+        "profile ess_rs communication begin address VALUE",
+        "profile ess_rs communication begin baud VALUE",
+        "profile ess_rs communication begin format VALUE"
+      ],
+      "implementation": "IMPLEMENTED",
+      "cli": "REACHABLE",
+      "native": {
+        "state": "PASS",
+        "evidence": [
+          "test/communication_test.cpp",
+          "test/communication_app_test.cpp",
+          "test/communication_console_test.cpp",
+          "test/commissioning_owner_test.cpp",
+          "test/communication_harness_test.py"
+        ]
+      },
+      "hardware": {
+        "state": "NOT_RUN",
+        "evidence": [
+          "docs/ess_communication.md"
+        ],
+        "reason": "No qualified restart/route-back fixture. Default application rejects begin without TX; read-only regression does not qualify activation."
+      },
+      "reason": "Single typed FC06 with exact before/requested contexts, explicit bounded confirmation, no write replay/save/restart. Address acknowledgement/activation remains unresolved; custom addressing requires explicit prompt21 save. Baud/format require restart; their persistence requirement remains unresolved.",
+      "choices": [
+        "BaudRateCode.BAUD_115200",
+        "BaudRateCode.BAUD_38400",
+        "BaudRateCode.BAUD_19200",
+        "BaudRateCode.BAUD_9600",
+        "SerialFormatCode.FORMAT_8N1",
+        "SerialFormatCode.FORMAT_8N2",
+        "SerialFormatCode.FORMAT_8E1",
+        "SerialFormatCode.FORMAT_8O1"
+      ]
     }
   ],
   "coverage_notes": [

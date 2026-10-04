@@ -1,5 +1,14 @@
 # Roadmap to a supported ESS release
 
+Prompt20 implements [drive communication commissioning](ess_communication.md)
+with retained candidate contexts, exclusive owner admission and explicit bounded
+confirmation/restoration. All 52 native suites, installed consumption and four
+firmware builds pass; the final image passes 37 read-only COM13 frames and
+zero-TX qualification gates. Physical changes/activation/restoration remain
+NOT RUN without an actual motor restart and qualified route back. The
+[handoff](reports/ess_release_20_2026-10-04.md) assigns explicit save-dependent
+activation to prompt21 and preserves prompt19's unresolved mismatch evidence.
+
 Prompt19 delivers [host serial selection](host_serial.md), exclusive failure
 and restoration handling, per-request tuple evidence and independent logical
 generations. Native/package/four-build checks and available COM13 host setup,
@@ -22,7 +31,7 @@ future version numbers are not commitments.
 
 The [ESS release prompt set](prompts/ess_release/README.md) turns these stages
 into 30 ordered implementation blocks with tests, independent audits and
-evidence handoffs. Prompts 01-19 have implementation and available verification
+evidence handoffs. Prompts 01-20 have implementation and available verification
 dispositions. [Prompt12](reports/ess_release_12_2026-10-04.md) consolidates the
 four reviewed FC10 windows into generated policy and records all paired-write
 proof gaps. Its [fresh audit](reports/ess_release_12_audit_2026-10-04.md) fixes

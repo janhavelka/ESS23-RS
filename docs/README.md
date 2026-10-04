@@ -1,5 +1,11 @@
 # MotorControl-RS documentation
 
+Prompt20 adds [explicit communication commissioning](ess_communication.md):
+typed settings, exclusive owner admission, retained candidates and bounded
+read-only confirmation. [Native/build/read-only verification](reports/ess_release_20_2026-10-04.md)
+passes; physical activation/restoration is NOT RUN pending a motor restart and
+qualified route back. Prompt21 owns explicit save-dependent activation.
+
 Prompt19 delivers [host tuple support](host_serial.md): one adapter, exclusive
 configuration ownership, retained historical context and explicit restoration.
 All sixteen SDK setups and two mismatch/restore COM13 scenarios pass without

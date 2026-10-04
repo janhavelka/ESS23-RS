@@ -1,8 +1,8 @@
 # ESS release implementation sequence
 
 Prepared 2026-10-03 against MotorControl-RS `4ae0c4d` (0.6.0).
-Preparing this set executed no numbered prompt. **Prompts 01-19 have implementation and available verification dispositions;
-20-30 remain prepared and unexecuted. Independent electrical and physical action/motion qualification remain open.**
+Preparing this set executed no numbered prompt. **Prompts 01-20 have implementation and available verification dispositions;
+21-30 remain prepared and unexecuted. Independent electrical and physical action/motion qualification remain open.**
 The current core, runner, ESP32-S3 capture and probe/load tools are existing work;
 do not rebuild them from an old prompt as if they were missing.
 
@@ -58,7 +58,7 @@ Never mark all preceding physical work qualified just because code compiles.
 | [17 — Algorithm, encoder, current and lock settings](17_algorithm_encoder_current_and_lock.md) | 7 | Implemented with exact-source guards and freshly audited; native/package/four builds PASS; all8reads and lock-delay restoration PASS; mode/encoder/current effects NOT RUN | [Handoff](../../reports/ess_release_17_2026-10-04.md), [fresh audit](../../reports/ess_release_16_17_audit_2026-10-04.md), [combined17/18 audit](../../reports/ess_release_17_18_audit_2026-10-04.md), [API](../../ess_control_settings.md) |
 | [18 — Filters, tracking and tuning parameters](18_filters_tracking_and_tuning.md) | 7 | Implemented and independently reviewed;45 native/package/four-build checks PASS; all20 COM13 reads and input-filter stored restoration PASS; physical effects unqualified, collision access/firmware gaps retained | [Handoff](../../reports/ess_release_18_2026-10-04.md), [fresh17/18 audit](../../reports/ess_release_17_18_audit_2026-10-04.md), [API](../../ess_tuning.md) |
 | [19 — Host serial settings and adapter capability limits](19_host_serial_tuple_support.md) | 7 / 8 | Implemented and freshly audited;47 native/package/four builds PASS; all16 host setups/restoration/ten probes PASS; strict mismatch traffic FAIL/unresolved; alternate motor tuples/electrical timing unqualified | [Handoff](../../reports/ess_release_19_2026-10-04.md), [fresh audit](../../reports/ess_release_19_audit_2026-10-04.md), [API](../../host_serial.md) |
-| [20 — Explicit drive communication commissioning](20_device_communication_commissioning.md) | 7 | Prepared | — |
+| [20 — Explicit drive communication commissioning](20_device_communication_commissioning.md) | 7 | Implemented and independently reviewed;52 native/package/four builds and37 read-only COM13 frames PASS; physical settings/activation/restoration NOT RUN pending restart/route-back fixture | [Handoff](../../reports/ess_release_20_2026-10-04.md), [API](../../ess_communication.md) |
 | [21 — Save, restore and persistence evidence](21_save_restore_and_persistence.md) | 7 | Prepared | — |
 | [22 — Bounded discovery and minimal probe capabilities](22_bounded_discovery.md) | 7 | Prepared | — |
 | [23 — Complete public API and CLI coverage](23_cli_and_capability_parity.md) | 6 / 7 | Prepared | — |

@@ -165,10 +165,11 @@ retains the mismatched host state. A subsequent diagnostic recovery/restoration
 must be explicit. Queries and refusals preserve failure, divider readback and
 capability diagnostics; attempted reads include interrupted or lost admissions.
 
-Prompt 20 can use the real restoration and failure APIs when separately
-implementing device communication commissioning. Prompt 22 can reserve the
-same owner while building bounded discovery. Neither device setting writes
-nor discovery orchestration are delivered by host tuple support.
+[Prompt20 communication commissioning](ess_communication.md) reuses these
+restoration/failure APIs under `BusOwner::beginCommissioning` token ownership.
+Normal producers remain excluded until explicit session finish; host recovery
+alone does not prove a responding candidate. Prompt22 can reuse the same owner
+for bounded discovery; no discovery orchestration is delivered here.
 
 Native adapter/application/fake-console tests establish software behavior.
 This document makes no new hardware qualification claim. Alternate tuple

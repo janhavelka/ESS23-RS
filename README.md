@@ -1,5 +1,11 @@
 # MotorControl-RS
 
+[Drive communication commissioning](docs/ess_communication.md) now provides
+typed address/baud/format operations, exclusive ownership and retained recovery
+candidates. Native/build and read-only regression checks pass; physical setting
+changes remain NOT RUN without a qualified restart/recovery route. See the
+[prompt20 handoff](docs/reports/ess_release_20_2026-10-04.md).
+
 [Host serial support](docs/host_serial.md) adds sixteen reviewed baud/format
 tuples, exclusive idle configuration and explicit failure/restoration handling
 to the standalone owner. Native and host-only COM13 checks pass; the motor

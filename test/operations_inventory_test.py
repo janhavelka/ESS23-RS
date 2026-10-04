@@ -61,7 +61,7 @@ class Coverage(unittest.TestCase):
         self.assertEqual((summary["records"], summary["reserved"], summary["unresolved_access"], summary["named_choices"]),
                          (221, 16, 2, 135))
         self.assertEqual(sum(count for state, count in summary["read"].items() if state in operations.IMPLEMENTATION), 201)
-        self.assertEqual(summary["write"]["NOT_IMPLEMENTED"], 5)
+        self.assertEqual(summary["write"]["NOT_IMPLEMENTED"], 2)
         self.assertEqual(summary["write"]["UNSUPPORTED"], 18)
         self.assertEqual(summary["action"]["IN_PROGRESS"], 2)
         linked = {record for group in INVENTORY["operations"] for record in group["records"]}
@@ -81,8 +81,8 @@ class Coverage(unittest.TestCase):
             "SoftLimitEnable.AFTER_HOMING", "OverLimitStop.FREE_PARKING", "OverLimitStop.EMERGENCY_STOP",
             "PvTriggerMode.LEVEL", "PvTriggerMode.RISING_EDGE", "PositionMode.RELATIVE", "PositionMode.ABSOLUTE", "HomingMethod.METHOD_33", "HomingMethod.METHOD_34",
             "HomingMethod.METHOD_35", "MotionCommandBit.START_HOMING",
-            "ControlAlgorithm.OPEN_LOOP", "ControlAlgorithm.ALGORITHM_1"} | {e["name"] + "." + v["name"] for e in LEDGER["enums"] if e["name"] in ("InputFunction", "OutputFunction", "InputBit", "OutputBit") for v in e["values"] if not (e["name"] == "OutputFunction" and v["value"] == 11)})
-        self.assertEqual(result["summary"]["choice_implementation"], {"NOT_IMPLEMENTED": 75, "IMPLEMENTED": 59, "UNSUPPORTED": 1})
+            "ControlAlgorithm.OPEN_LOOP", "ControlAlgorithm.ALGORITHM_1"} | {e["name"] + "." + v["name"] for e in LEDGER["enums"] if e["name"] in ("InputFunction", "OutputFunction", "InputBit", "OutputBit", "BaudRateCode", "SerialFormatCode") for v in e["values"] if not (e["name"] == "OutputFunction" and v["value"] == 11)})
+        self.assertEqual(result["summary"]["choice_implementation"], {"NOT_IMPLEMENTED": 67, "IMPLEMENTED": 67, "UNSUPPORTED": 1})
         for record in result["records"]:
             if record["id"] in ("AUXILIARY_COMMAND", "MOTION_COMMAND"):
                 self.assertEqual(record["obligations"]["write"], "IN_PROGRESS")

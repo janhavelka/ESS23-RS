@@ -67,8 +67,15 @@ BusAdmission BusOwner::admit(const BusRequest& request, uint64_t nowUs, RequestI
 BusAdmission BusOwner::admitUrgent(const BusRequest& request, uint64_t nowUs, RequestId& output) noexcept {
     return admit(request, nowUs, output, true);
 }
-BusAdmission BusOwner::admit(const BusRequest& request, uint64_t nowUs, RequestId& output, bool urgent) noexcept {
-    if (configurationOwned_) return BusAdmission::CONFIGURING;
+BusAdmission BusOwner::admitCommissioning(const BusRequest& request, uint64_t token,
+                                          uint64_t nowUs, RequestId& output) noexcept {
+    if (!token || token != commissioningToken_) return BusAdmission::INVALID;
+    return admit(request, nowUs, output, false, token);
+}
+BusAdmission BusOwner::admit(const BusRequest& request, uint64_t nowUs, RequestId& output,
+                              bool urgent, uint64_t commissioningToken) noexcept {
+    if (configurationOwned_ || (commissioningOwned() && commissioningToken != commissioningToken_))
+        return BusAdmission::CONFIGURING;
     if (!valid_ || !clock(nowUs)) return BusAdmission::INVALID;
     if (recovering()) return BusAdmission::RECOVERING;
     const uint64_t dispatch = request.dispatchDeadlineUs ? request.dispatchDeadlineUs : request.wire.deadlineUs;
@@ -226,9 +233,24 @@ bool BusOwner::finishConfiguration(const Timing& timing, uint64_t nowUs) noexcep
     configurationOwned_ = false;
     return true;
 }
+bool BusOwner::beginCommissioning(uint64_t nowUs, uint64_t& token) noexcept {
+    if (!valid_ || commissioningOwned() || configurationOwned_ || active() || pending() || needsRecovery() ||
+        runner_.busy() || runner_.transmitEnabled() ||
+        commissioningGeneration_ == std::numeric_limits<uint64_t>::max() || !clock(nowUs)) return false;
+    for (std::size_t i = 0; i < storage_.producerCapacity; ++i) advanceGeneration(i);
+    commissioningToken_ = ++commissioningGeneration_;
+    token = commissioningToken_;
+    return true;
+}
+bool BusOwner::endCommissioning(uint64_t token, uint64_t nowUs) noexcept {
+    if (!valid_ || !token || token != commissioningToken_ || configurationOwned_ || active() || pending() ||
+        needsRecovery() || runner_.busy() || runner_.transmitEnabled() || !clock(nowUs)) return false;
+    commissioningToken_ = 0;
+    return true;
+}
 
 bool BusOwner::beginSequence(std::size_t producer, uint64_t deadline, uint64_t nowUs, SequenceId& output) noexcept {
-    if (configurationOwned_) return false;
+    if (configurationOwned_ || commissioningOwned()) return false;
     if (!valid_ || !clock(nowUs) || recovering() || producer >= storage_.producerCapacity || deadline <= nowUs ||
         !storage_.producers[producer].generation ||
         storage_.producers[producer].generation == std::numeric_limits<uint64_t>::max()) return false;

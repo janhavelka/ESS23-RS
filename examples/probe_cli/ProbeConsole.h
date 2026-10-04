@@ -12,6 +12,7 @@
 #include "MotorControlRS/profiles/ess_rs/Velocity.h"
 #include "MotorControlRS/profiles/ess_rs/DriverSettings.h"
 #include "MotorControlRS/profiles/ess_rs/Homing.h"
+#include "MotorControlRS/profiles/ess_rs/Communication.h"
 
 namespace MotorControlRSExample { namespace Probe {
 
@@ -75,6 +76,23 @@ struct HostSnapshot {
     HostFailure failure = HostFailure::NONE;
     uint32_t supportedBauds[4] = {}; ///< Adapter-reported baud list; zero entries absent.
     bool supportedFormats[4] = {}; ///< Adapter-reported HostFormat slots.
+};
+
+enum class CommunicationCommandKind : uint8_t {
+    PREVIEW, BEGIN, SELECT_BEFORE, SELECT_REQUESTED, CONFIRM_BEFORE, CONFIRM_REQUESTED, FINISH
+};
+/** Explicit session action; null callback input inspects without mutation. */
+struct CommunicationCommand {
+    CommunicationCommandKind kind = CommunicationCommandKind::PREVIEW;
+    MotorControlRS::ESS_RS::CommunicationRequest request;
+    uint8_t address = 1;
+};
+/** Borrowed core context remains valid through synchronous JSON formatting.
+ * Host settings are separate from observed responding drive settings. */
+struct CommunicationView {
+    const MotorControlRS::ESS_RS::CommunicationContext* context = nullptr;
+    bool pending = false, owned = false, routeReady = false;
+    HostSnapshot host;
 };
 
 /** Task-context cached host observations. No probe establishes motor readiness. */
@@ -227,6 +245,7 @@ struct Host {
     /** Settled bus configuration; null request queries cached host state. No motor
      * command, retry or automatic recovery. Request is consumed during the call. */
     Action (*hostSerial)(void*, const HostRequest* requested, HostSnapshot&) = nullptr;
+    Action (*communication)(void*, const CommunicationCommand*, CommunicationView&) = nullptr;
     bool (*result)(void*, uint32_t operationId, ResultView&) = nullptr; ///< Zero selects latest.
     Action (*cancel)(void*, uint32_t operationId) = nullptr; ///< Local only; zero selects latest.
     Action (*release)(void*, uint32_t operationId) = nullptr; ///< Explicit terminal retention release.

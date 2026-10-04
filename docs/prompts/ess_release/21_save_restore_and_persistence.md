@@ -9,6 +9,13 @@ Prerequisite: configuration snapshots/effects, stopped-state evidence, 20's comm
 
 Read the original ESS save-all/factory-restore pages, access notation and timing audit. Reuse typed actions, owner exclusivity, retained results and configuration readback; never overload console reset/recover.
 
+Prompt20's [handoff](../../reports/ess_release_20_2026-10-04.md) and
+[communication API](../../ess_communication.md) provide `CommunicationContext`,
+explicit candidate confirmation and the application's token-based commissioning
+lease. Reuse that ownership while saving a pending custom address; do not route
+save around it or release it merely because the host UART was restored. Physical
+activation remains NOT RUN until a motor restart/route-back fixture exists.
+
 ## Implement
 
 - Add explicit typed save and factory-restore preparations with documented stopped-state prerequisites and scope. Keep volatile application, acknowledged command and verified persistence distinct.

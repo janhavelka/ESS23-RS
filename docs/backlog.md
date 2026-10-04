@@ -1,5 +1,12 @@
 # Features implementation tasks and open questions
 
+## Prompt20 drive communication commissioning
+
+- [x] Typed address/baud/format preparations, exact before/requested/readback/responding contexts, exclusive owner lease and finite explicit confirmation; no hidden save, restart or replay.
+- [x] Native core/owner/actual application/CLI/Python failure cases, installed consumer and four firmware builds PASS; final COM13 image passes 37 read-only frames and all three zero-TX qualification gates. See [handoff](reports/ess_release_20_2026-10-04.md) and [API](ess_communication.md).
+- [ ] Physical setting changes, activation and restoration NOT RUN: actual motor restart and qualified route back are unavailable. Address save activation goes to prompt21; baud/format save requirement and acknowledgement/activation timing remain unresolved.
+- [ ] Two exhausted confirmation slots retain ownership/evidence for operator/application handoff; automatic scans or write replay are not a recovery route.
+
 ## Prompt19 host tuple support
 
 - [x] Sixteen reviewed SDK/ESS tuples, UART divider readback, character/gap/capture budgets and default-tuple-only first-reply exception.

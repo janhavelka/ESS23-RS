@@ -63,6 +63,12 @@ struct App {
     Rtu::ResultSlot results[9];
     Rtu::ProducerSlot producers[1];
     Probe::HostSnapshot serial;
+    ESS::CommunicationContext commissioning, commissioningPrepared;
+    ESS::CommunicationPrerequisites commissioningPrerequisites; // Exact supplied fixture/effects evidence; unavailable by default.
+    Rtu::RequestId commissioningRequest;
+    uint64_t commissioningLease = 0;
+    uint32_t commissioningConfirmedGeneration = 0, commissioningRequestBinding = 0;
+    bool commissioningInvalidated = false, commissioningResponseQualified = false;
     Rtu::Runner runner;
     Rtu::BusOwner owner;
     Probe::Console console;
@@ -287,6 +293,7 @@ MotorControlRS::Status axisCommand(void* context, const Probe::AxisCommand& comm
     App& a = *static_cast<App*>(context);
     view.commandPolarityKnown = a.commandPolarityKnown;
     if (command.kind == Probe::AxisCommandKind::QUERY) { view.configuration = a.axis; return Ok(); }
+    if (a.owner.commissioningOwned()) return Status(Err::INVALID_CONFIG, 0, "communication commissioning owns the endpoint");
     const AxisReference evidence = axisReference(a);
     if (command.kind == Probe::AxisCommandKind::PREPARE) {
         if (!a.commandPolarityKnown && command.position.frame != CoordinateFrame::NATIVE)
@@ -350,12 +357,12 @@ void snapshot(void* context, Probe::Snapshot& s) {
     s.cachedIdentityGeneration = a.identity.target.generation;
     s.cachedConfigId = a.configuration.operationId; s.cachedConfigAddress = a.configuration.target.address;
     s.cachedConfigGeneration = a.configuration.target.generation;
-    s.address = 1; s.probeAddress = a.address; s.baud = a.serial.activeKnown ? a.serial.active.baud : 0; s.responseTimeoutUs = a.serial.timing.responseTimeoutUs;
+    s.address = a.axis.target.address; s.probeAddress = a.address; s.baud = a.serial.activeKnown ? a.serial.active.baud : 0; s.responseTimeoutUs = a.serial.timing.responseTimeoutUs;
     s.serial = a.serial;
     s.replyGapUs = a.serial.timing.replyGapUs; s.gap15Us = a.serial.timing.runner.gap15Us; s.gap35Us = a.serial.timing.runner.gap35Us;
     s.uptimeMs = nowUs() / 1000; s.ready = platformReady && a.serial.activeKnown && !a.serial.blocked; s.timingQualified = false;
     s.actionsQualified = actionTimingQualified; s.axisReserved = axisReserved(a);
-    s.busy = a.owner.active() || a.owner.pending() || a.owner.recovering() || reading(a) || acting(a);
+    s.busy = a.owner.commissioningOwned() || a.owner.active() || a.owner.pending() || a.owner.recovering() || reading(a) || acting(a);
     s.recoveryRequired = a.serial.blocked || a.owner.needsRecovery() || uart.needsRecovery();
     s.phase = a.runner.phase(); s.transport = a.runner.result().reason; s.transmitEnabled = a.runner.transmitEnabled();
     s.codecChecked = a.codecChecked; s.codec = a.codec; s.frameError = a.frameError;
@@ -396,6 +403,7 @@ MotorControlRS::Status checkProbe(const Rtu::Expectation& e, const uint8_t* byte
 }
 Probe::Action startRead(void* context, uint32_t commandId, uint8_t address, uint32_t& operationId, bool captureRead) {
     App& a = *static_cast<App*>(context);
+    if (a.owner.commissioningOwned()) return Probe::Action::BUSY;
     if (!platformReady) return Probe::Action::UNAVAILABLE;
     if (a.serial.blocked || a.serial.configuring || a.owner.configurationOwned()) return Probe::Action::RECOVERY_REQUIRED;
     const uint64_t sampled = uart.sample();
@@ -460,6 +468,7 @@ Rtu::BusAdmission admitStep(App& a, App::Record& record, uint64_t sampled) {
 Probe::Action startTypedRead(void* context, uint32_t commandId, uint8_t address, ESS::ReadKind kind,
                              uint32_t& operationId, bool monitored) {
     App& a = *static_cast<App*>(context);
+    if (a.owner.commissioningOwned()) return Probe::Action::BUSY;
     if (!platformReady) return Probe::Action::UNAVAILABLE;
     if (a.serial.blocked || a.serial.configuring || a.owner.configurationOwned()) return Probe::Action::RECOVERY_REQUIRED;
     const uint64_t sampled = uart.sample();
@@ -528,6 +537,7 @@ Probe::Action startAction(void* context, uint32_t commandId, uint8_t address,
                           const MotorControlRS::ActionRequest& request, uint32_t& operationId) {
     using namespace MotorControlRS;
     App& a = *static_cast<App*>(context);
+    if (a.owner.commissioningOwned()) return Probe::Action::BUSY;
     if (!platformReady) return Probe::Action::UNAVAILABLE;
     if (a.serial.blocked || a.serial.configuring || a.owner.configurationOwned()) return Probe::Action::RECOVERY_REQUIRED;
     if (!a.nextOperationId) return Probe::Action::IDS_EXHAUSTED;
@@ -654,6 +664,7 @@ Probe::Action startMove(void* context, uint32_t commandId, uint8_t address,
                         const MotorControlRS::MoveRequest& supplied, uint32_t& operationId) {
     using namespace MotorControlRS;
     App& a = *static_cast<App*>(context);
+    if (a.owner.commissioningOwned()) return Probe::Action::BUSY;
     if (!platformReady) return Probe::Action::UNAVAILABLE;
     if (a.serial.blocked || a.serial.configuring || a.owner.configurationOwned()) return Probe::Action::RECOVERY_REQUIRED;
     if (!ESS::isValidAddress(address) || !supplied.speedRpm ||
@@ -728,6 +739,7 @@ Probe::Action startVelocity(void* context, uint32_t commandId, uint8_t address,
                             const MotorControlRS::VelocityRequest& supplied, uint32_t& operationId) {
     using namespace MotorControlRS;
     App& a = *static_cast<App*>(context);
+    if (a.owner.commissioningOwned()) return Probe::Action::BUSY;
     if (!platformReady) return Probe::Action::UNAVAILABLE;
     if (a.serial.blocked || a.serial.configuring || a.owner.configurationOwned()) return Probe::Action::RECOVERY_REQUIRED;
     if (!ESS::isValidAddress(address) || !supplied.durationUs || supplied.durationUs > 1000000)
@@ -794,6 +806,7 @@ Probe::Action startHome(void* context, uint32_t commandId, uint8_t address,
                         const ESS::HomeRequest& supplied, uint32_t& operationId) {
     using namespace MotorControlRS;
     App& a = *static_cast<App*>(context);
+    if (a.owner.commissioningOwned()) return Probe::Action::BUSY;
     if (!platformReady) return Probe::Action::UNAVAILABLE;
     if (a.serial.blocked || a.serial.configuring || a.owner.configurationOwned()) return Probe::Action::RECOVERY_REQUIRED;
     if (!ESS::isValidAddress(address)) return Probe::Action::INVALID;
@@ -980,6 +993,7 @@ Probe::Action startDriver(void* context, uint32_t commandId, uint8_t address, ES
                          const ESS::DriverRequest& supplied, uint32_t& operationId) {
     using namespace MotorControlRS;
     App& a = *static_cast<App*>(context);
+    if (a.owner.commissioningOwned()) return Probe::Action::BUSY;
     if (supplied.group > ESS::DriverGroup::COLLISION) return Probe::Action::INVALID;
     if (!platformReady) return Probe::Action::UNAVAILABLE;
     if (a.serial.blocked || a.serial.configuring || a.owner.configurationOwned()) return Probe::Action::RECOVERY_REQUIRED;
@@ -1507,6 +1521,7 @@ Probe::Action recover(void* context, uint32_t commandId, uint32_t& operationId) 
     if (a.bindingGeneration == UINT32_MAX) return Probe::Action::IDS_EXHAUSTED;
     const uint64_t now = uart.sample(); uint64_t id = 0;
     if (a.owner.recover(now, now + 2000000, id) != Rtu::RecoveryAdmission::ACCEPTED) return Probe::Action::FAILED;
+    a.commissioningConfirmedGeneration = 0; // Recovery requires a new explicit candidate observation.
     ++a.bindingGeneration;
     invalidateAxis(a);
     a.monitorState.settings.enabled = false; a.monitorState.remaining = 0;
@@ -1623,6 +1638,7 @@ Probe::Action release(void* context, uint32_t operationId) {
 }
 Probe::Action monitor(void* context, const Probe::MonitorSettings* requested, Probe::MonitorSnapshot& out) {
     App& a = *static_cast<App*>(context);
+    if (requested && requested->enabled && a.owner.commissioningOwned()) return Probe::Action::BUSY;
     if (!platformReady) return Probe::Action::UNAVAILABLE;
     if (a.serial.blocked || a.serial.configuring || a.owner.configurationOwned()) return Probe::Action::RECOVERY_REQUIRED;
     if (requested) {
@@ -1655,7 +1671,7 @@ void serviceMonitor(App& a, uint64_t sampled) {
     --a.monitorState.remaining;
     a.monitorState.nextDueUs = sampled + uint64_t(a.monitorState.settings.intervalMs) * 1000;
     uint32_t operation = 0;
-    const auto result = startTypedRead(&a, 0, 1, ESS::ReadKind::STATE, operation, true);
+    const auto result = startTypedRead(&a, 0, a.axis.target.address, ESS::ReadKind::STATE, operation, true);
     if (result == Probe::Action::OK) {
         ++a.monitorState.admitted; a.monitorState.operationId = operation;
     } else {
@@ -1697,12 +1713,13 @@ void invalidateSerialConfidence(App& a, uint64_t now) {
     // Endpoint/configuration generations and physical uncertainty do not belong
     // to a temporary UART selection. Historical records and host origins survive.
 }
-Probe::Action hostSerial(void* context, const Probe::HostRequest* requested, Probe::HostSnapshot& out) {
+Probe::Action hostSerialImpl(void* context, const Probe::HostRequest* requested, Probe::HostSnapshot& out, bool commissioning) {
     App& a = *static_cast<App*>(context);
     if (!requested) {
         if (!platformReady) return Probe::Action::UNAVAILABLE;
         out = a.serial; return Probe::Action::OK;
     }
+    if (a.owner.commissioningOwned() && !commissioning) return Probe::Action::BUSY;
     const HostTuple tuple = requested->restore ? a.serial.original : requested->tuple;
     HostTiming policy;
     if (!Esp32S3Uart::supports(tuple) || !hostTiming(tuple, policy)) return Probe::Action::UNSUPPORTED;
@@ -1741,13 +1758,18 @@ Probe::Action hostSerial(void* context, const Probe::HostRequest* requested, Pro
     return settled ? Probe::Action::OK : Probe::Action::FAILED;
 }
 
+Probe::Action hostSerial(void* context, const Probe::HostRequest* requested, Probe::HostSnapshot& out) {
+    return hostSerialImpl(context, requested, out, false);
+}
+#include "CommunicationApp.h"
+
 Probe::Host host(App* a) {
     Probe::Host h; h.context = a; h.emitLine = emit; h.snapshot = snapshot;
     h.startProbe = probe; h.startCaptureRead = captureRead; h.recover = recover; h.resetStats = reset;
     h.startTypedRead = typedRead;
     h.startAction = startAction; h.startMove = startMove; h.startVelocity = startVelocity; h.startDriver = startDriver; h.startHome = startHome;
     h.monitor = monitor;
-    h.axis = axisCommand; h.hostSerial = hostSerial;
+    h.axis = axisCommand; h.hostSerial = hostSerial; h.communication = communication;
     h.result = lookup; h.cancel = cancel; h.release = release;
 #if MOTORCONTROLRS_LOAD_FIXTURE
     h.load = load;
@@ -1911,6 +1933,7 @@ void loop() {
         a.modelOperationId = a.recovery.operationId;
         a.observedEarliestUs = a.observedLatestUs = a.deliveredUs = 0;
     }
+    serviceCommissioning(a, nowUs());
     advanceReads(a, nowUs());
     advanceActions(a, nowUs());
     serviceCoordinates(a, nowUs());

@@ -28,7 +28,7 @@ import time
 MAX_LINE = 8192
 MAX_INPUT = 32768
 COMMANDS = frozenset({"version", "config", "probe", "capture-read", "status", "health", "memory", "stats", "load",
-                      "drv", "result", "release", "cancel", "recover", "reset", "caps", "host",
+                      "drv", "result", "release", "cancel", "recover", "reset", "caps", "host", "communication",
                       "read-identity", "read-config", "read-state", "health-check", "monitor", "axis", "prepare", "enable", "motor-release", "alarm-clear", "stop", "position-clear", "move-relative", "move-absolute", "move-angle", "velocity", "driver", "io", "segment", "control", "tuning", "home"})
 MAX_COMMANDS = 11  # Eight ordinary operations, recovery, reserved stop and local query.
 MAX_OPERATIONS = 10  # Eight ordinary operations, one recovery and one reserved stop.
@@ -37,6 +37,33 @@ TYPED_READS = {"read-identity": "identity", "read-config": "config", "read-state
 READ_COMMANDS = ("probe", "capture-read", *TYPED_READS)
 HOST_BAUDS = (9600, 19200, 38400, 115200)
 HOST_FORMATS = ("8N1", "8N2", "8E1", "8O1")
+
+
+def communication_arguments(tokens: tuple[str, ...]) -> dict:
+    """Finite exact-candidate operations, never raw register writes or scans."""
+    if not isinstance(tokens, tuple) or any(type(v) is not str for v in tokens):
+        raise ValueError("communication arguments require a tuple of strings")
+    if tokens in ((), ("inspect",), ("finish",)):
+        return {"action": 6 if tokens == ("finish",) else -1}
+    if len(tokens) == 2 and tokens[0] in ("host", "confirm") and tokens[1] in ("before", "requested"):
+        return {"action": (2 if tokens[0] == "host" else 4) + (tokens[1] == "requested")}
+    if len(tokens) not in (3, 4) or tokens[0] not in ("plan", "begin"):
+        raise ValueError("communication requires inspect, plan/begin FIELD VALUE [address], host/confirm before/requested or finish")
+    field, raw = tokens[1:3]
+    if field == "address" and raw.isascii() and raw.isdigit() and 1 <= int(raw) <= 247:
+        value, reg = int(raw), 0x13
+    elif field == "baud" and raw.isascii() and raw.isdigit() and int(raw) in HOST_BAUDS:
+        value, reg = (115200, 38400, 19200, 9600).index(int(raw)), 0x14
+    elif field == "format" and raw in HOST_FORMATS:
+        value, reg = HOST_FORMATS.index(raw), 0x15
+    else:
+        raise ValueError("invalid communication field or value")
+    result = dict(action=0 if tokens[0] == "plan" else 1, field=field, value=value, register=reg)
+    if len(tokens) == 4:
+        if not tokens[3].isascii() or not tokens[3].isdigit() or not 1 <= int(tokens[3]) <= 247:
+            raise ValueError("communication target address must be 1..247")
+        result["address"] = int(tokens[3])
+    return result
 
 
 def host_arguments(arguments: tuple[str, ...]) -> dict:
@@ -460,6 +487,7 @@ class Console:
         self.operations: dict[int, Command] = {}
         self.last_operation_id = 0
         self.serial = None
+        self.communication = None
 
     def _lines(self, data: bytes) -> list[bytes]:
         self.buffer.extend(data)
@@ -2145,6 +2173,163 @@ class Console:
                        for key in ("original", "requested", "active", "active_known", "blocked", "serial_generation",
                                    "failure", "actual_baud", "supported_bauds", "supported_formats")}
 
+    def _check_communication(self, handle: Command, item: dict) -> None:
+        expected = communication_arguments(handle.host_args)
+        # Syntax/availability errors have no session snapshot. Other refusals
+        # retain exactly the same diagnostics as inspection.
+        if "action" not in item:
+            if item["ok"]:
+                raise BenchError("communication reply omitted action")
+            return
+        def require(condition, message):
+            if not condition:
+                raise BenchError("communication: " + message)
+        require(type(item["action"]) is int and item["action"] == expected["action"], "wrong requested action")
+        for key in ("pending", "owned", "route_ready", "save_sent", "restart_performed", "write_replayed"):
+            require(type(item.get(key)) is bool, "invalid " + key)
+        require(not any(item[k] for k in ("save_sent", "restart_performed", "write_replayed")), "unexpected persistence/replay")
+        require(not item["pending"] or item["owned"], "pending transaction has no owner")
+        plan = item.get("plan")
+        if expected["action"] in (0, 1):
+            require(isinstance(plan, dict), "missing candidate plan")
+            require(all(plan.get(k) == v for k, v in expected.items() if k != "action"), "plan differs from request")
+            require(type(plan.get("address")) is int and 1 <= plan["address"] <= 247, "invalid target")
+            address = expected["field"] == "address"
+            require(plan.get("writes") == 1 and plan.get("activation") == "unresolved" and
+                    plan.get("save") == ("required" if address else "unresolved") and
+                    plan.get("restart") == ("unresolved" if address else "required"), "false source requirements")
+        else:
+            require(plan is None, "unexpected plan")
+        host = item.get("host")
+        require(isinstance(host, dict) and isinstance(host.get("active"), dict), "missing host context")
+        require(type(host.get("active_known")) is bool and type(host.get("blocked")) is bool, "invalid host state")
+        require(type(host.get("serial_generation")) is int and 1 <= host["serial_generation"] <= 0xFFFFFFFF, "invalid host generation")
+        if host["active_known"]:
+            require(not host["blocked"] and host["active"].get("baud") in HOST_BAUDS and
+                    host["active"].get("format") in HOST_FORMATS, "unsettled known host")
+        # A communication session can explicitly change UART settings. The
+        # compact nested view is not the full HostSnapshot; refresh it through
+        # `host` before applying full-snapshot immutability checks again.
+        if self.serial is not None and host["serial_generation"] != self.serial["serial_generation"]:
+            self.serial = None
+        c = item.get("context")
+        if c is not None:
+            require(isinstance(c, dict) and self._operation_id(c.get("operation_id")), "invalid context")
+            for key in ("readback_known", "observed_active_known", "activation_unknown", "effects", "uncertain"):
+                require(type(c.get(key)) is bool, "invalid context " + key)
+            require(c["activation_unknown"], "readback cannot establish activation")
+            require(type(c.get("confirmations")) is int and 0 <= c["confirmations"] <= 2, "unbounded confirmations")
+            require(type(c.get("state")) is int and c["state"] in (1, 2, 3) and type(c.get("execution")) is int and c["execution"] in (0, 1, 2, 3), "invalid operation state")
+            require(type(c.get("step")) is int and c["step"] == c["confirmations"], "step/confirmation mismatch")
+            require(type(c.get("outcome")) is int and 0 <= c["outcome"] <= 10 and type(c.get("write_outcome")) is int and 0 <= c["write_outcome"] <= 10, "invalid outcome")
+            require((c["state"] == 1 and c["outcome"] == 0) or (c["state"] == 2 and c["outcome"] in (1, 3)) or
+                    (c["state"] == 3 and c["outcome"] in (2, 4, 5, 6, 7, 8, 9, 10)), "state/outcome mismatch")
+            require(c.get("field") in ("address", "baud", "format") and c.get("register") == {"address":19,"baud":20,"format":21}[c["field"]], "wrong field/register")
+            require(type(c.get("requested")) is int and (1 <= c["requested"] <= 247 if c["field"] == "address" else 0 <= c["requested"] <= 3), "invalid candidate value")
+            require(c["step"] > 0 or c["write_outcome"] == c["outcome"], "write outcome mismatch")
+            require(c["step"] == 0 or c["write_outcome"] != 0, "confirmation lacks completed write")
+            for name in ("before", "requested_endpoint", "observed_active"):
+                require(isinstance(c.get(name), dict), "missing " + name)
+            for name in ("before", "requested_endpoint"):
+                endpoint = c[name]
+                require(self._operation_id(endpoint.get("target")) and self._operation_id(endpoint.get("generation")) and
+                        type(endpoint.get("address")) is int and 1 <= endpoint["address"] <= 247 and endpoint.get("serial_known") is True and
+                        endpoint.get("baud") in HOST_BAUDS and endpoint.get("data_bits") == 8 and
+                        ((endpoint.get("parity") == 1 and endpoint.get("stop_bits") in (1,2)) or
+                         (endpoint.get("parity") in (2,3) and endpoint.get("stop_bits") == 1)), "invalid candidate endpoint")
+            candidate = dict(c["before"])
+            if c["field"] == "address":candidate["address"] = c["requested"]
+            elif c["field"] == "baud":candidate["baud"] = (115200,38400,19200,9600)[c["requested"]]
+            else:
+                candidate["parity"] = (1,1,2,3)[c["requested"]]
+                candidate["stop_bits"] = 2 if c["requested"] == 1 else 1
+            require(candidate == c["requested_endpoint"], "requested tuple differs from exact candidate")
+            require(isinstance(c.get("confirmation_evidence"), list) and len(c["confirmation_evidence"]) == c["confirmations"], "missing confirmation evidence")
+            observations = [c.get("write_evidence"), *c["confirmation_evidence"]]
+            for index, evidence in enumerate(observations):
+                require(isinstance(evidence, dict), "missing wire observation")
+                for key in ("eligible_us", "deadline_us"):
+                    require(type(evidence.get(key)) is int and 0 <= evidence[key] <= 0xFFFFFFFFFFFFFFFF, "invalid retained " + key)
+                require(isinstance(evidence.get("wire"), dict), "missing wire diagnostics")
+                if evidence["deadline_us"]:
+                    require(evidence["eligible_us"] < evidence["deadline_us"], "invalid transaction budget")
+                else:
+                    require(evidence["eligible_us"] == 0 and not evidence["wire"].get("delivered_us", 0), "published evidence lost its budget")
+                if index == 0 and c.get("write_outcome", 0) != 0:
+                    require(evidence["deadline_us"] > 0, "terminal write lost its budget")
+                if not evidence["deadline_us"]:
+                    require(index == c["step"] and c["state"] == 1, "terminal observation has no budget")
+                    continue
+                require(evidence.get("endpoint") == c["before"] if index == 0 else evidence.get("endpoint") in (c["before"],c["requested_endpoint"]), "foreign evidence endpoint")
+                wire = evidence["wire"]
+                require(type(wire.get("step")) is int and wire["step"] == index and wire.get("event") in (0,1,2,3), "wrong wire step/event")
+                for key in ("tx_accepted","received_length","earliest_us","latest_us","delivered_us","frame_error"):
+                    require(type(wire.get(key)) is int and 0 <= wire[key] <= 0xFFFFFFFFFFFFFFFF, "invalid wire " + key)
+                for key in ("tx_complete","response_confirmed","qualified","execution_unknown"):
+                    require(type(wire.get(key)) is bool, "invalid wire flag " + key)
+                require(wire["tx_accepted"] <= 8 and (not wire["tx_complete"] or wire["tx_accepted"] == 8), "invalid TX evidence")
+                raw_hex=wire.get("raw_hex")
+                require(type(raw_hex) is str and re.fullmatch(r"[0-9a-fA-F]*",raw_hex) is not None and len(raw_hex)%2 == 0, "invalid raw frame")
+                raw=bytes.fromhex(raw_hex)
+                require(len(raw) == min(9,wire["received_length"]), "raw frame retention mismatch")
+                if wire["qualified"]:
+                    require(wire["event"] == 0 and evidence["eligible_us"] <= wire["earliest_us"] <= wire["latest_us"] <= wire["delivered_us"], "invalid qualified interval")
+                else:require(wire["earliest_us"] == wire["latest_us"] == 0, "unqualified interval has bounds")
+                if wire["event"] == 0:
+                    require(wire["tx_accepted"] == 8 and wire["tx_complete"], "FRAME without completed request")
+                else:require(not wire["qualified"] and not wire["response_confirmed"], "local event claims response")
+                if wire.get("status") == "OK":
+                    require(wire["event"] == 0 and wire["frame_error"] == 0 and len(raw) in (7,8) and wire_crc(raw[:-2]) == int.from_bytes(raw[-2:],"little"), "successful codec lacks valid CRC/frame")
+                    expected_raw=bytes([evidence["endpoint"]["address"],6 if index == 0 else 3])
+                    expected_raw+=(c["register"].to_bytes(2,"big")+c["requested"].to_bytes(2,"big")) if index == 0 else bytes([2])+raw[3:5]
+                    require(raw[:-2] == expected_raw, "successful frame differs from request")
+                if evidence.get("readback_known"):
+                    require(index > 0 and wire.get("status") == "OK" and wire["qualified"] and wire["response_confirmed"] and
+                            not wire["execution_unknown"] and wire["latest_us"] <= evidence["deadline_us"] and evidence.get("readback") == int.from_bytes(raw[3:5],"big"), "unproven readback")
+            if c["state"] == 2:
+                latest=observations[c["step"]];wire=latest["wire"]
+                require(c.get("status") == "OK" and wire.get("status") == "OK" and wire["qualified"] and wire["response_confirmed"] and
+                        not wire["execution_unknown"] and wire["latest_us"] <= latest["deadline_us"], "false terminal success")
+                if c["step"] == 0:
+                    require(c["outcome"] == 1 and c["execution"] == 1 and c["field"] != "address", "unproven acknowledgement")
+                else:
+                    require(c["outcome"] == 3 and latest.get("readback_known") is True and c["readback_known"] and
+                            c["readback"] == latest["readback"] == c["requested"] and not c["uncertain"] and c["observed_active_known"], "false confirmed success")
+            write=observations[0]["wire"]
+            if c["write_outcome"]:
+                require(c["effects"] == bool(write["tx_accepted"] or write["execution_unknown"]), "lost write effects")
+                if c["execution"] == 1 or c["write_outcome"] in (1,2):
+                    require(write.get("status") == "OK" and write["qualified"] and write["response_confirmed"] and
+                            not write["execution_unknown"] and write["latest_us"] <= observations[0]["deadline_us"] and
+                            ((c["field"] == "address" and c["execution"] == 3 and c["write_outcome"] == 2) or
+                             (c["field"] != "address" and c["execution"] == 1 and c["write_outcome"] == 1)), "false retained acknowledgement")
+            if c["observed_active_known"]:
+                latest=observations[c["step"]]
+                require(c["step"] > 0 and latest.get("readback_known") is True and c["observed_active"] == latest.get("endpoint"), "foreign or unproven observed interface")
+            if item["ok"] and expected["action"] == 1:
+                require(c.get("field") == expected["field"] and c.get("requested") == expected["value"] and c.get("register") == expected["register"], "begun candidate differs")
+                require(item["owned"] and item["route_ready"], "begin lacks ownership/route")
+            old = self.communication
+            if old and c["operation_id"] == old["operation_id"]:
+                for key in ("field", "register", "previous", "requested", "before", "requested_endpoint"):
+                    require(c.get(key) == old.get(key), "retained candidate changed: " + key)
+                require(not old["effects"] or c["effects"], "write effects disappeared")
+                require(c["confirmations"] >= old["confirmations"], "confirmation evidence disappeared")
+                if old.get("write_outcome", 0) != 0:
+                    require(c.get("write_evidence") == old.get("write_evidence") and c.get("write_outcome") == old.get("write_outcome"), "write evidence changed")
+                for index, retained in enumerate(old["confirmation_evidence"]):
+                    if retained["deadline_us"]:
+                        require(c["confirmation_evidence"][index] == retained, "confirmation evidence or budget changed")
+            self.communication = json.loads(json.dumps(c))
+        if item["ok"] and expected["action"] == 6:
+            require(not item["owned"] and not item["pending"] and host["active_known"] and not host["blocked"], "finish did not settle ownership")
+            require(c is not None, "finish lost retained context")
+            no_write=c["execution"] == 0 and not c["effects"]
+            require(no_write or c["observed_active_known"], "finish lacks confirmed endpoint")
+            settled=c["before"] if no_write else c["observed_active"]
+            fmt="8N2" if settled["stop_bits"] == 2 else {1:"8N1",2:"8E1",3:"8O1"}[settled["parity"]]
+            require(host["active"] == dict(baud=settled["baud"],format=fmt), "finish host differs from confirmed endpoint")
+
     def _complete(self, handle: Command, item: dict) -> None:
         if self.clock() >= handle.deadline:
             raise BenchError("command response deadline expired; command was not replayed")
@@ -2160,6 +2345,8 @@ class Console:
             self._check_axis(item, handle.command == "prepare")
         if handle.command == "host":
             self._check_host(handle, item)
+        if handle.command == "communication":
+            self._check_communication(handle, item)
         if handle.command in ("status", "config") and item["ok"]:
             self._check_host_serial(item, handle.serial)
             if handle.command == "config" and handle.serial is not None and handle.serial["known"]:
@@ -2393,6 +2580,9 @@ class Console:
         if command == "host":
             host_args = () if host_args is None else host_args
             host_arguments(host_args)
+        elif command == "communication":
+            host_args = () if host_args is None else host_args
+            communication_arguments(host_args)
         elif host_args is not None:
             if (command not in ("axis", "prepare") or not isinstance(host_args, tuple) or
                     not 1 <= len(host_args) <= (9 if command == "prepare" else 8) or any(type(token) is not str or not token or
@@ -2493,7 +2683,7 @@ class Console:
                 suffix = " " + " ".join(driver_args) + suffix
             wire_command = "health check" if health_check else "read " + TYPED_READS[command] if command in TYPED_READS else command
             if command in MOVE_COMMANDS: wire_command = "move " + command[5:]
-            if command in ("driver", "io", "segment", "control", "tuning"): wire_command = "profile ess_rs " + command
+            if command in ("driver", "io", "segment", "control", "tuning", "communication"): wire_command = "profile ess_rs " + command
             payload = f"@{request_id} {wire_command}{suffix}\n".encode("ascii")
             if len(payload) > 128:
                 raise ValueError("command exceeds the console line bound")
@@ -2745,6 +2935,74 @@ def typed_read_campaign(console: Console, *, kind: str, timeout_s: float, addres
         console.emit("summary", mode="typed-read", read_kind=kind, reads_attempted=attempted,
                      reads_passed=completed, reads_failed=attempted - completed,
                      ok=failure is None and completed == len(kinds), error=failure)
+
+
+def communication_campaign(console: Console, *, field: str, value: str, address: int,
+                           timeout_s: float, execute: bool = False,
+                           confirm: str | None = None, finish: bool = False) -> dict:
+    """Preview first, optionally one write and one explicitly selected read.
+
+    Failed/uncertain writes retain the session for separately directed recovery.
+    Polls inspect cached session state only, with both count and elapsed bounds.
+    No cleanup operation is invented on timeout, interruption or failed setup.
+    """
+    tokens = ("plan", field, value, str(address))
+    communication_arguments(tokens)
+    positive(timeout_s, "communication deadline")
+    if confirm not in (None, "before", "requested") or (finish and confirm is None):
+        raise ValueError("finish requires an explicit before/requested confirmation")
+    if not execute and (confirm is not None or finish):
+        raise ValueError("confirmation/finish require explicit execution")
+    deadline = console.clock() + timeout_s
+    writes = reads = 0
+    failure = None
+    def command(args):
+        remaining = deadline - console.clock()
+        if remaining <= 0:
+            raise BenchError("communication procedure deadline; retained session requires inspection")
+        result = console.command("communication", host_args=args, timeout_s=remaining)
+        if not result["ok"]:
+            raise BenchError("communication command refused: " + str(result.get("result")))
+        return result
+    def settled(result):
+        for _ in range(100):
+            if not result["pending"]:
+                return result
+            remaining = deadline - console.clock()
+            if remaining <= 0:
+                break
+            console.sleep(min(0.01, remaining))
+            result = command(("inspect",))
+        raise BenchError("communication pending bound reached; no command replay or automatic cleanup")
+    try:
+        result = command(tokens)
+        console.emit("communication_plan", plan=result.get("plan"), route_ready=result.get("route_ready"), execute=execute)
+        if not execute:
+            return result
+        if not result.get("route_ready"):
+            raise BenchError("communication route/restart fixture is unavailable; no write attempted")
+        writes += 1  # Counts attempts even when the console response is lost.
+        result = settled(command(("begin", field, value, str(address))))
+        context = result.get("context") or {}
+        if context.get("state") != 2 or context.get("status") != "OK":
+            raise BenchError("write outcome is not confirmed success; inspect retained context and direct recovery explicitly")
+        if confirm is not None:
+            command(("host", confirm))
+            reads += 1
+            result = settled(command(("confirm", confirm)))
+            context = result.get("context") or {}
+            if context.get("state") != 2 or context.get("status") != "OK" or not context.get("observed_active_known"):
+                raise BenchError("confirmation failed; retained endpoint candidates require explicit recovery")
+            if finish:
+                result = command(("finish",))
+        return result
+    except BaseException as exc:
+        failure = str(exc)
+        raise
+    finally:
+        console.emit("summary", mode="communication-check", ok=failure is None, failure=failure,
+                     write_attempts=writes, read_attempts=reads, auto_recovery=False,
+                     save_sent=False, restart_performed=False, write_replayed=False)
 
 
 def host_check_campaign(console: Console, *, baud: int, fmt: str, timeout_s: float, address: int) -> None:
@@ -3038,6 +3296,14 @@ def arguments(argv: list[str] | None) -> argparse.Namespace:
     sub.add_parser("probe", help="one model-register read and cached observations")
     host = sub.add_parser("host", help="one host-only serial query or explicit tuple change; no motor writes")
     host.add_argument("host_tokens", nargs="*")
+    communication = sub.add_parser("communication", help="one explicit communication session action; no retries/save/restart")
+    communication.add_argument("communication_tokens", nargs="*")
+    commissioning = sub.add_parser("communication-check", help="finite preview, optional one write and explicitly selected confirmation")
+    commissioning.add_argument("field", choices=("address", "baud", "format"))
+    commissioning.add_argument("value")
+    commissioning.add_argument("--execute", action="store_true", help="attempt the previewed write when actual prerequisites and route exist")
+    commissioning.add_argument("--confirm", choices=("before", "requested"), help="explicit host selection and one read after successful write")
+    commissioning.add_argument("--finish", action="store_true", help="release commissioning ownership only after successful chosen confirmation")
     host_check = sub.add_parser("host-check", help="finite deliberate host mismatch/read/recover/restore; no read replay")
     host_check.add_argument("--baud", dest="host_baud", type=int, required=True, choices=HOST_BAUDS)
     host_check.add_argument("--fmt", required=True, choices=HOST_FORMATS)
@@ -3125,6 +3391,17 @@ def arguments(argv: list[str] | None) -> argparse.Namespace:
         parser.error("interval must be finite and within 0..60 seconds")
     result.move_args = None
     result.host_args = None
+    if result.mode == "communication":
+        result.host_args = tuple(result.communication_tokens)
+        try: communication_arguments(result.host_args)
+        except ValueError as exc: parser.error(str(exc))
+    if result.mode == "communication-check":
+        try: communication_arguments(("plan", result.field, result.value, str(result.address)))
+        except ValueError as exc: parser.error(str(exc))
+        if (result.confirm or result.finish) and not result.execute:
+            parser.error("--confirm/--finish require --execute")
+        if result.finish and not result.confirm:
+            parser.error("--finish requires --confirm")
     if result.mode == "host":
         result.host_args = tuple(result.host_tokens)
         try: host_arguments(result.host_args)
@@ -3199,7 +3476,14 @@ def main(argv: list[str] | None = None) -> int:
                 console = Console(port, on_event=evidence)
                 console.drain_startup(args.startup)
                 console.identify(timeout_s=args.timeout)
-                if args.mode == "host":
+                if args.mode == "communication":
+                    result = console.command("communication", host_args=args.host_args, timeout_s=args.timeout)
+                    if not result["ok"]:
+                        raise BenchError("communication command failed: " + str(result.get("result")))
+                elif args.mode == "communication-check":
+                    communication_campaign(console, field=args.field, value=args.value, address=args.address,
+                                           timeout_s=args.timeout, execute=args.execute, confirm=args.confirm, finish=args.finish)
+                elif args.mode == "host":
                     result = console.command("host", host_args=args.host_args, timeout_s=args.timeout)
                     if not result["ok"]:
                         raise BenchError("host command failed: " + str(result.get("result")))
