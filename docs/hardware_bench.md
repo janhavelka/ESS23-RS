@@ -203,3 +203,12 @@ read-only frames with identical configuration/state payloads and zero-TX action
 gates. Owner/capture gaps were139/53us; owner/worker stack headroom3604/3268
 bytes. Load and monitoring remain off, DE released, no pending/retained work or
 recovery requirement. Physical moves and dynamic stop remain NOT RUN.
+
+Prompt11 [velocity handoff](reports/ess_release_11_2026-10-04.md) uploaded the recorded
+final timer image and passed38 checked read-only FC03 frames, four velocity
+zero-TX gates and finite harness rejection. Settings and raw state match the
+previous baseline; transport/capture errors0, owner/capture gaps140/55us,
+owner/worker stack headroom3476/3268 bytes. Load/monitor off, DE released, owner
+empty and no recovery requirement. Physical velocity/ramp/stop tests remain
+NOT RUN pending electrical/response-source, native speed/ramp and independent
+physical stop qualification. No motion or motor settings writes were sent.

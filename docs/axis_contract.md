@@ -7,6 +7,8 @@ independent preferences. Prompt 07 adds [exact host target preparation](axis_pre
 origins, reference evidence, quantization and native soft limits through `Axis.h`.
 Prompt 09 implements the bounded ESS finite-relative sequence; prompt 10 reuses
 it for absolute and wrapped-angle motion with shared `preparePosition` arithmetic.
+Prompt11 adds [finite serial velocity](ess_velocity.md), shared exact rate
+preparation, native ramp snapshots and the existing priority stop.
 Physical qualification and general profile ramp mapping remain open. See
 [encoder and units evidence](reference/06_encoder_units.md) for the initial API.
 The [architecture](architecture.md) defines the three layers and ownership,

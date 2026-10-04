@@ -29,6 +29,9 @@ priority stop operations](docs/ess_actions.md). Physical actions remain gated by
 independent timing/echo qualification. Finite relative/absolute/wrapped-angle
 motion and zero-only device position-clear software are implemented through
 shared APIs; physical movement and clear remain unqualified and gated.
+[Finite signed serial velocity](docs/ess_velocity.md) adds shared exact rate preparation,
+configured native ramp snapshots, bounded activity/stop observation and finite
+Python cleanup. Acceleration mapping and physical velocity/stop remain unqualified.
 The [release roadmap](docs/roadmap.md) records the delivery order and completion gates.
 The [numbered implementation prompts](docs/prompts/ess_release/README.md)
 split the remaining work into reviewed, independently dispatched blocks. Typed non-changing read

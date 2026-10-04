@@ -9,6 +9,7 @@
 #include "StateCache.h"
 #include <MotorControlRS/profiles/ess_rs/Actions.h>
 #include <MotorControlRS/profiles/ess_rs/Position.h>
+#include <MotorControlRS/profiles/ess_rs/Velocity.h>
 #include "../common/EssRtuValidator.h"
 #include "../common/Esp32S3Uart.h"
 #include "../common/BuildConfig.h"
@@ -74,6 +75,8 @@ struct App {
         ESS::ActionContext action;
         bool moveOperation = false;
         ESS::MoveContext move;
+        bool velocityOperation = false;
+        ESS::VelocityContext velocity;
     } records[REQUEST_CAPACITY + 2]; // Dedicated monitor and urgent-stop frontend reservations.
     Probe::StateCache stateCache;
     Probe::MonitorSnapshot monitorState;
@@ -97,6 +100,7 @@ struct App {
     MotorControlRS::AxisReference coordinateReference; // Qualified command-coordinate evidence; never inferred from an unsigned/raw zero.
     bool positionClearQualified = false; // Supplied commissioning semantics, independent of electrical qualification.
     ESS::MovePrerequisites movePrerequisites; // Supplied commissioning evidence; false until verified.
+    ESS::VelocityPrerequisites velocityPrerequisites; // Independent commissioning evidence, initially unqualified.
     uint32_t bindingGeneration = 1;
     uint8_t actionConflicts[32] = {}; ///< Physical address conflicts survive result release and host recovery.
     uint8_t knownTargets[32] = {}; ///< Checked physical addresses, independent of the latest passive observation.
@@ -139,6 +143,7 @@ App::Record* findRecord(App& a, uint32_t operation) {
     return nullptr;
 }
 bool terminal(const App& a, const App::Record& record) {
+    if (record.velocityOperation) return record.velocity.state != MotorControlRS::ActionState::ACTIVE;
     if (record.moveOperation) return record.move.state != MotorControlRS::ActionState::ACTIVE;
     if (record.actionOperation) return record.action.state != MotorControlRS::ActionState::ACTIVE;
     return record.typedRead ? record.read.state != ReadState::ACTIVE : a.owner.result(record.requestId) != nullptr;
@@ -154,7 +159,7 @@ bool axisReserved(const App& a, uint8_t address = 0) {
 }
 bool acting(const App& a) {
     for (const auto& record : a.records)
-        if ((record.actionOperation || record.moveOperation) && !terminal(a, record)) return true;
+        if ((record.actionOperation || record.moveOperation || record.velocityOperation) && !terminal(a, record)) return true;
     return false;
 }
 bool reading(const App& a) {
@@ -167,7 +172,7 @@ bool reading(const App& a) {
 void invalidateAxis(App& a) {
     if (!MotorControlRS::invalidateAxisReference(a.axis, a.coordinateReference)) a.axis.generation = 0;
     a.axis.target.generation = a.bindingGeneration;
-    for (auto& record : a.records) if (record.moveOperation && !terminal(a, record)) {
+    for (auto& record : a.records) if ((record.moveOperation || record.velocityOperation) && !terminal(a, record)) {
         record.cancelContinuation = true;
         if (record.requestId.owner) a.owner.cancelUnsent(record.requestId, nowUs());
     }
@@ -175,9 +180,12 @@ void invalidateAxis(App& a) {
 bool coordinateKnowledge(const App& a) {
     return a.axis.originKnown || a.axis.encoderOriginKnown || a.axis.softLimitsKnown || a.coordinateReference.nativeKnown;
 }
-bool triggeredMove(const App& a, uint8_t address) {
+bool triggeredMotion(const App& a, uint8_t address) {
     for (const auto& record : a.records) {
-        if (!record.moveOperation || record.address != address || terminal(a, record)) continue;
+        if (record.address != address || terminal(a, record)) continue;
+        if (record.velocityOperation && (record.velocity.triggerEvidence.txAccepted ||
+            (record.velocity.phase == ESS::VelocityPhase::TRIGGER && record.requestId.owner && a.owner.txAccepted(record.requestId)))) return true;
+        if (!record.moveOperation) continue;
         if (record.move.triggerEvidence.txAccepted ||
             (record.move.step == 1 && record.requestId.owner && a.owner.txAccepted(record.requestId))) return true;
     }
@@ -192,7 +200,7 @@ void serviceCoordinates(App& a, uint64_t now) {
     }
     const auto& motion = a.stateCache.blocks[static_cast<uint8_t>(ESS::StateBlock::MOTION)];
     if (Probe::fresh(motion, a.axis.target, now, 5000000) &&
-        (motion.value.released || (motion.value.running && !triggeredMove(a, a.axis.target.address))))
+        (motion.value.released || (motion.value.running && !triggeredMotion(a, a.axis.target.address))))
         invalidateAxis(a);
 }
 MotorControlRS::AxisReference axisReference(const App& a) {
@@ -429,9 +437,9 @@ Probe::Action typedRead(void* context, uint32_t commandId, uint8_t address, ESS:
 }
 MotorControlRS::ActionEvent actionEvent(const App::Record& record, ReadEventKind kind) {
     MotorControlRS::ActionEvent event;
-    event.transport.target = record.moveOperation ? record.move.target : record.action.target;
+    event.transport.target = record.velocityOperation ? record.velocity.target : record.moveOperation ? record.move.target : record.action.target;
     event.transport.operationId = record.operationId;
-    event.transport.step = record.moveOperation ? record.move.step : record.action.step; event.transport.kind = kind;
+    event.transport.step = record.velocityOperation ? record.velocity.step : record.moveOperation ? record.move.step : record.action.step; event.transport.kind = kind;
     return event;
 }
 Rtu::BusAdmission admitActionStep(App& a, App::Record& record, const ESS::PreparedAction& prepared, uint64_t now) {
@@ -501,7 +509,7 @@ Probe::Action startAction(void* context, uint32_t commandId, uint8_t address,
     record->deadlineUs = preparedContext.deadlineUs; record->actionOperation = record->axisReserved = true;
     operationId = a.latestOperationId = record->operationId;
     if (stop) for (auto& interrupted : a.records) {
-        if (&interrupted == record || (!interrupted.actionOperation && !interrupted.moveOperation) || interrupted.address != address ||
+        if (&interrupted == record || (!interrupted.actionOperation && !interrupted.moveOperation && !interrupted.velocityOperation) || interrupted.address != address ||
             terminal(a, interrupted)) continue;
         interrupted.cancelContinuation = true;
         interrupted.interruptedByStop = true;
@@ -514,6 +522,7 @@ Probe::Action admissionResult(Rtu::BusAdmission result) {
     case Rtu::BusAdmission::ACCEPTED: return Probe::Action::OK;
     case Rtu::BusAdmission::QUEUE_FULL: return Probe::Action::QUEUE_FULL;
     case Rtu::BusAdmission::RESULTS_FULL: return Probe::Action::RESULTS_FULL;
+    case Rtu::BusAdmission::URGENT_FULL: return Probe::Action::RESULTS_FULL;
     case Rtu::BusAdmission::IDS_EXHAUSTED: return Probe::Action::IDS_EXHAUSTED;
     case Rtu::BusAdmission::RECOVERING: return Probe::Action::RECOVERY_REQUIRED;
     default: return Probe::Action::INVALID;
@@ -545,6 +554,7 @@ inline Probe::Action admitAxisWrite(App& a, const Rtu::BusRequest& request, uint
         invalidateAxis(a);
         a.configuration.operationId = 0;
         a.movePrerequisites = ESS::MovePrerequisites();
+        a.velocityPrerequisites = ESS::VelocityPrerequisites();
     }
     if (admitted == Probe::Action::OK)
         for (auto& block : a.stateCache.blocks)
@@ -621,6 +631,70 @@ Probe::Action startMove(void* context, uint32_t commandId, uint8_t address,
     operationId = a.latestOperationId = record->operationId;
     return Probe::Action::OK;
 }
+Probe::Action admitVelocityStep(App& a, App::Record& record, const ESS::PreparedVelocity& prepared, uint64_t now) {
+    Rtu::BusRequest request;
+    request.wire.bytes = prepared.bytes; request.wire.length = prepared.length;
+    request.wire.replyLength = prepared.write ? ESS::WRITE_RESPONSE_LEN : ESS::expectedReadRegistersLen(prepared.count);
+    request.wire.responseTimeoutUs = RESPONSE_US; request.wire.replyGapUs = REPLY_GAP_US;
+    request.wire.deadlineUs = prepared.deadlineUs;
+    request.expected.address = prepared.target.address; request.expected.function = prepared.function;
+    request.expected.target = prepared.target.id; request.expected.targetGeneration = prepared.target.generation;
+    request.expected.first = prepared.reg; request.expected.count = prepared.count;
+    request.expected.value = prepared.value; request.validator = Rtu::essValidator();
+    if (!record.operationId) {
+        const auto checked = checkAxisWrite(a, request); if (checked != Probe::Action::OK) return checked;
+    }
+    return admissionResult(prepared.urgent ? a.owner.admitUrgent(request, now, record.requestId) :
+        a.owner.admit(request, now, record.requestId));
+}
+Probe::Action startVelocity(void* context, uint32_t commandId, uint8_t address,
+                            const MotorControlRS::VelocityRequest& supplied, uint32_t& operationId) {
+    using namespace MotorControlRS;
+    App& a = *static_cast<App*>(context);
+    if (!platformReady) return Probe::Action::UNAVAILABLE;
+    if (!ESS::isValidAddress(address) || !supplied.durationUs || supplied.durationUs > 1000000)
+        return Probe::Action::INVALID;
+    if (supplied.ramp == VelocityRamp::ACCELERATION || supplied.acceleration || supplied.deceleration ||
+        supplied.jerk || supplied.blending || supplied.liveUpdate) return Probe::Action::UNSUPPORTED;
+    if (!a.nextOperationId) return Probe::Action::IDS_EXHAUSTED;
+    if (!actionTimingQualified) return Probe::Action::TIMING_UNQUALIFIED;
+    if (a.owner.needsRecovery() || uart.needsRecovery()) return Probe::Action::RECOVERY_REQUIRED;
+    if (axisReserved(a, address)) return Probe::Action::AXIS_CONFLICT;
+    if (a.owner.active() || a.owner.pending()) return Probe::Action::BUSY;
+    if (a.axis.target.address != address || !a.configuration.operationId ||
+        !Probe::sameTarget(a.configuration.target, a.axis.target)) return Probe::Action::UNAVAILABLE;
+    App::Record* record = nullptr;
+    for (std::size_t i = 0; i < REQUEST_CAPACITY; ++i)
+        if (!a.records[i].operationId) { record = &a.records[i]; break; }
+    if (!record) return Probe::Action::RESULTS_FULL;
+    const uint64_t now = uart.sample();
+    auto prerequisites = a.velocityPrerequisites;
+    prerequisites.minimumRpm = std::max<int16_t>(prerequisites.minimumRpm,-60);
+    prerequisites.maximumRpm = std::min<int16_t>(prerequisites.maximumRpm,60);
+    const auto& motion = a.stateCache.blocks[static_cast<uint8_t>(ESS::StateBlock::MOTION)];
+    if (!Probe::fresh(motion, a.axis.target, now, prerequisites.maximumAgeUs)) prerequisites.readinessQualified = false;
+    else {
+        prerequisites.rawAlarm = motion.value.rawAlarm; prerequisites.rawMotion = motion.value.rawMotion;
+        prerequisites.observedUs = motion.observedEarliestUs;
+    }
+    // Proposed finite free-shaft envelope only; commissioning flags remain
+    // false in production. Setup consumes duration and two seconds remain for stop.
+    const uint64_t deadline = now + supplied.durationUs + 2000000;
+    ActionOptions options; options.maxPolls = ESS::ACTION_MAX_POLLS; options.pollIntervalUs = 20000;
+    const auto checked = ESS::prepareVelocity(record->velocity, a.axis, a.nextOperationId,
+        supplied, prerequisites, now, deadline, options);
+    if (!checked) { clearRecord(*record); return checked.code == Err::UNSUPPORTED ? Probe::Action::UNSUPPORTED : Probe::Action::INVALID; }
+    if (record->velocity.prepared.nativeRpm < -60 || record->velocity.prepared.nativeRpm > 60) {
+        clearRecord(*record); return Probe::Action::INVALID;
+    }
+    ESS::PreparedVelocity work;
+    if (!ESS::nextVelocity(record->velocity, now, work)) { clearRecord(*record); return Probe::Action::FAILED; }
+    const auto admitted = admitVelocityStep(a, *record, work, now);
+    if (admitted != Probe::Action::OK) { clearRecord(*record); return admitted; }
+    record->operationId = a.nextOperationId++; record->commandId = commandId; record->address = address;
+    record->deadlineUs = deadline; record->velocityOperation = record->axisReserved = true;
+    operationId = a.latestOperationId = record->operationId; return Probe::Action::OK;
+}
 void observeCommunication(App& a, const Rtu::Completion& result) {
     const bool checked = result.outcome == Rtu::Outcome::SUCCESS || result.outcome == Rtu::Outcome::DEVICE_REJECTED;
     if (!checked || !result.transport.closureQualified || result.transport.txAccepted != result.txLength ||
@@ -690,7 +764,7 @@ void advanceReads(App& a, uint64_t sampled) {
                 if (block == static_cast<uint8_t>(ESS::StateBlock::FEEDBACK) && hadPosition && current.valid && current.value.pairKnown &&
                     current.observedLatestUs > previousSuccess && current.value.rawPosition != previousPosition &&
                     Probe::sameTarget(current.value.target, a.axis.target) && coordinateKnowledge(a) &&
-                    !triggeredMove(a, a.axis.target.address)) invalidateAxis(a);
+                    !triggeredMotion(a, a.axis.target.address)) invalidateAxis(a);
             }
             if (record.read.state != ReadState::ACTIVE) continue;
             a.owner.release(record.requestId); record.requestId = Rtu::RequestId();
@@ -710,34 +784,38 @@ void updateActionReservation(App& a, App::Record& record) {
     // Arrival flags alone do not establish an exact new command coordinate.
     // Retain the move's original reference/result; invalidate dependent host
     // knowledge until an application can supply a newly qualified reference.
-    if (record.moveOperation && record.move.triggerEvidence.txAccepted &&
+    if (((record.moveOperation && record.move.triggerEvidence.txAccepted) ||
+        (record.velocityOperation && record.velocity.triggerEvidence.txAccepted)) &&
         record.address == a.axis.target.address && coordinateKnowledge(a)) invalidateAxis(a);
     record.axisReserved = false;
     const uint8_t mask = static_cast<uint8_t>(1U << (record.address % 8));
-    if (record.moveOperation ? record.move.uncertain :
+    if (record.velocityOperation ? record.velocity.needsStop || record.velocity.uncertain : record.moveOperation ? record.move.uncertain :
         (record.action.execution == ActionExecution::UNKNOWN ||
         (record.action.execution == ActionExecution::ACKNOWLEDGED && record.action.completion != ActionCompletion::OBSERVED)))
         a.actionConflicts[record.address / 8] |= mask;
-    if (!record.moveOperation && record.action.request.kind == ActionKind::STOP && record.action.completion == ActionCompletion::OBSERVED) {
+    if ((record.velocityOperation && record.velocity.stop.completion == ActionCompletion::OBSERVED) ||
+        (!record.moveOperation && !record.velocityOperation && record.action.request.kind == ActionKind::STOP && record.action.completion == ActionCompletion::OBSERVED)) {
         // A new checked stopped-state report reconciles conflicts; historical
         // interrupted outcomes and their execution uncertainty stay unchanged.
         a.actionConflicts[record.address / 8] &= static_cast<uint8_t>(~mask);
     }
 }
 MotorControlRS::Status advanceOperation(App::Record& record, const MotorControlRS::ActionEvent& event, uint64_t now) {
+    if (record.velocityOperation) return ESS::advanceVelocity(record.velocity, event, now);
     return record.moveOperation ? ESS::advanceMove(record.move, event, now) : ESS::advanceAction(record.action, event, now);
 }
 void advanceActions(App& a, uint64_t now) {
     for (auto& record : a.records) {
-        if ((!record.actionOperation && !record.moveOperation) || terminal(a, record)) continue;
+        if ((!record.actionOperation && !record.moveOperation && !record.velocityOperation) || terminal(a, record)) continue;
         if (record.requestId.owner) {
-            if (record.moveOperation && record.move.step == 1 && record.address == a.axis.target.address &&
+            if (((record.moveOperation && record.move.step == 1) ||
+                (record.velocityOperation && record.velocity.phase == ESS::VelocityPhase::TRIGGER)) && record.address == a.axis.target.address &&
                 a.owner.txAccepted(record.requestId)) a.coordinateReference.nativeKnown = false;
-            if (!record.effectsInvalidated && (record.moveOperation ? record.move.step == 0 : record.action.step == 0) && a.owner.txAccepted(record.requestId)) {
+            if (!record.effectsInvalidated && (record.velocityOperation ? record.velocity.step == 0 : record.moveOperation ? record.move.step == 0 : record.action.step == 0) && a.owner.txAccepted(record.requestId)) {
                 record.effectsInvalidated = true;
                 for (auto& block : a.stateCache.blocks)
                     if (block.valid && block.value.target.address == record.address) block.invalidatedUs = now;
-                if (!record.moveOperation && (record.action.request.kind == MotorControlRS::ActionKind::RELEASE ||
+                if (!record.moveOperation && !record.velocityOperation && (record.action.request.kind == MotorControlRS::ActionKind::RELEASE ||
                     record.action.request.kind == MotorControlRS::ActionKind::CLEAR_POSITION) &&
                     a.axis.target.address == record.address) invalidateAxis(a);
             }
@@ -777,9 +855,24 @@ void advanceActions(App& a, uint64_t now) {
             a.owner.release(record.requestId); record.requestId = Rtu::RequestId();
         }
         if (!terminal(a, record)) {
-            if (record.cancelContinuation || (record.moveOperation ? record.move.target.generation : record.action.target.generation) != a.bindingGeneration ||
-                (record.moveOperation && record.move.prepared.configurationGeneration != a.axis.generation))
+            if (record.cancelContinuation || (record.velocityOperation ? record.velocity.target.generation : record.moveOperation ? record.move.target.generation : record.action.target.generation) != a.bindingGeneration ||
+                (record.moveOperation && record.move.prepared.configurationGeneration != a.axis.generation) ||
+                (record.velocityOperation && record.velocity.request.configurationGeneration != a.axis.generation))
                 advanceOperation(record, actionEvent(record, ReadEventKind::CANCEL), now);
+            else if (record.velocityOperation) {
+                // Evidence above is consumed before elapsed time. A borrowed
+                // admitted token must settle before stop changes its correlation.
+                ESS::serviceVelocity(record.velocity, now);
+                if (!terminal(a, record) && !a.owner.needsRecovery() && !uart.needsRecovery()) {
+                    ESS::PreparedVelocity work;
+                    if (ESS::nextVelocity(record.velocity, now, work) && work.kind == ESS::ActionWork::TRANSACTION) {
+                        const auto admitted = admitVelocityStep(a, record, work, now);
+                        if (admitted != Probe::Action::OK && admitted != Probe::Action::QUEUE_FULL &&
+                            admitted != Probe::Action::RESULTS_FULL && admitted != Probe::Action::RECOVERY_REQUIRED)
+                            advanceOperation(record, actionEvent(record, ReadEventKind::TRANSPORT_FAILURE), now);
+                    }
+                }
+            }
             else if (now >= record.deadlineUs)
                 advanceOperation(record, actionEvent(record, ReadEventKind::DEADLINE), now);
             else if (!a.owner.needsRecovery() && !uart.needsRecovery()) {
@@ -814,7 +907,7 @@ Probe::Action recover(void* context, uint32_t commandId, uint32_t& operationId) 
     for (auto& record : a.records) if (record.operationId && record.typedRead &&
         record.read.state == ReadState::ACTIVE && !record.requestId.owner)
         ESS::advanceRead(record.read, readEvent(record, ReadEventKind::CANCEL), now);
-    for (auto& record : a.records) if ((record.actionOperation || record.moveOperation) && !terminal(a, record)) {
+    for (auto& record : a.records) if ((record.actionOperation || record.moveOperation || record.velocityOperation) && !terminal(a, record)) {
         record.cancelContinuation = true;
         if (!record.requestId.owner) {
             advanceOperation(record, actionEvent(record, ReadEventKind::CANCEL), now);
@@ -838,6 +931,10 @@ bool lookup(void* context, uint32_t operationId, Probe::ResultView& out) {
     out = Probe::ResultView();
     out.commandId = record->commandId; out.operationId = operationId; out.address = record->address;
     out.captureRead = record->captureRead;
+    if (record->velocityOperation) {
+        out.velocityContext = &record->velocity; out.pending = !terminal(a, *record);
+        out.interruptedByStop = record->interruptedByStop; return true;
+    }
     if (record->moveOperation) {
         out.moveContext = &record->move; out.pending = !terminal(a, *record);
         out.interruptedByStop = record->interruptedByStop; return true;
@@ -875,7 +972,7 @@ bool lookup(void* context, uint32_t operationId, Probe::ResultView& out) {
 Probe::Action cancel(void* context, uint32_t operationId) {
     App& a = *static_cast<App*>(context); if (!operationId) operationId = a.latestOperationId;
     auto* record = findRecord(a, operationId); if (!record) return Probe::Action::INVALID;
-    if (record->actionOperation || record->moveOperation) {
+    if (record->actionOperation || record->moveOperation || record->velocityOperation) {
         if (terminal(a, *record)) return Probe::Action::ALREADY_TERMINAL;
         record->cancelContinuation = true;
         if (record->requestId.owner) a.owner.cancel(record->requestId, uart.sample());
@@ -971,7 +1068,7 @@ Probe::Host host(App* a) {
     Probe::Host h; h.context = a; h.emitLine = emit; h.snapshot = snapshot;
     h.startProbe = probe; h.startCaptureRead = captureRead; h.recover = recover; h.resetStats = reset;
     h.startTypedRead = typedRead;
-    h.startAction = startAction; h.startMove = startMove;
+    h.startAction = startAction; h.startMove = startMove; h.startVelocity = startVelocity;
     h.monitor = monitor;
     h.axis = axisCommand;
     h.result = lookup; h.cancel = cancel; h.release = release;
@@ -993,6 +1090,10 @@ void deliver(App& a) {
             continue;
         }
         Probe::ResultView view; if (!lookup(&a, record.operationId, view) || view.pending) continue;
+        if (record.velocityOperation) {
+            if (!a.console.reportVelocity(record.commandId, record.operationId, record.velocity, record.interruptedByStop)) continue;
+            record.delivered = true; record.deliveredUs = nowUs(); continue;
+        }
         if (record.moveOperation) {
             if (!a.console.reportMove(record.commandId, record.operationId, record.move, record.interruptedByStop)) continue;
             record.delivered = true; record.deliveredUs = nowUs(); continue;

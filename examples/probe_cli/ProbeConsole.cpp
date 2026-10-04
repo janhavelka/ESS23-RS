@@ -10,7 +10,7 @@
 namespace MotorControlRSExample { namespace Probe {
 namespace {
 
-enum class Command : uint8_t { HELP, VERSION, CONFIG, STATUS, HEALTH, STATS, PROBE, CAPTURE_READ, RECOVER, RESET, MEMORY, LOAD, DRV, RESULT, CANCEL, RELEASE, READ, PROFILE, CAPS, READ_IDENTITY, READ_CONFIG, READ_STATE, HEALTH_CHECK, MONITOR, AXIS, PREPARE, ENABLE, MOTOR_RELEASE, ALARM_CLEAR, STOP, MOVE, POSITION_CLEAR };
+enum class Command : uint8_t { HELP, VERSION, CONFIG, STATUS, HEALTH, STATS, PROBE, CAPTURE_READ, RECOVER, RESET, MEMORY, LOAD, DRV, RESULT, CANCEL, RELEASE, READ, PROFILE, CAPS, READ_IDENTITY, READ_CONFIG, READ_STATE, HEALTH_CHECK, MONITOR, AXIS, PREPARE, ENABLE, MOTOR_RELEASE, ALARM_CLEAR, STOP, MOVE, POSITION_CLEAR, VELOCITY };
 struct Entry { const char* name; Command command; const char* syntax; const char* effect; bool bus; };
 const Entry COMMANDS[] = {
     {"help", Command::HELP, "help [command]", "show_callable_commands", false},
@@ -25,13 +25,14 @@ const Entry COMMANDS[] = {
     {"ping", Command::PROBE, "ping [address]", "read_model_word_only", true},
     {"capture-read", Command::CAPTURE_READ, "capture-read [address]", "read_0x0130_16_words_for_capture_qualification", true},
     {"read", Command::READ, "read identity|config|state [address]", "checked_nonchanging_read", true},
-    {"profile", Command::PROFILE, "profile ess_rs identity|config|state|enable|release|clear-alarm|clear-position|normal-stop|emergency-stop [address] | profile ess_rs move-relative|move-absolute|move-angle ... | profile ess_rs caps", "public_profile_operations", true},
+    {"profile", Command::PROFILE, "profile ess_rs identity|config|state|enable|release|clear-alarm|clear-position|normal-stop|emergency-stop [address] | profile ess_rs move-relative|move-absolute|move-angle ... | profile ess_rs velocity ... | profile ess_rs caps", "public_profile_operations", true},
     {"enable", Command::ENABLE, "enable [address]", "request_enable_then_observe_flags", true},
     {"motor-release", Command::MOTOR_RELEASE, "motor-release [address]", "request_release_then_observe_flags", true},
     {"alarm-clear", Command::ALARM_CLEAR, "alarm-clear [address]", "request_clear_resettable_alarm_then_observe_flags", true},
     {"stop", Command::STOP, "stop normal|direct [address]", "priority_stop_with_explicit_policy_then_observe_flags", true},
     {"move", Command::MOVE, "move relative|absolute value unit frame native_rpm configured [basis actual|commanded|queued] [round mode error [approx error]] [address] | move angle value unit frame positive|negative|shortest reject|positive|negative native_rpm configured [round mode error [approx error]] [address]", "finite_move_through_public_coordinate_preparation", true},
     {"position-clear", Command::POSITION_CLEAR, "position-clear [address]", "explicit_device_position_zero_only", true},
+    {"velocity", Command::VELOCITY, "velocity value rpm|steps/s|fullsteps/s|turns/s|deg/s|rad/s|mm/s native|motor|load duration_ms configured normal|direct [round mode error [approx error]] [address]", "finite_serial_velocity_with_explicit_stop", true},
     {"monitor", Command::MONITOR, "monitor [off | interval_ms count]", "finite_nonconsuming_state_polling", false},
     {"caps", Command::CAPS, "caps", "show_public_read_capabilities", false},
     {"axis", Command::AXIS, "axis config [set field value [maximum]] | axis origin exact_native", "configure_host_coordinates_only", false},
@@ -122,6 +123,7 @@ bool positionUnit(const char* text, Core::PositionUnit& output) {
 }
 bool rateUnit(const char* text, Core::VelocityUnit& output) {
     if (std::strcmp(text, "rpm") == 0) { output = Core::VelocityUnit(Core::PositionUnit::TURNS, Core::TimeUnit::MINUTE); return true; }
+    if (std::strcmp(text, "turns/s") == 0) { output = Core::VelocityUnit(Core::PositionUnit::TURNS); return true; }
     for (unsigned i = 0; i < 7; ++i) {
         char name[20]; std::snprintf(name, sizeof(name), "%s/s", unitName(static_cast<Core::PositionUnit>(i)));
         if (std::strcmp(text, name) == 0) { output = Core::VelocityUnit(static_cast<Core::PositionUnit>(i)); return true; }
@@ -479,7 +481,7 @@ void Console::error(uint32_t id, const char* command, const char* reason) noexce
 
 void Console::action(uint32_t id, const char* command, Action result, uint8_t address, uint32_t operationId) noexcept {
     const bool typed = std::strcmp(command, "read-identity") == 0 || std::strcmp(command, "read-config") == 0 || std::strcmp(command, "read-state") == 0;
-    const bool motor = std::strcmp(command, "enable") == 0 || std::strcmp(command, "motor-release") == 0 || std::strcmp(command, "alarm-clear") == 0 || std::strcmp(command, "position-clear") == 0 || std::strcmp(command, "stop") == 0 || std::strncmp(command, "move-", 5) == 0;
+    const bool motor = std::strcmp(command, "enable") == 0 || std::strcmp(command, "motor-release") == 0 || std::strcmp(command, "alarm-clear") == 0 || std::strcmp(command, "position-clear") == 0 || std::strcmp(command, "stop") == 0 || std::strncmp(command, "move-", 5) == 0 || std::strcmp(command, "velocity") == 0;
     std::snprintf(output_, sizeof(output_),
         "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"%s\",\"ok\":%s,\"result\":\"%s\",\"address\":%u,\"operation_id\":%lu%s}",
         static_cast<unsigned long>(id), command, boolean(result == Action::OK),
@@ -529,7 +531,57 @@ void Console::dispatch() noexcept {
     }
     if (outstanding(id)) { error(id, "input", "duplicate_id"); return; }
     const Entry* entry = find(tokens[first]);
+    const char* capability = count > first + 2 && std::strcmp(tokens[first], "profile") == 0 &&
+        std::strcmp(tokens[first + 1], "ess_rs") == 0 ? tokens[first + 2] : tokens[first];
+    if (std::strcmp(capability, "jog") == 0 || std::strcmp(capability, "torque") == 0 ||
+        std::strcmp(capability, "current") == 0 || std::strcmp(capability, "velocity-update") == 0) {
+        error(id, capability, "unsupported"); return;
+    }
     if (!entry) { error(id, "unknown", "unknown_command"); return; }
+    const bool nativeVelocity = entry->command == Command::PROFILE && count > first + 2 &&
+        std::strcmp(tokens[first + 1], "ess_rs") == 0 && std::strcmp(tokens[first + 2], "velocity") == 0;
+    if (entry->command == Command::VELOCITY || nativeVelocity) {
+        if (outputPending()) { ++inputDropped_; return; }
+        if (!host_.startVelocity || !host_.snapshot || !host_.axis) { error(id, "velocity", "unavailable"); return; }
+        const std::size_t args = first + (nativeVelocity ? 3 : 1);
+        Core::VelocityRequest request; uint32_t duration = 0;
+        if (count < args + 6 || !Core::parseExactNumber(tokens[args], request.value) ||
+            !rateUnit(tokens[args + 1], request.unit) || !coordinateFrame(tokens[args + 2], request.frame) ||
+            !number(tokens[args + 3], duration) || duration < 1 || duration > 1000 ||
+            std::strcmp(tokens[args + 4], "configured") != 0) { error(id, "velocity", "invalid_arguments"); return; }
+        request.durationUs = duration * 1000; request.ramp = Core::VelocityRamp::VERIFIED_CONFIGURED;
+        if (std::strcmp(tokens[args + 5], "normal") == 0) request.stop.behavior = Core::StopBehavior::CONFIGURED_DECELERATION;
+        else if (std::strcmp(tokens[args + 5], "direct") == 0) request.stop.behavior = Core::StopBehavior::DIRECT;
+        else { error(id, "velocity", "unsupported_policy"); return; }
+        std::size_t next = args + 6;
+        if (next < count && std::strcmp(tokens[next], "round") == 0) {
+            ++next;
+            if (next + 2 > count || !rounding(tokens[next], request.rounding) ||
+                !allowance(tokens[next + 1], request.maximumQuantizationErrorRpm)) { error(id, "velocity", "invalid_arguments"); return; }
+            next += 2;
+            if (next < count && std::strcmp(tokens[next], "approx") == 0) {
+                ++next;
+                if (next >= count || request.unit.position != Core::PositionUnit::RADIANS ||
+                    !allowance(tokens[next++], request.maximumApproximationErrorRpm) || request.maximumApproximationErrorRpm <= 0) {
+                    error(id, "velocity", "invalid_arguments"); return;
+                }
+                request.approximate = true;
+            }
+        }
+        Snapshot snapshot; host_.snapshot(host_.context, snapshot); uint32_t address = snapshot.address;
+        if (count > next + 1 || (count == next + 1 && !number(tokens[next], address))) { error(id, "velocity", "invalid_arguments"); return; }
+        if (address < 1 || address > 247) { error(id, "velocity", "invalid_address"); return; }
+        AxisCommand query; AxisView axis;
+        if (!host_.axis(host_.context, query, axis)) { error(id, "velocity", "invalid_axis_configuration"); return; }
+        request.configurationGeneration = axis.configuration.generation;
+        bool available = false;
+        for (std::size_t i = 0; i < OUTSTANDING_CAPACITY - 1; ++i) available = available || !outstanding_[i].commandId;
+        uint32_t operationId = 0;
+        const Action result = available ? host_.startVelocity(host_.context, id, static_cast<uint8_t>(address), request, operationId) : Action::BUSY;
+        if (result == Action::OK) track(id, operationId);
+        action(id, "velocity", result, static_cast<uint8_t>(address), result == Action::OK ? operationId : 0);
+        return;
+    }
     const bool nativeMove = entry->command == Command::PROFILE && count > first + 2 &&
         std::strcmp(tokens[first + 1], "ess_rs") == 0 && (std::strcmp(tokens[first + 2], "move-relative") == 0 ||
         std::strcmp(tokens[first + 2], "move-absolute") == 0 || std::strcmp(tokens[first + 2], "move-angle") == 0);
@@ -740,8 +792,9 @@ void Console::dispatch() noexcept {
         case Command::CAPTURE_READ: return host_.startCaptureRead != nullptr;
         case Command::ENABLE: case Command::MOTOR_RELEASE: case Command::ALARM_CLEAR: case Command::STOP: case Command::POSITION_CLEAR: return host_.startAction && host_.snapshot;
         case Command::MOVE: return host_.startMove && host_.snapshot && host_.axis;
+        case Command::VELOCITY: return host_.startVelocity && host_.snapshot && host_.axis;
         case Command::PROFILE: return ((host_.startTypedRead || host_.startAction) && host_.snapshot) ||
-            (host_.startMove && host_.snapshot && host_.axis);
+            ((host_.startMove || host_.startVelocity) && host_.snapshot && host_.axis);
         case Command::READ: case Command::READ_IDENTITY: case Command::READ_CONFIG: case Command::READ_STATE: case Command::HEALTH_CHECK: return host_.startTypedRead != nullptr;
         case Command::RESULT: return host_.result != nullptr;
         case Command::CANCEL: return host_.cancel != nullptr;
@@ -786,9 +839,9 @@ void Console::dispatch() noexcept {
         const auto caps = Ess::readCapabilities();
         Snapshot snapshot; host_.snapshot(host_.context, snapshot);
         std::snprintf(output_, sizeof(output_),
-            "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"caps\",\"ok\":true,\"probe\":%s,\"identity\":%s,\"config\":%s,\"state\":%s,\"max_steps\":%u,\"max_reply_bytes\":%u,\"writes\":true,\"motion\":%s,\"actions_qualified\":%s,\"axis_reserved\":%s,\"actions\":[\"enable\",\"release\",\"clear_alarm\",\"clear_position\",\"stop_normal\",\"stop_direct\"],\"device_queue_guarantee\":false}",
+            "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"caps\",\"ok\":true,\"probe\":%s,\"identity\":%s,\"config\":%s,\"state\":%s,\"max_steps\":%u,\"max_reply_bytes\":%u,\"writes\":true,\"motion\":%s,\"actions_qualified\":%s,\"axis_reserved\":%s,\"actions\":[\"enable\",\"release\",\"clear_alarm\",\"clear_position\",\"stop_normal\",\"stop_direct\"],\"device_queue_guarantee\":false,\"velocity\":%s,\"configured_ramp_policy\":true,\"acceleration_mapping\":false,\"velocity_unsupported\":[\"jerk\",\"blending\",\"live_updates\",\"torque\",\"current\",\"external_jog\"]}",
             static_cast<unsigned long>(id), boolean(caps.probe), boolean(caps.identity), boolean(caps.config), boolean(caps.state), caps.maxSteps, caps.maxReplyBytes,
-            boolean(host_.startMove && host_.snapshot && host_.axis), boolean(snapshot.actionsQualified), boolean(snapshot.axisReserved));
+            boolean(host_.startMove && host_.snapshot && host_.axis), boolean(snapshot.actionsQualified), boolean(snapshot.axisReserved), boolean(host_.startVelocity && host_.snapshot && host_.axis));
         emit(); return;
     }
     if (entry->command == Command::RESET || (entry->command == Command::STATS && arg)) {
@@ -811,14 +864,15 @@ void Console::dispatch() noexcept {
         if (!host_.result(host_.context, operationId, view)) { error(id, entry->name, "unavailable"); return; }
         if (view.pending) {
             std::snprintf(output_, sizeof(output_),
-                "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"result\",\"command_id\":%lu,\"operation_id\":%lu,\"ok\":true,\"result\":\"pending\",\"recovery\":%s,\"capture_read\":%s,\"read_kind\":%s,\"action_kind\":%s,\"stop_policy\":%s,\"move_kind\":%s}",
+                "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"result\",\"command_id\":%lu,\"operation_id\":%lu,\"ok\":true,\"result\":\"pending\",\"recovery\":%s,\"capture_read\":%s,\"read_kind\":%s,\"action_kind\":%s,\"stop_policy\":%s,\"move_kind\":%s,\"velocity\":%s}",
                 static_cast<unsigned long>(id), static_cast<unsigned long>(view.commandId),
                 static_cast<unsigned long>(view.operationId), boolean(view.recovery), boolean(view.captureRead),
                 !view.typedRead ? "null" : view.typedRead->kind == Ess::ReadKind::IDENTITY ? "\"identity\"" : view.typedRead->kind == Ess::ReadKind::CONFIG ? "\"config\"" : "\"state\"",
                 !view.actionContext ? "null" : view.actionContext->request.kind == Core::ActionKind::ENABLE ? "\"enable\"" : view.actionContext->request.kind == Core::ActionKind::RELEASE ? "\"release\"" : view.actionContext->request.kind == Core::ActionKind::CLEAR_ALARM ? "\"clear_alarm\"" : view.actionContext->request.kind == Core::ActionKind::CLEAR_POSITION ? "\"clear_position\"" : "\"stop\"",
-                view.actionContext ? stopPolicy(view.actionContext->request) : "null", view.moveContext ? (view.moveContext->request.position.wrapped ? "\"angle\"" : view.moveContext->request.position.relative ? "\"relative\"" : "\"absolute\"") : "null");
+                view.actionContext ? stopPolicy(view.actionContext->request) : "null", view.moveContext ? (view.moveContext->request.position.wrapped ? "\"angle\"" : view.moveContext->request.position.relative ? "\"relative\"" : "\"absolute\"") : "null", boolean(view.velocityContext != nullptr));
             emit();
-        } else if (view.moveContext) formatMove(id, view.commandId, view.operationId, *view.moveContext, true, view.interruptedByStop);
+        } else if (view.velocityContext) formatVelocity(id, view.commandId, view.operationId, *view.velocityContext, true, view.interruptedByStop);
+        else if (view.moveContext) formatMove(id, view.commandId, view.operationId, *view.moveContext, true, view.interruptedByStop);
         else if (view.actionContext) formatAction(id, view.commandId, view.operationId, *view.actionContext, true, view.interruptedByStop);
         else if (view.typedRead) formatRead(id, view.commandId, view.operationId, *view.typedRead, true);
         else if (view.recovery) formatRecovery(id, view.commandId, view.operationId, view.recoveryResult, true);
@@ -1153,6 +1207,56 @@ bool Console::formatMove(uint32_t id, uint32_t commandId, uint32_t operationId,
     if (!fits) return false;
     emit(inspection ? 0 : operationId);
     return true;
+}
+
+bool Console::reportVelocity(uint32_t id, uint32_t operationId, const Ess::VelocityContext& context,
+                             bool interruptedByStop) noexcept {
+    if (outputPending() || context.operationId != operationId ||
+        (context.state != Core::ActionState::SUCCEEDED && context.state != Core::ActionState::FAILED)) return false;
+    for (auto& item : outstanding_) if (item.commandId == id && item.operationId == operationId && !item.transferred) {
+        if (!formatVelocity(id, id, operationId, context, false, interruptedByStop)) return false;
+        if (item.operationId == operationId) item.transferred = true;
+        return true;
+    }
+    return false;
+}
+
+bool Console::formatVelocity(uint32_t id, uint32_t commandId, uint32_t operationId,
+                             const Ess::VelocityContext& c, bool inspection, bool interruptedByStop) noexcept {
+    std::size_t used = 0;
+    const auto& r = c.request; const auto& p = c.prepared;
+    const bool ok = c.state == Core::ActionState::SUCCEEDED && c.completion == Core::ActionCompletion::OBSERVED;
+    char alarm[8] = "null", motion[8] = "null";
+    if (c.observationKnown) { std::snprintf(alarm, sizeof(alarm), "%u", c.rawAlarm); std::snprintf(motion, sizeof(motion), "%u", c.rawMotion); }
+    char observedRaw[Ess::ACTION_MAX_REPLY_BYTES * 2 + 1];
+    hex(c.lastObservation.raw, c.lastObservation.length, observedRaw, sizeof(observedRaw));
+    const bool fits = append(output_, sizeof(output_), used,
+        "{\"type\":\"%s\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"%s\",\"command_id\":%lu,\"operation_id\":%lu,\"velocity\":true,\"ok\":%s,\"state\":\"%s\",\"outcome\":\"%s\",\"status\":\"%s\",\"detail\":%ld,\"setup_execution\":\"%s\",\"execution\":\"%s\",\"completion\":\"%s\",\"target\":%lu,\"address\":%u,\"generation\":%lu,\"configuration_generation\":%lu,\"started_us\":%llu,\"deadline_us\":%llu,\"stop_due_us\":%llu,\"serviced_us\":%llu,\"polls\":%u,\"phase\":%u,\"staging_applied\":%s,\"uncertain\":%s,\"needs_stop\":%s,\"running_observed\":%s,\"service_missed\":%s,\"observation_known\":%s,\"raw_alarm\":%s,\"raw_motion\":%s,\"native_rpm\":%d,\"ramp\":\"configured\",\"staging_words\":[%u,%u,%u],\"stop_policy\":\"%s\",\"requested\":{\"numerator\":%lld,\"denominator\":%llu,\"position_unit\":%u,\"time_unit\":%u,\"frame\":%u,\"duration_us\":%lu,\"rounding\":%u,\"approximate\":%s,\"maximum_quantization_error_rpm\":%.17g,\"maximum_approximation_error_rpm\":%.17g},\"rounding_error\":%.17g,\"approximation_error_bound\":%.17g,\"exact_arithmetic\":%s,\"requested_rpm_approximate\":%.17g,\"stop_execution\":\"%s\",\"stop_completion\":\"%s\",\"stop_outcome\":\"%s\",\"interrupted_by_stop\":%s,\"staging_evidence\":",
+        inspection ? "reply" : "velocity", static_cast<unsigned long>(id), inspection ? "result" : "velocity",
+        static_cast<unsigned long>(commandId), static_cast<unsigned long>(operationId), boolean(ok), ok ? "succeeded" : "failed",
+        motorOutcome(c.outcome), Core::errToString(c.status.code), static_cast<long>(c.status.detail), executionName(c.setupExecution), executionName(c.execution),
+        c.completion == Core::ActionCompletion::OBSERVED ? "observed" : "not_observed", static_cast<unsigned long>(c.target.id), c.target.address,
+        static_cast<unsigned long>(c.target.generation), static_cast<unsigned long>(r.configurationGeneration),
+        static_cast<unsigned long long>(c.startedUs), static_cast<unsigned long long>(c.deadlineUs), static_cast<unsigned long long>(c.stopDueUs), static_cast<unsigned long long>(c.servicedUs),
+        c.polls, static_cast<unsigned>(c.phase), boolean(c.stagingApplied), boolean(c.uncertain), boolean(c.needsStop), boolean(c.runningObserved), boolean(c.serviceMissed),
+        boolean(c.observationKnown), alarm, motion, p.nativeRpm, c.words[0], c.words[1], c.words[2],
+        r.stop.behavior == Core::StopBehavior::DIRECT ? "direct" : "normal", static_cast<long long>(r.value.numerator), static_cast<unsigned long long>(r.value.denominator),
+        static_cast<unsigned>(r.unit.position), static_cast<unsigned>(r.unit.time), static_cast<unsigned>(r.frame), static_cast<unsigned long>(r.durationUs),
+        static_cast<unsigned>(r.rounding), boolean(r.approximate), r.maximumQuantizationErrorRpm, r.maximumApproximationErrorRpm,
+        p.roundingError, p.approximationErrorBound, boolean(p.exactArithmetic), p.approximateRequestedRpm, executionName(c.stop.execution),
+        c.stop.completion == Core::ActionCompletion::OBSERVED ? "observed" : "not_observed", motorOutcome(c.stop.outcome), boolean(interruptedByStop)) &&
+        actionEvidence(output_, sizeof(output_), used, c.stagingEvidence) && append(output_, sizeof(output_), used, ",\"trigger_evidence\":") &&
+        actionEvidence(output_, sizeof(output_), used, c.triggerEvidence) && append(output_, sizeof(output_), used, ",\"activity_evidence\":") &&
+        actionEvidence(output_, sizeof(output_), used, c.activityEvidence) && append(output_, sizeof(output_), used, ",\"failure_evidence\":") &&
+        actionEvidence(output_, sizeof(output_), used, c.failureEvidence) && append(output_, sizeof(output_), used, ",\"stop_write_evidence\":") &&
+        actionEvidence(output_, sizeof(output_), used, c.stop.writeEvidence) && append(output_, sizeof(output_), used, ",\"stop_observation\":") &&
+        actionEvidence(output_, sizeof(output_), used, c.stop.lastObservation) && append(output_, sizeof(output_), used, ",\"stop_failure_evidence\":") &&
+        actionEvidence(output_, sizeof(output_), used, c.stop.failureEvidence) && append(output_, sizeof(output_), used,
+        ",\"last_observation\":{\"step\":%u,\"raw_hex\":\"%s\",\"earliest_us\":%llu,\"latest_us\":%llu,\"delivered_us\":%llu}}",
+        c.lastObservation.step, observedRaw, static_cast<unsigned long long>(c.lastObservation.earliestUs),
+        static_cast<unsigned long long>(c.lastObservation.latestUs), static_cast<unsigned long long>(c.lastObservation.deliveredUs));
+    if (!fits) return false;
+    emit(inspection ? 0 : operationId); return true;
 }
 
 bool Console::formatRead(uint32_t id, uint32_t commandId, uint32_t operationId,

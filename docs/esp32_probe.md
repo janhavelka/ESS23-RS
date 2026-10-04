@@ -1,5 +1,10 @@
 # ESP32-S3 read-only probe bench
 
+Prompt11 adds [finite serial velocity](ess_velocity.md) and a bounded Python
+velocity scenario; production action/ramp/sign gates remain closed. See the
+[current handoff](reports/ess_release_11_2026-10-04.md) for read-only regression
+and zero-TX checks; no physical velocity or stop was qualified.
+
 Prompt10 adds shared relative/absolute/wrapped-angle console and Python routes
 and zero-only device position clear; see [finite positioning](ess_position.md).
 They remain gated on this bench. [Current evidence](reports/ess_release_10_2026-10-04.md)

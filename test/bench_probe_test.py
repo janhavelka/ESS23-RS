@@ -273,6 +273,45 @@ class Clock:
         self.now += delay
 
 
+def velocity_terminal(request_id):
+    original = move_terminal(request_id)
+    empty = original["failure_evidence"]
+    def frame(step, prefix, tx_size, timestamp):
+        raw = bytes(prefix); raw += bench.wire_crc(raw).to_bytes(2, "little")
+        return dict(empty, step=step, raw_hex=raw.hex(), received_length=len(raw), tx_accepted=tx_size,
+                    tx_complete=True, response_confirmed=True, qualified=True,
+                    earliest_us=timestamp, latest_us=timestamp + 50, delivered_us=timestamp + 100)
+    return reply(request_id, "velocity", type="velocity", command_id=request_id, operation_id=request_id + 100,
+        velocity=True, target=1, address=1, generation=9, configuration_generation=3, state="succeeded", outcome="observed",
+        status="OK", detail=0, setup_execution="acknowledged", execution="acknowledged", completion="observed",
+        staging_applied=True, uncertain=False, needs_stop=False, running_observed=True, service_missed=False,
+        observation_known=True, interrupted_by_stop=False, raw_alarm=0, raw_motion=4,
+        started_us=1000, deadline_us=1000000, stop_due_us=501000, serviced_us=503100, polls=1, phase=3,
+        native_rpm=60, ramp="configured", staging_words=[60, 100, 100], stop_policy="normal",
+        requested=dict(numerator=60, denominator=1, position_unit=3, time_unit=1, frame=0, duration_us=500000, rounding=0,
+            approximate=False, maximum_quantization_error_rpm=0, maximum_approximation_error_rpm=0),
+        exact_arithmetic=True, rounding_error=0, approximation_error_bound=0, requested_rpm_approximate=0,
+        stop_execution="acknowledged", stop_completion="observed", stop_outcome="observed",
+        staging_evidence=frame(0, [1, 16, 0, 0x1D, 0, 3], 15, 1100),
+        trigger_evidence=frame(1, [1, 6, 0, 0x27, 0, 2], 8, 2000),
+        activity_evidence=frame(2, [1, 3, 4, 0, 0, 0, 4], 8, 3000), failure_evidence=dict(empty),
+        last_observation={key: value for key, value in frame(2, [1, 3, 4, 0, 0, 0, 4], 8, 3000).items()
+                          if key in ("step", "raw_hex", "earliest_us", "latest_us", "delivered_us")},
+        stop_write_evidence=frame(0, [1, 6, 0, 0x27, 1, 0], 8, 501000),
+        stop_observation=frame(1, [1, 3, 4, 0, 0, 0, 1], 8, 503000), stop_failure_evidence=dict(empty))
+
+
+class VelocitySerial(MoveSerial):
+    def __call__(self, request_id, command, args):
+        if command == "velocity":
+            terminal = velocity_terminal(request_id)
+            if self.mutate: self.mutate(terminal)
+            self.retained[request_id + 100] = terminal
+            accepted = reply(request_id, command, result="accepted", operation_id=request_id + 100, address=1)
+            return encoded(accepted) + (b"" if self.admission_only else encoded(terminal))
+        return super().__call__(request_id, command, args)
+
+
 class Serial:
     def __init__(self, handler=None, fragment=256):
         self.input = bytearray()
@@ -347,6 +386,113 @@ class Serial:
 
 class Framing(unittest.TestCase):
     MOVE_ARGS = ("1000", "steps", "native", "60", "configured")
+    VELOCITY_ARGS = ("60", "rpm", "native", "500", "configured", "normal")
+
+    def test_velocity_strict_correlation_retention_and_single_cleanup(self):
+        console = self.session(VelocitySerial(), fragment=19)
+        events = []; console.emit = lambda event, **data: events.append((event, data))
+        bench.velocity_campaign(console, velocity_args=self.VELOCITY_ARGS, cleanup_stop="normal", timeout_s=3, address=1)
+        commands = [line.decode().split()[1] for line in self.port.writes]
+        self.assertEqual(commands.count("velocity"), 1); self.assertEqual(commands.count("stop"), 1)
+        self.assertNotIn("recover", commands); self.assertFalse(console.operations)
+        self.assertEqual(events[-1][1]["cleanup"], "drive_reported_nonrunning")
+        self.assertEqual(events[-1][1]["physical_observation"], "not_supplied")
+        self.assertEqual(events[-1][1]["velocities_attempted"], 1)
+
+    def test_velocity_rejection_and_poison_never_replay(self):
+        def rejected(i, command, args):
+            if command == "velocity": return encoded(reply(i, command, ok=False, result="timing_unqualified"))
+            return Serial.normal(i, command, args)
+        console = self.session(rejected)
+        with self.assertRaises(bench.BenchError):
+            bench.velocity_campaign(console, velocity_args=self.VELOCITY_ARGS, cleanup_stop="direct", timeout_s=3, address=1)
+        self.assertEqual([line.decode().split()[1] for line in self.port.writes], ["version", "velocity"])
+        console = self.session(VelocitySerial(lambda item: item.update(command_id=99)))
+        events = []; console.emit = lambda event, **data: events.append((event, data))
+        with self.assertRaises(bench.BenchError):
+            bench.velocity_campaign(console, velocity_args=self.VELOCITY_ARGS, cleanup_stop="normal", timeout_s=3, address=1)
+        self.assertFalse(console.synchronized)
+        self.assertEqual(events[-1][1]["cleanup"], "unknown")
+        self.assertEqual([line.decode().split()[1] for line in self.port.writes], ["version", "velocity"])
+
+    def test_velocity_bad_evidence_has_no_success_shape(self):
+        for mutate in (lambda t: t.update(native_rpm=0), lambda t: t.update(stop_due_us=500999),
+                lambda t: t.update(running_observed=False), lambda t: t.update(needs_stop=True),
+                lambda t: t.update(service_missed=True), lambda t: t.update(stop_completion="not_observed"),
+                lambda t: t["trigger_evidence"].update(raw_hex="010600270001F806"),
+                lambda t: t["activity_evidence"].update(earliest_us=1000),
+                lambda t: t["stop_write_evidence"].update(response_confirmed=False),
+                lambda t: t["stop_observation"].update(raw_hex=t["activity_evidence"]["raw_hex"]),
+                lambda t: t.update(ok=False, state="failed"), lambda t: t.update(stop_outcome="transport_error"),
+                lambda t: t.update(raw_motion=65535), lambda t: t.update(raw_alarm=65535),
+                lambda t: t.pop("last_observation"), lambda t: t["last_observation"].update(raw_hex=""),
+                lambda t: t["last_observation"].update(latest_us=501001),
+                lambda t: t["last_observation"].update(step=1),
+                lambda t: t["last_observation"].update(earliest_us=1000, latest_us=1000),
+                lambda t: t["last_observation"].update(earliest_us=2100, latest_us=2200, delivered_us=2300)):
+            terminal = velocity_terminal(2); mutate(terminal)
+            with self.assertRaises(bench.BenchError): bench.Console._check_velocity(terminal, 1, self.VELOCITY_ARGS)
+
+    def test_velocity_failed_start_preserves_uncertainty_after_checked_stop(self):
+        t = velocity_terminal(2)
+        t.update(ok=False, state="failed", outcome="transport_error", status="FRAME_ERROR", detail=19, execution="unknown", uncertain=True)
+        t.update(running_observed=False, observation_known=False, raw_alarm=None, raw_motion=None)
+        t["activity_evidence"] = dict(t["stop_failure_evidence"])
+        t["last_observation"] = {key: t["stop_failure_evidence"][key] for key in ("step", "raw_hex", "earliest_us", "latest_us", "delivered_us")}
+        e = t["trigger_evidence"]
+        e.update(event=1, raw_hex="", received_length=0, response_confirmed=False, qualified=False,
+                 execution_unknown=True, earliest_us=0, latest_us=0, status="FRAME_ERROR", detail=19)
+        t["failure_evidence"] = dict(e)
+        bench.Console._check_velocity(t, 1, self.VELOCITY_ARGS)
+        self.assertFalse(t["needs_stop"]); self.assertTrue(t["uncertain"])
+
+    def test_velocity_parser_is_exact_bounded_and_requires_cleanup_policy(self):
+        for args in (("nan", *self.VELOCITY_ARGS[1:]), ("1/0", *self.VELOCITY_ARGS[1:]),
+                (*self.VELOCITY_ARGS[:3], "0", *self.VELOCITY_ARGS[4:]),
+                (*self.VELOCITY_ARGS[:3], "1001", *self.VELOCITY_ARGS[4:]),
+                (*self.VELOCITY_ARGS, "round", "nearest", "-1"),
+                (*self.VELOCITY_ARGS, "round", "nearest", "1", "approx", "1")):
+            with self.assertRaises(ValueError): bench.velocity_arguments(args)
+        with self.assertRaises(ValueError):
+            bench.velocity_campaign(self.session(VelocitySerial()), velocity_args=self.VELOCITY_ARGS,
+                                    cleanup_stop="normal", timeout_s=0.5, address=1)
+        parsed = bench.arguments(["--port", "FAKE", "--log", "unused", "velocity", "60", "rpm", "native", "500", "configured", "normal", "--cleanup-stop", "direct"])
+        self.assertEqual(parsed.velocity_args, self.VELOCITY_ARGS); self.assertEqual(parsed.cleanup_stop, "direct")
+
+    def test_velocity_late_qualified_failure_is_retained_not_mistaken_for_success(self):
+        t = velocity_terminal(2)
+        t.update(ok=False, state="failed", outcome="deadline", status="ILLEGAL_VALUE", detail=19,
+                 execution="unknown", uncertain=True, running_observed=False, observation_known=False,
+                 raw_alarm=None, raw_motion=None, serviced_us=1000100, stop_execution="not_transmitted",
+                 stop_completion="not_observed", stop_outcome="deadline", needs_stop=True, completion="not_observed")
+        empty = dict(t["stop_failure_evidence"])
+        t["activity_evidence"] = dict(empty); t["stop_write_evidence"] = dict(empty); t["stop_observation"] = dict(empty)
+        t["last_observation"] = {key: empty[key] for key in ("step", "raw_hex", "earliest_us", "latest_us", "delivered_us")}
+        t["trigger_evidence"].update(earliest_us=501001, latest_us=501050, delivered_us=501100,
+                                     status="ILLEGAL_VALUE", detail=19)
+        t["failure_evidence"] = dict(t["trigger_evidence"])
+        t["stop_failure_evidence"].update(event=3, delivered_us=1000100, status="ILLEGAL_VALUE", detail=19)
+        bench.Console._check_velocity(t, 1, self.VELOCITY_ARGS)
+
+    def test_velocity_host_timeout_is_finite_and_retains_unknown_stop(self):
+        console = self.session(VelocitySerial(admission_only=True))
+        events = []; console.emit = lambda event, **data: events.append((event, data))
+        with self.assertRaises(bench.BenchError):
+            bench.velocity_campaign(console, velocity_args=self.VELOCITY_ARGS, cleanup_stop="normal", timeout_s=1, address=1)
+        self.assertLess(self.clock.now, 1.1)
+        self.assertFalse(console.synchronized); self.assertEqual(events[-1][1]["cleanup"], "unknown")
+        self.assertEqual([line.decode().split()[1] for line in self.port.writes], ["version", "velocity"])
+
+    def test_velocity_late_start_ack_is_known_execution_with_failed_duration(self):
+        t = velocity_terminal(2)
+        t.update(ok=False, state="failed", outcome="deadline", status="ILLEGAL_VALUE", detail=19,
+                 uncertain=True, running_observed=False, observation_known=False, raw_alarm=None, raw_motion=None)
+        t["trigger_evidence"].update(earliest_us=501001, latest_us=501050, delivered_us=501100)
+        t["failure_evidence"] = dict(t["trigger_evidence"])
+        t["activity_evidence"] = dict(t["stop_failure_evidence"])
+        t["last_observation"] = {key: t["stop_failure_evidence"][key] for key in ("step", "raw_hex", "earliest_us", "latest_us", "delivered_us")}
+        t["stop_write_evidence"].update(earliest_us=501200, latest_us=501250, delivered_us=501300)
+        bench.Console._check_velocity(t, 1, self.VELOCITY_ARGS)
 
     def test_absolute_and_angle_preserve_coordinates_and_start_flags(self):
         for kind in ("absolute", "angle"):

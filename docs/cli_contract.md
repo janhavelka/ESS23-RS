@@ -410,3 +410,10 @@ and original vendor PDFs remain authoritative for native behavior. Console
 contract tests, firmware builds and physical motor qualification are distinct.
 See [verification](verification.md) and the linked bench reports for completed
 checks; the planned full motion/I/O console remains unimplemented.
+
+Prompt11 implements `velocity VALUE UNIT FRAME DURATION_MS configured normal|direct`
+and `profile ess_rs velocity` with the same public preparation and bounded
+start/observe/stop sequence. Strict optional rounding/approximation, result
+correlation, limits and Python cleanup are documented in [finite serial velocity](ess_velocity.md).
+Velocity zero is distinct from stop/release; unqualified ramps and unsupported
+acceleration/jerk/blending/live/effort modes fail before traffic.

@@ -174,8 +174,12 @@ FieldCore remains read-only; typed identity/state and motion/stop retain their g
   the existing velocity/acceleration conversions and rational scale/gear/lead.
 - [x] Implement conversion provenance, precision/rounding reports, overflow,
   effective-target/path limits and reference/configuration generations.
-- [ ] Implement velocity/jog, explicit ramps and profile keepalive deadlines;
-  optional torque/current modes only where the profile supports them.
+- [x] Implement finite signed serial velocity, configured native ramp snapshots,
+  bounded observations and shared priority stop in prompt11; exact rate conversion,
+  native/CLI parity and unknown cleanup are tested.
+- [ ] Qualify ESS speed/ramp factors and physical acceleration/stop. Engineering
+  acceleration mapping, external JOG, jerk/blending/live updates, torque/current
+  remain unsupported; no ESS refresh or communication-loss stop is established.
 - [ ] Implement enable/release, homing methods, host-origin changes, documented
   device-counter changes, alarm clear and state observations.
 - [x] Implement caller-owned action contexts, operation correlation, retained

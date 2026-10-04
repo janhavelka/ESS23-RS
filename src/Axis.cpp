@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 #include "MotorControlRS/Axis.h"
+#include "MotorControlRS/VelocityOperation.h"
 #include "UnitFactors.h"
 #include <cmath>
 #include <limits>
@@ -591,5 +592,66 @@ Status preparePosition(const PositionRequest& r, const AxisConfig& c, const Axis
     }
     next.zeroDisplacement = next.displacementKnown && next.displacementNative == 0;
     output = next; return Ok();
+}
+Status prepareVelocityTarget(const VelocityRequest& r, const AxisConfig& c,
+                             PreparedVelocityTarget& output) noexcept {
+    Status s = validateAxisConfig(c); if (!s) return s;
+    if (r.configurationGeneration != c.generation)
+        return fail(AxisError::STALE_GENERATION,"velocity configuration generation mismatch",Err::INVALID_CONFIG);
+    if (!r.value.denominator || r.frame > CoordinateFrame::LOAD ||
+        r.unit.position > PositionUnit::MILLIMETRES || r.unit.time > TimeUnit::MILLISECOND ||
+        r.rounding > Rounding::CEIL || !std::isfinite(r.maximumQuantizationErrorRpm) ||
+        r.maximumQuantizationErrorRpm < 0 || !std::isfinite(r.maximumApproximationErrorRpm) ||
+        r.maximumApproximationErrorRpm < 0 || (r.approximate && r.unit.position != PositionUnit::RADIANS))
+        return fail(AxisError::INVALID_ARGUMENT,"invalid velocity quantity");
+    detail::UnitFactors f;
+    if (r.frame == CoordinateFrame::NATIVE) {
+        if (r.unit.position != PositionUnit::TURNS || r.unit.time != TimeUnit::MINUTE)
+            return fail(AxisError::INVALID_ARGUMENT,"native velocity requires motor rpm");
+    } else {
+        if (r.frame == CoordinateFrame::MOTOR && r.unit.position == PositionUnit::MILLIMETRES)
+            return fail(AxisError::INVALID_ARGUMENT,"linear velocity uses load frame");
+        UnitConfig units = c.units;
+        // Command increments need their scale. For other sources a unit command
+        // scale cancels out; do not require unrelated subdivision metadata.
+        if (r.unit.position != PositionUnit::STEPS)
+            units.commandStepsPerMotorTurn = UnitScale(1,1,ScaleSource::DOCUMENTED);
+        if (r.frame == CoordinateFrame::MOTOR &&
+            (r.unit.position == PositionUnit::TURNS || r.unit.position == PositionUnit::DEGREES ||
+             r.unit.position == PositionUnit::RADIANS))
+            units.motorTurnsPerLoadTurn = UnitScale(1,1,ScaleSource::DOCUMENTED);
+        s = unitStatus(detail::unitFactors(r.unit.position,PositionUnit::STEPS,units,f)); if (!s) return s;
+        if (r.unit.position == PositionUnit::STEPS) f.sign = units.commandPolarity;
+        // Convert the resulting command increments to motor turns. The factored
+        // arithmetic cancels before multiplication, including time conversion.
+        f.add(units.commandStepsPerMotorTurn.denominator,units.commandStepsPerMotorTurn.numerator);
+        if (r.unit.time != TimeUnit::MINUTE) f.add(r.unit.time == TimeUnit::SECOND ? 60 : 60000,1);
+    }
+    PositionRequest quantity;
+    quantity.value = r.value; quantity.unit = r.unit.position; quantity.rounding = r.rounding;
+    quantity.maximumQuantizationError = r.maximumQuantizationErrorRpm;
+    quantity.approximate = r.approximate; quantity.maximumApproximationError = r.maximumApproximationErrorRpm;
+    PreparedVelocityTarget next; int64_t effective = 0;
+    if (r.unit.position == PositionUnit::RADIANS && r.value.numerator) {
+        s = approximateNative(quantity,f,next.requestedRpm,0,effective,next.roundingError,next.approximationErrorBound);
+        if (!s) return s;
+        next.exactArithmetic = false;
+        next.approximateRequestedRpm = static_cast<double>(static_cast<long double>(r.value.numerator) /
+            r.value.denominator * detail::approximateFactor(f));
+        if (next.approximateRequestedRpm - next.approximationErrorBound < INT16_MIN ||
+            next.approximateRequestedRpm + next.approximationErrorBound > INT16_MAX)
+            return fail(AxisError::LIMIT,"requested velocity interval exceeds signed native range");
+    } else {
+        s = exactNative(quantity,f,next.requestedRpm); if (!s) return s;
+        if (!inBounds(next.requestedRpm,INT16_MIN,INT16_MAX))
+            return fail(AxisError::LIMIT,"requested velocity exceeds signed native range");
+        s = quantize(next.requestedRpm,r.rounding,r.maximumQuantizationErrorRpm,effective,next.roundingError);
+        if (!s) return s;
+    }
+    if (effective < INT16_MIN || effective > INT16_MAX)
+        return fail(AxisError::LIMIT,"effective velocity exceeds signed native range");
+    if (!effective) return Status(Err::ILLEGAL_VALUE,static_cast<int32_t>(VelocityError::ZERO_SPEED),
+        "zero velocity is not a stop or release");
+    next.nativeRpm = static_cast<int16_t>(effective); output = next; return Ok();
 }
 } // namespace MotorControlRS

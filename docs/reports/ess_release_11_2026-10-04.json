@@ -1,0 +1,612 @@
+{
+  "baseline_commit": "6be4efc4de8e697accdf2ed1593b0a35742b6d1c",
+  "final_revision": "Commit containing this report; hash and sync in final handoff",
+  "scope": "Prompt11 only: finite signed serial velocity and verified ramp disposition",
+  "independent_reviews": [
+    "units/manual nonauthor final integrated audit",
+    "lifecycle/stop with independent application review",
+    "console/correlation integration"
+  ],
+  "verification": {
+    "ctest": 25,
+    "python_harness": 150,
+    "generator_cases": 8,
+    "inventory_cases": 13,
+    "installed_consumer": "PASS",
+    "firmware_builds": 4,
+    "commands": [
+      {
+        "command": [
+          "cmake",
+          "--build",
+          "build/native"
+        ],
+        "exit": 0
+      },
+      {
+        "command": [
+          "ctest",
+          "--test-dir",
+          "build/native",
+          "--output-on-failure"
+        ],
+        "exit": 0
+      },
+      {
+        "command": [
+          "python",
+          "test/generator_test.py"
+        ],
+        "exit": 0
+      },
+      {
+        "command": [
+          "python",
+          "test/bench_probe_test.py"
+        ],
+        "exit": 0
+      },
+      {
+        "command": [
+          "python",
+          "test/operations_inventory_test.py"
+        ],
+        "exit": 0
+      },
+      {
+        "command": [
+          "python",
+          "scripts/generate_version.py",
+          "check"
+        ],
+        "exit": 0
+      },
+      {
+        "command": [
+          "python",
+          "scripts/generate_ess_registers.py",
+          "--check"
+        ],
+        "exit": 0
+      },
+      {
+        "command": [
+          "python",
+          "scripts/prepare_serial_contrasts.py",
+          "--check"
+        ],
+        "exit": 0
+      },
+      {
+        "command": [
+          "cmake",
+          "--install",
+          "build/native",
+          "--prefix",
+          "build/install11"
+        ],
+        "exit": 0
+      },
+      {
+        "command": [
+          "cmake",
+          "-S",
+          "test/installed_consumer",
+          "-B",
+          "build/installed_consumer11",
+          "-G",
+          "Ninja",
+          "-DCMAKE_PREFIX_PATH=C:\\Users\\Honza\\Documents\\Projects\\ESS23-RS\\build\\install11",
+          "-DCMAKE_CXX_COMPILER=C:/Users/Honza/AppData/Local/Microsoft/WinGet/Packages/BrechtSanders.WinLibs.MCF.UCRT_Microsoft.Winget.Source_8wekyb3d8bbwe/mingw64/bin/c++.exe"
+        ],
+        "exit": 0
+      },
+      {
+        "command": [
+          "cmake",
+          "--build",
+          "build/installed_consumer11"
+        ],
+        "exit": 0
+      },
+      {
+        "command": [
+          "ctest",
+          "--test-dir",
+          "build/installed_consumer11",
+          "--output-on-failure"
+        ],
+        "exit": 0
+      },
+      {
+        "command": [
+          "git",
+          "diff",
+          "--check"
+        ],
+        "exit": 0
+      }
+    ]
+  },
+  "firmware": {
+    "bytes": 429888,
+    "sha256": "1afb0694cfdcdabe143350ce7fd999e280d67053225ce9628098dfbcd0507aa3",
+    "environment": "bench_s3_load_timer",
+    "version": {
+      "type": "reply",
+      "profile": "ess_rs",
+      "id": 1,
+      "command": "version",
+      "ok": true,
+      "product": "MotorControl-RS",
+      "protocol": 2,
+      "version": "0.6.0",
+      "outstanding_capacity": 10
+    }
+  },
+  "backup_sha256": "85c089bc3956b22037af7e6f0d7945f6ed778bb1a0526fb5b2ba3e8fea02d0c1",
+  "source_pdf_sha256": "0ca2d7f6b69404ead3ba9af982076c54f86eb16b1c24ba237f344aac079b81eb",
+  "fieldcore_readonly_head": "7c356aff59132ab7ab7be6e3ec26a599ede6b99e",
+  "identity": {
+    "raw_model": 20202,
+    "raw_version": 41,
+    "raw_active_node": 1,
+    "raw_dip": 0,
+    "active_node_known": true,
+    "active_node": 1,
+    "model_resolution": 2,
+    "version_resolution": 3,
+    "dip_resolution": 4,
+    "dip_issues": 320,
+    "model": "mapping_unresolved",
+    "firmware": "mapping_unresolved",
+    "dip": "mapping_conflict_unresolved"
+  },
+  "config_before": {
+    "raw": {
+      "direction": 0,
+      "subdivision": 1000,
+      "custom_node": 0,
+      "baud": 0,
+      "format": 0,
+      "over_limit_stop": 0,
+      "soft_limit_enable": 0,
+      "word_order": 0,
+      "input_polarity": 0,
+      "algorithm": 3,
+      "encoder_resolution": 4000
+    },
+    "known": {
+      "direction": true,
+      "baud": true,
+      "format": true,
+      "over_limit_stop": true,
+      "soft_limit_enable": true,
+      "word_order": true,
+      "algorithm": false
+    },
+    "unknown_polarity_bits": 0,
+    "subdivision_resolution": 5,
+    "encoder_resolution": 0,
+    "subdivision_issues": 4,
+    "custom_node_issues": 64,
+    "over_limit_stop_issues": 1024,
+    "soft_limit_issues": 256,
+    "encoder_scale_source": 3,
+    "inputs": [
+      {
+        "function": 1,
+        "known": true,
+        "inverted": false,
+        "wiring": 0,
+        "level_known": false,
+        "level": null
+      },
+      {
+        "function": 2,
+        "known": true,
+        "inverted": false,
+        "wiring": 0,
+        "level_known": false,
+        "level": null
+      },
+      {
+        "function": 3,
+        "known": true,
+        "inverted": false,
+        "wiring": 0,
+        "level_known": false,
+        "level": null
+      },
+      {
+        "function": 0,
+        "known": true,
+        "inverted": false,
+        "wiring": 0,
+        "level_known": false,
+        "level": null
+      }
+    ],
+    "stored_serial": {
+      "baud_code": 0,
+      "format_code": 0,
+      "activation": "power_cycle_required"
+    },
+    "units": "command_scale_unresolved_encoder_readback_only"
+  },
+  "config_after": {
+    "raw": {
+      "direction": 0,
+      "subdivision": 1000,
+      "custom_node": 0,
+      "baud": 0,
+      "format": 0,
+      "over_limit_stop": 0,
+      "soft_limit_enable": 0,
+      "word_order": 0,
+      "input_polarity": 0,
+      "algorithm": 3,
+      "encoder_resolution": 4000
+    },
+    "known": {
+      "direction": true,
+      "baud": true,
+      "format": true,
+      "over_limit_stop": true,
+      "soft_limit_enable": true,
+      "word_order": true,
+      "algorithm": false
+    },
+    "unknown_polarity_bits": 0,
+    "subdivision_resolution": 5,
+    "encoder_resolution": 0,
+    "subdivision_issues": 4,
+    "custom_node_issues": 64,
+    "over_limit_stop_issues": 1024,
+    "soft_limit_issues": 256,
+    "encoder_scale_source": 3,
+    "inputs": [
+      {
+        "function": 1,
+        "known": true,
+        "inverted": false,
+        "wiring": 0,
+        "level_known": false,
+        "level": null
+      },
+      {
+        "function": 2,
+        "known": true,
+        "inverted": false,
+        "wiring": 0,
+        "level_known": false,
+        "level": null
+      },
+      {
+        "function": 3,
+        "known": true,
+        "inverted": false,
+        "wiring": 0,
+        "level_known": false,
+        "level": null
+      },
+      {
+        "function": 0,
+        "known": true,
+        "inverted": false,
+        "wiring": 0,
+        "level_known": false,
+        "level": null
+      }
+    ],
+    "stored_serial": {
+      "baud_code": 0,
+      "format_code": 0,
+      "activation": "power_cycle_required"
+    },
+    "units": "command_scale_unresolved_encoder_readback_only"
+  },
+  "config_reply_payloads_unchanged": true,
+  "state_reply_payloads_unchanged": true,
+  "cached_observation_times_unchanged": true,
+  "probe_duration_us": [
+    5447,
+    5509
+  ],
+  "closure_interval_us": [
+    23,
+    45
+  ],
+  "delivery_after_closure_us": [
+    249,
+    289
+  ],
+  "sizes": {
+    "native": {
+      "AxisConfig": 184,
+      "AxisReference": 64,
+      "PositionRequest": 64,
+      "PreparedTarget": 192,
+      "MoveContext": 1008,
+      "PreparedMove": 80,
+      "MovePrerequisites": 56,
+      "ActionContext": 432,
+      "VelocityRequest": 112,
+      "PreparedVelocityTarget": 72,
+      "VelocityContext": 1304,
+      "PreparedVelocity": 72,
+      "VelocityPrerequisites": 56
+    },
+    "xtensa": {
+      "action_context_bytes": 360,
+      "axis_config_bytes": 184,
+      "axis_reference_bytes": 64,
+      "move_context_bytes": 888,
+      "move_prerequisites_bytes": 56,
+      "position_request_bytes": 64,
+      "prepared_move_bytes": 72,
+      "prepared_target_bytes": 192,
+      "preparedVelocity": 72,
+      "preparedVelocityTarget": 72,
+      "velocityContext": 1112,
+      "velocityPrerequisites": 56,
+      "velocityRequest": 112
+    }
+  },
+  "application_sizes": {
+    "App": 92448,
+    "Record": 3136,
+    "Console": 10784,
+    "UART_internal": 1704,
+    "loop_static_stack_frame": 816
+  },
+  "limits": {
+    "ordinary_records": 8,
+    "monitor_records": 1,
+    "explicit_stop_records": 1,
+    "ordinary_bus_pending": 4,
+    "ordinary_bus_results": 8,
+    "urgent_pending": 1,
+    "urgent_results": 1,
+    "native_rpm": [
+      -60,
+      60
+    ],
+    "duration_ms": [
+      1,
+      1000
+    ],
+    "stop_budget_us": 2000000,
+    "poll_interval_us": 20000,
+    "poll_limit": 64,
+    "output_capacity": 4608,
+    "max_tested_velocity_line": 4442
+  },
+  "ending": {
+    "version": {
+      "type": "reply",
+      "profile": "ess_rs",
+      "id": 1,
+      "command": "version",
+      "ok": true,
+      "product": "MotorControl-RS",
+      "protocol": 2,
+      "version": "0.6.0",
+      "outstanding_capacity": 10
+    },
+    "config": {
+      "type": "reply",
+      "profile": "ess_rs",
+      "id": 2,
+      "command": "config",
+      "ok": true,
+      "address": 1,
+      "baud": 115200,
+      "format": "8N1",
+      "response_timeout_us": 200000,
+      "reply_gap_us": 304,
+      "gap15_us": 750,
+      "gap35_us": 1750,
+      "stale_after_ms": 5000,
+      "ready": true,
+      "timing_qualified": false,
+      "device_settings": "cached",
+      "cache_off_supported": false,
+      "sample_gap_limit_us": 85,
+      "cached_identity_id": 1,
+      "cached_identity_address": 1,
+      "cached_identity_generation": 1,
+      "cached_config_id": 16,
+      "cached_config_address": 1,
+      "cached_config_generation": 1,
+      "binding_generation": 1
+    },
+    "stats": {
+      "type": "reply",
+      "profile": "ess_rs",
+      "id": 3,
+      "command": "stats",
+      "ok": true,
+      "started": 38,
+      "frames": 38,
+      "failed": 0,
+      "timeouts": 0,
+      "cancelled": 0,
+      "rx_bytes": 358,
+      "discarded": 0,
+      "echo_bytes": 0,
+      "trace_overwritten": 610,
+      "max_poll_gap_us": 55,
+      "capture_faults": 0,
+      "rx_errors": 0,
+      "sample_gap_exceeded": false
+    },
+    "load": {
+      "type": "reply",
+      "profile": "ess_rs",
+      "id": 4,
+      "command": "load",
+      "ok": true,
+      "result": "done",
+      "ready": true,
+      "capture_mode": "timer",
+      "workload_us": 0,
+      "owner_delay_us": 0,
+      "console_bytes": 0,
+      "elapsed_us": 86323955,
+      "work_us": 70249,
+      "work_iterations": 8632,
+      "console_lines": 0,
+      "console_dropped": 0,
+      "capture_us": 14143555,
+      "capture_samples": 4406283,
+      "timer_callbacks": 4316169,
+      "sample_gap_limit_us": 85,
+      "sample_gap_exceeded": false,
+      "capture_high_water": 2,
+      "owner_gap_max_us": 140,
+      "capture_gap_max_us": 55,
+      "work_stack_free_bytes": 3268,
+      "cpu_valid": true,
+      "cpu0_busy_pct": 0,
+      "cpu1_busy_pct": 6
+    },
+    "drv": {
+      "type": "reply",
+      "profile": "ess_rs",
+      "id": 5,
+      "command": "drv",
+      "ok": true,
+      "phase": "DONE",
+      "busy": false,
+      "transmit_enabled": false,
+      "recovery_required": false,
+      "pending": 0,
+      "retained": 0,
+      "reserved": 0,
+      "pending_capacity": 4,
+      "result_capacity": 8,
+      "outstanding_capacity": 10,
+      "operation_id": 26,
+      "output_queued": 0,
+      "output_blocked": 0,
+      "output_short_writes": 0,
+      "input_bytes": 2336,
+      "input_lines": 132,
+      "input_dropped": 0,
+      "recovery_guard_until_us": 85992963,
+      "request_deadline_us": 0,
+      "capture_mode": "timer",
+      "read_budget": 64,
+      "model_address": 1,
+      "model_operation_id": 26,
+      "observed_earliest_us": 85495604,
+      "observed_latest_us": 85495639,
+      "delivered_us": 85495887
+    },
+    "memory": {
+      "type": "reply",
+      "profile": "ess_rs",
+      "id": 6,
+      "command": "memory",
+      "ok": true,
+      "valid": true,
+      "internal_free": 336104,
+      "internal_min": 330944,
+      "internal_largest": 278516,
+      "psram_free": 8291884,
+      "psram_min": 8291884,
+      "psram_largest": 8257524,
+      "stack_free_bytes": 3476
+    },
+    "caps": {
+      "type": "reply",
+      "profile": "ess_rs",
+      "id": 7,
+      "command": "caps",
+      "ok": true,
+      "probe": true,
+      "identity": true,
+      "config": true,
+      "state": true,
+      "max_steps": 5,
+      "max_reply_bytes": 37,
+      "writes": true,
+      "motion": true,
+      "actions_qualified": false,
+      "axis_reserved": false,
+      "actions": [
+        "enable",
+        "release",
+        "clear_alarm",
+        "clear_position",
+        "stop_normal",
+        "stop_direct"
+      ],
+      "device_queue_guarantee": false,
+      "velocity": true,
+      "configured_ramp_policy": true,
+      "acceleration_mapping": false,
+      "velocity_unsupported": [
+        "jerk",
+        "blending",
+        "live_updates",
+        "torque",
+        "current",
+        "external_jog"
+      ]
+    }
+  },
+  "velocity_gates": [
+    {
+      "type": "reply",
+      "profile": "ess_rs",
+      "id": 28,
+      "command": "velocity",
+      "ok": false,
+      "result": "timing_unqualified",
+      "address": 1,
+      "operation_id": 0
+    },
+    {
+      "type": "reply",
+      "profile": "ess_rs",
+      "id": 29,
+      "command": "velocity",
+      "ok": false,
+      "result": "timing_unqualified",
+      "address": 1,
+      "operation_id": 0
+    },
+    {
+      "type": "reply",
+      "profile": "ess_rs",
+      "id": 30,
+      "command": "velocity",
+      "ok": false,
+      "result": "timing_unqualified",
+      "address": 1,
+      "operation_id": 0
+    },
+    {
+      "type": "reply",
+      "profile": "ess_rs",
+      "id": 31,
+      "command": "velocity",
+      "ok": false,
+      "result": "timing_unqualified",
+      "address": 1,
+      "operation_id": 0
+    }
+  ],
+  "finite_velocity_gate": "velocity rejected or failed: timing_unqualified",
+  "hardware_status": {
+    "read_only_regression": "PASS",
+    "host_preference_and_pure_equivalence": "PASS",
+    "zero_tx_gates": "PASS",
+    "physical_velocity": "NOT RUN",
+    "physical_acceleration_stop": "NOT RUN",
+    "independent_shaft_comparison": "NOT RUN"
+  },
+  "remaining": "Independent electrical/FC06 source, exact firmware RPM/sign/native ramp factor/initial speed/input/physical stop qualification; JOG/ramp words not read by current configuration API; qualified velocity deep stack unmeasured"
+}

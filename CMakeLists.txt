@@ -7,7 +7,8 @@ set(MOTORCONTROLRS_SOURCES
     "src/profiles/ess_rs/Codec.cpp"
     "src/profiles/ess_rs/Reads.cpp"
     "src/profiles/ess_rs/Actions.cpp"
-    "src/profiles/ess_rs/Position.cpp")
+    "src/profiles/ess_rs/Position.cpp"
+    "src/profiles/ess_rs/Velocity.cpp")
 
 # ESP-IDF component consumption requires no Arduino or FieldCore dependency.
 if(COMMAND idf_component_register)
@@ -39,7 +40,7 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     include(CTest)
     # Distributed source packages contain the core; repository tests stay here.
     if(BUILD_TESTING AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/test/units_test.cpp")
-        foreach(suite units axis registers codec reads actions position runner bus_owner bus_scheduling probe_console esp32_uart probe_app move_app capture_service)
+        foreach(suite units axis registers codec reads actions position velocity runner bus_owner bus_scheduling probe_console esp32_uart probe_app move_app velocity_app capture_service)
             add_executable(${suite}_test "test/${suite}_test.cpp")
             target_link_libraries(${suite}_test PRIVATE MotorControlRS)
             set_target_properties(${suite}_test PROPERTIES
@@ -58,7 +59,7 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
         target_sources(bus_scheduling_test PRIVATE examples/common/RtuRunner.cpp
             examples/common/RtuBusOwner.cpp examples/common/EssRtuValidator.cpp)
         target_sources(probe_console_test PRIVATE examples/probe_cli/ProbeConsole.cpp examples/common/RtuRunner.cpp)
-        foreach(suite esp32_uart probe_app move_app capture_service)
+        foreach(suite esp32_uart probe_app move_app velocity_app capture_service)
             target_sources(${suite}_test PRIVATE examples/common/Esp32S3Uart.cpp examples/common/RtuRunner.cpp
                 test/fakes/esp32_uart/FakeEsp.cpp)
             target_include_directories(${suite}_test PRIVATE test/fakes/esp32_uart)
@@ -67,6 +68,8 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
         target_sources(probe_app_test PRIVATE examples/probe_cli/ProbeConsole.cpp
             examples/common/RtuBusOwner.cpp examples/common/EssRtuValidator.cpp)
         target_sources(move_app_test PRIVATE examples/probe_cli/ProbeConsole.cpp
+            examples/common/RtuBusOwner.cpp examples/common/EssRtuValidator.cpp)
+        target_sources(velocity_app_test PRIVATE examples/probe_cli/ProbeConsole.cpp
             examples/common/RtuBusOwner.cpp examples/common/EssRtuValidator.cpp)
         add_executable(probe_app_load_test test/probe_app_test.cpp
             examples/probe_cli/ProbeConsole.cpp examples/probe_cli/Esp32Load.cpp

@@ -26,10 +26,10 @@ class Coverage(unittest.TestCase):
         self.assertEqual((summary["records"], summary["reserved"], summary["unresolved_access"], summary["named_choices"]),
                          (221, 16, 2, 135))
         self.assertEqual(sum(count for state, count in summary["read"].items() if state in operations.IMPLEMENTATION), 201)
-        self.assertEqual(summary["write"]["NOT_IMPLEMENTED"], 187)
+        self.assertEqual(summary["write"]["NOT_IMPLEMENTED"], 184)
         self.assertEqual(summary["action"]["IN_PROGRESS"], 2)
         linked = {record for group in INVENTORY["operations"] for record in group["records"]}
-        self.assertEqual(len(linked), 31)
+        self.assertEqual(len(linked), 34)
         self.assertEqual(len(result["records"]), len({record["id"] for record in result["records"]}))
         self.assertTrue(all(choice["default_disposition"] == operations.DEFAULT for choice in result["named_choices"]))
 
@@ -39,8 +39,9 @@ class Coverage(unittest.TestCase):
                        if choice["disposition"]["implementation"] == "IMPLEMENTED"}
         self.assertEqual(implemented, {"AuxiliaryCommand.ENABLE", "AuxiliaryCommand.RELEASE",
             "AuxiliaryCommand.CLEAR_ALARM", "AuxiliaryCommand.CLEAR_POSITION", "MotionCommandBit.STOP",
-            "MotionCommandBit.EMERGENCY_STOP", "MotionCommandBit.START_POSITION", "MotionCommandBit.ABSOLUTE_POSITION"})
-        self.assertEqual(result["summary"]["choice_implementation"], {"NOT_IMPLEMENTED": 127, "IMPLEMENTED": 8})
+            "MotionCommandBit.EMERGENCY_STOP", "MotionCommandBit.START_POSITION", "MotionCommandBit.ABSOLUTE_POSITION",
+            "MotionCommandBit.START_SPEED"})
+        self.assertEqual(result["summary"]["choice_implementation"], {"NOT_IMPLEMENTED": 126, "IMPLEMENTED": 9})
         for record in result["records"]:
             if record["id"] in ("AUXILIARY_COMMAND", "MOTION_COMMAND"):
                 self.assertEqual(record["obligations"]["write"], "IN_PROGRESS")

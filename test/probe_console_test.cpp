@@ -24,6 +24,8 @@ struct Fake {
     unsigned typedReads = 0, monitors = 0, monitorChanges = 0;
     unsigned actions = 0;
     unsigned moves = 0;
+    unsigned velocities = 0;
+    MotorControlRS::VelocityRequest velocityRequest;
     MotorControlRS::MoveRequest moveRequest;
     MotorControlRS::ActionRequest actionRequest;
     Probe::Action actionResult = Probe::Action::OK;
@@ -101,6 +103,13 @@ struct Fake {
         }
         output = self.loadData;
         return self.loadAction;
+    }
+    static Probe::Action startVelocity(void* context, uint32_t commandId, uint8_t address,
+                                      const MotorControlRS::VelocityRequest& request, uint32_t& operation) {
+        Fake& self = *static_cast<Fake*>(context); ++self.velocities;
+        self.velocityRequest = request; self.id = commandId; self.address = address;
+        if (self.actionResult == Probe::Action::OK) operation = self.nextOperation++;
+        return self.actionResult;
     }
     static Probe::Action monitor(void* context, const Probe::MonitorSettings* request, Probe::MonitorSnapshot& out) {
         Fake& self = *static_cast<Fake*>(context); ++self.monitors;
@@ -1166,6 +1175,58 @@ void testAbsoluteAngleAndClearRoutesUsePublicRequests() {
     send(console, "help move\n"); fake.contains("move angle");
 }
 
+void testVelocityExactRoutesRetentionAndBound() {
+    namespace Core = MotorControlRS;
+    Fake fake; auto host = fake.host(false, true); host.startVelocity = Fake::startVelocity; host.axis = Fake::axis;
+    fake.axisConfig.target.id = 1; fake.axisConfig.target.generation = 1; fake.axisConfig.target.address = 1;
+    Probe::Console console(host);
+    send(console, "@41 velocity -3/2 rpm native 500 configured normal round nearest 1 2\n");
+    assert(fake.velocities == 1 && fake.address == 2 && fake.id == 41);
+    assert(fake.velocityRequest.value.numerator == -3 && fake.velocityRequest.value.denominator == 2);
+    assert(fake.velocityRequest.durationUs == 500000 && fake.velocityRequest.rounding == Core::Rounding::NEAREST);
+    assert(fake.velocityRequest.stop.behavior == Core::StopBehavior::CONFIGURED_DECELERATION);
+    Core::PreparedVelocityTarget target;
+    assert(Core::prepareVelocityTarget(fake.velocityRequest, fake.axisConfig, target)); assert(target.nativeRpm == -2);
+    send(console, "profile ess_rs velocity 180 deg/s motor 100 configured direct\n");
+    assert(fake.velocities == 2 && fake.velocityRequest.unit.position == Core::PositionUnit::DEGREES);
+    assert(Core::prepareVelocityTarget(fake.velocityRequest, fake.axisConfig, target)); assert(target.nativeRpm == 30);
+    const auto count = fake.velocities;
+    for (const auto* invalid : {"velocity nan rpm native 100 configured normal", "velocity 1/0 rpm native 100 configured normal",
+            "velocity 1 rpm native 0 configured normal", "velocity 1 rpm native 10001 configured normal", "velocity 1 rpm native 10 acceleration normal",
+            "velocity 1 rpm native 10 configured release", "velocity 1 rpm native 10 configured normal round nearest -1",
+            "velocity 1 rpm native 10 configured normal round nearest 1 approx 1", "velocity 1 rpm native 10 configured normal junk",
+            "jog", "torque 1", "current 1", "velocity-update 10", "profile ess_rs jog"}) { send(console, (std::string(invalid) + "\n").c_str()); fake.contains("\"ok\":false"); }
+    assert(fake.velocities == count);
+    Ess::VelocityContext c; c.operationId = 100; c.request.configurationGeneration = 1;
+    c.state = Core::ActionState::FAILED; c.outcome = Core::ActionOutcome::CANCELLED;
+    assert(!console.reportVelocity(42, 100, c));
+    fake.blocked = true; assert(console.reportVelocity(41, 100, c, true)); assert(!console.reportVelocity(41, 100, c));
+    fake.blocked = false; assert(console.serviceOutput()); fake.contains("\"velocity\":true"); fake.contains("\"interrupted_by_stop\":true");
+    fake.view.velocityContext = &c; fake.view.commandId = 41; fake.view.operationId = 100;
+    send(console, "result 100\n"); fake.contains("\"command\":\"result\"");
+    fake.nextOperation = UINT32_MAX;
+    send(console, "@4294967295 velocity -3000 rpm native 100 configured direct 247\n");
+    c.operationId = UINT32_MAX; c.request = fake.velocityRequest;
+    c.target.id = c.target.generation = c.request.configurationGeneration = UINT32_MAX; c.target.address = 247;
+    c.startedUs = c.deadlineUs = c.stopDueUs = c.servicedUs = UINT64_MAX; c.polls = 64;
+    c.request.value = Core::Rational(INT64_MIN, UINT64_MAX); c.request.unit.position = Core::PositionUnit::RADIANS;
+    c.request.maximumQuantizationErrorRpm = c.request.maximumApproximationErrorRpm = std::numeric_limits<double>::max();
+    c.prepared.nativeRpm = -3000; c.prepared.approximateRequestedRpm = -1.2345678901234567e+18;
+    c.prepared.roundingError = -0.12345678901234567; c.prepared.approximationErrorBound = 1.2345678901234567e-18;
+    c.setupExecution = c.execution = c.stop.execution = Core::ActionExecution::NOT_TRANSMITTED;
+    c.observationKnown = true; c.rawAlarm = c.rawMotion = UINT16_MAX;
+    for (auto& word : c.words) word = UINT16_MAX;
+    for (auto* e : {&c.stagingEvidence, &c.triggerEvidence, &c.activityEvidence, &c.lastObservation, &c.failureEvidence,
+                   &c.stop.writeEvidence, &c.stop.lastObservation, &c.stop.failureEvidence}) {
+        e->step = 255; e->event = Core::ReadEventKind::TRANSPORT_FAILURE; e->length = sizeof(e->raw);
+        e->receivedLength = UINT32_MAX; e->txAccepted = 15; for (auto& byte : e->raw) byte = 255;
+        e->earliestUs = e->latestUs = e->deliveredUs = UINT64_MAX;
+        e->transportDetail = INT32_MIN; e->status = Core::Status(Core::Err::INVALID_CONFIG, INT32_MIN, "not serialized");
+    }
+    assert(console.reportVelocity(UINT32_MAX, UINT32_MAX, c, true));
+    std::printf("Maximum-width velocity line: %zu/%zu bytes\n", fake.lines.back().size(), Probe::OUTPUT_CAPACITY);
+}
+
 } // namespace
 
 int main() {
@@ -1196,4 +1257,5 @@ int main() {
     testMoveRoutesExactParsingAndRetainedReports();
     testMaximumMoveReportFitsFixedOutput();
     testAbsoluteAngleAndClearRoutesUsePublicRequests();
+    testVelocityExactRoutesRetentionAndBound();
 }

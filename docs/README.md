@@ -34,6 +34,11 @@ read-only COM13 evidence separately from unperformed physical comparisons.
 The [fresh audit](reports/ess_release_10_audit_2026-10-04.md) corrects reference
 retention and external-motion invalidation and repeats required verification.
 
+Prompt11 adds [finite serial velocity](ess_velocity.md), shared exact rate conversion,
+configured native ramp snapshots and existing priority stop. The [handoff](reports/ess_release_11_2026-10-04.md)
+records native/package/build and read-only bench/gate evidence; physical velocity,
+acceleration and stop remain unqualified.
+
 Implemented blocks include exact target preparation, typed non-changing reads, pure unit conversion, an ESS register catalogue,
 checked wire codecs with a minimal probe and standalone build foundations.
 The standalone RTU runner and ESP32-S3 adapter have native fake tests. The read-only

@@ -5,6 +5,8 @@
 #include <MotorControlRS/profiles/ess_rs/Reads.h>
 #include <MotorControlRS/profiles/ess_rs/Actions.h>
 #include <MotorControlRS/profiles/ess_rs/Position.h>
+#include <MotorControlRS/VelocityOperation.h>
+#include <MotorControlRS/profiles/ess_rs/Velocity.h>
 
 int main() {
     using namespace MotorControlRS;
@@ -42,6 +44,10 @@ int main() {
     if (!getStateBlock(operation, 0, state) || !state.released || state.enabled || !state.alarmKnown) return 12;
     if (getStateBlock(operation, 2, state) || state.block != StateBlock::MOTION) return 13;
     AxisConfig axis; axis.target = target; axis.supportedRelativeBases = 1;
+    VelocityRequest velocity; velocity.configurationGeneration = axis.generation;
+    velocity.value = Rational(-30);
+    PreparedVelocityTarget speed;
+    if (!prepareVelocityTarget(velocity, axis, speed) || speed.nativeRpm != -30) return 31;
     PositionRequest position; position.configurationGeneration = axis.generation;
     position.value = Rational(INT64_C(9007199254740993));
     PreparedTarget prepared;
