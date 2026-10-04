@@ -25,6 +25,8 @@ def reply(request_id, command, **fields):
             last_attempt_us=0, last_attempt_target=0, last_attempt_address=0, last_attempt_generation=0,
             last_attempt_operation_id=0, last_attempt_status="OK", last_attempt_detail=0, last_success_us=0,
             observed_earliest_us=0, observed_latest_us=0, delivered_us=0, age_us=None, value=None) for i in range(3)])
+        fields["state_blocks"][2].setdefault("current_config_operation_id", 0)
+        fields["state_blocks"][2].setdefault("interpretation_current", False)
         for key, value in dict(now_us=20000, stale_after_ms=5000, selected_target=1, selected_address=1,
             selected_generation=9, monitoring="disabled", atomic_snapshot=False, sample_time="drive_internal_age_undocumented",
             communication_known=False, communication_target=0, communication_address=0, communication_generation=0,
@@ -127,6 +129,7 @@ def cached_state(request_id, command="health"):
             last_success_us=2050 + index * 1000, observed_earliest_us=1000 + index * 1000,
             observed_latest_us=2050 + index * 1000, delivered_us=2100 + index * 1000,
             age_us=4000 - index * 1000, value=values[index])
+    item["state_blocks"][2].update(current_config_operation_id=90, interpretation_current=True)
     return item
 
 
@@ -354,7 +357,7 @@ class Framing(unittest.TestCase):
         item["state_blocks"][0]["value"].update(raw_alarm=0xBEEF)
         item["alarms"] = "unknown"
         bench.Console._check_cached_state(item)
-        item["state_blocks"][0]["value"].update(alarm_flag=True)
+        item["state_blocks"][0]["value"].update(alarm_flag=True, raw_motion=0x8019)
         item["alarms"] = "present"
         bench.Console._check_cached_state(item)
         item.update(stale_after_ms=2, communication="stale", state="unknown", alarms="unknown")
@@ -365,6 +368,7 @@ class Framing(unittest.TestCase):
         item["communication"] = "unknown"
         for block in item["state_blocks"]:
             block.update(current=False, fresh=False)
+        item["state_blocks"][2].update(current_config_operation_id=0, interpretation_current=False)
         bench.Console._check_cached_state(item)
 
     def test_cached_state_rejects_rejuvenation_and_readiness_claims(self):
@@ -379,6 +383,50 @@ class Framing(unittest.TestCase):
             item = cached_state(2); mutate(item)
             with self.assertRaises(bench.BenchError):
                 bench.Console._check_cached_state(item)
+
+    def test_cached_state_rejects_corrupt_raw_decode_schema(self):
+        mutations = (
+            lambda r: r["state_blocks"][0]["value"].update(enabled=True),
+            lambda r: r["state_blocks"][0]["value"].update(unknown_motion_bits=0),
+            lambda r: r["state_blocks"][0]["value"].update(block=False),
+            lambda r: r["state_blocks"][0]["value"].update(raw_alarm=True),
+            lambda r: r["state_blocks"][0]["value"].pop("alarm_flag"),
+            lambda r: r["state_blocks"][1]["value"].update(inputs=[1, False, True, False]),
+            lambda r: r["state_blocks"][1]["value"].update(unknown_input_bits=0),
+            lambda r: r["state_blocks"][2]["value"].update(raw_encoder_counts=42),
+            lambda r: r["state_blocks"][2]["value"].update(position_words=[False, 1]),
+            lambda r: r["state_blocks"][2]["value"].update(raw_position=123),
+            lambda r: r["state_blocks"][2]["value"].update(position_source=True),
+            lambda r: r["state_blocks"][2]["value"].update(position_source_resolution=10),
+            lambda r: r["state_blocks"][2]["value"].update(speed_unit_resolution=0),
+            lambda r: r["state_blocks"][2]["value"].update(config_operation_id=False),
+            lambda r: r["state_blocks"][2].update(current_config_operation_id=True),
+            lambda r: r["state_blocks"][2].update(interpretation_current=False))
+        for command in ("status", "health"):
+            for mutate in mutations:
+                with self.subTest(command=command, mutate=mutate):
+                    item = cached_state(2, command); mutate(item)
+                    with self.assertRaises(bench.BenchError):
+                        bench.Console._check_cached_state(item)
+
+    def test_corrupt_cached_state_stops_session_without_replay(self):
+        def handler(request_id, command, args):
+            if command == "status":
+                item = cached_state(request_id, command)
+                item["state_blocks"][0]["value"].pop("alarm_flag")
+                return encoded(item)
+            return Serial.normal(request_id, command, args)
+        console = self.session(handler)
+        self.failed(lambda: console.command("status", timeout_s=0.1), "decoded field differs")
+        self.assertEqual(self.port.writes, [b"@1 version\n", b"@2 status\n"])
+
+    def test_cached_feedback_retains_old_configuration_without_promoting_interpretation(self):
+        item = cached_state(2)
+        item["state_blocks"][2].update(current_config_operation_id=91, interpretation_current=False)
+        bench.Console._check_cached_state(item)
+        item["state_blocks"][2]["interpretation_current"] = True
+        with self.assertRaises(bench.BenchError):
+            bench.Console._check_cached_state(item)
 
     def test_monitor_arguments_are_bounded_before_any_send(self):
         console = self.session()

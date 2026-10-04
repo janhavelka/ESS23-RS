@@ -77,6 +77,8 @@ completion and record changes to the setup for the next session.
 
 ## Current status
 
+- [Prompt06 fresh audit](reports/ess_release_06_audit_2026-10-04.md): updated timer image,50 checked FC03 frames/470 RX bytes with zero errors. State/health, superseded configuration confidence, finite polling, loaded state and model regressions pass. Raw state/configuration unchanged; monitoring/load off, DE released, owner empty, no recovery needed.
+
 - [Prompt06](reports/ess_release_06_2026-10-04.md): new timer image, stationary state/health, finite polling, loaded/delayed state and existing probe checks passed. Raw alarm0/motion1/IO0/position0/speed0; algorithm3 keeps position source unresolved. All traffic FC03; configuration readback unchanged. Workload/monitor disabled, DE released and no retained/pending work or recovery requirement at cleanup.
 
 - [Prompt 05](reports/ess_release_05_2026-10-04.md), 2026-10-04, uploaded the typed-read timer image. Five identity/config pairs (including loaded/common/profile routes), 13 model probes and one long capture read passed: 44 frames/468 RX bytes, no transport errors. Model4EEA/version0029/node1/DIP0, subdivision1000, configuredencoder4000 and unknown algorithm3 are retained without inferred mapping. Workload is off, DE released and no pending/retained work or recovery requirement remains; wiring/input levels and physical encoder/model/firmware qualification remain unknown.

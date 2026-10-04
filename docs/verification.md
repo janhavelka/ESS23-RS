@@ -1,5 +1,13 @@
 # Software verification
 
+## Fresh prompt06 audit
+
+[Fresh independent review](reports/ess_release_06_audit_2026-10-04.md) corrects
+superseded feedback interpretation confidence and strict cached JSON validation.
+19 native suites,103 Python cases, installed C++11 consumer and all four firmware
+builds pass. Current-image COM13 state/poll/configuration/probe checks pass50
+frames with zero transport errors; physical units/source and motion remain unresolved.
+
 ## Prompt06 state and health
 
 [Typed state/cache verification](reports/ess_release_06_2026-10-04.md) passes19

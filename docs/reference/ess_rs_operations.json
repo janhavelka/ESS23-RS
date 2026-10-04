@@ -192,13 +192,16 @@
           "test/probe_console_test.cpp",
           "test/bench_probe_test.py",
           "test/installed_consumer/main.cpp",
-          "docs/reports/ess_release_06_2026-10-04.md"
+          "docs/reports/ess_release_06_2026-10-04.md",
+          "docs/reports/ess_release_06_audit_2026-10-04.md"
         ]
       },
       "hardware": {
         "state": "PASS",
         "evidence": [
-          "docs/reports/ess_release_06_2026-10-04.md"
+          "docs/reports/ess_release_06_2026-10-04.md",
+          "docs/reports/ess_release_06_audit_2026-10-04.md",
+          "docs/reports/ess_release_06_audit_2026-10-04.json"
         ]
       },
       "reason": "Three independent non-consuming blocks; configured algorithm raw3 cannot establish actual/commanded position. Unsigned paired bits are decoded only with matching known word order; speed/position signed encoding and physical units remain unresolved. Communication, alarm, readiness and operation outcomes are separate."

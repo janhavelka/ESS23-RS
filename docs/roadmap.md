@@ -115,3 +115,5 @@ Its [fresh audit](reports/ess_release_04_audit_2026-10-04.md) closes a host
 diagnostic-validation gap; the unchanged image passes repeated read-only tests.
 
 Prompt06 delivers [typed state, separate health and finite polling](reports/ess_release_06_2026-10-04.md). Stationary state reads pass; algorithm3, position source, signed encoding/physical units, motion completion and electrical timing remain unresolved.
+
+The [fresh06 audit](reports/ess_release_06_audit_2026-10-04.md) verifies current code and fixes feedback configuration confidence and strict cached-state validation. No moving operation or settings write was added.

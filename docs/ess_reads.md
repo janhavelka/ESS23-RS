@@ -20,7 +20,7 @@ status, accepted TX count, uncertainty and application-defined transport detail.
 No borrowed frame pointer survives the call. Wrong target, generation, operation
 or step, malformed envelopes and backwards time leave the context unchanged.
 An accepted event returns OK even when the operation becomes FAILED: inspect
-`state`, `outcome` and `status`. The application validates transport framing
+`state`, `outcome` and `status`. The application validates complete request transmission and response framing
 before supplying FRAME; the core checks target, function, exact count/length
 and CRC again before publishing data.
 
@@ -168,3 +168,22 @@ explicit health checks, inspects/releases results and verifies passive cache
 queries preserve bounds and increase age. It stops on framing/failure, without
 recovery or replay. Current native/hardware limits and exact stationary baseline
 are in the [06 report](reports/ess_release_06_2026-10-04.md).
+
+The [fresh06 audit](reports/ess_release_06_audit_2026-10-04.md) separates raw
+feedback freshness from decoded interpretation confidence. Cached FEEDBACK adds
+`current_config_operation_id` (latest successful configuration for that exact
+target/generation, otherwise0) and `interpretation_current`. The latter is true
+only when the original nonzero `config_operation_id` still matches. A newer
+configuration observation conservatively supersedes the old interpretation,
+even if readback values are unchanged; it does not rewrite historical raw/decoded
+values or their timing. Refresh state to snapshot the new configuration. A current
+interpretation still does not resolve sign, physical units or unknown algorithm.
+Applications consuming public observations compare configuration operation IDs
+as well as target/generation; cached Console `current`/`fresh` describe raw evidence.
+
+The Python host checks cached raw/decoded fields as strictly as terminal state
+fields: polarity, unknown masks, exact types, bounded pair bits, source/reasons
+and missing values. A framing/schema failure poisons the session and is never
+replayed. A cache without copied word order can validate that an unsigned pair
+matches one of its two raw word orders, while exact order remains checked against
+retained configuration in terminal results. It cannot invent absent raw frames.

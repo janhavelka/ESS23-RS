@@ -105,6 +105,9 @@ bool stateCache(char* output, std::size_t capacity, std::size_t& used, const Sna
         const bool valid = b && b->valid;
         const bool same = b && current(*b, target);
         const bool recent = b && fresh(*b, target, snapshot.nowUs, static_cast<uint64_t>(snapshot.staleAfterMs) * 1000);
+        const uint32_t configuration = valid && b->value.target.id == snapshot.cachedConfigAddress &&
+            b->value.target.address == snapshot.cachedConfigAddress &&
+            b->value.target.generation == snapshot.cachedConfigGeneration ? snapshot.cachedConfigId : 0;
         if (!append(output, capacity, used,
             "%s{\"block\":%u,\"valid\":%s,\"current\":%s,\"fresh\":%s,\"source\":\"%s\",\"target\":%lu,\"address\":%u,\"generation\":%lu,\"operation_id\":%lu,\"attempt_known\":%s,\"last_attempt_ok\":%s,\"last_attempt_us\":%llu,\"last_attempt_target\":%lu,\"last_attempt_address\":%u,\"last_attempt_generation\":%lu,\"last_attempt_operation_id\":%lu,\"last_attempt_status\":\"%s\",\"last_attempt_detail\":%ld,\"last_success_us\":%llu,\"observed_earliest_us\":%llu,\"observed_latest_us\":%llu,\"delivered_us\":%llu,\"age_us\":",
             i ? "," : "", i, valid ? "true" : "false", same ? "true" : "false", recent ? "true" : "false", valid ? "checked_rtu_register" : "absent",
@@ -118,6 +121,10 @@ bool stateCache(char* output, std::size_t capacity, std::size_t& used, const Sna
         if (valid && snapshot.nowUs >= b->observedEarliestUs) {
             if (!append(output, capacity, used, "%llu", static_cast<unsigned long long>(ageUs(*b, snapshot.nowUs)))) return false;
         } else if (!append(output, capacity, used, "null")) return false;
+        if (i == static_cast<uint8_t>(Ess::StateBlock::FEEDBACK) &&
+            !append(output, capacity, used, ",\"current_config_operation_id\":%lu,\"interpretation_current\":%s",
+                static_cast<unsigned long>(configuration),
+                valid && b->value.configOperationId && b->value.configOperationId == configuration ? "true" : "false")) return false;
         if (!append(output, capacity, used, ",\"value\":")) return false;
         if (valid) { if (!stateValue(output, capacity, used, b->value)) return false; }
         else if (!append(output, capacity, used, "null")) return false;

@@ -12,7 +12,11 @@ routes and a ledger-linked operation inventory, with native/package and read-onl
 COM13 evidence. See the [read API](ess_reads.md) and
 [fresh audit](reports/ess_release_05_audit_2026-10-04.md).
 
-Implemented blocks are pure unit conversion, an ESS register catalogue,
+Prompt 06 adds typed state blocks, per-block conservative ages, separate health
+and finite polling. The [fresh audit](reports/ess_release_06_audit_2026-10-04.md)
+checks current interpretation confidence and strict host validation.
+
+Implemented blocks include typed non-changing reads, pure unit conversion, an ESS register catalogue,
 checked wire codecs with a minimal probe and standalone build foundations.
 The standalone RTU runner and ESP32-S3 adapter have native fake tests. The read-only
 probe CLI has bench evidence; external timing qualification, typed setting/action

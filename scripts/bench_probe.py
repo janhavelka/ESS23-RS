@@ -533,37 +533,70 @@ class Console:
                     and config[code] in choices and (not config[flag] or config["operation_id"] != 0),
                     "decode configuration is invalid")
         for index, block in enumerate(blocks):
-            require(isinstance(block, dict) and type(block.get("block")) is int and block["block"] == index
-                    and block.get("config_operation_id") == config["operation_id"], "block identity is inconsistent")
-            if index == 0:
-                alarm, motion = words[:2]
-                expected = dict(raw_alarm=alarm, alarm_known=alarm in (0, 1, 2, 3, 5), raw_motion=motion,
-                                unknown_motion_bits=motion & 0xFF80, in_position=bool(motion & 1),
-                                homing_complete=bool(motion & 2), running=bool(motion & 4), alarm_flag=bool(motion & 8),
-                                released=bool(motion & 16), enabled=not bool(motion & 16),
-                                positive_soft_limit=bool(motion & 32), negative_soft_limit=bool(motion & 64))
-            elif index == 1:
-                inputs, outputs = words[2:4]
-                expected = dict(raw_inputs=inputs, raw_outputs=outputs, unknown_input_bits=inputs & 0xFFF0,
-                                unknown_output_bits=outputs & 0xFFFC,
-                                inputs=[bool(inputs & (1 << bit)) for bit in range(4)],
-                                outputs=[bool(outputs & (1 << bit)) for bit in range(2)], levels="logical_valid_not_voltage")
-            else:
-                first, second, speed = words[4:7]
+            Console._check_state_block(block, index, words, config)
+
+    @staticmethod
+    def _check_state_block(block: dict, index: int, words: list[int] | None = None,
+                           config: dict | None = None) -> None:
+        """Check one bounded raw/decoded block for both live and cached reports."""
+        def require(condition, message):
+            if not condition:
+                raise BenchError("typed-read state " + message)
+
+        def raw(key, maximum=0xFFFF):
+            value = block.get(key)
+            require(type(value) is int and 0 <= value <= maximum, "raw field is invalid: " + key)
+            return value
+
+        require(isinstance(block, dict) and type(block.get("block")) is int and block["block"] == index,
+                "block identity is inconsistent")
+        config_id = raw("config_operation_id", 0xFFFFFFFF)
+        if config is not None:
+            require(config_id == config["operation_id"], "block configuration is inconsistent")
+        if index == 0:
+            alarm, motion = (words[:2] if words is not None else (raw("raw_alarm"), raw("raw_motion")))
+            expected = dict(raw_alarm=alarm, alarm_known=alarm in (0, 1, 2, 3, 5), raw_motion=motion,
+                            unknown_motion_bits=motion & 0xFF80, in_position=bool(motion & 1),
+                            homing_complete=bool(motion & 2), running=bool(motion & 4), alarm_flag=bool(motion & 8),
+                            released=bool(motion & 16), enabled=not bool(motion & 16),
+                            positive_soft_limit=bool(motion & 32), negative_soft_limit=bool(motion & 64))
+        elif index == 1:
+            inputs, outputs = (words[2:4] if words is not None else (raw("raw_inputs"), raw("raw_outputs")))
+            expected = dict(raw_inputs=inputs, raw_outputs=outputs, unknown_input_bits=inputs & 0xFFF0,
+                            unknown_output_bits=outputs & 0xFFFC,
+                            inputs=[bool(inputs & (1 << bit)) for bit in range(4)],
+                            outputs=[bool(outputs & (1 << bit)) for bit in range(2)], levels="logical_valid_not_voltage")
+        else:
+            position = block.get("position_words")
+            require(isinstance(position, list) and len(position) == 2
+                    and all(type(value) is int and 0 <= value <= 0xFFFF for value in position),
+                    "position words are invalid")
+            first, second, speed = words[4:7] if words is not None else (*position, raw("raw_speed"))
+            if config is not None:
                 pair_known = config["word_order_known"]
                 raw_position = ((first << 16 | second) if config["word_order"] == 0 else (second << 16 | first)) if pair_known else 0
-                expected = dict(position_words=[first, second], raw_speed=speed, pair_known=pair_known,
-                                raw_position=raw_position, position_source=config["algorithm"] if config["algorithm_known"] else 0,
-                                word_order_resolution=0 if pair_known else 9,
-                                position_source_resolution=0 if config["algorithm_known"] else 10,
-                                position_signed_resolution=7, position_scale_resolution=5,
-                                speed_signed_resolution=7, speed_unit_resolution=8,
-                                physical_units="unresolved", raw_encoder_counts=None)
-            for key, value in expected.items():
-                require(key in block and type(block[key]) is type(value) and block[key] == value,
-                        "decoded field differs from retained RX: " + key)
-            if index == 1:
-                require(all(type(value) is bool for value in block["inputs"] + block["outputs"]), "logical levels are not booleans")
+                source = config["algorithm"] if config["algorithm_known"] else 0
+            else:
+                pair_known = block.get("pair_known")
+                source = block.get("position_source")
+                require(type(pair_known) is bool and type(source) is int and source in (0, 1, 2),
+                        "position interpretation is invalid")
+                require(config_id != 0 or (not pair_known and source == 0), "position lacks configuration provenance")
+                raw_position = raw("raw_position", 0xFFFFFFFF)
+                require(raw_position in ((first << 16 | second), (second << 16 | first)) if pair_known else raw_position == 0,
+                        "paired position differs from raw words")
+            expected = dict(position_words=[first, second], raw_speed=speed, pair_known=pair_known,
+                            raw_position=raw_position, position_source=source,
+                            word_order_resolution=0 if pair_known else 9,
+                            position_source_resolution=0 if source else 10,
+                            position_signed_resolution=7, position_scale_resolution=5,
+                            speed_signed_resolution=7, speed_unit_resolution=8,
+                            physical_units="unresolved", raw_encoder_counts=None)
+        for key, value in expected.items():
+            require(key in block and type(block[key]) is type(value) and block[key] == value,
+                    "decoded field differs from retained RX: " + key)
+        if index == 1:
+            require(all(type(value) is bool for value in block["inputs"] + block["outputs"]), "logical levels are not booleans")
 
     @staticmethod
     def _check_cached_state(item: dict) -> None:
@@ -584,12 +617,25 @@ class Console:
                                "observed_earliest_us", "observed_latest_us", "delivered_us"), "cached state block")
             require(block["last_attempt_us"] <= item["now_us"], "last attempt is in the future")
             require(type(block.get("last_attempt_status")) is str and type(block.get("last_attempt_detail")) is int, "attempt error is unavailable")
+            if index == 2 and not block["valid"]:
+                require(type(block.get("current_config_operation_id")) is int
+                        and 0 <= block["current_config_operation_id"] <= 0xFFFFFFFF
+                        and block.get("interpretation_current") is False,
+                        "absent feedback interpretation is invalid")
             if not block["valid"]:
                 require(not block["current"] and not block["fresh"] and block.get("value") is None
                         and block.get("age_us") is None and block.get("source") == "absent", "absent feedback was fabricated")
                 continue
             require(isinstance(block.get("value"), dict) and block["value"].get("block") == index
                     and block.get("source") == "checked_rtu_register", "valid observation source is invalid")
+            Console._check_state_block(block["value"], index)
+            if index == 2:
+                config_id = block.get("current_config_operation_id")
+                require(type(config_id) is int and 0 <= config_id <= 0xFFFFFFFF
+                        and type(block.get("interpretation_current")) is bool
+                        and block["interpretation_current"] == (config_id != 0
+                            and config_id == block["value"]["config_operation_id"]),
+                        "feedback interpretation generation is inconsistent")
             require(0 <= block["observed_earliest_us"] <= block["observed_latest_us"] <= block["delivered_us"] <= item["now_us"]
                     and block["last_success_us"] == block["observed_latest_us"], "observation timing bounds are invalid")
             expected_current = all(block[key] == item["selected_" + key] for key in ("target", "address", "generation"))

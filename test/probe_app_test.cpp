@@ -489,12 +489,12 @@ void readStep(uint32_t operation, uint8_t index, const std::vector<uint8_t>& byt
         view(operation).typedRead->step == index; ++i) step();
     assert(view(operation).typedRead->step != index || !view(operation).pending);
 }
-void completeConfig(uint32_t operation) {
+void completeConfig(uint32_t operation, uint16_t wordOrder = 1, uint16_t algorithm = 2) {
     readStep(operation, 0, registerReply({1, 1000}));
     readStep(operation, 1, registerReply({0, 0, 0}));
-    readStep(operation, 2, registerReply({1, 0, 1}));
+    readStep(operation, 2, registerReply({1, 0, wordOrder}));
     readStep(operation, 3, registerReply({0x8005, 0, 1, 6, 17}));
-    readStep(operation, 4, registerReply({2, 4000})); pump(100);
+    readStep(operation, 4, registerReply({algorithm, 4000})); pump(100);
 }
 void testTypedReadRoutesAndAtomicPublication() {
     fresh(); timerCapture(); command("@1 caps\n"); contains("\"command\":\"caps\"");
@@ -779,6 +779,34 @@ void testStateDelayedServiceAndStaleConfigurationStayExplicit() {
     assert(!app->owner.recovering() && hardware.writes == 3);
     assert(app->stateCache.blocks[0].observedEarliestUs == earliest);
 }
+void testNewConfigurationSeparatesHistoricalFeedbackInterpretation() {
+    fresh(); timerCapture(); command("@1 read config\n"); const uint32_t firstConfig = view(0).operationId;
+    completeConfig(firstConfig, 0, 1);
+    command("@2 read state\n"); const uint32_t firstState = view(0).operationId; completeState(firstState);
+    const auto previous = app->stateCache.blocks[2];
+    assert(previous.value.configOperationId == firstConfig && previous.value.pairKnown);
+    assert(previous.value.rawPosition == 0x1234ABCD && previous.value.positionSource == ESS::PositionSource::COMMAND_GIVEN);
+    command("@3 status\n"); contains("\"interpretation_current\":true");
+
+    command("@4 read config\n"); const uint32_t secondConfig = view(0).operationId;
+    completeConfig(secondConfig, 1, 2);
+    const auto& historical = app->stateCache.blocks[2];
+    assert(historical.value.configOperationId == firstConfig && historical.value.rawPosition == previous.value.rawPosition);
+    assert(historical.value.positionSource == previous.value.positionSource);
+    assert(historical.observedEarliestUs == previous.observedEarliestUs && historical.lastSuccessUs == previous.lastSuccessUs);
+    assert(Probe::fresh(historical, app->configuration.target, hardware.time, 5000000));
+    command("@5 status\n"); contains("\"interpretation_current\":false");
+    const std::string currentConfig = "\"current_config_operation_id\":" + std::to_string(secondConfig);
+    contains(currentConfig.c_str());
+
+    command("@6 read state\n"); const uint32_t secondState = view(0).operationId; completeState(secondState);
+    const auto& refreshed = app->stateCache.blocks[2];
+    assert(refreshed.value.configOperationId == secondConfig && refreshed.value.rawPosition == 0xABCD1234);
+    assert(refreshed.value.positionSource == ESS::PositionSource::SUBDIVISION_EQUIVALENT_FEEDBACK);
+    assert(refreshed.lastSuccessUs > previous.lastSuccessUs && app->bindingGeneration == 1);
+    command("@7 health\n"); contains("\"interpretation_current\":true"); contains(currentConfig.c_str());
+    assert(hardware.writes == 16);
+}
 void pollStep(uint8_t index, const std::vector<uint8_t>& bytes) {
     auto& record = app->records[REQUEST_CAPACITY];
     assert(record.operationId && record.read.step == index);
@@ -930,6 +958,7 @@ int main() {
     testStateCacheLateDeliveryCannotRejuvenateObservation();
     testStateReadUnknownBitsAndPassiveQueries(); testStatePartialRefreshPreservesPreviousBlocks();
     testStateDelayedServiceAndStaleConfigurationStayExplicit(); testMonitorDisabledFiniteAndOwnResultRelease();
+    testNewConfigurationSeparatesHistoricalFeedbackInterpretation();
     testMonitorCancellationSettlesTransmission(); testMonitorYieldsToUrgentOwnerAdmission();
     testMonitorPressurePreservesUnreadForegroundResults(); testMonitorCheckedFailureHasOneAttemptAndNoFeedback();
 #if MOTORCONTROLRS_LOAD_FIXTURE

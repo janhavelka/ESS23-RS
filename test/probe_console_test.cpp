@@ -696,6 +696,7 @@ void testStateRoutesCacheAndPolling() {
     fake.data.stateCache = &cache; fake.data.nowUs = UINT64_MAX;
     fake.data.address = context.target.address; fake.data.bindingGeneration = context.target.generation;
     send(console, "status\n"); fake.contains("\"atomic_snapshot\":false"); fake.contains("\"source\":\"checked_rtu_register\"");
+    fake.contains("\"current_config_operation_id\":0,\"interpretation_current\":false");
     fake.contains("\"current\":false"); // Cache target id differs from address: exact binding matters.
     std::printf("Maximum-width cached status line: %zu/%zu bytes\n", fake.lines.back().size(), Probe::OUTPUT_CAPACITY);
     const auto retained = cache.blocks[0].lastSuccessUs;
@@ -704,6 +705,13 @@ void testStateRoutesCacheAndPolling() {
     std::printf("Maximum-width cached health line: %zu/%zu bytes\n", fake.lines.back().size(), Probe::OUTPUT_CAPACITY);
     assert(fake.lines.back().size() < Probe::OUTPUT_CAPACITY);
     for (auto& block : cache.blocks) block.value.target.id = fake.data.address;
+    fake.data.cachedConfigId = UINT32_MAX; fake.data.cachedConfigAddress = fake.data.address;
+    fake.data.cachedConfigGeneration = fake.data.bindingGeneration;
+    send(console, "status\n"); fake.contains("\"current_config_operation_id\":4294967295,\"interpretation_current\":true");
+    assert(fake.lines.back().size() < Probe::OUTPUT_CAPACITY);
+    ++fake.data.cachedConfigGeneration;
+    send(console, "health\n"); fake.contains("\"current_config_operation_id\":0,\"interpretation_current\":false");
+    --fake.data.cachedConfigGeneration;
     cache.blocks[0].value.rawAlarm = 4; cache.blocks[0].value.alarmKnown = false; cache.blocks[0].value.alarmFlag = false;
     send(console, "health\n"); fake.contains("\"alarms\":\"present\"");
     cache.blocks[0].value.rawAlarm = 0xBEEF;

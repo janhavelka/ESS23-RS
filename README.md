@@ -18,9 +18,13 @@ correlated results with explicit release; [prompt 03 evidence](docs/reports/ess_
 The [capture review](docs/reports/ess_release_04_2026-10-04.md) retains the
 20-us sampler, enforces starvation faults and adds a fixed checked 37-byte
 read fixture. Independent electrical timing remains unqualified.
+The [typed ESS read API](docs/ess_reads.md) supplies identity, configuration and
+state observations. Cached status/health keep separate ages and interpretation
+context; finite opt-in polling shares the bus owner. Read-only stationary evidence
+is recorded in [prompt 06](docs/reports/ess_release_06_2026-10-04.md).
 The [release roadmap](docs/roadmap.md) records the delivery order and completion gates.
 The [numbered implementation prompts](docs/prompts/ess_release/README.md)
-split the remaining work into reviewed, independently dispatched blocks. Model-register
+split the remaining work into reviewed, independently dispatched blocks. Typed non-changing read
 communication has bench evidence; external timing qualification, motion commands,
 discovery orchestration and the full CLI remain future work. Other reviewed drives, including
 Leadshine iEM-RS, are design contrasts rather than implemented profiles.

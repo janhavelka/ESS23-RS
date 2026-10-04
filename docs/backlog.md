@@ -421,3 +421,5 @@ See [the typed read API](ess_reads.md) and [current report](reports/ess_release_
 Logical input levels0 do not establish external wiring or limit/stop effects.
 Identity success and clear alarms do not prove readiness or settle an uncertain
 operation. Prompt07 remains separately dispatched work.
+
+The [fresh06 audit](reports/ess_release_06_audit_2026-10-04.md) separates historical feedback interpretation from raw freshness after new configuration readback and rejects contradictory/missing cached JSON fields. Native, package/build and50-frame read-only COM13 checks pass. Qualification limits above are unchanged.
