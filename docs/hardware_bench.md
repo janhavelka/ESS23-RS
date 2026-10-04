@@ -1,5 +1,21 @@
 # Motor bench and testing authorization
 
+## Current physical setup and standing authorization
+
+Reconfirmed by the user on 2026-10-04: the ESS23-RS20 is bolted securely to the
+table. Only power and RS485 are connected. The shaft is free and uncoupled;
+no external input switches, output loads or driven mechanism are connected.
+The motor housing is secured; the shaft remains available for rotation tests.
+
+Physical motor tests are authorized on this setup without repeated permission
+requests. Run bounded communication, settings and free-shaft motion tests when
+their actual command/stop prerequisites are established. Missing optional
+external wiring does not itself block serial-only tests. Unwired terminals do
+not imply disabled drive assignments; verify the affected configuration rather
+than silently changing it. Tests of external switches/loads or linear mechanics
+still require those fixtures. Record physical observations separately from
+RS485 acknowledgements and readback.
+
 Prompt14 [fresh audit image/evidence](reports/ess_release_14_audit_2026-10-04.md) repeats38 read-only frames and7 zero-TX gates after feedback-reference and host-evidence fixes. Settings/state unchanged; owner empty, DE released and no transport/capture faults. Physical homing remains NOT RUN.
 
 Prompt14 [homing delivery/evidence](reports/ess_release_14_2026-10-04.md) passes38 read-only frames and7 zero-TX home gates on its reviewed timer image. All35 method dispositions are queryable; software33/34/35 are implemented. Raw configuration/state unchanged, owner empty and DE released. Physical homing/reference/return remains NOT RUN behind explicit qualification gates.

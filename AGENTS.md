@@ -84,6 +84,14 @@ that setup; routine tests within it do not need repeated permission. Inspect
 the current port/firmware and actual settings when testing becomes relevant.
 This is recorded availability, not a claim that communication has been tested.
 
+Reconfirmed on 2026-10-04: only power and RS485 are connected to the ESS23-RS20.
+The motor is bolted securely to the table and its shaft is free and uncoupled;
+there are no external switches, output loads or driven mechanics. Standing
+authorization includes bounded physical free-shaft tests without another
+permission question. Establish the tested command/stop prerequisites from actual
+evidence; optional unwired I/O is not a blanket blocker for serial-only tests.
+Unwired terminals do not establish disabled drive function assignments.
+
 ## Read before implementing
 
 1. `README.md` and `docs/README.md`.
