@@ -2,6 +2,11 @@
 
 ## User report on 2026-10-02
 
+The [fresh prompt 12 audit](reports/ess_release_12_audit_2026-10-04.md) passes ten
+additional read-only model probes on the unchanged image (48 cumulative frames,
+428 RX bytes, zero transport/capture errors). Load remains off, DE released and
+owner empty. No physical pair write or motion qualification was added.
+
 Latest [prompt 12 image and evidence](reports/ess_release_12_2026-10-04.md):
 generated FC10 policy preserves the exact four reviewed windows. The final timer
 image passes 38 read-only frames/358 RX bytes with zero transport/capture errors,

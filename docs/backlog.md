@@ -2,6 +2,10 @@
 
 ## Prompt 12 paired-write disposition
 
+- [x] [Fresh audit](reports/ess_release_12_audit_2026-10-04.md) fixes hexadecimal
+  address consistency in catalogue emitters; 27 native suites, installed consumer,
+  four firmware builds and ten additional read-only probes pass. Pair gates unchanged.
+
 - [x] Inventory all 20 writable pairs and preserve unresolved order/sign/range
   and partial-application reasons in the ledger and derived coverage.
 - [x] Generate the exact four FC10 windows from the same ledger; native exhaustive

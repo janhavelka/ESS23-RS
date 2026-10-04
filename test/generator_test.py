@@ -63,6 +63,20 @@ class WriteWindowValidation(unittest.TestCase):
         catalogue.validate(data, rows)
         self.assertEqual(catalogue.access_header(data, rows), catalogue.access_header(SOURCE, rows))
 
+    def test_catalogue_and_access_use_same_hexadecimal_addresses(self):
+        data = copy.deepcopy(SOURCE)
+        for row in data["registers"]:
+            row["address"] = row["address"].removeprefix("0x")
+        for group in data["indexed_groups"]:
+            for instance in group["instances"]:
+                instance["base"] = instance["base"].removeprefix("0x")
+        rows = catalogue.expand(data)
+        catalogue.validate(data, rows)
+        original = catalogue.expand(SOURCE)
+        self.assertEqual(catalogue.registers_header(rows), catalogue.registers_header(original))
+        self.assertEqual(catalogue.source_file(data, rows), catalogue.source_file(SOURCE, original))
+        self.assertEqual(catalogue.access_header(data, rows), catalogue.access_header(SOURCE, original))
+
     def test_no_windows(self):
         self.rejected(lambda d: d.update(write_multiple_windows=[]))
 

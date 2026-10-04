@@ -208,10 +208,11 @@ def registers_header(rows):
               " * Select the active word order before decoding paired fields. No I/O or setters. */\n",
               "namespace Registers {\n"]
     for row in rows:
-        lines.append("constexpr uint16_t %s = %s;\n" % (row["name"], row["address"]))
+        address = int(row["address"], 16)
+        lines.append("constexpr uint16_t %s = 0x%04X;\n" % (row["name"], address))
         if row["words"] == 2:
-            lines.append("constexpr uint16_t %s_HIGH = %s;\n" % (row["name"], row["address"]))
-            lines.append("constexpr uint16_t %s_LOW = 0x%04X;\n" % (row["name"], int(row["address"], 16) + 1))
+            lines.append("constexpr uint16_t %s_HIGH = 0x%04X;\n" % (row["name"], address))
+            lines.append("constexpr uint16_t %s_LOW = 0x%04X;\n" % (row["name"], address + 1))
     lines += ["} // namespace Registers\n\n",
               "/** Immutable catalogue metadata, not an operational read/write capability.\n",
               " * All strings have static lifetime. Ranges/defaults are source text, never\n",
@@ -262,7 +263,7 @@ def source_file(data, rows):
         access = "RESERVED" if row["signedness"] == "RESERVED" else accesses[row["source_access"]]
         mask = sum(data["issues"][issue] for issue in set(row["issues"]))
         lines += ["    // Function PDF pages %s.\n" % ", ".join(map(str, row["pages"])),
-                  "    {%s, %d, RegisterAccess::%s, RegisterSignedness::%s,\n" % (row["address"], row["words"], access, row["signedness"]),
+                  "    {0x%04X, %d, RegisterAccess::%s, RegisterSignedness::%s,\n" % (int(row["address"], 16), row["words"], access, row["signedness"]),
                   "     RegisterWordOrder::%s, 0x%08Xu, %d,\n" % (row["word_order"], mask, row["pages"][0]),
                   "     %s, %s,\n" % (quoted(row["name"]), quoted(row["unit"])),
                   "     %s, %s, %s,\n" % (quoted(row["source_range"]), quoted(row["source_default"]), quoted(row["source_access"])),

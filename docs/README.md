@@ -5,7 +5,8 @@
 Prompt 12 records the [complete paired-write disposition](ess_pair_writes.md).
 The four FC10 windows now share the generated register-ledger policy; no new
 window or physical pair-write qualification is inferred. See the
-[implementation evidence](reports/ess_release_12_2026-10-04.md).
+[implementation evidence](reports/ess_release_12_2026-10-04.md) and
+[fresh audit](reports/ess_release_12_audit_2026-10-04.md).
 
 Release prompts 01–04 deliver the application owner, responsive console and
 [capture review](reports/ess_release_04_2026-10-04.md): native/build checks and

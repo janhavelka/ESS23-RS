@@ -10,7 +10,9 @@ into 30 ordered implementation blocks with tests, independent audits and
 evidence handoffs. Prompts 01–12 have implementation and available verification
 dispositions. [Prompt12](reports/ess_release_12_2026-10-04.md) consolidates the
 four reviewed FC10 windows into generated policy and records all paired-write
-proof gaps. No new physical write qualification is implied; prompt 13 is next
+proof gaps. Its [fresh audit](reports/ess_release_12_audit_2026-10-04.md) fixes
+generator address consistency and repeats native/build/read-only checks.
+No new physical write qualification is implied; prompt 13 is next
 when dispatched. [Prompt10](reports/ess_release_10_2026-10-04.md) adds absolute/wrapped
 coordinates and device zero-clear while physical comparisons remain gated.
 Its [fresh audit](reports/ess_release_10_audit_2026-10-04.md) fixes host-reference
