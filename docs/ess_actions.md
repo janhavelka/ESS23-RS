@@ -63,6 +63,10 @@ ACKNOWLEDGED, REJECTED or UNKNOWN). An acknowledged command still has
 NOT_OBSERVED completion until a later checked status matches the requested
 effect. Partial/full TX without a confirmed reply remains UNKNOWN. Later read
 failure preserves write acknowledgement and the last valid raw observation.
+Only documented ESS exception codes 01–07 establish rejection. An undocumented
+exception retains its raw byte and codec status with UNKNOWN execution, keeping
+the application's conflict reservation. The bus owner's checked-response evidence
+does not itself supply that profile-specific interpretation.
 Contexts copy bounded write, last-observation and failure evidence; borrowed
 event bytes are not retained. No timeout, cancellation, recovery or poll replays
 the write.

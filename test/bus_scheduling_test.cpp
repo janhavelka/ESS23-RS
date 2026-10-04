@@ -2,6 +2,8 @@
 #include "../examples/common/RtuBusOwner.h"
 #include "../examples/common/EssRtuValidator.h"
 #include "MotorControlRS/profiles/ess_rs/Codec.h"
+#include "MotorControlRS/profiles/ess_rs/Registers.h"
+#include "MotorControlRS/profiles/ess_rs/Types.h"
 #include <algorithm>
 #include <cassert>
 #include <cstring>
@@ -34,7 +36,7 @@ struct Fake {
     unsigned assertions = 0, releases = 0, reads = 0;
     bool de = false, automaticRelease = true, automaticReply = false;
     bool busy = false, pending = false, readError = false, releaseError = false;
-    std::size_t next = 0;
+    std::size_t next = 0, writeCapacity = MAX_FRAME;
     std::vector<RxByte> input;
     std::vector<std::vector<uint8_t> > sent;
     static bool direction(void* context, bool enabled) {
@@ -45,6 +47,7 @@ struct Fake {
     }
     static WriteResult write(void* context, const uint8_t* bytes, std::size_t count) {
         Fake& f = *static_cast<Fake*>(context); assert(f.de);
+        count = std::min(count, f.writeCapacity);
         f.sent.push_back(std::vector<uint8_t>(bytes, bytes + count));
         f.txEnd = f.now + count * 100;
         if (f.automaticReply)
@@ -851,6 +854,51 @@ void testCancelUnsentLeavesInflightAndOtherWorkIntact() {
         assert(!rig.owner.cancelUnsent(RequestId(), rig.fake.now));
     }
 }
+void testStopAdmissionDuringHoldAndPartialWriteSettlement() {
+    for (bool partial : {false, true}) {
+        Rig rig; uint8_t bytes[32], stopBytes[32], otherBytes[32];
+        rig.fake.automaticRelease = false;
+        rig.fake.writeCapacity = partial ? 4 : MAX_FRAME;
+        BusRequest enable = request(bytes);
+        enable.expected.function = 6; enable.expected.first = Ess::Registers::AUXILIARY_COMMAND;
+        enable.expected.value = static_cast<uint16_t>(Ess::AuxiliaryCommand::ENABLE);
+        enable.wire.length = Ess::buildWriteSingleRegister(1, enable.expected.first, enable.expected.value, bytes, sizeof(bytes));
+        enable.wire.replyLength = 8;
+        const RequestId original = admit(rig, enable);
+        const RequestId ordinary = admit(rig, request(otherBytes, 1));
+        rig.send(); rig.service(rig.fake.txEnd);
+        assert(rig.runner.phase() == Phase::HOLD && rig.fake.de);
+        BusRequest stop = enable;
+        stop.expected.first = Ess::Registers::MOTION_COMMAND;
+        stop.expected.value = static_cast<uint16_t>(Ess::MotionCommandBit::STOP);
+        stop.wire.bytes = stopBytes;
+        stop.wire.length = Ess::buildWriteSingleRegister(1, stop.expected.first, stop.expected.value, stopBytes, sizeof(stopBytes));
+        const RequestId urgent = admit(rig, stop, rig.fake.now, true);
+        assert(!rig.owner.cancelUnsent(original, rig.fake.now));
+        assert(rig.owner.txAccepted(original) == (partial ? 4U : 8U));
+        assert(rig.fake.sent.size() == 1 && !rig.owner.result(original));
+        if (partial) {
+            rig.until(original);
+            assert(done(rig, original).transport.reason == Reason::TX_ERROR);
+            assert(done(rig, original).executionUnknown && !done(rig, original).transport.txComplete);
+            assert(rig.owner.needsRecovery() && !rig.owner.result(urgent) && rig.fake.sent.size() == 1);
+            uint64_t recovery = 0;
+            assert(rig.owner.recover(rig.fake.now, rig.fake.now + 10000, recovery) == RecoveryAdmission::ACCEPTED);
+            rig.recovered(recovery);
+            assert(done(rig, urgent).cancellation == Cancellation::RECOVERY && !done(rig, urgent).executionUnknown);
+            assert(done(rig, ordinary).cancellation == Cancellation::RECOVERY);
+            assert(done(rig, original).executionUnknown && rig.fake.sent.size() == 1);
+        } else {
+            rig.fake.bytes(rig.fake.sent.front(), rig.fake.txEnd + 350);
+            rig.fake.automaticReply = true;
+            rig.until(urgent);
+            assert(done(rig, original).outcome == Outcome::SUCCESS && done(rig, urgent).outcome == Outcome::SUCCESS);
+            assert(done(rig, original).cancellation == Cancellation::NONE && done(rig, urgent).urgent);
+            assert(rig.fake.sent.size() == 2 && rig.fake.sent[1][3] == Ess::Registers::MOTION_COMMAND);
+            assert(!rig.owner.result(ordinary) && !rig.owner.needsRecovery());
+        }
+    }
+}
 } // namespace
 int main() {
     testScheduleBounds(); testCancellationPhases(); testDeadlineCancellation(); testLateCancelOverReadBudget();
@@ -861,5 +909,6 @@ int main() {
     testExpiredRecoveryCannotReopenThroughHistoricalSuccess(); testRecoveryDoesNotDoubleReadBudgetAfterCompletion();
     testLateIdenticalReplyLimitation();
     testCancelUnsentLeavesInflightAndOtherWorkIntact();
+    testStopAdmissionDuringHoldAndPartialWriteSettlement();
     return 0;
 }

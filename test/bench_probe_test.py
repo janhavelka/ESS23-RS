@@ -318,13 +318,105 @@ class Framing(unittest.TestCase):
         self.assertTrue(inspected["interrupted_by_stop"])
         console.command("release", operation_id=handle.operation_id)
 
+    def test_action_rejects_impossible_cross_transaction_evidence(self):
+        def failure_on_success(t):
+            t["failure_evidence"] = copy.deepcopy(t["write_evidence"])
+            t["failure_evidence"].update(status="CRC_ERROR", frame_error=6)
+
+        changes = {
+            "observation before acknowledgement": lambda t: t["last_observation"].update(
+                earliest_us=1001, latest_us=1010, delivered_us=1020),
+            "closure after deadline": lambda t: t.update(deadline_us=2100),
+            "poll count differs from token": lambda t: t.update(polls=64),
+            "successful truncated observation": lambda t: t["last_observation"].update(received_length=100),
+            "success retains failure": failure_on_success,
+            "success serviced after final event": lambda t: t.update(serviced_us=2400),
+            "unbounded detail": lambda t: t["write_evidence"].update(transport_detail=2**31),
+        }
+        for name, change in changes.items():
+            with self.subTest(name=name):
+                console = self.session(ActionSerial(change))
+                with self.assertRaises(bench.BenchError):
+                    console.command("stop", address=1, stop_policy="normal")
+                self.assertEqual(len(self.port.writes), 2)  # No retry or result release after bad evidence.
+
+    def test_action_accepts_ontime_observation_delivered_after_deadline(self):
+        def late(t):
+            t.update(serviced_us=11000)
+            t["last_observation"].update(delivered_us=11000)
+        console = self.session(ActionSerial(late))
+        result = console.command("enable", address=1)
+        self.assertTrue(result["ok"])
+        self.assertLess(result["last_observation"]["latest_us"], result["deadline_us"])
+
+    def test_action_exception_classification_preserves_unknown_codes(self):
+        for code in (0, 1, 7, 8, 255):
+            def exception(t):
+                raw = bytes((1, 0x86, code))
+                t.update(ok=False, state="failed", outcome="reply_error",
+                    execution="rejected" if 1 <= code <= 7 else "unknown", completion="not_observed",
+                    observation_known=False, raw_alarm=None, raw_motion=None, polls=0, serviced_us=1250,
+                    last_observation=copy.deepcopy(t["failure_evidence"]))
+                t["write_evidence"].update(raw_hex=(raw + bench.wire_crc(raw).to_bytes(2, "little")).hex(),
+                    received_length=5, status="EXCEPTION", detail=code, frame_error=10)
+                t["failure_evidence"] = copy.deepcopy(t["write_evidence"])
+            with self.subTest(code=code):
+                console = self.session(ActionSerial(exception))
+                result = console.command("enable", address=1)
+                self.assertEqual(result["write_evidence"]["detail"], code)
+                if code not in range(1, 8):
+                    result["execution"] = "rejected"
+                    with self.assertRaises(bench.BenchError): bench.Console._check_action(result, "enable", 1, None)
+                else:
+                    result["write_evidence"]["detail"] = code + 1
+                    with self.assertRaises(bench.BenchError): bench.Console._check_action(result, "enable", 1, None)
+
+    def test_action_retains_failed_truncated_and_unqualified_frames(self):
+        for qualified in (False, True):
+            def failure(t):
+                empty = copy.deepcopy(t["failure_evidence"])
+                t.update(ok=False, state="failed", outcome="reply_error" if qualified else "timing_unqualified",
+                    completion="not_observed", observation_known=False, raw_alarm=None, raw_motion=None, polls=0,
+                    last_observation=empty)
+                t["failure_evidence"] = dict(step=1, event=0, raw_hex="010304000000010000", received_length=100,
+                    tx_accepted=8, tx_complete=True, response_confirmed=True, qualified=qualified,
+                    execution_unknown=True, earliest_us=2000 if qualified else 0, latest_us=2200 if qualified else 0,
+                    delivered_us=2300, transport_detail=0, status="FRAME_ERROR", detail=2, frame_error=2)
+            with self.subTest(qualified=qualified):
+                console = self.session(ActionSerial(failure))
+                result = console.command("enable", address=1)
+                self.assertEqual(result["execution"], "acknowledged")
+                self.assertEqual(result["failure_evidence"]["received_length"], 100)
+                result["outcome"] = "cancelled"
+                with self.assertRaises(bench.BenchError): bench.Console._check_action(result, "enable", 1, None)
+
+    def test_action_retains_prior_observation_on_later_cancellation(self):
+        def cancelled(t):
+            # RUNNING remains set, so this checked stop observation was incomplete.
+            raw = bytes((1, 3, 4, 0, 0, 0, 5))
+            t["last_observation"]["raw_hex"] = (raw + bench.wire_crc(raw).to_bytes(2, "little")).hex()
+            t.update(ok=False, state="failed", outcome="cancelled", completion="not_observed",
+                     raw_motion=5, serviced_us=2500)
+            t["failure_evidence"].update(step=2, event=2, delivered_us=2500, status="ILLEGAL_VALUE", detail=13)
+        console = self.session(ActionSerial(cancelled))
+        result = console.command("stop", address=1, stop_policy="normal")
+        self.assertEqual(result["polls"], 1)
+        self.assertTrue(result["observation_known"])
+        self.assertEqual(result["execution"], "acknowledged")
+        for change in (lambda t: t["failure_evidence"].update(step=3),
+                       lambda t: t["failure_evidence"].update(response_confirmed=True),
+                       lambda t: t["failure_evidence"].update(delivered_us=2000)):
+            corrupt = copy.deepcopy(result)
+            change(corrupt)
+            with self.assertRaises(bench.BenchError): bench.Console._check_action(corrupt, "stop", 1, "normal")
+
     def test_action_partial_and_full_tx_failures_remain_unknown_without_replay(self):
         for accepted in (1, 8):
             def failure(t):
                 empty = copy.deepcopy(t["failure_evidence"])
                 t.update(ok=False, state="failed", outcome="transport_error", execution="unknown",
                     completion="not_observed", observation_known=False, raw_alarm=None, raw_motion=None, polls=0,
-                    last_observation=empty)
+                    last_observation=empty, serviced_us=1250)
                 t["write_evidence"].update(event=1, raw_hex="", received_length=0, tx_accepted=accepted,
                     tx_complete=accepted == 8, qualified=False, response_confirmed=False, execution_unknown=True,
                     earliest_us=0, latest_us=0, status="ILLEGAL_VALUE", detail=12)

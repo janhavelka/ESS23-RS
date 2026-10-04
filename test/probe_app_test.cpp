@@ -630,6 +630,65 @@ void testBadActionReplyKeepsCodecEvidenceAndNoReplay() {
     assert(axisReserved(*app, 1) && app->owner.needsRecovery());
     pump(1000); assert(hardware.writes == 1);
 }
+void testUnknownActionExceptionKeepsReservationAcrossReleaseAndRecovery() {
+    using namespace MotorControlRS;
+    fresh(); timerCapture(); qualifyActions();
+    command("@1 enable\n"); const uint32_t original = view(0).operationId;
+    std::vector<uint8_t> exception = {1, 0x86, 0xE7};
+    const uint16_t crc = ESS::calcCrc16(exception.data(), exception.size());
+    exception.push_back(static_cast<uint8_t>(crc)); exception.push_back(static_cast<uint8_t>(crc >> 8));
+    actionStep(original, exception); pump(100);
+    const auto failed = *view(original).actionContext;
+    assert(failed.outcome == ActionOutcome::REPLY_ERROR && failed.execution == ActionExecution::UNKNOWN);
+    assert(failed.writeEvidence.status.code == Err::EXCEPTION && failed.writeEvidence.status.detail == 0xE7);
+    assert(axisReserved(*app, 1) && hardware.writes == 1);
+    assert(release(app, original) == Probe::Action::OK && axisReserved(*app, 1));
+    uint32_t recovery = 0; assert(recover(app, 2, recovery) == Probe::Action::OK);
+    for (unsigned i = 0; i < 80000 && app->owner.recovering(); ++i) step();
+    assert(!app->owner.needsRecovery() && axisReserved(*app, 1) && hardware.writes == 1);
+    ActionRequest enable; uint32_t unchanged = 777;
+    assert(startAction(app, 3, 1, enable, unchanged) == Probe::Action::AXIS_CONFLICT && unchanged == 777);
+    const uint32_t stopping = actionAdmission(ActionKind::STOP, 4);
+    actionStep(stopping); actionStep(stopping, registerReply({0xFFFF, 8}));
+    assert(view(stopping).actionContext->completion == ActionCompletion::OBSERVED);
+    assert(!axisReserved(*app, 1) && hardware.writes == 3);
+}
+void testAcceptedStopRetainsBothResultsWhenInterruptedWriteLaterFails() {
+    using namespace MotorControlRS;
+    for (bool badReply : {false, true}) {
+        fresh(); timerCapture(); qualifyActions();
+        const uint32_t original = actionAdmission(ActionKind::ENABLE);
+        startTx(0);
+        command("@2 stop normal\n"); const uint32_t stopping = view(0).operationId;
+        assert(view(original).interruptedByStop && app->owner.pending() == 1);
+        if (badReply) {
+            auto bytes = hardware.tx; bytes.back() ^= 1;
+            actionStep(original, bytes);
+        } else {
+            for (unsigned i = 0; i < 30000 && view(original).pending; ++i) step();
+        }
+        assert(!view(original).pending && view(stopping).pending);
+        const auto failed = *view(original).actionContext;
+        assert(failed.execution == ActionExecution::UNKNOWN);
+        assert(failed.outcome == (badReply ? ActionOutcome::REPLY_ERROR : ActionOutcome::TRANSPORT_ERROR));
+        assert(app->owner.needsRecovery() && app->owner.pending() == 1 && hardware.writes == 1);
+        pump(100); assert(hardware.writes == 1 && view(stopping).pending);
+        uint32_t recovery = 0; assert(recover(app, 3, recovery) == Probe::Action::OK);
+        for (unsigned i = 0; i < 80000 && app->owner.recovering(); ++i) step();
+        pump(100);
+        assert(!app->owner.needsRecovery() && hardware.writes == 1);
+        const auto cancelled = *view(stopping).actionContext;
+        assert(cancelled.outcome == ActionOutcome::CANCELLED && cancelled.execution == ActionExecution::NOT_TRANSMITTED);
+        assert(view(original).actionContext->outcome == failed.outcome);
+        assert(view(original).actionContext->execution == failed.execution && view(original).interruptedByStop);
+        assert(axisReserved(*app, 1));
+        assert(release(app, stopping) == Probe::Action::OK);
+        const uint32_t explicitStop = actionAdmission(ActionKind::STOP, 4);
+        actionStep(explicitStop); actionStep(explicitStop, registerReply({0, 0}));
+        assert(!axisReserved(*app, 1) && hardware.writes == 3);
+        assert(view(original).actionContext->execution == ActionExecution::UNKNOWN);
+    }
+}
 void testStopKeepsKnownTargetAfterUnrelatedReadAndAction() {
     using namespace MotorControlRS;
     fresh(); timerCapture(); qualifyActions();
@@ -1226,6 +1285,8 @@ int main() {
     testActionGateAndSeparateAcknowledgement(); testStopSupersedesOnlyAfterAdmissionAndSettlesInflight();
     testStopUsesReservedCapacityAndFullAdmissionPreservesWork();
     testUncertainStopSurvivesReleaseRecoveryAndCanBeStoppedAgain(); testBadActionReplyKeepsCodecEvidenceAndNoReplay();
+    testUnknownActionExceptionKeepsReservationAcrossReleaseAndRecovery();
+    testAcceptedStopRetainsBothResultsWhenInterruptedWriteLaterFails();
     testStopKeepsKnownTargetAfterUnrelatedReadAndAction(); testStopAndInterruptedResultSurviveBlockedConsole();
     testActionEffectsInvalidateHistoricalFreshnessAndReleaseOrigin();
     testCaptureReadUsesOwnerAndPreservesModel(); testCaptureReadRejectsMalformedRepliesAndArguments();

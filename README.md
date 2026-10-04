@@ -24,7 +24,9 @@ context; finite opt-in polling shares the bus owner. Read-only stationary eviden
 is recorded in [prompt 06](docs/reports/ess_release_06_2026-10-04.md).
 [Exact target preparation](docs/axis_preparation.md) preserves native integers and
 rational quantities, with frames, references, quantization and host-only configuration.
-The console exposes pure previews; motor command execution remains unimplemented.
+The console exposes pure previews and [bounded enable/release, alarm-clear and
+priority stop operations](docs/ess_actions.md). Physical actions remain gated by
+independent timing/echo qualification; moving commands are not implemented.
 The [release roadmap](docs/roadmap.md) records the delivery order and completion gates.
 The [numbered implementation prompts](docs/prompts/ess_release/README.md)
 split the remaining work into reviewed, independently dispatched blocks. Typed non-changing read

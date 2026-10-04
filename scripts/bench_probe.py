@@ -352,6 +352,13 @@ class Console:
         def integer(value, maximum=0xFFFFFFFFFFFFFFFF):
             return type(value) is int and 0 <= value <= maximum
 
+        empty_evidence = dict(step=0, event=0, raw_hex="", received_length=0, tx_accepted=0,
+            tx_complete=False, response_confirmed=False, qualified=False, execution_unknown=False,
+            earliest_us=0, latest_us=0, delivered_us=0, transport_detail=0, status="OK", detail=0, frame_error=0)
+
+        def empty(entry):
+            return all(entry.get(key) == value for key, value in empty_evidence.items())
+
         require(item.get("action_kind") == ACTION_KINDS.get(command)
                 and item.get("stop_policy") == policy and (command != "stop" or policy in ("normal", "direct"))
                 and item.get("read_kind") is None and item.get("capture_read", False) is False
@@ -383,7 +390,8 @@ class Console:
                 require(integer(entry.get(key), limit), name + " has invalid " + key)
             for key in ("tx_complete", "response_confirmed", "qualified", "execution_unknown"):
                 require(type(entry.get(key)) is bool, name + " has invalid " + key)
-            require(type(entry.get("detail")) is int and type(entry.get("transport_detail")) is int
+            require(all(type(entry.get(key)) is int and -0x80000000 <= entry[key] <= 0x7FFFFFFF
+                        for key in ("detail", "transport_detail"))
                     and entry.get("status") in {"OK", "INVALID_CONFIG", "ILLEGAL_VALUE", "UNSUPPORTED",
                         "CRC_ERROR", "FRAME_ERROR", "EXCEPTION"}, name + " has invalid status")
             raw = entry.get("raw_hex")
@@ -391,7 +399,20 @@ class Console:
                     name + " raw frame is malformed")
             raw = bytes.fromhex(raw)
             require(len(raw) == min(entry["received_length"], 9), name + " length is inconsistent")
+            if entry["status"] == "OK":
+                require(entry["detail"] == entry["frame_error"] == 0, name + " successful codec retains an error")
+            elif entry["status"] == "EXCEPTION":
+                require(entry["event"] == 0 and len(raw) == 5
+                        and raw[:2] == bytes((item["address"], 0x86 if entry["step"] == 0 else 0x83))
+                        and wire_crc(raw) == 0 and entry["detail"] == raw[2] and entry["frame_error"] == 10,
+                        name + " exception differs from checked frame")
             require(not entry["tx_complete"] or entry["tx_accepted"] == 8, name + " physical TX lacks full acceptance")
+            if not empty(entry):
+                require(item["started_us"] <= entry["delivered_us"] <= item["serviced_us"],
+                        name + " delivery is outside the action lifetime")
+                require(entry["event"] != 0 or entry["tx_complete"], name + " frame precedes physical TX completion")
+            require(entry["event"] == 0 or not entry["response_confirmed"],
+                    name + " local event claims a confirmed response")
             if entry["qualified"]:
                 require(entry["event"] == 0 and item["started_us"] <= entry["earliest_us"] <= entry["latest_us"]
                         <= entry["delivered_us"] <= item["serviced_us"], name + " timing is inconsistent")
@@ -399,7 +420,7 @@ class Console:
                 require(entry["earliest_us"] == entry["latest_us"] == 0, name + " unqualified bounds are published")
             evidence[name] = (entry, raw)
         write, raw = evidence["write_evidence"]
-        require(write["step"] == 0, "write token is inconsistent")
+        require(write["step"] == 0 and not empty(write), "write token or evidence is inconsistent")
         if item["execution"] in ("acknowledged", "rejected"):
             require(write["qualified"] and write["response_confirmed"] and write["tx_complete"]
                     and write["event"] == 0 and wire_crc(raw) == 0, "acknowledgement lacks confirmed drive response")
@@ -411,27 +432,75 @@ class Console:
                         "write echo differs from requested action")
             else:
                 require(len(raw) == 5 and raw[:2] == bytes((item["address"], 0x86))
-                        and write["status"] == "EXCEPTION", "device rejection lacks checked exception")
+                        and 1 <= raw[2] <= 7 and write["detail"] == raw[2]
+                        and write["status"] == "EXCEPTION" and write["frame_error"] == 10,
+                        "device rejection lacks checked documented exception")
         elif item["execution"] == "not_transmitted":
             require(write["tx_accepted"] == 0 and not write["execution_unknown"], "non-transmission contradicts TX evidence")
+        else:
+            require(write["tx_accepted"] > 0 or write["execution_unknown"], "unknown execution lacks transmission uncertainty")
+            require(not (write["qualified"] and write["response_confirmed"]
+                         and (write["status"] == "OK" or (write["status"] == "EXCEPTION" and 1 <= write["detail"] <= 7))),
+                    "unknown execution contradicts a checked acknowledgement or documented rejection")
         if item["observation_known"]:
             obs, raw = evidence["last_observation"]
             require(item["execution"] == "acknowledged" and item["polls"] >= 1
-                    and obs["step"] >= 1 and obs["event"] == 0 and obs["qualified"]
+                    and obs["step"] == item["polls"] and obs["event"] == 0 and obs["qualified"]
                     and obs["response_confirmed"] and obs["tx_complete"] and obs["status"] == "OK"
-                    and obs["frame_error"] == 0 and len(raw) == 9 and wire_crc(raw) == 0
+                    and obs["frame_error"] == 0 and obs["received_length"] == 9 and wire_crc(raw) == 0
                     and raw[:3] == bytes((item["address"], 3, 4)), "observation lacks checked FC03 evidence")
+            require(write["delivered_us"] < obs["earliest_us"] <= obs["latest_us"] <= item["deadline_us"],
+                    "observation precedes acknowledgement or exceeds the deadline")
             alarm, motion = int.from_bytes(raw[3:5], "big"), int.from_bytes(raw[5:7], "big")
             require(type(item.get("raw_alarm")) is int and item["raw_alarm"] == alarm
                     and type(item.get("raw_motion")) is int and item["raw_motion"] == motion,
                     "decoded report differs from retained RX")
-            if item["ok"]:
-                observed = {"enable": not bool(motion & 16), "motor-release": bool(motion & 16),
-                            "alarm-clear": alarm == 0 and not bool(motion & 8), "stop": not bool(motion & 4)}[command]
-                require(observed, "status does not establish requested reported completion")
+            observed = {"enable": not bool(motion & 16), "motor-release": bool(motion & 16),
+                        "alarm-clear": alarm == 0 and not bool(motion & 8), "stop": not bool(motion & 4)}[command]
+            require(observed == item["ok"], "status differs from requested reported completion")
         else:
-            require(item.get("raw_alarm") is None and item.get("raw_motion") is None and not item["ok"],
+            require(item.get("raw_alarm") is None and item.get("raw_motion") is None and not item["ok"]
+                    and item["polls"] == 0 and empty(evidence["last_observation"][0]),
                     "unknown observation publishes completion or decoded values")
+        failure, _ = evidence["failure_evidence"]
+        if item["ok"]:
+            require(empty(failure), "successful action retains failure evidence")
+            require(evidence["last_observation"][0]["delivered_us"] == item["serviced_us"],
+                    "successful action service differs from final observation")
+        else:
+            require(not empty(failure) and failure["delivered_us"] == item["serviced_us"],
+                    "failure lacks terminal event evidence")
+            require(failure["step"] in (item["polls"], item["polls"] + 1),
+                    "failure token skips an observation")
+            if failure["step"] == 0:
+                require(failure == write, "failed write differs from retained write evidence")
+            else:
+                require(item["execution"] == "acknowledged", "observation failure precedes acknowledgement")
+                previous = evidence["last_observation"][0] if item["observation_known"] else write
+                if failure["step"] == item["polls"]:
+                    require(failure == previous, "failed observation differs from retained observation")
+                else:
+                    require(failure["delivered_us"] >= previous["delivered_us"]
+                            and (not failure["qualified"] or failure["earliest_us"] > previous["delivered_us"]),
+                            "failure precedes the previous transaction")
+            if failure["event"] != 0:
+                expected = {1: "transport_error", 2: "cancelled", 3: "deadline"}[failure["event"]]
+            elif not failure["qualified"]:
+                expected = "timing_unqualified"
+            elif failure["latest_us"] > item["deadline_us"]:
+                expected = "deadline"
+            elif failure["status"] != "OK":
+                expected = "reply_error"
+            elif not failure["response_confirmed"]:
+                expected = "unconfirmed_response"
+            else:
+                require(item["outcome"] in ("deadline", "observation_limit")
+                        and (failure["step"] > 0 or item["outcome"] == "deadline"),
+                        "checked response does not establish the failure")
+                expected = item["outcome"]
+            require(item["outcome"] == expected, "failure outcome contradicts terminal evidence")
+            if expected == "deadline":
+                require(item["serviced_us"] >= item["deadline_us"], "deadline failure precedes deadline")
 
     @staticmethod
     def _check_typed_read(item: dict, kind: str, address: int | None) -> None:

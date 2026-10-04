@@ -12,6 +12,10 @@ dispositions; prompt 09 is next when dispatched. The [action/stop handoff](repor
 has native reservations, uncertainty and priority stop, plus read-only COM13 and
 zero-TX gate evidence. Physical actions and motion require independent timing/echo
 qualification; no live move or dynamic-stop claim is made.
+The [fresh prompt 08 audit](reports/ess_release_08_audit_2026-10-04.md) preserves
+uncertainty for undocumented exceptions, checks action evidence chronology and
+adds stop HOLD/partial-TX/late-fault regressions. Native/package/build and 38-frame
+read-only verification pass; the physical qualification gates remain open.
 The [fresh prompt 02 audit](reports/ess_release_02_audit_2026-10-03.md) corrects
 cancellation cutoff precedence and recovery evidence continuity; hardware owner
 integration now has [prompt 03 evidence](reports/ess_release_03_2026-10-03.md).

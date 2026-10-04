@@ -189,7 +189,7 @@ void testBadRepliesAndExceptionPreserveEvidence() {
         if (fault == 0) bad[7] ^= 1;
         else if (fault == 1) bad.assign(ENABLE, ENABLE + sizeof(ENABLE));
         else if (fault == 2) bad.resize(40, 0xA5);
-        else { bad = {1, 0x86, 0xE7}; crc(bad); }
+        else { bad = {1, 0x86, 7}; crc(bad); }
         auto received = frame(c, bad.data(), bad.size(), 200);
         // The owner can identify a drive frame while its bad CRC/echo leaves
         // command execution unknown. This is a correlated failure to consume.
@@ -199,7 +199,7 @@ void testBadRepliesAndExceptionPreserveEvidence() {
         assert(c.execution == (fault == 3 ? ActionExecution::REJECTED : ActionExecution::UNKNOWN));
         assert(c.failureEvidence.receivedLength == bad.size() && c.failureEvidence.length <= Ess::ACTION_MAX_REPLY_BYTES);
         assert(c.failureEvidence.executionUnknown == (fault != 3));
-        if (fault == 3) assert(c.status.code == Err::EXCEPTION && c.status.detail == 0xE7);
+        if (fault == 3) assert(c.status.code == Err::EXCEPTION && c.status.detail == 7);
         else assert(!c.status && c.completion == ActionCompletion::NOT_OBSERVED);
     }
     auto confirmed = action();
@@ -213,6 +213,29 @@ void testBadRepliesAndExceptionPreserveEvidence() {
     assert(c.state == ActionState::FAILED && c.status.code == Err::CRC_ERROR && c.execution == ActionExecution::ACKNOWLEDGED);
     assert(c.rawAlarm == 0x55 && c.rawMotion == 0x8004 && c.observationKnown);
     assert(c.lastObservation.step == last.step && std::memcmp(c.lastObservation.raw, last.raw, last.length) == 0);
+}
+void testExceptionExecutionUsesOnlyDocumentedRejections() {
+    for (uint8_t code : {0, 1, 2, 3, 4, 5, 6, 7, 8, 0xE7, 0xFF}) {
+        auto c = action();
+        std::vector<uint8_t> bytes = {1, 0x86, code}; crc(bytes);
+        assert(Ess::advanceAction(c, frame(c, bytes.data(), bytes.size(), 200), 220));
+        assert(c.state == ActionState::FAILED && c.outcome == ActionOutcome::REPLY_ERROR);
+        assert(c.status.code == Err::EXCEPTION && c.status.detail == code);
+        const bool documentedRejection = code >= 1 && code <= 7;
+        assert(c.execution == (documentedRejection ? ActionExecution::REJECTED : ActionExecution::UNKNOWN));
+        assert(c.completion == ActionCompletion::NOT_OBSERVED && !c.observationKnown);
+        assert(c.writeEvidence.status.code == Err::EXCEPTION && c.writeEvidence.status.detail == code);
+        assert(c.writeEvidence.frameError == Ess::FrameError::EXCEPTION);
+        assert(c.writeEvidence.txAccepted == 8 && c.writeEvidence.txComplete && c.writeEvidence.responseConfirmed);
+        assert(c.writeEvidence.length == bytes.size() &&
+            std::memcmp(c.writeEvidence.raw, bytes.data(), bytes.size()) == 0);
+        assert(c.failureEvidence.status.detail == code &&
+            std::memcmp(c.failureEvidence.raw, bytes.data(), bytes.size()) == 0);
+        Ess::PreparedAction p; assert(Ess::nextAction(c, 220, p));
+        assert(p.kind == Ess::ActionWork::DONE && p.length == 0);
+        const Saved<Ess::ActionContext> saved(c);
+        assert(!Ess::advanceAction(c, frame(c, bytes.data(), bytes.size(), 200), 220)); saved.check(c);
+    }
 }
 void testObservationLimitsAndLateDelivery() {
     auto c = action(); acknowledge(c);
@@ -249,5 +272,6 @@ int main() {
     testExactCommandsAndCommonNativeParity(); testPolicyRejectionPreservesPreparedOperation();
     testEchoAcknowledgementAndReportedCompletionAreSeparate(); testInvalidEnvelopesAndDuplicatesDoNotMutate();
     testFailuresRetainUncertaintyAndNeverReplay(); testBadRepliesAndExceptionPreserveEvidence();
+    testExceptionExecutionUsesOnlyDocumentedRejections();
     testObservationLimitsAndLateDelivery();
 }

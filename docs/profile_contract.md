@@ -117,8 +117,9 @@ existing files from planned operations; do not create placeholder headers.
 | `include/MotorControlRS/profiles/ess_rs/Reads.h` | Bounded typed identity/configuration preparations, observations and read capabilities |
 | `include/MotorControlRS/profiles/ess_rs/Registers.h` | Resolved register identities and typed descriptors, including access and widths |
 | `include/MotorControlRS/profiles/ess_rs/Types.h` | Existing generated family enums; future handwritten observations and operation types belong in separately owned headers |
-| `include/MotorControlRS/profiles/ess_rs/Commands.h` (planned) | Native operation preparation, command constraints and family sequence definitions |
-| `src/profiles/ess_rs/` | Codec/catalogue implementation and the bounded identity/configuration read operations in `Reads.cpp` |
+| `include/MotorControlRS/ActionOperation.h` | Explicit action/stop policies and caller-supplied transaction evidence |
+| `include/MotorControlRS/profiles/ess_rs/Actions.h` | Bounded enable/release/alarm-clear/normal/direct-stop preparations and contexts |
+| `src/profiles/ess_rs/` | Codec/catalogue implementation, typed reads in `Reads.cpp` and bounded actions in `Actions.cpp` |
 
 Expose named read preparations, typed configuration preparations and explicit
 actions. Native operations can use the `prepare...` vocabulary and the same

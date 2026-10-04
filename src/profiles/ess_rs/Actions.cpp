@@ -178,7 +178,12 @@ Status advanceAction(ActionContext& c, const ActionEvent& supplied, uint64_t now
         c.execution = event.txAccepted || event.executionUnknown ? ActionExecution::UNKNOWN : ActionExecution::NOT_TRANSMITTED;
         if (event.kind == ReadEventKind::FRAME && event.qualified && supplied.responseConfirmed) {
             if (evidence.status) c.execution = ActionExecution::ACKNOWLEDGED;
-            else if (evidence.status.code == Err::EXCEPTION) c.execution = ActionExecution::REJECTED;
+            // Function manual p12 defines only 01..07 as request errors. An
+            // undocumented exception retains its raw code without establishing
+            // that the drive rejected execution.
+            else if (evidence.status.code == Err::EXCEPTION &&
+                     evidence.status.detail >= 1 && evidence.status.detail <= 7)
+                c.execution = ActionExecution::REJECTED;
         }
     }
     c.servicedUs = nowUs;

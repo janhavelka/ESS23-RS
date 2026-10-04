@@ -482,3 +482,10 @@ campaign pass; no device setting or qualification claim changed.
 
 No new ramp/device queue behavior is inferred. Explicit unsupported policies
 reject before writes; no motor writes or moves occurred in this prompt.
+
+The [fresh prompt 08 audit](reports/ess_release_08_audit_2026-10-04.md) fixes
+undocumented exceptions incorrectly clearing execution uncertainty and strengthens
+harness evidence checks. Native/package/four firmware builds and 38 read-only
+COM13 frames pass. New HOLD/partial-TX and interrupted-write-failure regressions
+preserve priority, both outcomes and explicit recovery without replay. Physical
+action gates and the operation coverage denominator remain unchanged.
