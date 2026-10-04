@@ -6,6 +6,9 @@
   updates with checked readback, immutable partial progress and settings effects.
   Preserve raw limit pairs and reject unreviewed pair writes before traffic.
   Extend existing console/Python correlation and conservative cache invalidation.
+- Require confirmed driver readbacks before settling write uncertainty. Preserve
+  the configured-axis baseline across secondary and interleaved reads, reconcile
+  shared configuration fields and revoke stale input qualification.
 
 
 - Preserve reference age across host preference changes and invalidate origins

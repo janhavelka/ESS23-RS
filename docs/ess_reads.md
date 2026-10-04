@@ -90,6 +90,10 @@ Input/output remain bounded and serviced during active transactions. Capabilitie
 advertise only implemented non-changing reads, never motion or exact-model
 qualification. `config` is a local host report; it labels device settings cached
 only after a complete configuration observation, with target/generation IDs.
+The standalone configuration and driver-settings prerequisite caches belong
+to its configured axis. Other target reads remain inspectable retained results.
+Publication compares the two axis caches and preserves the newer operation;
+input assignment/polarity changes require renewed input qualification.
 
 The operation coverage inventory is
 [ess_rs_operations.json](reference/ess_rs_operations.json). Its record IDs are

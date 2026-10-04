@@ -83,7 +83,7 @@ Status decode(const DriverEvidence* evidence, const ReadTarget& target, DriverOb
         uint16_t reg = 0, count = 0; readWindow(i, reg, count);
         std::size_t decoded = 0;
         if (evidence[i].write || evidence[i].reg != reg || evidence[i].count != count ||
-            !evidence[i].qualified || !evidence[i].status)
+            !evidence[i].qualified || !evidence[i].responseConfirmed || !evidence[i].status)
             return invalid(DriverError::NOT_COMPLETE, "driver read provenance is incomplete");
         const Status status = parseRegisters(evidence[i].raw, evidence[i].length,
             target.address, count, data[i], 4, decoded);
@@ -303,8 +303,8 @@ Status advanceDriver(DriverContext& c, const ActionEvent& supplied, uint64_t now
     else if (event.latestUs > transactionDeadline) finish(c, DriverOutcome::DEADLINE,
         failure(DriverError::DEADLINE_EXPIRED, "driver frame closure exceeds transaction budget"));
     else if (!evidence.status) finish(c, DriverOutcome::REPLY_ERROR, evidence.status);
-    else if (evidence.write && !supplied.responseConfirmed) finish(c, DriverOutcome::UNCONFIRMED_RESPONSE,
-        failure(DriverError::UNCONFIRMED_RESPONSE, "settings echo source is not confirmed"));
+    else if (!supplied.responseConfirmed) finish(c, DriverOutcome::UNCONFIRMED_RESPONSE,
+        failure(DriverError::UNCONFIRMED_RESPONSE, "driver response source is not confirmed"));
     else {
         if (progress && !evidence.write) {
             progress->readbackKnown = true; progress->readback = words[0];

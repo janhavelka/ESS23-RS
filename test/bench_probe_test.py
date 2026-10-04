@@ -478,6 +478,28 @@ class Framing(unittest.TestCase):
         parsed = bench.arguments(["--port", "fake", "--log", "unused.jsonl", "driver-read"])
         self.assertEqual(parsed.mode, "driver-read")
         self.assertEqual(parsed.count, 1)
+
+    def test_driver_unconfirmed_reads_fail_without_publishing_readback(self):
+        for update in (False, True):
+            item = driver_terminal(2, update)
+            item["evidence"][-1][9] = False
+            # A valid CRC, address and payload do not confirm the responder.
+            with self.assertRaises(bench.BenchError): bench.Console._check_driver(item, 1, None)
+            item.update(ok=False, state="failed", outcome="unconfirmed_response", status="ILLEGAL_VALUE", detail=17,
+                        completed_steps=len(item["evidence"]) - 1, observation=None)
+            if update:
+                item["uncertain"] = True
+                item["progress"][0][5] = False
+                item["progress"][0][6] = 0
+            bench.Console._check_driver(item, 1, None)
+            if update:
+                self.assertTrue(item["progress"][0][4])
+                self.assertEqual(item["progress"][0][9], "acknowledged")
+                broken = copy.deepcopy(item)
+                broken["progress"][0][5] = True
+                broken["progress"][0][6] = 1
+                broken["uncertain"] = False
+                with self.assertRaises(bench.BenchError): bench.Console._check_driver(broken, 1, None)
     VELOCITY_ARGS = ("60", "rpm", "native", "500", "configured", "normal")
 
     def test_velocity_strict_correlation_retention_and_single_cleanup(self):

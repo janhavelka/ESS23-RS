@@ -266,8 +266,51 @@ void testFaultsCancellationAndExpiry() {
     assert(Ess::advanceDriver(capped, e, 400) && capped.outcome == Ess::DriverOutcome::DEADLINE);
     assert(capped.progress[0].acknowledged && capped.uncertain && !capped.progress[0].activeKnown);
 }
+void testUnconfirmedReadEvidence() {
+    const auto historical = snapshot();
+    const Saved<Ess::DriverObservation> retained(historical);
+    for (uint8_t rejectedStep = 0; rejectedStep < Ess::DRIVER_READ_STEPS; ++rejectedStep) {
+        Ess::DriverContext c; assert(Ess::prepareDriverRead(c, target(), 3, 17, 100, 1000));
+        const std::vector<uint8_t> frames[] = {
+            reply({0, 1600}), reply({0, 0, 0}), reply({1, 2, 3, 4}), reply({0, 1})
+        };
+        for (uint8_t i = 0; i < rejectedStep; ++i) supply(c, frames[i]);
+        const auto& bytes = frames[rejectedStep];
+        auto e = frame(c, bytes.data(), bytes.size(), c.servicedUs + 2);
+        e.responseConfirmed = false;
+        assert(Ess::advanceDriver(c, e, c.servicedUs + 4));
+        assert(c.outcome == Ess::DriverOutcome::UNCONFIRMED_RESPONSE && c.state == ReadState::FAILED);
+        assert(c.completedSteps == rejectedStep && !c.observations[rejectedStep].responseConfirmed);
+        assert(work(c).kind == Ess::ActionWork::DONE);
+        auto previous = historical;
+        assert(!Ess::getDriver(c, previous)); retained.check(previous);
+    }
+    // A retained observation from a formerly permissive reader must not become
+    // valid preparation evidence merely because its CRC and decoded values match.
+    for (uint8_t i = 0; i < Ess::DRIVER_READ_STEPS; ++i) {
+        auto p = prerequisites(); p.previous.provenance[i].responseConfirmed = false;
+        checkUnchangedReject(request(), p);
+    }
+    for (uint16_t mask : {uint16_t(1), uint16_t(3)}) {
+        auto c = update(mask); const Saved<Ess::DriverObservation> previous(c.prerequisites.previous); ack(c);
+        const auto bytes = reply({1}); auto e = frame(c, bytes.data(), bytes.size(), c.servicedUs + 2);
+        e.responseConfirmed = false;
+        assert(Ess::advanceDriver(c, e, c.servicedUs + 4));
+        assert(c.outcome == Ess::DriverOutcome::UNCONFIRMED_RESPONSE && c.state == ReadState::FAILED);
+        assert(c.completedSteps == 1 && c.effects == 1 && c.uncertain);
+        assert(c.progress[0].acknowledged && !c.progress[0].readbackKnown);
+        assert(!c.progress[1].acknowledged && work(c).kind == Ess::ActionWork::DONE);
+        previous.check(c.prerequisites.previous);
+    }
+    // Parser errors retain precedence over the source-confirmation failure.
+    auto c = update(); ack(c); auto bytes = reply({1}); bytes.back() ^= 1;
+    auto e = frame(c, bytes.data(), bytes.size(), c.servicedUs + 2); e.responseConfirmed = false;
+    assert(Ess::advanceDriver(c, e, c.servicedUs + 4));
+    assert(c.outcome == Ess::DriverOutcome::REPLY_ERROR && c.status.code == Err::CRC_ERROR && c.uncertain);
+}
 } // namespace
 int main() {
     testReadAndPairOrder(); testWholeCandidateAndPrerequisites(); testLimitDependencies();
     testProgressNoRollbackAndCopiedStorage(); testFaultsCancellationAndExpiry();
+    testUnconfirmedReadEvidence();
 }

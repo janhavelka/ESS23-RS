@@ -1,6 +1,11 @@
 # Motor bench and testing authorization
 
-Prompt13 [current-image evidence](reports/ess_release_13_2026-10-04.md) adds
+Prompt13 [fresh audit image/evidence](reports/ess_release_13_audit_2026-10-04.md)
+passes 38 read-only frames and six zero-TX setter gates after source/cache fixes.
+Load/monitor off, DE released, owner empty, no capture/transport errors. Physical
+settings/restoration and software-limit movement remain NOT RUN.
+
+Prompt13 [implementation evidence](reports/ess_release_13_2026-10-04.md) adds
 typed driver-settings reads and zero-TX setter gates. No settings or motion
 changed; load/monitor off, DE released, owner empty and no recovery need.
 Physical settings/restoration and software-limit movement remain NOT RUN.

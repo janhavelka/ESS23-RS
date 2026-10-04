@@ -6,6 +6,9 @@ same public [driver preparation](ess_driver_settings.md). Groups validate before
 TX, retain ACK/readback/partial uncertainty and use existing result/cancel/release
 correlation. Long groups respect the existing 128-byte input bound. Native limit
 pair setters reject explicitly; host `axis` configuration remains separate.
+Driver/configuration prerequisite caches belong to the configured axis; reads
+at other addresses retain their own results. Unconfirmed reads/readbacks never
+clear write uncertainty or qualify another settings update.
 
 
 Prompt10 implements `move absolute`, `move angle`, matching

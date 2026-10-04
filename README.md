@@ -147,7 +147,8 @@ not establish a device-wide maximum. The malformed position example on manual
 p16 is corrected in the builder and covered by an independent frame fixture.
 Builders validate raw access/framing, not register-value meaning, motion limits,
 readiness or persistence. Typed identity/configuration reads are implemented;
-typed setting changes remain future work. The installed [position API](docs/ess_position.md)
+selected stopped-state setting changes use the installed
+[driver settings API](docs/ess_driver_settings.md). The installed [position API](docs/ess_position.md)
 implements finite relative/absolute motion and wrapped orientations. The installed
 [action API](docs/ess_actions.md) prepares bounded enable/release, alarm-clear
 and explicit normal/direct stop operations. It separates acknowledgement from
@@ -228,7 +229,7 @@ python scripts/generate_ess_registers.py --check
 | `include/MotorControlRS/profiles/ess_rs/`, `src/profiles/ess_rs/` | ESS catalogue, raw codecs, probe and word conversion |
 | `src/rtu/` | Small private byte/CRC/frame helpers, without device policy |
 | `examples/common/` | Board/build settings, native-tested RTU runner and ESP32-S3 UART adapter |
-| `examples/probe_cli/` | Read-only standalone console and platform-neutral JSONL command parser |
+| `examples/probe_cli/` | Standalone console, checked operation integration and platform-neutral JSONL command parser |
 | `examples/units_preview/` | Desktop/Arduino consumer of the current units API |
 | `test/` | Native units, catalogue and independent protocol verification |
 | `scripts/` | Reference preparation and deterministic generators |

@@ -6,6 +6,8 @@ Prompt13 implements [typed driver settings](ess_driver_settings.md), shared
 generation/effect invalidation, strict console/Python evidence and raw limit
 reads. [Native/build and read-only bench evidence](reports/ess_release_13_2026-10-04.md)
 pass; paired setters and physical settings/soft-limit qualification remain open.
+The [fresh audit](reports/ess_release_13_audit_2026-10-04.md) corrects response
+confirmation, shared axis-cache ordering and input qualification invalidation.
 
 
 Prompt 12 records the [complete paired-write disposition](ess_pair_writes.md).

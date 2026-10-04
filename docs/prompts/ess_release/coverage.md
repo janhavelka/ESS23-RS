@@ -5,6 +5,9 @@ records seven typed single-word settings and limit-pair reads. Unreviewed pair
 setters remain UNSUPPORTED; physical writes/restore and limit movement NOT RUN.
 The ledger-linked inventory distinguishes settings enum WRITE choices from
 motor ACTION choices and keeps native/hardware dispositions independent.
+The [fresh audit](../../reports/ess_release_13_audit_2026-10-04.md) verifies
+confirmed readback settlement and shared, configured-axis prerequisite caches;
+it does not add a pair-write window or physical settings qualification.
 
 
 This map assigns work to prompts; it is **not implementation evidence**.

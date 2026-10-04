@@ -804,6 +804,15 @@ void driverEffects(App& a, App::Record& record, uint16_t effects, uint64_t now) 
     record.driverEffects |= changed;
     invalidateDriverAssumptions(a, record.address, changed, now, &record);
 }
+uint16_t driverConfigEffects(const ESS::RawConfig& config, const ESS::DriverObservation& driver) {
+    uint16_t effects = 0;
+    if (config.direction != driver.raw[0]) effects |= static_cast<uint16_t>(ESS::DriverField::DIRECTION);
+    if (config.subdivision != driver.raw[1]) effects |= static_cast<uint16_t>(ESS::DriverField::SUBDIVISION);
+    if (config.wordOrder != driver.raw[2]) effects |= static_cast<uint16_t>(ESS::DriverField::WORD_ORDER);
+    if (config.softLimitEnable != driver.raw[3]) effects |= static_cast<uint16_t>(ESS::DriverField::SOFT_LIMIT_ENABLE);
+    if (config.overLimitStop != driver.raw[4]) effects |= static_cast<uint16_t>(ESS::DriverField::OVER_LIMIT_STOP);
+    return effects;
+}
 void observeCommunication(App& a, const Rtu::Completion& result) {
     const bool checked = result.outcome == Rtu::Outcome::SUCCESS || result.outcome == Rtu::Outcome::DEVICE_REJECTED;
     if (!checked || !result.transport.closureQualified || result.transport.txAccepted != result.txLength ||
@@ -894,9 +903,10 @@ void updateActionReservation(App& a, App::Record& record) {
     if (record.driverOperation) {
         driverEffects(a, record, record.driver.effects, nowUs());
         record.axisReserved = false;
-        if (record.driver.kind == ESS::DriverKind::READ && record.configurationGeneration ==
-            (record.address == a.axis.target.address ? a.axis.generation : a.bindingGeneration) &&
+        if (record.driver.kind == ESS::DriverKind::READ && record.address == a.axis.target.address &&
+            record.configurationGeneration == a.axis.generation &&
             record.driver.target.generation == a.bindingGeneration && record.operationId > a.driverSettings.operationId &&
+            record.operationId > a.configuration.operationId &&
             ESS::getDriver(record.driver, a.driverObserved)) {
             const auto& observed = a.driverObserved;
             uint16_t changed = 0;
@@ -907,12 +917,7 @@ void updateActionReservation(App& a, App::Record& record) {
                     std::memcmp(a.driverSettings.negativeWords, observed.negativeWords, sizeof(observed.negativeWords)))
                     changed |= static_cast<uint16_t>(ESS::DriverField::POSITIVE_LIMIT) | static_cast<uint16_t>(ESS::DriverField::NEGATIVE_LIMIT);
             } else if (a.configuration.operationId && Probe::sameTarget(a.configuration.target, observed.target)) {
-                const auto& old = a.configuration.raw;
-                if (old.direction != observed.raw[0]) changed |= static_cast<uint16_t>(ESS::DriverField::DIRECTION);
-                if (old.subdivision != observed.raw[1]) changed |= static_cast<uint16_t>(ESS::DriverField::SUBDIVISION);
-                if (old.wordOrder != observed.raw[2]) changed |= static_cast<uint16_t>(ESS::DriverField::WORD_ORDER);
-                if (old.softLimitEnable != observed.raw[3]) changed |= static_cast<uint16_t>(ESS::DriverField::SOFT_LIMIT_ENABLE);
-                if (old.overLimitStop != observed.raw[4]) changed |= static_cast<uint16_t>(ESS::DriverField::OVER_LIMIT_STOP);
+                changed |= driverConfigEffects(a.configuration.raw, observed);
             }
             if (changed) invalidateDriverAssumptions(a, record.address, changed, nowUs(), &record);
             a.driverSettings = observed;
@@ -1271,22 +1276,30 @@ void deliver(App& a) {
                 record.observed = true;
                 if (record.read.kind == ESS::ReadKind::IDENTITY && record.operationId > a.identity.operationId)
                     ESS::getIdentity(record.read, a.identity);
-                if (record.read.kind == ESS::ReadKind::CONFIG && record.operationId > a.configuration.operationId &&
+                if (record.read.kind == ESS::ReadKind::CONFIG && record.address == a.axis.target.address &&
+                    record.operationId > a.configuration.operationId &&
+                    record.operationId > a.driverSettings.operationId &&
                     record.configurationGeneration == a.axis.generation && record.read.target.generation == a.bindingGeneration) {
                     const ESS::RawConfig old = a.configuration.raw;
                     const bool same = a.configuration.operationId && Probe::sameTarget(a.configuration.target, record.read.target);
                     if (ESS::getConfig(record.read, a.configuration)) {
                         const auto& updated = a.configuration.raw;
-                        if (same &&
+                        const bool inputsChanged = !same || old.inputPolarity != updated.inputPolarity ||
+                            std::memcmp(old.inputFunctions, updated.inputFunctions, sizeof(old.inputFunctions)) != 0;
+                        if (inputsChanged) a.driverInputsQualified = false;
+                        uint16_t effects = 0;
+                        if (a.driverSettings.operationId && Probe::sameTarget(a.driverSettings.target, record.read.target))
+                            effects = driverConfigEffects(updated, a.driverSettings);
+                        const bool configChanged = same &&
                             (old.direction != updated.direction || old.subdivision != updated.subdivision ||
                              old.wordOrder != updated.wordOrder || old.algorithm != updated.algorithm ||
                              old.encoderResolution != updated.encoderResolution ||
                              old.inputPolarity != updated.inputPolarity || old.overLimitStop != updated.overLimitStop ||
                              old.softLimitEnable != updated.softLimitEnable ||
-                             std::memcmp(old.inputFunctions, updated.inputFunctions, sizeof(old.inputFunctions)) != 0)) {
-                            uint16_t effects = 0;
-                            if (old.direction != updated.direction) effects |= static_cast<uint16_t>(ESS::DriverField::DIRECTION);
-                            if (old.subdivision != updated.subdivision) effects |= static_cast<uint16_t>(ESS::DriverField::SUBDIVISION);
+                             std::memcmp(old.inputFunctions, updated.inputFunctions, sizeof(old.inputFunctions)) != 0);
+                        if (same && old.direction != updated.direction) effects |= static_cast<uint16_t>(ESS::DriverField::DIRECTION);
+                        if (same && old.subdivision != updated.subdivision) effects |= static_cast<uint16_t>(ESS::DriverField::SUBDIVISION);
+                        if (effects || configChanged) {
                             invalidateDriverAssumptions(a, record.address, effects, nowUs());
                             // These are the newly checked stored codes, not an older cache.
                             a.configuration.operationId = record.operationId;

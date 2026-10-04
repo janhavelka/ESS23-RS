@@ -1453,6 +1453,12 @@ void driverFixtures() {
              failure == 4 ? "deadline" : failure == 5 ? "wrong_echo" : failure == 6 ? "late_delivery" :
              failure == 7 ? "unqualified" : failure == 8 ? "unconfirmed_echo" : "late_closure", c);
     }
+    // Actual core/formatter outcomes for an ambiguous settings response and
+    // an ambiguous readback after a confirmed acknowledgement.
+    assert(Ess::prepareDriverRead(c, target, 101, 3, 100, 10000));
+    consume(c, 8, false); emit("unconfirmed_read", c);
+    c = prepare(); consume(c, 0, false); consume(c, 8, false);
+    emit("unconfirmed_readback", c);
 }
 
 int main(int argc, char** argv) {

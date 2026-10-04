@@ -10,6 +10,12 @@ input qualification. Positive/negative pair writes remain explicitly unsupported
 soft-limit movement needs qualified encoding, homing/reference and fixture
 evidence. Homing and optional input changes remain with 14/15.
 
+[Fresh audit](reports/ess_release_13_audit_2026-10-04.md) fixes unconfirmed
+readback settlement, shared driver/configuration baseline ordering, secondary
+target cache eviction and stale input qualification. Native/package/build and
+corrected-image read-only verification are recorded separately from physical
+settings/restoration and limit-motion qualification.
+
 
 ## Prompt 12 paired-write disposition
 
@@ -29,8 +35,8 @@ evidence. Homing and optional input changes remain with 14/15.
   and stopped-state/input prerequisites. No device write was attempted.
 
 See [per-pair restrictions and experiment](ess_pair_writes.md) and
-[prompt 12 evidence](reports/ess_release_12_2026-10-04.md). Prompt 13 is next
-when dispatched; independently supported single-word progress remains possible.
+[prompt 12 evidence](reports/ess_release_12_2026-10-04.md). Prompt 13 implements
+independently supported single-word settings while retaining these pair guards.
 
 This is the working backlog for `MotorControl-RS`. The three-layer architecture
 is accepted; implemented blocks supply units, register metadata and checked

@@ -979,7 +979,7 @@ class Console:
         for p in fields.values():
             rows = [(e, raw) for e, raw in steps if e["register"] == p["register"]]
             acknowledged = any(e["write"] and e["event"] == 0 and e["status"] == "OK" and e["qualified"] and e["response_confirmed"] for e, raw in rows)
-            readbacks = [(e, raw) for e, raw in rows if not e["write"] and e["event"] == 0 and e["status"] == "OK" and e["qualified"] and e["latest_us"] <= item["deadline_us"]]
+            readbacks = [(e, raw) for e, raw in rows if not e["write"] and e["event"] == 0 and e["status"] == "OK" and e["qualified"] and e["response_confirmed"] and e["latest_us"] <= item["deadline_us"]]
             require(p["acknowledged"] == acknowledged and p["readback_known"] == bool(readbacks), "acknowledgement/readback provenance differs")
             if readbacks: require(p["readback"] == int.from_bytes(readbacks[-1][1][3:5], "big"), "readback value differs")
             writes = [e for e, raw in rows if e["write"]]
@@ -997,7 +997,7 @@ class Console:
         successful_steps = 0
         for e, raw in steps:
             deadline = item["stationary_valid_until_us"] if e["write"] else item["deadline_us"]
-            good = e["event"] == 0 and e["qualified"] and e["latest_us"] <= deadline and e["status"] == "OK" and (not e["write"] or e["response_confirmed"])
+            good = e["event"] == 0 and e["qualified"] and e["response_confirmed"] and e["latest_us"] <= deadline and e["status"] == "OK"
             if good and item["driver_kind"] == "update" and not e["write"]:
                 p = next(p for p in fields.values() if p["register"] == e["register"])
                 good = int.from_bytes(raw[3:5], "big") == p["requested"]
@@ -1006,7 +1006,7 @@ class Console:
                 (item["ok"] or item["completed_steps"] < total), "completed progress contradicts terminal state")
         if item["ok"]:
             require(not item["uncertain"] and item["detail"] == 0 and item["completed_steps"] == len(steps) == (4 if item["driver_kind"] == "read" else 2 * len(fields)) and
-                    all(e["qualified"] and (not e["write"] or e["response_confirmed"]) and e["status"] == "OK" and e["latest_us"] <= item["deadline_us"] for e, raw in steps), "success lacks complete checked evidence")
+                    all(e["qualified"] and e["response_confirmed"] and e["status"] == "OK" and e["latest_us"] <= item["deadline_us"] for e, raw in steps), "success lacks complete checked evidence")
             require(all(p["acknowledged"] and p["readback_known"] and p["requested"] == p["readback"] and p["execution"] == "acknowledged" for p in fields.values()), "success lacks matching readback")
         if item["driver_kind"] == "read" and item["ok"]:
             v = item.get("observation")
@@ -1037,9 +1037,9 @@ class Console:
                     steps[-1][0]["event"] == 0 and not steps[-1][0]["qualified"], "timing failure lacks unqualified frame")
         if item["outcome"] == "unconfirmed_response":
             require(item["status"] == "ILLEGAL_VALUE" and item["detail"] == 17 and steps and
-                    steps[-1][0]["event"] == 0 and steps[-1][0]["write"] and steps[-1][0]["status"] == "OK" and
+                    steps[-1][0]["event"] == 0 and steps[-1][0]["status"] == "OK" and
                     steps[-1][0]["qualified"] and not steps[-1][0]["response_confirmed"] and
-                    steps[-1][0]["latest_us"] <= item["stationary_valid_until_us"], "unconfirmed failure lacks ambiguous echo")
+                    steps[-1][0]["latest_us"] <= (item["stationary_valid_until_us"] if steps[-1][0]["write"] else item["deadline_us"]), "unconfirmed failure lacks ambiguous response")
         if item["outcome"] == "deadline":
             require(item["status"] == "ILLEGAL_VALUE" and item["detail"] == 13 and steps, "deadline result is invalid")
             e = steps[-1][0]; deadline = item["stationary_valid_until_us"] if e["write"] else item["deadline_us"]

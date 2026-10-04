@@ -150,7 +150,8 @@ Status prepareDriverSettings(DriverContext&, const ReadTarget&, uint32_t operati
 Status nextDriver(const DriverContext&, uint64_t nowUs, PreparedDriver&) noexcept;
 /** Invalid correlations/envelopes leave state unchanged. Qualified on-time final
  * completion can succeed when delivered later. A nonfinal late delivery cannot
- * start another transaction. CANCEL is local and never restores settings. */
+ * start another transaction. Every successful frame requires responseConfirmed,
+ * including reads and update readbacks. CANCEL is local and never restores settings. */
 Status advanceDriver(DriverContext&, const ActionEvent&, uint64_t nowUs) noexcept;
 /** Only a complete READ publishes, leaving output unchanged on all failures. */
 Status getDriver(const DriverContext&, DriverObservation&) noexcept;

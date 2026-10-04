@@ -24,8 +24,8 @@ std::vector<uint8_t> crc(std::vector<uint8_t> bytes) {
     const uint16_t c = ESS::calcCrc16(bytes.data(), bytes.size());
     bytes.push_back(static_cast<uint8_t>(c)); bytes.push_back(static_cast<uint8_t>(c >> 8)); return bytes;
 }
-std::vector<uint8_t> words(std::initializer_list<uint16_t> values) {
-    std::vector<uint8_t> bytes = {1,3,static_cast<uint8_t>(values.size()*2)};
+std::vector<uint8_t> words(std::initializer_list<uint16_t> values, uint8_t address = 1) {
+    std::vector<uint8_t> bytes = {address,3,static_cast<uint8_t>(values.size()*2)};
     for (const auto value : values) { bytes.push_back(static_cast<uint8_t>(value >> 8)); bytes.push_back(static_cast<uint8_t>(value)); }
     return crc(bytes);
 }
@@ -41,13 +41,33 @@ void reply(uint32_t operation, const std::vector<uint8_t>& supplied) {
     for (unsigned i = 0; i < 25000 && view(operation).pending && view(operation).driverContext->step == token; ++i) step();
     assert(!view(operation).pending || view(operation).driverContext->step != token);
 }
-uint32_t readSettings(uint16_t order = 0, uint16_t direction = 0, uint16_t subdivision = 1000) {
+uint32_t readSettings(uint16_t order = 0, uint16_t direction = 0, uint16_t subdivision = 1000,
+                      uint8_t address = 1, uint16_t positionMode = 0, uint16_t interruption = 1) {
     uint32_t id = 0;
-    assert(host(app).startDriver(app,1,1,ESS::DriverKind::READ,ESS::DriverRequest(),id) == Probe::Action::OK);
-    reply(id,words({direction,subdivision})); reply(id,words({1,0,order}));
-    reply(id,words({0x1234,0x5678,0xABCD,0xEF01})); reply(id,words({0,1}));
+    assert(host(app).startDriver(app,1,address,ESS::DriverKind::READ,ESS::DriverRequest(),id) == Probe::Action::OK);
+    reply(id,words({direction,subdivision},address)); reply(id,words({1,0,order},address));
+    reply(id,words({0x1234,0x5678,0xABCD,0xEF01},address)); reply(id,words({positionMode,interruption},address));
     assert(!view(id).pending && view(id).driverContext->outcome == ESS::DriverOutcome::SUCCESS);
-    assert(app->driverSettings.operationId == id);
+    if (address == app->axis.target.address) assert(app->driverSettings.operationId == id);
+    return id;
+}
+void configReply(uint32_t operation, const std::vector<uint8_t>& supplied) {
+    const auto token = view(operation).typedRead->step;
+    waitTx(operation);
+    scheduleReply(std::max(hardware.writeStarted + 8*87 + 1000, hardware.time + 1000), supplied);
+    for (unsigned i = 0; i < 25000 && view(operation).pending && view(operation).typedRead->step == token; ++i) step();
+    assert(!view(operation).pending || view(operation).typedRead->step != token);
+}
+uint32_t readConfig(uint16_t direction = 0, uint16_t subdivision = 1000, uint16_t input0 = 1,
+                    uint16_t inputPolarity = 0, uint8_t address = 1) {
+    uint32_t id = 0;
+    assert(host(app).startTypedRead(app,70,address,ESS::ReadKind::CONFIG,id) == Probe::Action::OK);
+    configReply(id,words({direction,subdivision},address)); configReply(id,words({0,0,0},address));
+    configReply(id,words({1,0,0},address)); configReply(id,words({inputPolarity,input0,2,3,0},address));
+    configReply(id,words({1,4000},address));
+    for (unsigned i = 0; i < 100; ++i) step();
+    assert(!view(id).pending && view(id).typedRead->state == ReadState::SUCCEEDED);
+    if (address == app->axis.target.address) assert(app->configuration.operationId == id);
     return id;
 }
 void qualify() {
@@ -181,6 +201,72 @@ void externalChangesAndRecovery() {
     assert(!view(interrupted).pending && !view(interrupted).driverContext->effects);
     assert(findRecord(*app,interrupted)->interruptedByStop && axisReserved(*app,1));
 }
+void configurationReconcilesDriverBaseline() {
+    fresh(); const auto original = readSettings(); qualify();
+    const auto generation = app->axis.generation;
+    assert(!app->configuration.operationId);
+    readConfig(1,1600);
+    assert(app->axis.generation > generation && !app->axis.originKnown && !app->coordinateReference.nativeKnown);
+    assert(!app->commandPolarityKnown && !app->axis.units.commandStepsPerMotorTurn.numerator);
+    assert(!app->driverSettings.operationId && !app->driverInputsQualified);
+    assert(app->configuration.raw.direction == 1 && app->configuration.raw.subdivision == 1600);
+    assert(view(original).driverContext->configurationGeneration == generation);
+    assert(view(original).driverContext->observations[0].raw[3] == 0);
+}
+void changedInputsInvalidateQualification() {
+    for (unsigned change = 0; change < 2; ++change) {
+        fresh(); readConfig(); qualify();
+        const auto generation = app->axis.generation;
+        readConfig(0,1000,change == 0 ? 17 : 1,change == 1 ? 1 : 0);
+        assert(app->axis.generation > generation && !app->driverInputsQualified);
+        assert(!app->axis.originKnown && !app->coordinateReference.nativeKnown);
+        readSettings();
+        const auto writes = hardware.writes; uint32_t unchanged = 99;
+        assert(host(app).startDriver(app,71,1,ESS::DriverKind::UPDATE,update(),unchanged) == Probe::Action::INVALID);
+        assert(unchanged == 99 && hardware.writes == writes);
+    }
+}
+void secondaryReadsPreserveAxisBaseline() {
+    for (unsigned change = 0; change < 2; ++change) {
+        fresh(); const auto original = readSettings(); qualify();
+        const auto generation = app->axis.generation;
+        const auto secondary = readSettings(0,0,1000,2);
+        assert(app->driverSettings.operationId == original && app->driverSettings.target.address == 1);
+        assert(view(secondary).driverContext->target.address == 2);
+        readSettings(0,0,1000,1,change == 0 ? 1 : 0,change == 1 ? 0 : 1);
+        assert(app->axis.generation > generation && !app->axis.originKnown && !app->driverInputsQualified);
+        assert(view(original).driverContext->observations[3].raw[4] == 0);
+    }
+    fresh(); const auto original = readConfig(); qualify();
+    const auto generation = app->axis.generation;
+    const auto secondary = readConfig(1,1600,17,1,2);
+    assert(app->configuration.operationId == original && app->configuration.target.address == 1);
+    assert(app->axis.generation == generation && app->axis.originKnown && app->driverInputsQualified);
+    assert(view(secondary).typedRead->target.address == 2);
+    readConfig(0,1000,17);
+    assert(app->axis.generation > generation && !app->driverInputsQualified);
+}
+void olderConfigCannotReplaceNewerDriver() {
+    fresh(); qualify(); uint32_t config = 0, driver = 0;
+    assert(host(app).startTypedRead(app,70,1,ESS::ReadKind::CONFIG,config) == Probe::Action::OK);
+    assert(host(app).startDriver(app,71,1,ESS::DriverKind::READ,ESS::DriverRequest(),driver) == Probe::Action::OK);
+    // Interleaved real owner transactions: CONFIG's shared fields were read
+    // before DRIVER's, but CONFIG has one extra window and finishes later.
+    configReply(config,words({0,1000})); reply(driver,words({1,1600}));
+    configReply(config,words({0,0,0})); reply(driver,words({1,0,0}));
+    configReply(config,words({1,0,0})); reply(driver,words({0x1234,0x5678,0xABCD,0xEF01}));
+    configReply(config,words({0,1,2,3,0})); reply(driver,words({0,1}));
+    assert(app->driverSettings.operationId == driver);
+    const auto generation = app->axis.generation;
+    configReply(config,words({1,4000}));
+    for (unsigned i = 0; i < 100; ++i) step();
+    assert(!app->configuration.operationId && app->driverSettings.operationId == driver);
+    assert(app->axis.generation == generation);
+    ESS::ConfigObservation historical;
+    assert(ESS::getConfig(*view(config).typedRead,historical));
+    assert(historical.raw.direction == 0 && historical.raw.subdivision == 1000);
+    assert(app->driverSettings.raw[0] == 1 && app->driverSettings.raw[1] == 1600);
+}
 void retentionPressure() {
     fresh();
     uint32_t ids[REQUEST_CAPACITY];
@@ -218,6 +304,8 @@ void backpressureAndPolarityParity() {
 } // namespace
 int main() {
     gatesAndReadContext(); successAndEffects(); failuresAndCancellation(); staleContinuation(); externalChangesAndRecovery();
+    configurationReconcilesDriverBaseline(); changedInputsInvalidateQualification(); secondaryReadsPreserveAxisBaseline();
+    olderConfigCannotReplaceNewerDriver();
     retentionPressure();
     backpressureAndPolarityParity();
     if (app) { app->~App(); std::free(app); app = nullptr; }

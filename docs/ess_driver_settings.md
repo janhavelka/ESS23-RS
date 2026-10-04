@@ -60,6 +60,10 @@ No later failure erases completed progress. An ACK without matching readback,
 lost reply or partial update leaves explicit uncertainty; no rollback is promised.
 Checked device exceptions remain rejections. Active and saved settings remain
 unknown because these pages do not specify activation or persistence semantics.
+Every frame, including FC03 reads and readbacks, requires confirmed response
+source evidence. An unconfirmed readback retains its preceding acknowledgement
+and write uncertainty, and cannot permit another grouped write. Unconfirmed
+observations cannot supply settings prerequisites.
 
 One immutable absolute deadline covers the entire operation. Each new write is
 also capped by the original stationary evidence's validity interval. Readback
@@ -79,6 +83,10 @@ Cancellation is local; an accepted physical frame settles before its result is
 classified. Recovery cancels continuations and never resumes queued updates.
 
 The standalone updates only its configured axis; other addresses remain readable.
+Driver and configuration caches belong to that axis. Reads of other addresses
+retain their own results without replacing those prerequisite caches. The two
+cache paths compare shared fields and reject publication older than either
+cache's operation ID; interleaved reads cannot replace a newer baseline.
 At accepted write TX it invalidates dependent origins, limits, prepared operations,
 state interpretation, clear/motion qualifications and configuration cache.
 Direction/subdivision also clear the command scale; possible direction changes
@@ -86,6 +94,8 @@ mark host polarity unknown. Engineering previews/moves/velocity then require an
 explicit stationary host polarity declaration, while native intent keeps its
 own prerequisites. External trigger/mode changes invalidate input qualification.
 Full driver/config reads detecting external changes apply the same effects.
+Changed input assignments or polarity revoke the prior input qualification;
+the first configuration baseline also requires that policy to be established again.
 The newly reconciled driver cache has the current host configuration generation;
 retained operation contexts and raw evidence keep their original generation.
 Old state/config continuations cannot publish under a changed interpretation.

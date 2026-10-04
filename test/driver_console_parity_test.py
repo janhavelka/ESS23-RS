@@ -10,7 +10,7 @@ from bench_probe import BenchError, Console, MAX_LINE, unique_object
 
 expected = {"read", "unknown_read", "full_update", "partial_lost_ack", "cancelled",
             "readback_mismatch", "deadline", "wrong_echo", "late_delivery", "unqualified",
-            "unconfirmed_echo", "late_closure"}
+            "unconfirmed_echo", "late_closure", "unconfirmed_read", "unconfirmed_readback"}
 output = subprocess.check_output([sys.argv[1], "--driver-fixtures"], text=True, timeout=10)
 seen = set()
 for line in output.splitlines():
@@ -33,6 +33,14 @@ for line in output.splitlines():
             raise AssertionError((name, "malformed provenance accepted"))
     seen.add(name)
     if record["ok"]:
+        broken = copy.deepcopy(record)
+        broken["evidence"][-1][9] = False
+        try:
+            Console._check_driver(broken, 1, None)
+        except BenchError:
+            pass
+        else:
+            raise AssertionError((name, "unconfirmed response accepted as success"))
         for outcome in ("timing_unqualified", "unconfirmed_response", "deadline", "readback_mismatch"):
             broken = copy.deepcopy(record)
             broken.update(ok=False, state="failed", outcome=outcome, status="ILLEGAL_VALUE", detail=123456)
