@@ -1,5 +1,8 @@
 # ESP32-S3 read-only probe bench
 
+Prompt17 adds [control settings](ess_control_settings.md) and the Python `control read|set` scenario. [Current-image evidence](reports/ess_release_17_2026-10-04.md) records66frames, all-field readback and delay200-to201-to200 restoration; mode/encoder/current effects and electrical FC06 source remain unqualified.
+
+
 Prompt14 adds [homing API/console routes](ess_homing.md) and `home methods`. Real execution remains behind method/native/auxiliary/reference and electrical-source qualifications; the current-image checks are [read-only and zero-TX evidence](reports/ess_release_14_2026-10-04.md).
 
 Prompt11 adds [finite serial velocity](ess_velocity.md) and a bounded Python

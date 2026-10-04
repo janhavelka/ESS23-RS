@@ -1,5 +1,10 @@
 # Motor bench and testing authorization
 
+## Prompt17 current settings evidence
+
+[Report](reports/ess_release_17_2026-10-04.md) retains66checked frames/684RX bytes on the497760-byte timer image, zero errors and exact lock-delay200-to201-to200 stored restoration. Control words3/4000/5600/100/40/100/40/200, I/O/config/state are unchanged afterward. Mode/encoder/current settings were not changed. Owner empty, DEreleased, load/monitor off; physical torque/feedback/lock-transition effects remain NOT RUN.
+
+
 ## Current physical setup and standing authorization
 
 Reconfirmed by the user on 2026-10-04: the ESS23-RS20 is bolted securely to the

@@ -1,5 +1,8 @@
 # MotorControl-RS
 
+[Typed ESS control settings](docs/ess_control_settings.md) add bounded algorithm/encoder/current/lock configuration and checked readback. Current/model uncertainties remain guarded; a reversible stored lock-delay change and restoration have separate bench evidence.
+
+
 [Typed optional ESS I/O](docs/ess_io.md) adds explicit function-zero disable, indexed assignments, polarity/custom masks and stored readback settlement; wiring, logical levels and electrical qualification stay separate.
 
 [Bounded ESS homing](docs/ess_homing.md) implements internal-index methods33/34 and current-position35 with checked staging, fresh completion transitions and zero/reference evidence. All35 documented methods have explicit prerequisites and dispositions; physical homing remains gated.

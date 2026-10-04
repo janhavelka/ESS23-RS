@@ -29,7 +29,7 @@ MAX_LINE = 8192
 MAX_INPUT = 32768
 COMMANDS = frozenset({"version", "config", "probe", "capture-read", "status", "health", "memory", "stats", "load",
                       "drv", "result", "release", "cancel", "recover", "reset", "caps",
-                      "read-identity", "read-config", "read-state", "health-check", "monitor", "axis", "prepare", "enable", "motor-release", "alarm-clear", "stop", "position-clear", "move-relative", "move-absolute", "move-angle", "velocity", "driver", "io", "segment", "home"})
+                      "read-identity", "read-config", "read-state", "health-check", "monitor", "axis", "prepare", "enable", "motor-release", "alarm-clear", "stop", "position-clear", "move-relative", "move-absolute", "move-angle", "velocity", "driver", "io", "segment", "control", "home"})
 MAX_COMMANDS = 11  # Eight ordinary operations, recovery, reserved stop and local query.
 MAX_OPERATIONS = 10  # Eight ordinary operations, one recovery and one reserved stop.
 MAX_PROBES = 8
@@ -42,6 +42,9 @@ DRIVER_FIELDS = ("direction", "subdivision", "word-order", "soft-limit", "over-l
 DRIVER_REGISTERS = (0x10, 0x11, 0x19, 0x18, 0x17, 0x51, 0x50)
 IO_FIELDS = ("input-polarity", "x0", "x1", "x2", "x3", "output-polarity", "y0", "y1", "custom")
 IO_REGISTERS = (0x40, 0x41, 0x42, 0x43, 0x44, 0x4B, 0x4C, 0x4D, 0x4F)
+CONTROL_FIELDS = ("algorithm", "encoder-resolution", "maximum-effective-current", "closed-maximum-current", "closed-base-current", "open-maximum-current", "lock-current", "lock-delay")
+CONTROL_REGISTERS = tuple(range(0x100, 0x108))
+CONTROL_WINDOWS = ((0x100, 4), (0x104, 4))
 IO_WINDOWS = ((0x40, 5), (0x4B, 3), (0x4F, 1))
 HOME_EVIDENCE_COLUMNS = ["step", "event", "raw_hex", "received_length", "tx_accepted", "tx_complete", "response_confirmed", "qualified", "execution_unknown", "earliest_us", "latest_us", "delivered_us", "transport_detail", "status", "detail", "frame_error"]
 DRIVER_PROGRESS_COLUMNS = ["field", "register", "previous", "requested", "acknowledged", "readback_known", "readback", "active_known", "active", "execution"]
@@ -80,18 +83,20 @@ def driver_arguments(arguments: tuple[str, ...], group: str = "drive") -> dict:
     if (not isinstance(arguments, tuple) or not 1 <= len(arguments) <= 19 or
             any(type(token) is not str or not token or any(ord(c) < 33 or ord(c) > 126 for c in token) for token in arguments)):
         raise ValueError("driver requires bounded ASCII tokens")
-    if group not in ("drive", "io", *SEGMENT_GROUPS.values()):
+    if group not in ("drive", "io", "control_settings", *SEGMENT_GROUPS.values()):
         raise ValueError("unknown settings group")
     if arguments == ("read",):
         return {}
     if arguments[0] != "set" or len(arguments) < 3 or len(arguments) % 2 != 1:
         raise ValueError("driver requires read or complete set field/integer pairs")
-    names = IO_FIELDS if group == "io" else ("value",) if group == "segment_start_speed" else ("speed", "acceleration", "deceleration", "target") if group == "position_segment" else ("speed", "acceleration", "deceleration") if group == "speed_segment" else DRIVER_FIELDS
+    names = CONTROL_FIELDS if group == "control_settings" else IO_FIELDS if group == "io" else ("value",) if group == "segment_start_speed" else ("speed", "acceleration", "deceleration", "target") if group == "position_segment" else ("speed", "acceleration", "deceleration") if group == "speed_segment" else DRIVER_FIELDS
     result = {}
     for index in range(1, len(arguments), 2):
         field, value = arguments[index:index + 2]
         if group == "io" and field in ("x0", "x1", "x2", "x3", "y0", "y1") and value == "none":
             value = "0"
+        if group == "control_settings" and field == "algorithm":
+            value = {"open-loop": "1", "algorithm-1": "2"}.get(value, value)
         if field not in names or field in result or not re.fullmatch(r"-?[0-9]+", value):
             raise ValueError("driver field is unknown, repeated or not an integer")
         number = int(value)
@@ -944,7 +949,7 @@ class Console:
 
         group = item.get("driver_group", "drive")
         segment = group in SEGMENT_GROUPS.values()
-        require(group in ("drive", "io", *SEGMENT_GROUPS.values()) and (expected_group is None or group == expected_group or expected_group == "segment" and segment), "group differs from command")
+        require(group in ("drive", "io", "control_settings", *SEGMENT_GROUPS.values()) and (expected_group is None or group == expected_group or expected_group == "segment" and segment), "group differs from command")
         if segment:
             require(integer(item.get("segment_index"), 16) and item["segment_index"] >= 1, "record index differs")
             require(item.get("execution_path") == "external_input" and item.get("storage_capacity") == 16 and item.get("maximum_input_selections") == 8, "invented segment execution")
@@ -953,11 +958,13 @@ class Console:
                 require(group == requested_group and item["segment_index"] == requested_index, "record correlation differs")
                 arguments = arguments[2:]
         io = group == "io"
-        names = IO_FIELDS if io else DRIVER_FIELDS[:7]
-        registers = IO_REGISTERS if io else DRIVER_REGISTERS
-        masks = tuple(1 << (index + (9 if io else 0)) for index in range(len(names)))
+        control = group == "control_settings"
+        stored = io or segment or control
+        names = CONTROL_FIELDS if control else IO_FIELDS if io else DRIVER_FIELDS[:7]
+        registers = CONTROL_REGISTERS if control else IO_REGISTERS if io else DRIVER_REGISTERS
+        masks = tuple(1 << (index + (23 if control else 9 if io else 0)) for index in range(len(names)))
         by_field = dict(zip(masks, zip(names, registers)))
-        windows = IO_WINDOWS if io else ((0x10, 2), (0x17, 3), (0x37, 4), (0x50, 2))
+        windows = CONTROL_WINDOWS if control else IO_WINDOWS if io else ((0x10, 2), (0x17, 3), (0x37, 4), (0x50, 2))
         if segment:
             record_index = item["segment_index"]
             if group == "position_segment":
@@ -972,10 +979,10 @@ class Console:
                 base = 0x130 + record_index - 1
                 names, registers, windows, masks = ("value",), (base,), ((base, 1),), (1 << 21,)
             by_field = dict(zip(masks, zip(names, registers)))
-        read_steps, update_steps, raw_limit = len(windows), 2 * len(names) if segment else 18 if io else 14, 15 if io or segment else 13
+        read_steps, update_steps, raw_limit = len(windows), 2 * len(names), 15 if stored else 13
         echo_policy = item.get("echo_readback_policy", False)
-        require(type(echo_policy) is bool and (io or segment or not echo_policy), "echo readback policy differs")
-        if io or segment:
+        require(type(echo_policy) is bool and (stored or not echo_policy), "echo readback policy differs")
+        if stored:
             require(type(item.get("echo_readback_policy")) is bool, "IO verification policy is missing")
             require(item.get("settlement") == "stored_readback", "IO activation settlement was fabricated")
         elif "settlement" in item:
@@ -984,6 +991,9 @@ class Console:
         def legal(field, value):
             name = by_field[field][0]
             if segment: return value <= (180 if name == "value" else 3000 if name == "speed" else 2000)
+            if control:
+                index = CONTROL_FIELDS.index(name)
+                return value in (1, 2) if index == 0 else 1 <= value <= 65535 if index == 1 else value <= (5600, 150, 75, 100, 100, 20000)[index - 2]
             if io:
                 if name.startswith("x"): return value <= 17
                 if name.startswith("y"): return value in (*range(6), 9, 10)
@@ -1077,14 +1087,14 @@ class Console:
                     if e["status"] == "OK": execution = "acknowledged"
                     elif e["status"] == "EXCEPTION" and 1 <= e["detail"] <= 7: execution = "rejected"
             require(p["execution"] == execution, "execution differs from write evidence")
-            stored_settled = (io or segment) and echo_policy and p["readback_known"] and p["readback"] == p["requested"]
+            stored_settled = stored and echo_policy and p["readback_known"] and p["readback"] == p["requested"]
             uncertain |= (execution == "unknown" and not stored_settled) or (execution == "acknowledged" and (not p["readback_known"] or p["readback"] != p["requested"]))
         require(item["effects"] == effects and item["uncertain"] == uncertain, "changed-setting mask or uncertainty differs")
         total = read_steps if item["driver_kind"] == "read" else 2 * len(fields)
         successful_steps = 0
         for index, (e, raw) in enumerate(steps):
             deadline = item["stationary_valid_until_us"] if e["write"] else item["deadline_us"]
-            good = e["event"] == 0 and e["qualified"] and (e["response_confirmed"] or ((io or segment) and echo_policy and e["write"])) and e["latest_us"] <= deadline and e["status"] == "OK"
+            good = e["event"] == 0 and e["qualified"] and (e["response_confirmed"] or (stored and echo_policy and e["write"])) and e["latest_us"] <= deadline and e["status"] == "OK"
             if good and item["driver_kind"] == "update" and not e["write"]:
                 p = next(p for p in fields.values() if p["register"] == e["register"])
                 good = int.from_bytes(raw[3:5], "big") == p["requested"]
@@ -1096,8 +1106,8 @@ class Console:
                 (item["ok"] or item["completed_steps"] < total), "completed progress contradicts terminal state")
         if item["ok"]:
             require(not item["uncertain"] and item["detail"] == 0 and item["completed_steps"] == len(steps) == (read_steps if item["driver_kind"] == "read" else 2 * len(fields)) and
-                    all(e["qualified"] and (e["response_confirmed"] or ((io or segment) and echo_policy and e["write"])) and e["status"] == "OK" and e["latest_us"] <= item["deadline_us"] for e, raw in steps), "success lacks complete checked evidence")
-            require(all(p["readback_known"] and p["requested"] == p["readback"] and ((p["acknowledged"] and p["execution"] == "acknowledged") or ((io or segment) and echo_policy and not p["acknowledged"] and p["execution"] == "unknown")) for p in fields.values()), "success lacks matching readback")
+                    all(e["qualified"] and (e["response_confirmed"] or (stored and echo_policy and e["write"])) and e["status"] == "OK" and e["latest_us"] <= item["deadline_us"] for e, raw in steps), "success lacks complete checked evidence")
+            require(all(p["readback_known"] and p["requested"] == p["readback"] and ((p["acknowledged"] and p["execution"] == "acknowledged") or (stored and echo_policy and not p["acknowledged"] and p["execution"] == "unknown")) for p in fields.values()), "success lacks matching readback")
         if item["driver_kind"] == "read" and item["ok"]:
             v = item.get("observation")
             require(isinstance(v, dict), "complete read observation is missing")
@@ -1110,6 +1120,14 @@ class Console:
                 require(v.get("unknown_input_polarity_bits") == values[0] & ~15 and
                         v.get("unknown_output_polarity_bits") == values[5] & ~3 and
                         v.get("unknown_custom_output_bits") == values[8] & ~3, "reserved IO bits were lost")
+            elif control:
+                values = words[0] + words[1]
+                require(v.get("raw") == values and v.get("known_fields") == sum(mask for mask, value in zip(masks, values) if legal(mask, value)), "unknown control values were normalized")
+                require(v.get("algorithm_known") is (values[0] in (1, 2)) and v.get("encoder_scale_usable") is (values[1] != 0), "control scale/algorithm differs")
+                labels = ("encoder_resolution", "maximum_effective_current_ma", "closed_maximum_percent", "closed_base_percent", "open_maximum_percent", "lock_percent", "lock_delay_ms")
+                require(all(v.get(label) == value for label, value in zip(labels, values[1:])), "native control units differ")
+                require(v.get("current_percent_base") == "unresolved" and v.get("active_settings_known") is False, "current formula or activation fabricated")
+                require(not any(k in v for k in ("maximum_peak_current_ma", "physical_encoder_resolution", "current_ma", "torque", "positive_words", "signed_encoding")), "control observation invents physical meaning")
             elif segment:
                 payload = words[0]
                 values = payload[2:] + payload[:2] if group == "position_segment" else payload + [0] * (5 - len(payload))
@@ -1118,7 +1136,7 @@ class Console:
             else:
                 require(v.get("signed_limits") == "unresolved" and v.get("native_scale") == "unresolved", "limit resolution was fabricated")
                 values = [words[0][0], words[0][1], words[1][2], words[1][1], words[1][0], words[3][1], words[3][0]]
-            if not io and not segment:
+            if not stored:
                 require(v.get("raw") == values and v.get("positive_words") == words[2][:2] and v.get("negative_words") == words[2][2:], "observation differs from raw replies")
                 known = sum(1 << i for i, value in enumerate(values) if (400 <= value <= 51200 if i == 1 else value <= 1))
                 require(v.get("known_fields") == known, "unknown enums were normalized")
@@ -1957,7 +1975,7 @@ class Console:
         if self.clock() >= handle.deadline:
             raise BenchError("command response deadline expired; command was not replayed")
         self.emit("reply", response=item)
-        asynchronous = handle.command in (*READ_COMMANDS, *ACTION_COMMANDS, "recover", *MOVE_COMMANDS, "velocity", "driver", "io", "segment", "home")
+        asynchronous = handle.command in (*READ_COMMANDS, *ACTION_COMMANDS, "recover", *MOVE_COMMANDS, "velocity", "driver", "io", "segment", "control", "home")
         if asynchronous:
             if item.get("type") == "reply" and not handle.accepted:
                 if not item["ok"]:
@@ -1965,7 +1983,7 @@ class Console:
                     return
                 if item.get("result") != "accepted":
                     raise BenchError(f"{handle.command} acceptance is not explicit")
-                if handle.command in (*READ_COMMANDS, *ACTION_COMMANDS, *MOVE_COMMANDS, "velocity", "driver", "io", "segment", "home"):
+                if handle.command in (*READ_COMMANDS, *ACTION_COMMANDS, *MOVE_COMMANDS, "velocity", "driver", "io", "segment", "control", "home"):
                     address = item.get("address")
                     if (type(address) is not int or not 1 <= address <= 247
                             or (handle.address is not None and address != handle.address)):
@@ -1989,7 +2007,7 @@ class Console:
                 return
             expected_type = {"probe": "probe", "capture-read": "capture_read", "recover": "recovery",
                              "read-identity": "read", "read-config": "read", "read-state": "read",
-                             **dict.fromkeys(ACTION_COMMANDS, "action"), **dict.fromkeys(MOVE_COMMANDS, "move"), "velocity": "velocity", "driver": "driver", "io": "io", "segment": "segment", "home": "home"}[handle.command]
+                             **dict.fromkeys(ACTION_COMMANDS, "action"), **dict.fromkeys(MOVE_COMMANDS, "move"), "velocity": "velocity", "driver": "driver", "io": "io", "segment": "segment", "control": "control", "home": "home"}[handle.command]
             if item.get("type") != expected_type or not handle.accepted:
                 raise BenchError(f"{handle.command} response sequence is invalid")
             if (not self._operation_id(item.get("operation_id"))
@@ -2008,8 +2026,8 @@ class Console:
                 self._check_velocity(item, handle.address, handle.velocity_args)
             elif handle.command == "home":
                 self._check_home(item, handle.address, handle.home_args)
-            elif handle.command in ("driver", "io", "segment"):
-                self._check_driver(item, handle.address, handle.driver_args, "segment" if handle.command == "segment" else "io" if handle.command == "io" else "drive")
+            elif handle.command in ("driver", "io", "segment", "control"):
+                self._check_driver(item, handle.address, handle.driver_args, "segment" if handle.command == "segment" else "control_settings" if handle.command == "control" else "io" if handle.command == "io" else "drive")
             elif handle.command in MOVE_COMMANDS:
                 self._check_move(item, handle.address, handle.move_args, handle.command[5:])
             else:
@@ -2040,7 +2058,7 @@ class Console:
                             (original is not None and home != (original.command == "home"))):
                         raise BenchError("result home kind does not match retained operation")
                     if (type(driver) is not bool or (driver and (velocity or move_kind is not None or action_kind is not None or recovery or capture_read or read_kind is not None)) or
-                            (original is not None and driver != (original.command in ("driver", "io", "segment")))):
+                            (original is not None and driver != (original.command in ("driver", "io", "segment", "control")))):
                         raise BenchError("result driver kind does not match retained operation")
                     if type(velocity) is not bool or (velocity and (move_kind is not None or action_kind is not None or recovery or capture_read or read_kind is not None)) or (original is not None and velocity != (original.command == "velocity")):
                         raise BenchError("result velocity kind does not match retained operation")
@@ -2072,7 +2090,7 @@ class Console:
                     elif home:
                         self._check_home(item, original.address if original else None, original.home_args if original else None)
                     elif driver:
-                        self._check_driver(item, original.address if original else None, original.driver_args if original else None, ("segment" if original.command == "segment" else "io" if original.command == "io" else "drive") if original else None)
+                        self._check_driver(item, original.address if original else None, original.driver_args if original else None, ("segment" if original.command == "segment" else "control_settings" if original.command == "control" else "io" if original.command == "io" else "drive") if original else None)
                     elif velocity:
                         self._check_velocity(item, original.address if original else None, original.velocity_args if original else None)
                     elif move_kind is not None:
@@ -2159,8 +2177,8 @@ class Console:
             velocity_arguments(velocity_args)
         elif velocity_args is not None:
             raise ValueError("velocity arguments require velocity command")
-        if command in ("driver", "io", "segment"):
-            segment_arguments(driver_args) if command == "segment" else driver_arguments(driver_args, "io" if command == "io" else "drive")
+        if command in ("driver", "io", "segment", "control"):
+            segment_arguments(driver_args) if command == "segment" else driver_arguments(driver_args, "control_settings" if command == "control" else "io" if command == "io" else "drive")
         elif driver_args is not None:
             raise ValueError("driver arguments require driver command")
         if command == "home":
@@ -2176,7 +2194,7 @@ class Console:
                  type(monitor[0]) is not int or type(monitor[1]) is not int or
                  not 100 <= monitor[0] <= 60000 or not 1 <= monitor[1] <= 1000)):
                 raise ValueError("monitor requires off or interval 100..60000/count 1..1000")
-        if address is not None and (command not in (*READ_COMMANDS, *ACTION_COMMANDS, *MOVE_COMMANDS, "velocity", "driver", "io", "segment", "home") or type(address) is not int
+        if address is not None and (command not in (*READ_COMMANDS, *ACTION_COMMANDS, *MOVE_COMMANDS, "velocity", "driver", "io", "segment", "control", "home") or type(address) is not int
                                     or not 1 <= address <= 247):
             raise ValueError("an ESS probe address must be an integer within 1..247")
         if load is not None:
@@ -2238,7 +2256,7 @@ class Console:
                 suffix = " " + " ".join(driver_args) + suffix
             wire_command = "health check" if health_check else "read " + TYPED_READS[command] if command in TYPED_READS else command
             if command in MOVE_COMMANDS: wire_command = "move " + command[5:]
-            if command in ("driver", "io", "segment"): wire_command = "profile ess_rs " + command
+            if command in ("driver", "io", "segment", "control"): wire_command = "profile ess_rs " + command
             payload = f"@{request_id} {wire_command}{suffix}\n".encode("ascii")
             if len(payload) > 128:
                 raise ValueError("command exceeds the console line bound")
@@ -2495,8 +2513,8 @@ def typed_read_campaign(console: Console, *, kind: str, timeout_s: float, addres
 def driver_read_campaign(console: Console, *, timeout_s: float, address: int, command: str = "driver",
                          driver_args: tuple[str, ...] = ("read",)) -> None:
     """One settings attempt, immutable inspection and release; never replay/rollback."""
-    if command not in ("driver", "io", "segment"): raise ValueError("unknown settings command")
-    candidate = segment_arguments(driver_args)[2] if command == "segment" else driver_arguments(driver_args, "io" if command == "io" else "drive")
+    if command not in ("driver", "io", "segment", "control"): raise ValueError("unknown settings command")
+    candidate = segment_arguments(driver_args)[2] if command == "segment" else driver_arguments(driver_args, "control_settings" if command == "control" else "io" if command == "io" else "drive")
     positive(timeout_s, "driver read timeout")
     handle = None; terminal = None; inspected = None; failure = None
     try:
@@ -2729,6 +2747,8 @@ def arguments(argv: list[str] | None) -> argparse.Namespace:
     sub.add_parser("driver-read", help="one checked four-window drive-settings read with retained inspection; no writes")
     segment = sub.add_parser("segment", help="indexed stored record read/update; no external execution")
     segment.add_argument("segment_tokens", nargs="+")
+    control = sub.add_parser("control", help="one explicit stopped native control read or settings attempt; never replayed")
+    control.add_argument("control_tokens", nargs="+", help="read | set FIELD INTEGER ...; algorithm open-loop|algorithm-1")
     io = sub.add_parser("io", help="one explicit typed IO read or settings attempt with retained inspection; never replayed")
     io.add_argument("io_tokens", nargs="+", help="read | set FIELD VALUE ...; none assigns documented function zero")
     velocity.add_argument("value", help="exact integer/decimal/fraction velocity")
@@ -2809,6 +2829,10 @@ def arguments(argv: list[str] | None) -> argparse.Namespace:
         result.driver_args = tuple(result.segment_tokens)
         try: segment_arguments(result.driver_args)
         except ValueError as exc: parser.error(str(exc))
+    if result.mode == "control":
+        result.driver_args = tuple(result.control_tokens)
+        try: driver_arguments(result.driver_args, "control_settings")
+        except ValueError as exc: parser.error(str(exc))
     if result.mode == "io":
         result.driver_args = tuple(result.io_tokens)
         try: driver_arguments(result.driver_args, "io")
@@ -2847,7 +2871,7 @@ def main(argv: list[str] | None = None) -> int:
                                   cleanup_stop=args.cleanup_stop, timeout_s=args.timeout, address=args.address)
                 elif args.mode == "driver-read":
                     driver_read_campaign(console, timeout_s=args.timeout, address=args.address)
-                elif args.mode in ("io", "segment"):
+                elif args.mode in ("io", "segment", "control"):
                     driver_read_campaign(console, timeout_s=args.timeout, address=args.address, command=args.mode, driver_args=args.driver_args)
                 elif args.mode == "velocity":
                     velocity_campaign(console, velocity_args=args.velocity_args, cleanup_stop=args.cleanup_stop,

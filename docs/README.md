@@ -1,5 +1,8 @@
 # MotorControl-RS documentation
 
+Prompt17 implements [control settings](ess_control_settings.md) through the existing bounded sequence. Native/API/CLI/Python checks and all-field COM13 reads pass; delay200-to201-to200 stored restoration passes. Mode/encoder/current effects remain unqualified in [the report](reports/ess_release_17_2026-10-04.md).
+
+
 Prompt16 implements [indexed stored records](ess_segments.md), retaining pair-write and signed-encoding blockers. Boundary reads and PT/PV scalar restoration pass; shared starting-speed readback mismatch remains explicitly unresolved in [the report](reports/ess_release_16_2026-10-04.md). External triggering has no wired fixture.
 
 

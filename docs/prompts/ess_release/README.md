@@ -1,8 +1,8 @@
 # ESS release implementation sequence
 
 Prepared 2026-10-03 against MotorControl-RS `4ae0c4d` (0.6.0).
-Preparing this set executed no numbered prompt. **Prompts 01-16 have implementation and available verification dispositions;
-17-30 remain prepared and unexecuted. Independent electrical and physical action/motion qualification remain open.**
+Preparing this set executed no numbered prompt. **Prompts 01-17 have implementation and available verification dispositions;
+18-30 remain prepared and unexecuted. Independent electrical and physical action/motion qualification remain open.**
 The current core, runner, ESP32-S3 capture and probe/load tools are existing work;
 do not rebuild them from an old prompt as if they were missing.
 
@@ -55,7 +55,7 @@ Never mark all preceding physical work qualified just because code compiles.
 | [14 — Homing methods and reference establishment](14_homing_and_reference_establishment.md) | 6 / 7 | Implemented33/34/35 and freshly audited; all35 method dispositions; native/package/build and corrected-image read-only gates PASS; physical homing NOT RUN | [Handoff](../../reports/ess_release_14_2026-10-04.md), [fresh audit](../../reports/ess_release_14_audit_2026-10-04.md), [API](../../ess_homing.md), [methods](../../ess_homing_methods.md) |
 | [15 — Optional digital I/O and external-control configuration](15_digital_io_and_external_controls.md) | 7 | Implemented; native/package/build PASS;190-frame stored-I/O paths/13 updates and restoration PASS; external switch/load/electrical tests NOT RUN | [Handoff](../../reports/ess_release_15_2026-10-04.md), [API](../../ess_io.md) |
 | [16 — Stored position/speed records and external triggers](16_stored_position_and_speed_segments.md) | 7 | Implemented; native/package/build PASS; boundary reads and PT/PV scalar restoration PASS; shared-start mismatch FAIL/unresolved, triggers NOT RUN | [Handoff](../../reports/ess_release_16_2026-10-04.md), [fresh audit](../../reports/ess_release_16_audit_2026-10-04.md), [API](../../ess_segments.md) |
-| [17 — Algorithm, encoder, current and lock settings](17_algorithm_encoder_current_and_lock.md) | 7 | Prepared | — |
+| [17 — Algorithm, encoder, current and lock settings](17_algorithm_encoder_current_and_lock.md) | 7 | Implemented; native/package/four builds PASS; all8reads and lock-delay restoration PASS; mode/encoder/current effects NOT RUN | [Handoff](../../reports/ess_release_17_2026-10-04.md), [API](../../ess_control_settings.md) |
 | [18 — Filters, tracking and tuning parameters](18_filters_tracking_and_tuning.md) | 7 | Prepared | — |
 | [19 — Host serial settings and adapter capability limits](19_host_serial_tuple_support.md) | 7 / 8 | Prepared | — |
 | [20 — Explicit drive communication commissioning](20_device_communication_commissioning.md) | 7 | Prepared | — |

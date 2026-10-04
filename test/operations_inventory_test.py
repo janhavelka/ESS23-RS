@@ -43,11 +43,11 @@ class Coverage(unittest.TestCase):
         self.assertEqual((summary["records"], summary["reserved"], summary["unresolved_access"], summary["named_choices"]),
                          (221, 16, 2, 135))
         self.assertEqual(sum(count for state, count in summary["read"].items() if state in operations.IMPLEMENTATION), 201)
-        self.assertEqual(summary["write"]["NOT_IMPLEMENTED"], 33)
+        self.assertEqual(summary["write"]["NOT_IMPLEMENTED"], 25)
         self.assertEqual(summary["write"]["UNSUPPORTED"], 18)
         self.assertEqual(summary["action"]["IN_PROGRESS"], 2)
         linked = {record for group in INVENTORY["operations"] for record in group["records"]}
-        self.assertEqual(len(linked), 175)
+        self.assertEqual(len(linked), 181)
         self.assertEqual(len(result["records"]), len({record["id"] for record in result["records"]}))
         self.assertTrue(all(choice["default_disposition"] == operations.DEFAULT for choice in result["named_choices"]))
 
@@ -62,8 +62,9 @@ class Coverage(unittest.TestCase):
             "WordOrder.HIGH_WORD_FIRST", "WordOrder.LOW_WORD_FIRST", "SoftLimitEnable.LIMITS_OFF",
             "SoftLimitEnable.AFTER_HOMING", "OverLimitStop.FREE_PARKING", "OverLimitStop.EMERGENCY_STOP",
             "PvTriggerMode.LEVEL", "PvTriggerMode.RISING_EDGE", "PositionMode.RELATIVE", "PositionMode.ABSOLUTE", "HomingMethod.METHOD_33", "HomingMethod.METHOD_34",
-            "HomingMethod.METHOD_35", "MotionCommandBit.START_HOMING"} | {e["name"] + "." + v["name"] for e in LEDGER["enums"] if e["name"] in ("InputFunction", "OutputFunction", "InputBit", "OutputBit") for v in e["values"] if not (e["name"] == "OutputFunction" and v["value"] == 11)})
-        self.assertEqual(result["summary"]["choice_implementation"], {"NOT_IMPLEMENTED": 77, "IMPLEMENTED": 57, "UNSUPPORTED": 1})
+            "HomingMethod.METHOD_35", "MotionCommandBit.START_HOMING",
+            "ControlAlgorithm.OPEN_LOOP", "ControlAlgorithm.ALGORITHM_1"} | {e["name"] + "." + v["name"] for e in LEDGER["enums"] if e["name"] in ("InputFunction", "OutputFunction", "InputBit", "OutputBit") for v in e["values"] if not (e["name"] == "OutputFunction" and v["value"] == 11)})
+        self.assertEqual(result["summary"]["choice_implementation"], {"NOT_IMPLEMENTED": 75, "IMPLEMENTED": 59, "UNSUPPORTED": 1})
         for record in result["records"]:
             if record["id"] in ("AUXILIARY_COMMAND", "MOTION_COMMAND"):
                 self.assertEqual(record["obligations"]["write"], "IN_PROGRESS")
@@ -121,6 +122,40 @@ class Coverage(unittest.TestCase):
             self.assertEqual(choices["InputFunction." + function]["hardware"], "NOT_RUN")
         self.assertFalse(any(operation["kind"] == "ACTION" and
                              operation["id"].startswith("stored_") for operation in INVENTORY["operations"]))
+
+    def test_control_settings_preserve_model_and_source_uncertainty(self):
+        result = operations.check(INVENTORY, LEDGER)
+        records = {row["id"]: row for row in result["records"]}
+        ids = ("CONTROL_ALGORITHM", "ENCODER_RESOLUTION", "MAXIMUM_CURRENT",
+               "CLOSED_LOOP_CURRENT_PERCENT", "BASE_CURRENT_PERCENT",
+               "OPEN_LOOP_CURRENT_PERCENT", "LOCK_CURRENT_PERCENT", "LOCK_TIME")
+        for name in ids:
+            with self.subTest(record=name):
+                record = records[name]
+                self.assertEqual(record["obligations"]["read"], "IMPLEMENTED")
+                self.assertEqual(record["obligations"]["write"], "IMPLEMENTED")
+                self.assertEqual(record["obligations"]["action"], "NOT_APPLICABLE")
+                self.assertIn("control_settings_read", record["read_operations"])
+                self.assertIn("control_lock_delay_update" if name == "LOCK_TIME" else
+                              "control_settings_update", record["write_operations"])
+        self.assertIn("MODEL_APPLICABILITY", records["MAXIMUM_CURRENT"]["issues"])
+        for name in ids[3:7]:
+            self.assertIn("SOURCE_CONFLICT", records[name]["issues"])
+        algorithms = {row["id"] for row in result["named_choices"]
+                      if row["id"].startswith("ControlAlgorithm.")}
+        self.assertEqual(algorithms, {"ControlAlgorithm.OPEN_LOOP", "ControlAlgorithm.ALGORITHM_1"})
+        self.assertFalse(any(operation["kind"] == "ACTION" and
+                             operation["id"].startswith("control_settings")
+                             for operation in INVENTORY["operations"]))
+        update = next(operation for operation in INVENTORY["operations"]
+                      if operation["id"] == "control_settings_update")
+        self.assertEqual(update["hardware"]["state"], "NOT_RUN")
+        delay = next(operation for operation in INVENTORY["operations"]
+                     if operation["id"] == "control_lock_delay_update")
+        self.assertEqual(delay["records"], ["LOCK_TIME"])
+        self.assertEqual(delay["hardware"]["state"], "PASS")
+        self.assertIn("stored", delay["hardware"]["reason"])
+        self.assertEqual(INVENTORY["model_availability"]["qualification"], "UNQUALIFIED")
 
     def test_action_choices_must_match_ledger_record(self):
         def operation(value, name):

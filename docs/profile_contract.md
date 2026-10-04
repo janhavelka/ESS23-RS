@@ -1,5 +1,8 @@
 # Drive profile and complete native API contract
 
+Prompt17 adds [typed control configuration](ess_control_settings.md): two bounded reads and checked single-word updates with whole-candidate model/effects/current validation. These are settings, not commanded current or torque modes. Raw algorithm3 and conflicting percent/current semantics remain explicit.
+
+
 Prompt16 implements [stored PT/PV records](ess_segments.md) through the existing bounded typed settings mechanism. All16 records are readable; reserved slots remain unavailable and pulse-pair writes unsupported. Storage, externally selectable combinations and physical qualification remain separate.
 
 

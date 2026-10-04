@@ -7,7 +7,12 @@
 
 namespace MotorControlRS { namespace ESS_RS {
 namespace {
-const uint32_t FIELD_MASK = 0x007F, PAIR_MASK = 0x0180, GEOMETRY_MASK = 0x0007, IO_MASK = 0x3FE00;
+const uint32_t FIELD_MASK = 0x007F, PAIR_MASK = 0x0180, GEOMETRY_MASK = 0x0007, IO_MASK = 0x3FE00, CONTROL_MASK = 0x7F800000u;
+const uint16_t CONTROL_REGS[8] = {
+    Registers::CONTROL_ALGORITHM, Registers::ENCODER_RESOLUTION, Registers::MAXIMUM_CURRENT,
+    Registers::CLOSED_LOOP_CURRENT_PERCENT, Registers::BASE_CURRENT_PERCENT,
+    Registers::OPEN_LOOP_CURRENT_PERCENT, Registers::LOCK_CURRENT_PERCENT, Registers::LOCK_TIME
+};
 const uint16_t REGS[DRIVER_FIELD_COUNT] = {
     Registers::DEFAULT_DIRECTION, Registers::SUBDIVISION, Registers::WORD_ORDER,
     Registers::SOFT_LIMIT_ENABLE, Registers::OVER_LIMIT_STOP,
@@ -31,8 +36,9 @@ bool aliasesContext(const DriverContext& context, const void* input, std::size_t
     return other >= begin ? other - begin < sizeof(context) : begin - other < size;
 }
 bool segmentGroup(DriverGroup group) { return group >= DriverGroup::POSITION_SEGMENT && group <= DriverGroup::SEGMENT_START_SPEED; }
-uint8_t readSteps(DriverGroup group) { return segmentGroup(group) ? 1 : group == DriverGroup::IO ? 3 : DRIVER_READ_STEPS; }
+uint8_t readSteps(DriverGroup group) { return segmentGroup(group) ? 1 : group == DriverGroup::CONTROL_SETTINGS ? 2 : group == DriverGroup::IO ? 3 : DRIVER_READ_STEPS; }
 uint32_t bit(uint8_t index, DriverGroup group = DriverGroup::DRIVE) {
+    if (group == DriverGroup::CONTROL_SETTINGS) return index < 8 ? 1u << (23 + index) : 0;
     if (segmentGroup(group)) return group == DriverGroup::SEGMENT_START_SPEED ?
         (index == 0 ? 1u << 21 : 0) : (index < 3 ? 1u << (18 + index) : 0);
     return index < 7 ? 1u << index : 1u << (index + 2);
@@ -46,6 +52,7 @@ const RegisterDescriptor* segmentRegister(DriverGroup group, uint8_t record, uin
     return group == DriverGroup::SEGMENT_START_SPEED && index == 0 ? segmentStartSpeedRegister(record) : nullptr;
 }
 uint16_t fieldRegister(const DriverRequest& r, uint8_t index) {
+    if (r.group == DriverGroup::CONTROL_SETTINGS) return index < 8 ? CONTROL_REGS[index] : 0;
     if (!segmentGroup(r.group)) return REGS[index];
     const RegisterDescriptor* d = segmentRegister(r.group, r.segmentIndex, index);
     return d ? d->address : 0;
@@ -57,7 +64,24 @@ bool legal(uint8_t index, uint16_t value) {
     if (index == 12 || index == 15) return (value & ~3u) == 0;
     return index == 1 ? value >= 400 && value <= 51200 : value <= 1;
 }
+bool legalControl(uint8_t index, uint16_t value) {
+    const uint16_t maxima[] = {2, 65535, 5600, 150, 75, 100, 100, 20000};
+    return index < 8 && value <= maxima[index] && (index != 0 || value >= 1);
+}
 uint16_t requested(const DriverRequest& request, uint8_t index) {
+    if (request.group == DriverGroup::CONTROL_SETTINGS) {
+        switch (index) {
+        case 0: return static_cast<uint16_t>(request.controlAlgorithm);
+        case 1: return request.encoderResolution;
+        case 2: return request.maximumEffectiveCurrentMa;
+        case 3: return request.closedMaximumPercent;
+        case 4: return request.closedBasePercent;
+        case 5: return request.openMaximumPercent;
+        case 6: return request.lockPercent;
+        case 7: return request.lockDelayMs;
+        default: return 0;
+        }
+    }
     if (segmentGroup(request.group)) {
         if (request.group == DriverGroup::SEGMENT_START_SPEED) return static_cast<uint16_t>(request.segmentStartSpeed);
         return index == 0 ? static_cast<uint16_t>(request.segmentSpeed) : index == 1 ? request.segmentAcceleration : request.segmentDeceleration;
@@ -78,6 +102,11 @@ uint16_t requested(const DriverRequest& request, uint8_t index) {
     }
 }
 bool readWindow(DriverGroup group, uint8_t step, uint16_t& reg, uint16_t& count, uint8_t record = 1) {
+    if (group == DriverGroup::CONTROL_SETTINGS) {
+        if (step > 1) return false;
+        reg = step ? Registers::BASE_CURRENT_PERCENT : Registers::CONTROL_ALGORITHM;
+        count = 4; return true;
+    }
     if (segmentGroup(group)) {
         if (step || !record || record > 16) return false;
         const RegisterDescriptor* d = group == DriverGroup::POSITION_SEGMENT ? positionSegmentRegister(record, PositionSegmentField::PULSES) : segmentRegister(group, record, 0);
@@ -122,6 +151,12 @@ uint64_t stationaryDeadline(const DriverContext& c) {
         const uint64_t triggerUntil = p.maxAgeUs > maximum - p.triggerEarliestUs ? maximum : p.triggerEarliestUs + p.maxAgeUs;
         if (triggerUntil < deadline) deadline = triggerUntil;
     }
+    if (c.group == DriverGroup::CONTROL_SETTINGS) {
+        const uint64_t controlUntil = p.maxAgeUs > maximum - p.controlEarliestUs ? maximum : p.controlEarliestUs + p.maxAgeUs;
+        const uint64_t identityUntil = p.maxAgeUs > maximum - p.controlIdentity.provenance.attemptedUs ? maximum : p.controlIdentity.provenance.attemptedUs + p.maxAgeUs;
+        if (controlUntil < deadline) deadline = controlUntil;
+        if (identityUntil < deadline) deadline = identityUntil;
+    }
     return deadline;
 }
 Status validateIdentity(const ReadTarget& target, uint32_t id,
@@ -155,6 +190,13 @@ Status decode(const DriverEvidence* evidence, const ReadTarget& target, DriverGr
             target.address, count, data[i], 5, decoded);
         if (!status) return status;
         out.provenance[i] = evidence[i];
+    }
+    if (group == DriverGroup::CONTROL_SETTINGS) {
+        for (uint8_t i = 0; i < 8; ++i) {
+            out.raw[i] = i < 4 ? data[0][i] : data[1][i - 4];
+            if (legalControl(i, out.raw[i]) && (i != 1 || out.raw[i])) out.knownFields |= bit(i, group);
+        }
+        return Ok();
     }
     if (segmentGroup(group)) {
         out.segmentIndex = record;
@@ -194,7 +236,7 @@ Status decode(const DriverEvidence* evidence, const ReadTarget& target, DriverGr
 bool unresolvedWrite(const DriverContext& c) {
     for (uint8_t i = 0; i < DRIVER_FIELD_COUNT; ++i) {
         const DriverProgress& p = c.progress[i];
-        const bool storedSettled = (c.group == DriverGroup::IO || segmentGroup(c.group)) && c.prerequisites.allowEchoReadback &&
+        const bool storedSettled = (c.group == DriverGroup::IO || segmentGroup(c.group) || c.group == DriverGroup::CONTROL_SETTINGS) && c.prerequisites.allowEchoReadback &&
             p.readbackKnown && p.readback == p.requested;
         if (p.selected && ((p.execution == ActionExecution::UNKNOWN && !storedSettled) ||
             (p.execution == ActionExecution::ACKNOWLEDGED &&
@@ -208,7 +250,7 @@ Status prepareDriverRead(DriverContext& output, const ReadTarget& target, uint32
                          uint32_t configurationGeneration, uint64_t nowUs, uint64_t deadlineUs, DriverGroup group, uint8_t segmentIndex) noexcept {
     const Status status = validateIdentity(target, operationId, configurationGeneration, nowUs, deadlineUs);
     if (!status) return status;
-    if (group > DriverGroup::SEGMENT_START_SPEED) return invalid(DriverError::INVALID_CANDIDATE, "invalid driver group");
+    if (group > DriverGroup::CONTROL_SETTINGS) return invalid(DriverError::INVALID_CANDIDATE, "invalid driver group");
     if (segmentGroup(group) && (!segmentIndex || segmentIndex > 16)) return invalid(DriverError::SEGMENT_INDEX, "segment index must be 1..16");
     for (uint8_t i = 0; i < readSteps(group); ++i) {
         uint16_t reg = 0, count = 0; readWindow(group, i, reg, count, segmentIndex);
@@ -227,9 +269,10 @@ Status prepareDriverSettings(DriverContext& output, const ReadTarget& target, ui
     if (aliasesContext(output, &request, sizeof(request)) || aliasesContext(output, &prerequisites, sizeof(prerequisites)))
         return invalid(DriverError::INVALID_CANDIDATE, "preparation inputs must not alias output members");
     const bool segment = segmentGroup(request.group);
-    const uint32_t allowed = segment ? (request.group == DriverGroup::SEGMENT_START_SPEED ? 1u << 21 : (7u << 18) | (request.group == DriverGroup::POSITION_SEGMENT ? 1u << 22 : 0)) :
+    const bool control = request.group == DriverGroup::CONTROL_SETTINGS;
+    const uint32_t allowed = control ? CONTROL_MASK : segment ? (request.group == DriverGroup::SEGMENT_START_SPEED ? 1u << 21 : (7u << 18) | (request.group == DriverGroup::POSITION_SEGMENT ? 1u << 22 : 0)) :
         request.group == DriverGroup::IO ? IO_MASK : FIELD_MASK | PAIR_MASK;
-    if (request.group > DriverGroup::SEGMENT_START_SPEED || !request.fields || (request.fields & ~allowed))
+    if (request.group > DriverGroup::CONTROL_SETTINGS || !request.fields || (request.fields & ~allowed))
         return invalid(DriverError::INVALID_CANDIDATE, "invalid or empty driver-settings selection");
     if (request.group == DriverGroup::DRIVE && prerequisites.allowEchoReadback)
         return invalid(DriverError::INVALID_CANDIDATE, "echo/readback policy requires IO or inhibited segment settings");
@@ -254,15 +297,17 @@ Status prepareDriverSettings(DriverContext& output, const ReadTarget& target, ui
             "software-limit pair has no reviewed FC10 window; split writes are unavailable");
     for (uint8_t i = 0; i < DRIVER_FIELD_COUNT; ++i) {
         if (!(request.fields & bit(i, request.group))) continue;
-        if (!segment && (i == 13 || i == 14) && requested(request, i) == 11)
+        if (!segment && !control && (i == 13 || i == 14) && requested(request, i) == 11)
             return Status(Err::UNSUPPORTED, static_cast<int32_t>(DriverError::OUTPUT_FUNCTION_UNRESOLVED), "custom output 2 has no resolved ESS terminal mapping");
-        if (!segment && !legal(i, requested(request, i)))
+        if ((!segment && !control && !legal(i, requested(request, i))) || (control && !legalControl(i, requested(request, i))))
             return invalid(DriverError::INVALID_CANDIDATE, "illegal driver-setting enum or native range");
         const Status wire = validateWriteSingleRegisterRequest(target.address, fieldRegister(request, i), requested(request, i));
         if (!wire) return wire;
         const Status readback = validateReadRegistersRequest(target.address, fieldRegister(request, i), 1);
         if (!readback) return readback;
     }
+    if (control && (request.fields & bit(1, request.group)) && !request.encoderResolution)
+        return invalid(DriverError::ZERO_ENCODER_SCALE, "zero configured encoder resolution is not a mathematical scale");
     const DriverObservation& previous = prerequisites.previous;
     if (request.configurationGeneration != prerequisites.configurationGeneration ||
         request.configurationGeneration != previous.configurationGeneration ||
@@ -304,6 +349,63 @@ Status prepareDriverSettings(DriverContext& output, const ReadTarget& target, ui
             ((request.fields & (1u << 20)) && request.segmentDeceleration != q.segmentDeceleration) ||
             ((request.fields & (1u << 21)) && request.segmentStartSpeed != q.segmentStartSpeed))
             return invalid(DriverError::TRIGGER_POLICY_REQUIRED, "qualified segment values differ from candidate");
+    }
+    if (control) {
+        const IdentityObservation& identity = prerequisites.controlIdentity;
+        const ReadStepObservation& source = identity.provenance;
+        uint16_t identityWords[4] = {}; std::size_t decodedIdentity = 0;
+        if (!prerequisites.exactModelQualified || !prerequisites.modelSourceId || !identity.operationId ||
+            !sameTarget(identity.target, target) || identity.rawModel != prerequisites.qualifiedModelCode ||
+            identity.rawVersion != prerequisites.qualifiedFirmwareCode || source.first != Registers::DRIVER_MODEL || source.count != 4 ||
+            source.event != ReadEventKind::FRAME || !source.qualified || !source.status || source.executionUnknown ||
+            source.length != 13 || source.receivedLength != source.length || source.txAccepted != READ_REQUEST_LEN ||
+            source.attemptedUs > source.earliestUs || source.earliestUs > source.latestUs || source.latestUs > nowUs ||
+            nowUs - source.attemptedUs >= prerequisites.maxAgeUs ||
+            !parseRegisters(source.raw, source.length, target.address, 4, identityWords, 4, decodedIdentity) ||
+            identityWords[0] != identity.rawModel || identityWords[1] != identity.rawVersion ||
+            identityWords[2] != identity.rawActiveNode || identityWords[3] != identity.rawDip)
+            return invalid(DriverError::MODEL_REQUIRED, "fresh checked identity and independent exact-model qualification required");
+        const DriverRequest& q = prerequisites.qualifiedControl;
+        if ((prerequisites.controlEffectsQualifiedFields & request.fields) != request.fields)
+            return Status(Err::UNSUPPORTED, static_cast<int32_t>(DriverError::CONTROL_EFFECTS_REQUIRED), "control-setting effects are not independently qualified");
+        if (q.group != request.group || q.fields != request.fields || q.configurationGeneration != request.configurationGeneration ||
+            prerequisites.controlEarliestUs > prerequisites.controlLatestUs || prerequisites.controlLatestUs > nowUs ||
+            nowUs - prerequisites.controlEarliestUs >= prerequisites.maxAgeUs)
+            return invalid(DriverError::CONTROL_EFFECTS_REQUIRED, "fresh exact control-setting effects qualification required");
+        for (uint8_t i = 0; i < 8; ++i)
+            if ((request.fields & bit(i, request.group)) && requested(request, i) != requested(q, i))
+                return invalid(DriverError::CONTROL_EFFECTS_REQUIRED, "qualified control-setting values differ from candidate");
+        const uint32_t currentFields = bit(0, request.group) | bit(2, request.group) | bit(3, request.group) | bit(4, request.group) |
+            bit(5, request.group) | bit(6, request.group);
+        if (request.fields & currentFields) {
+            if (!prerequisites.nativeCurrentLimitQualified || !prerequisites.maximumEffectiveLimitMa ||
+                prerequisites.maximumEffectiveLimitMa > 5600)
+                return Status(Err::UNSUPPORTED, static_cast<int32_t>(DriverError::CURRENT_LIMIT_UNRESOLVED), "exact-model effective-current ceiling is not qualified");
+            if (!prerequisites.currentPercentBaseQualified)
+                return Status(Err::UNSUPPORTED, static_cast<int32_t>(DriverError::CURRENT_BASE_UNRESOLVED), "current-percent reference conflicts with ESS map; independent formula qualification required");
+            uint16_t candidate[8];
+            for (uint8_t i = 0; i < 8; ++i) candidate[i] = previous.raw[i];
+            // Check each selected write in the exact published order, before
+            // yielding the first one. A safe final tuple cannot hide an unsafe
+            // intermediate tuple. No inferred rollback or reordered writes.
+            for (uint8_t changed = 0; changed < 8; ++changed) {
+                if (!(request.fields & bit(changed, request.group))) continue;
+                candidate[changed] = requested(request, changed);
+                if (changed == 0 && candidate[0] == static_cast<uint16_t>(ControlAlgorithm::ALGORITHM_1) && !candidate[1])
+                    return invalid(DriverError::ZERO_ENCODER_SCALE, "closed-loop transition requires a positive previously configured encoder scale");
+                if (!legalControl(0, candidate[0]))
+                    return Status(Err::UNSUPPORTED, static_cast<int32_t>(DriverError::CURRENT_BASE_UNRESOLVED), "current mode is unknown");
+                if (candidate[2] > prerequisites.maximumEffectiveLimitMa)
+                    return invalid(DriverError::CURRENT_DEPENDENCY, "intermediate effective current exceeds qualified model limit");
+                for (uint8_t i = 3; i <= 6; ++i) {
+                    if (i == 5 && candidate[0] != static_cast<uint16_t>(ControlAlgorithm::OPEN_LOOP)) continue;
+                    if ((i == 3 || i == 4) && candidate[0] == static_cast<uint16_t>(ControlAlgorithm::OPEN_LOOP)) continue;
+                    if (!legalControl(i, candidate[i]) || static_cast<uint32_t>(candidate[2]) * candidate[i] >
+                        static_cast<uint32_t>(prerequisites.maximumEffectiveLimitMa) * 100)
+                        return invalid(DriverError::CURRENT_DEPENDENCY, "intermediate current formula exceeds qualified model limit");
+                }
+            }
+        }
     }
     if (request.group == DriverGroup::IO) {
         const uint8_t maskIndices[] = {7, 12, 15};
@@ -478,7 +580,7 @@ Status advanceDriver(DriverContext& c, const ActionEvent& supplied, uint64_t now
     else if (event.latestUs > transactionDeadline) finish(c, DriverOutcome::DEADLINE,
         failure(DriverError::DEADLINE_EXPIRED, "driver frame closure exceeds transaction budget"));
     else if (!evidence.status) finish(c, DriverOutcome::REPLY_ERROR, evidence.status);
-    else if (!supplied.responseConfirmed && !(evidence.write && (c.group == DriverGroup::IO || segmentGroup(c.group)) && c.prerequisites.allowEchoReadback)) finish(c, DriverOutcome::UNCONFIRMED_RESPONSE,
+    else if (!supplied.responseConfirmed && !(evidence.write && (c.group == DriverGroup::IO || segmentGroup(c.group) || c.group == DriverGroup::CONTROL_SETTINGS) && c.prerequisites.allowEchoReadback)) finish(c, DriverOutcome::UNCONFIRMED_RESPONSE,
         failure(DriverError::UNCONFIRMED_RESPONSE, "driver response source is not confirmed"));
     else {
         if (progress && !evidence.write) {
@@ -509,7 +611,7 @@ Status getDriver(const DriverContext& c, DriverObservation& output) noexcept {
     output = observation; return Ok();
 }
 DriverField driverFieldAt(uint8_t index, DriverGroup group) noexcept {
-    return static_cast<DriverField>(index < DRIVER_FIELD_COUNT && group <= DriverGroup::SEGMENT_START_SPEED ? bit(index, group) : 0);
+    return static_cast<DriverField>(index < DRIVER_FIELD_COUNT && group <= DriverGroup::CONTROL_SETTINGS ? bit(index, group) : 0);
 }
 Status prepareInputFunction(DriverRequest& request, uint8_t terminal, InputFunction function) noexcept {
     if (terminal >= 4 || !legal(8 + terminal, static_cast<uint16_t>(function)))

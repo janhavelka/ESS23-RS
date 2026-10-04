@@ -4,6 +4,7 @@
  */
 #pragma once
 #include "MotorControlRS/profiles/ess_rs/Actions.h"
+#include "MotorControlRS/profiles/ess_rs/Reads.h"
 
 namespace MotorControlRS { namespace ESS_RS {
 
@@ -11,7 +12,7 @@ constexpr uint8_t DRIVER_FIELD_COUNT = 16;
 constexpr uint8_t DRIVER_READ_STEPS = 4;
 constexpr uint8_t DRIVER_MAX_STEPS = 18;
 constexpr std::size_t DRIVER_MAX_REPLY_BYTES = 15;
-enum class DriverGroup : uint8_t { DRIVE, IO, POSITION_SEGMENT, SPEED_SEGMENT, SEGMENT_START_SPEED };
+enum class DriverGroup : uint8_t { DRIVE, IO, POSITION_SEGMENT, SPEED_SEGMENT, SEGMENT_START_SPEED, CONTROL_SETTINGS };
 enum class DriverField : uint32_t {
     DIRECTION = 1, SUBDIVISION = 2, WORD_ORDER = 4, SOFT_LIMIT_ENABLE = 8,
     OVER_LIMIT_STOP = 16, INTERRUPTION = 32, POSITION_MODE = 64,
@@ -21,7 +22,11 @@ enum class DriverField : uint32_t {
     OUTPUT_Y0 = 1u << 15, OUTPUT_Y1 = 1u << 16, CUSTOM_OUTPUT = 1u << 17,
     SEGMENT_SPEED = 1u << 18, SEGMENT_ACCELERATION = 1u << 19,
     SEGMENT_DECELERATION = 1u << 20, SEGMENT_START_SPEED = 1u << 21,
-    SEGMENT_PULSE_TARGET = 1u << 22
+    SEGMENT_PULSE_TARGET = 1u << 22,
+    CONTROL_ALGORITHM = 1u << 23, CONFIGURED_ENCODER = 1u << 24,
+    MAX_EFFECTIVE_CURRENT = 1u << 25, CLOSED_MAX_CURRENT = 1u << 26,
+    CLOSED_BASE_CURRENT = 1u << 27, OPEN_MAX_CURRENT = 1u << 28,
+    LOCK_CURRENT = 1u << 29, LOCK_DELAY = 1u << 30
 };
 enum class DriverKind : uint8_t { READ, UPDATE };
 enum class DriverOutcome : uint8_t {
@@ -36,7 +41,9 @@ enum class DriverError : int32_t {
     TRANSPORT_FAILURE, CANCELLED, TIMING_UNQUALIFIED, UNCONFIRMED_RESPONSE,
     READBACK_MISMATCH, NOT_COMPLETE, WIRING_REQUIRED, IO_EVIDENCE_REQUIRED,
     IO_EFFECTS_REQUIRED, OUTPUT_FUNCTION_UNRESOLVED, CUSTOM_DEPENDENCY,
-    SEGMENT_INDEX, SEGMENT_SIGN_UNRESOLVED, TRIGGER_POLICY_REQUIRED
+    SEGMENT_INDEX, SEGMENT_SIGN_UNRESOLVED, TRIGGER_POLICY_REQUIRED,
+    MODEL_REQUIRED, CONTROL_EFFECTS_REQUIRED, CURRENT_LIMIT_UNRESOLVED,
+    CURRENT_BASE_UNRESOLVED, CURRENT_DEPENDENCY, ZERO_ENCODER_SCALE
 };
 /** Select fields explicitly; values in unselected fields are ignored. Pair
  * candidates are present for explicit unavailable reporting, never split writes.
@@ -60,6 +67,10 @@ struct DriverRequest {
     int32_t segmentSpeed = 0, segmentStartSpeed = 0;
     uint16_t segmentAcceleration = 0, segmentDeceleration = 0; ///< Native time words, not physical acceleration.
     int64_t segmentPulseTarget = 0; ///< Explicit unsupported pair-write candidate.
+    ControlAlgorithm controlAlgorithm = ControlAlgorithm::ALGORITHM_1;
+    uint16_t encoderResolution = 0, maximumEffectiveCurrentMa = 0;
+    uint16_t closedMaximumPercent = 0, closedBasePercent = 0,
+             openMaximumPercent = 0, lockPercent = 0, lockDelayMs = 0;
 };
 /** Copied closure/transport and checked-parser evidence. Raw prefix retains the
  * full supplied size separately. Delivery is not observation freshness. */
@@ -127,7 +138,8 @@ struct DriverPrerequisites {
     uint32_t ioEffectsQualifiedFields = 0;
     DriverRequest qualifiedIo;
     /** IO verification policy for known UNCONNECTED affected terminals, or
-     * segment configuration with independently qualified trigger inhibition.
+     * segment configuration with independently qualified trigger inhibition,
+     * or exact independently qualified control-setting effects.
      * A checked, on-time unconfirmed write echo may lead to a separate confirmed
      * readback. It never becomes an acknowledgement or proves activation. */
     bool allowEchoReadback = false;
@@ -138,6 +150,20 @@ struct DriverPrerequisites {
     uint32_t triggerConfigurationGeneration = 0;
     uint64_t triggerEarliestUs = 0, triggerLatestUs = 0;
     DriverRequest qualifiedSegment;
+    /** External exact-model identification remains independent of raw model
+     * codes. Peak datasheet amperes are not an effective/RMS current ceiling. */
+    IdentityObservation controlIdentity;
+    bool exactModelQualified = false;
+    uint32_t modelSourceId = 0;
+    uint16_t qualifiedModelCode = 0, qualifiedFirmwareCode = 0;
+    bool nativeCurrentLimitQualified = false;
+    uint16_t maximumEffectiveLimitMa = 0;
+    /** Independent exact-firmware evidence must establish that current
+     * percentages use 0x0102. The manual's 0x2042 reference establishes no alias. */
+    bool currentPercentBaseQualified = false;
+    uint32_t controlEffectsQualifiedFields = 0;
+    DriverRequest qualifiedControl;
+    uint64_t controlEarliestUs = 0, controlLatestUs = 0;
 };
 /** Each selected field's exact progress. Active/persistence remain unknown:
  * checked echo and matching readback do not document activation or rollback. */
@@ -198,7 +224,7 @@ Status nextDriver(const DriverContext&, uint64_t nowUs, PreparedDriver&) noexcep
 /** Invalid correlations/envelopes leave state unchanged. Qualified on-time final
  * completion can succeed when delivered later. A nonfinal late delivery cannot
  * start another transaction. Reads and update readbacks require responseConfirmed;
- * only explicit unconnected-IO or inhibited-segment readback policy can continue an unconfirmed
+ * only explicit unconnected-IO, inhibited-segment or qualified-control readback policy can continue an unconfirmed
  * source write echo. CANCEL is local and never restores settings. */
 Status advanceDriver(DriverContext&, const ActionEvent&, uint64_t nowUs) noexcept;
 /** Only a complete READ publishes, leaving output unchanged on all failures. */

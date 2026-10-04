@@ -1628,6 +1628,80 @@ void testMaximumHomeOutputAndRetention() {
     f.contains("\"result\":\"pending\""); f.contains("\"home\":true");
 }
 
+void controlFixtures() {
+    using namespace MotorControlRS;
+    ReadTarget target; target.id=target.address=1; target.generation=9;
+    auto consume = [](Ess::DriverContext& c, int fault) {
+        Ess::PreparedDriver w; assert(Ess::nextDriver(c,c.servicedUs,w));
+        uint8_t raw[15]={}; const size_t length=w.write?8:5+2*w.count;
+        if(w.write) std::memcpy(raw,w.bytes,8);
+        else {
+            raw[0]=1;raw[1]=3;raw[2]=2*w.count;
+            const uint16_t original[8]={2,4000,1000,100,40,100,50,4000};
+            for(unsigned i=0;i<w.count;++i) {
+                uint16_t value=c.kind==Ess::DriverKind::UPDATE?w.value:original[w.reg-0x100+i];
+                if(fault==2) ++value;
+                if(fault==3&&w.reg==0x100) { if(i==0)value=3;if(i==1)value=0; }
+                raw[3+2*i]=value>>8;raw[4+2*i]=value;
+            }
+            sealTypedReply(raw,length);
+        }
+        ActionEvent e;e.transport.target=c.target;e.transport.operationId=c.operationId;e.transport.step=c.step;
+        e.transport.kind=ReadEventKind::FRAME;e.transport.frame=raw;e.transport.length=length;e.transport.txAccepted=8;
+        e.transport.qualified=true;e.transport.earliestUs=c.servicedUs+1;e.transport.latestUs=c.servicedUs+2;
+        e.txComplete=true;e.responseConfirmed=!w.write||!c.prerequisites.allowEchoReadback;
+        if(fault==1) { e.transport.kind=ReadEventKind::CANCEL;e.transport.frame=nullptr;e.transport.length=0;
+            e.transport.qualified=false;e.transport.earliestUs=e.transport.latestUs=0;e.responseConfirmed=false; }
+        assert(Ess::advanceDriver(c,e,c.servicedUs+3));
+    };
+    auto emit = [](const char* name,const Ess::DriverContext& c) {
+        Fake f;f.nextOperation=c.operationId;auto h=f.host(false,true);h.startDriver=Fake::startDriver;Probe::Console console(h);
+        send(console,"@77 profile ess_rs control read\n");f.lines.clear();
+        assert(console.reportDriver(77,c.operationId,c));assert(f.lines.size()==1);
+        std::printf("{\"case\":\"%s\",\"record\":%s}\n",name,f.lines[0].c_str());
+    };
+    Ess::DriverContext c;assert(Ess::prepareDriverRead(c,target,101,3,100,10000,Ess::DriverGroup::CONTROL_SETTINGS));
+    consume(c,0);consume(c,0);emit("read",c);
+    Ess::DriverPrerequisites p;assert(Ess::getDriver(c,p.previous));
+    assert(Ess::prepareDriverRead(c,target,101,3,100,10000,Ess::DriverGroup::CONTROL_SETTINGS));consume(c,3);consume(c,0);emit("unknown_algorithm_zero_encoder",c);
+    Ess::ReadContext identity;assert(Ess::prepareIdentity(identity,target,9,80,10000));
+    uint8_t raw[13]={1,3,8,0x4e,0xea,0,0x29,0,1,0,0};sealTypedReply(raw,sizeof(raw));
+    ReadEvent event;event.target=target;event.operationId=9;event.txAccepted=8;event.frame=raw;event.length=sizeof(raw);
+    event.qualified=true;event.earliestUs=90;event.latestUs=91;
+    assert(Ess::advanceRead(identity,event,92));assert(Ess::getIdentity(identity,p.controlIdentity));
+    p.configurationGeneration=3;p.stationaryQualified=true;p.stationaryTarget=target;p.rawMotion=1;
+    p.stationaryEarliestUs=110;p.stationaryLatestUs=120;p.maxAgeUs=20000;
+    p.exactModelQualified=true;p.modelSourceId=2;p.qualifiedModelCode=0x4eea;p.qualifiedFirmwareCode=0x29;
+    p.nativeCurrentLimitQualified=true;p.maximumEffectiveLimitMa=2000;p.currentPercentBaseQualified=true;
+    p.controlEarliestUs=110;p.controlLatestUs=120;
+    Ess::DriverRequest r;r.group=Ess::DriverGroup::CONTROL_SETTINGS;r.configurationGeneration=3;r.fields=0x7f800000;
+    r.controlAlgorithm=Ess::ControlAlgorithm::ALGORITHM_1;r.encoderResolution=8000;r.maximumEffectiveCurrentMa=1000;
+    r.closedMaximumPercent=100;r.closedBasePercent=40;r.openMaximumPercent=100;r.lockPercent=50;r.lockDelayMs=3999;
+    p.qualifiedControl=r;p.controlEffectsQualifiedFields=r.fields;
+    assert(Ess::prepareDriverSettings(c,target,101,r,p,200,10000));while(c.state==ReadState::ACTIVE)consume(c,0);emit("full_checked_update",c);
+    p.allowEchoReadback=true;
+    assert(Ess::prepareDriverSettings(c,target,101,r,p,200,10000));while(c.state==ReadState::ACTIVE)consume(c,0);emit("full_echo_readback_update",c);
+    for(unsigned step=0;step<16;++step) {
+        assert(Ess::prepareDriverSettings(c,target,101,r,p,200,10000));for(unsigned i=0;i<step;++i)consume(c,0);
+        consume(c,1);emit("cancelled_boundary",c);
+    }
+    assert(Ess::prepareDriverSettings(c,target,101,r,p,200,10000));consume(c,0);consume(c,2);emit("readback_disagreement",c);
+}
+void testControlRoutes() {
+    Fake f;auto h=f.host(false,true);h.startDriver=Fake::startDriver;Probe::Console c(h);
+    send(c,"@84 profile ess_rs control read 2\n");assert(f.drivers==1&&f.address==2&&f.driverRequest.group==Ess::DriverGroup::CONTROL_SETTINGS);
+    f.contains("\"result\":\"accepted\"");
+    send(c,"@85 profile ess_rs control set algorithm open-loop lock-delay 20000\n");
+    assert(f.drivers==2&&f.driverRequest.controlAlgorithm==Ess::ControlAlgorithm::OPEN_LOOP&&f.driverRequest.lockDelayMs==20000&&f.driverRequest.fields==((1u<<23)|(1u<<30)));
+    send(c,"@86 profile ess_rs control set algorithm algorithm-1 encoder-resolution 65535\n");
+    assert(f.drivers==3&&f.driverRequest.controlAlgorithm==Ess::ControlAlgorithm::ALGORITHM_1&&f.driverRequest.encoderResolution==65535);
+    send(c,"@87 profile ess_rs control set maximum-effective-current 5600 closed-base-current 75\n");
+    assert(f.drivers==4&&f.driverRequest.maximumEffectiveCurrentMa==5600&&f.driverRequest.closedBasePercent==75);
+    for(const char* bad:{"control read","profile ess_rs control read set","profile ess_rs control set x0 none","profile ess_rs control set lock-delay 1/1","profile ess_rs control set lock-delay 1.0","profile ess_rs control set lock-delay -1","profile ess_rs control set lock-delay 65536","profile ess_rs control set lock-delay 1 lock-delay 2","profile ess_rs control set algorithm closed-loop"}) send(c,std::string(bad)+"\n");
+    assert(f.drivers==4);
+    send(c,"@88 help control\n");f.contains("stopped_native_control_settings_and_checked_readback");
+    send(c,"@89 caps\n");f.contains("\"control_settings\":true");f.contains("\"effective_current_limit_from_peak\":false");
+}
 void segmentFixtures() {
     using namespace MotorControlRS;
     ReadTarget target; target.id = target.address = 1; target.generation = 9;
@@ -1688,6 +1762,7 @@ void testSegmentGrammarAndCorrelation() {
     assert(f.drivers == 3);
 }
 int main(int argc, char** argv) {
+    if (argc == 2 && !std::strcmp(argv[1], "--control-fixtures")) { controlFixtures(); return 0; }
     if (argc == 2 && !std::strcmp(argv[1], "--segment-fixtures")) { segmentFixtures(); return 0; }
     if (argc == 2 && std::strcmp(argv[1], "--velocity-fixtures") == 0) {
         velocityFixtures(); return 0;
@@ -1698,6 +1773,7 @@ int main(int argc, char** argv) {
     if (argc == 2 && std::strcmp(argv[1], "--home-fixtures") == 0) { homeFixtures(); return 0; }
     if (argc == 2 && std::strcmp(argv[1], "--io-fixtures") == 0) { driverFixtures(true); return 0; }
     testSegmentGrammarAndCorrelation();
+    testControlRoutes();
     testIoRoutes();
     testHomeRoutesAndDescriptors();
     testMaximumHomeOutputAndRetention();

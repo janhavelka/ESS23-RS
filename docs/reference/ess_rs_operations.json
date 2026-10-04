@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "register_ledger": "docs/reference/ess_rs_registers.json",
-  "scope": "Typed ESS reads, bounded actions/motion/homing, stopped-state driver/I/O settings and indexed stored PT/PV records; ledger-linked obligations with independent native and hardware evidence.",
+  "scope": "Typed ESS reads, bounded actions/motion/homing, stopped-state driver/I/O settings and indexed stored PT/PV records and exact-model guarded control settings; ledger-linked obligations with independent native and hardware evidence.",
   "default_disposition": {
     "implementation": "NOT_IMPLEMENTED",
     "cli": "NOT_REACHABLE",
@@ -21,17 +21,25 @@
   },
   "shared_records": [
     "AUXILIARY_COMMAND",
+    "BASE_CURRENT_PERCENT",
+    "CLOSED_LOOP_CURRENT_PERCENT",
+    "CONTROL_ALGORITHM",
     "CUSTOM_OUTPUT",
     "DEFAULT_DIRECTION",
     "DRIVER_MODEL",
+    "ENCODER_RESOLUTION",
     "EXTERNAL_POSITION_MODE",
     "INPUT_POLARITY",
     "INPUT_X0_FUNCTION",
     "INPUT_X1_FUNCTION",
     "INPUT_X2_FUNCTION",
     "INPUT_X3_FUNCTION",
+    "LOCK_CURRENT_PERCENT",
+    "LOCK_TIME",
+    "MAXIMUM_CURRENT",
     "MOTION_COMMAND",
     "NEGATIVE_SOFT_LIMIT",
+    "OPEN_LOOP_CURRENT_PERCENT",
     "OUTPUT_POLARITY",
     "OUTPUT_Y0_FUNCTION",
     "OUTPUT_Y1_FUNCTION",
@@ -1706,6 +1714,129 @@
         "reason": "Only sharedstart index1 was attempted once: requested0-to1, checked source-unconfirmed FC06-shaped frame, confirmed FC03readback0; retained READBACK_MISMATCH/UNKNOWN. Delayed nonchanging reads minutes later still0. No replay/restore write. Cause unresolved pending independent response-source/device acceptance or exact firmware semantics; other15 indexes NOT_RUN."
       },
       "reason": "All16 shared PT/PV starting-speed fields; native nonnegative subset with negative encoding guarded. Matching readback establishes only stored setting, not active or persistent interpretation."
+    },
+    {
+      "id": "control_settings_read",
+      "kind": "READ",
+      "records": [
+        "CONTROL_ALGORITHM",
+        "ENCODER_RESOLUTION",
+        "MAXIMUM_CURRENT",
+        "CLOSED_LOOP_CURRENT_PERCENT",
+        "BASE_CURRENT_PERCENT",
+        "OPEN_LOOP_CURRENT_PERCENT",
+        "LOCK_CURRENT_PERCENT",
+        "LOCK_TIME"
+      ],
+      "api": {
+        "header": "include/MotorControlRS/profiles/ess_rs/ControlSettings.h",
+        "symbols": [
+          "prepareControlRead",
+          "getControl"
+        ]
+      },
+      "cli_commands": [
+        "profile ess_rs control read"
+      ],
+      "implementation": "IMPLEMENTED",
+      "cli": "REACHABLE",
+      "native": {
+        "state": "PASS",
+        "evidence": [
+          "test/control_settings_test.cpp",
+          "test/control_app_test.cpp",
+          "test/control_console_parity_test.py"
+        ],
+        "reason": "Real core and SDK application tests, exact CLI grammar and21 actual core/formatter Python fixtures; full8field/16step capacity, cancel boundaries, current/model dependencies and immutable partial/uncertain results."
+      },
+      "hardware": {
+        "state": "PASS",
+        "evidence": [
+          "docs/reports/ess_release_17_2026-10-04.json"
+        ],
+        "reason": "Current497760-byte timer image on COM13 reads all8 native fields, preserves algorithm3 unknown and counts4000, and repeats exact raw baseline after explicit lock-delay restoration. Readback is not active mode/current/encoder accuracy qualification."
+      },
+      "reason": "Two checked four-word reads preserve all native/unknown values."
+    },
+    {
+      "id": "control_settings_update",
+      "kind": "WRITE",
+      "records": [
+        "CONTROL_ALGORITHM",
+        "ENCODER_RESOLUTION",
+        "MAXIMUM_CURRENT",
+        "CLOSED_LOOP_CURRENT_PERCENT",
+        "BASE_CURRENT_PERCENT",
+        "OPEN_LOOP_CURRENT_PERCENT",
+        "LOCK_CURRENT_PERCENT"
+      ],
+      "api": {
+        "header": "include/MotorControlRS/profiles/ess_rs/ControlSettings.h",
+        "symbols": [
+          "prepareControlSettings"
+        ]
+      },
+      "cli_commands": [
+        "profile ess_rs control set"
+      ],
+      "implementation": "IMPLEMENTED",
+      "cli": "REACHABLE",
+      "native": {
+        "state": "PASS",
+        "evidence": [
+          "test/control_settings_test.cpp",
+          "test/control_app_test.cpp",
+          "test/control_console_parity_test.py"
+        ],
+        "reason": "Real core and SDK application tests, exact CLI grammar and21 actual core/formatter Python fixtures; full8field/16step capacity, cancel boundaries, current/model dependencies and immutable partial/uncertain results."
+      },
+      "hardware": {
+        "state": "NOT_RUN",
+        "evidence": [
+          "docs/reports/ess_release_17_2026-10-04.json"
+        ],
+        "reason": "All algorithm/encoder/current updates rejected before TX through9 app gates; effective model ceiling and percent denominator unresolved. No feedback disable, mode switch or current increase performed. Physical effects remain NOT_RUN."
+      },
+      "reason": "Complete candidate validates native codes/ranges, exact target/model context, stopped state and independently qualified setting effects before TX. Current denominator/model effective-current ceiling remain caller-qualified; no universal rating, foreign-register alias or torque/current motion mode.",
+      "choices": [
+        "ControlAlgorithm.OPEN_LOOP",
+        "ControlAlgorithm.ALGORITHM_1"
+      ]
+    },
+    {
+      "id": "control_lock_delay_update",
+      "kind": "WRITE",
+      "records": [
+        "LOCK_TIME"
+      ],
+      "api": {
+        "header": "include/MotorControlRS/profiles/ess_rs/ControlSettings.h",
+        "symbols": [
+          "prepareControlSettings"
+        ]
+      },
+      "cli_commands": [
+        "profile ess_rs control set lock-delay INTEGER"
+      ],
+      "implementation": "IMPLEMENTED",
+      "cli": "REACHABLE",
+      "native": {
+        "state": "PASS",
+        "evidence": [
+          "test/control_settings_test.cpp",
+          "test/control_app_test.cpp",
+          "test/control_console_parity_test.py"
+        ],
+        "reason": "Real core and SDK application tests, exact CLI grammar and21 actual core/formatter Python fixtures; full8field/16step capacity, cancel boundaries, current/model dependencies and immutable partial/uncertain results."
+      },
+      "hardware": {
+        "state": "PASS",
+        "evidence": [
+          "docs/reports/ess_release_17_2026-10-04.json"
+        ],
+        "reason": "Only stopped-state stored-value path: native200ms-to201ms then explicit restoration200ms, confirmed separate FC03 readbacks. Every FC06 source/ACK remains unconfirmed/executionUNKNOWN; no active lock timing, torque or persistence effect qualification."
+      },
+      "reason": "Explicit bounded millisecond setting uses the same whole-candidate validation and FC06/FC03 sequence. Model identity and stopped effects are independently qualified; current denominator is unrelated. Stored settlement is distinct from physical lock behavior."
     }
   ],
   "coverage_notes": [
@@ -1720,6 +1851,7 @@
     "Prompt13 implements seven typed single-word settings and raw paired-limit reads; unavailable limit-pair writes remain UNSUPPORTED. Settings enum choices receive WRITE coverage separately from native action choices. ACK/readback never imply active or saved settings.",
     "Prompt14 accounts for all35 homing methods; executable33/34/35 receive narrow native staging/trigger coverage. External-switch methods remain unimplemented pending edge/return and prompt15 assignment/fixture evidence;18 and collision methods remain unresolved. Existing auxiliary7 is a prerequisite, never typed setter coverage. Offset write obligation is IN_PROGRESS: zero-only complete reviewed window, no nonzero encoding or pair expansion.",
     "Prompt15 implements all18 documented input assignments and eight resolved output assignments; custom2 remains unresolved. Register readback is distinct from physical switch/load operation and unconfirmed FC06 execution. No external switch/load is required for independent serial-only modes.",
-    "Prompt16 accounts separately for all16 PT records, all16 PV records and all16 shared start-speed words; all16 PT reserved slots remain ACCOUNTED_RESERVED. Stored PT target-pair setters remain UNSUPPORTED; negative PV/start encoding remains guarded. Storage16 is distinct from maximum8 externally selected combinations on four-input ESS drives. PT5ms setup/hold is not inherited by PV. No serial segment execution command exists. Shared EXTERNAL_POSITION_MODE and PV_TRIGGER_MODE reuse existing driver_settings_read/update coverage rather than duplicate operations."
+    "Prompt16 accounts separately for all16 PT records, all16 PV records and all16 shared start-speed words; all16 PT reserved slots remain ACCOUNTED_RESERVED. Stored PT target-pair setters remain UNSUPPORTED; negative PV/start encoding remains guarded. Storage16 is distinct from maximum8 externally selected combinations on four-input ESS drives. PT5ms setup/hold is not inherited by PV. No serial segment execution command exists. Shared EXTERNAL_POSITION_MODE and PV_TRIGGER_MODE reuse existing driver_settings_read/update coverage rather than duplicate operations.",
+    "Prompt17 control settings are native configuration, not commanded torque/current modes. Raw algorithm3 remains unknown; RS20 peak-current dial ratings do not establish maximum-effective-current0102 limits, and percent prose referencing2042 does not establish an0102 denominator. Exact independent qualification is required before affected writes."
   ]
 }

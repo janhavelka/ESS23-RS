@@ -1,5 +1,8 @@
 # MotorControl-RS standalone CLI contract
 
+Prompt17 implements `profile ess_rs control read|set FIELD VALUE ... [address]` through `ControlSettings.h` and the existing settings sequence. Strict native integer fields and named algorithms share direct API validation. Unknown codes, partial progress and stored versus acknowledged/active settings remain separate; [control contracts](ess_control_settings.md) state the128-byte/20-token candidate limit.
+
+
 Prompt16 adds `profile ess_rs segment position|speed|start INDEX read|set ... [address]`. Index1..16, strict integer field/value pairs and the public whole-candidate validator precede admission. Supported scalar fields are speed/acceleration/deceleration and shared starting `value`; `target` reports unsupported before any write. Type/command `segment`, driver group and retained `segment_index` correlate accepted/terminal/inspection records. Configuration does not generate an external trigger; see [stored record contracts](ess_segments.md).
 
 
