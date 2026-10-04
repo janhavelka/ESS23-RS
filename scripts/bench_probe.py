@@ -482,6 +482,14 @@ class Console:
             require(type(requested.get(key)) in (int, float) and math.isfinite(requested[key]) and requested[key] >= 0, "invalid allowance")
         require(abs(item["rounding_error"]) + item["approximation_error_bound"] <= requested["maximum_quantization_error_rpm"] and
                 item["approximation_error_bound"] >= 0 and item["approximation_error_bound"] <= requested["maximum_approximation_error_rpm"], "numerical allowance exceeded")
+        if item["exact_arithmetic"]:
+            require(requested["position_unit"] != 5 and item["approximation_error_bound"] == 0 and
+                    item["requested_rpm_approximate"] == 0, "exact preparation contains approximate provenance")
+        else:
+            require(requested["position_unit"] == 5 and requested["approximate"] and requested["rounding"] != 0 and
+                    requested["maximum_approximation_error_rpm"] > 0, "approximate preparation lost radian provenance")
+        if requested["rounding"] == 0:
+            require(item["exact_arithmetic"] and item["rounding_error"] == 0, "EXACT preparation rounded velocity")
         if arguments is not None:
             parsed = velocity_arguments(arguments)
             def retained_allowance(text, value):
@@ -494,7 +502,7 @@ class Console:
                     retained_allowance(parsed["approximation_error"], requested["maximum_approximation_error_rpm"]), "request correlation differs")
         evidence = {}
         for name, token, size in (("staging_evidence", 0, 15), ("trigger_evidence", 1, 8), ("activity_evidence", None, 8),
-                ("failure_evidence", None, None), ("stop_write_evidence", None, 8), ("stop_observation", None, 8), ("stop_failure_evidence", None, 8)):
+                ("failure_evidence", None, None), ("stop_write_evidence", 0, 8), ("stop_observation", None, 8), ("stop_failure_evidence", None, 8)):
             entry = item.get(name)
             require(isinstance(entry, dict) and all(integer(entry.get(k), 0, n) for k, n in (("step", 255), ("event", 3),
                     ("received_length", 2**32 - 1), ("tx_accepted", 15), ("frame_error", 255))) and
@@ -543,13 +551,22 @@ class Console:
         if item["execution"] != "not_transmitted": require(item["staging_applied"], "start without applied setup")
         if not evidence["trigger_evidence"][2]:
             require(evidence["trigger_evidence"][0]["delivered_us"] >= evidence["staging_evidence"][0]["delivered_us"], "trigger precedes setup")
+        if not evidence["stop_write_evidence"][2]:
+            require(item["execution"] in ("acknowledged", "unknown") and
+                    evidence["stop_write_evidence"][0]["delivered_us"] >= evidence["trigger_evidence"][0]["delivered_us"] and
+                    (not evidence["stop_write_evidence"][0]["qualified"] or
+                     evidence["stop_write_evidence"][0]["earliest_us"] >= evidence["trigger_evidence"][0]["delivered_us"]),
+                    "stop precedes possibly executed trigger")
         for name in ("staging_evidence", "trigger_evidence"):
             if item["ok"]:
                 require(evidence[name][0]["latest_us"] <= item["stop_due_us"], name + " exceeds finite run deadline")
         if item["running_observed"]:
             activity, raw = confirmed("activity_evidence", (item["address"], 3, 4), 9)
             require(item["execution"] == "acknowledged" and raw[3:5] == b"\0\0" and int.from_bytes(raw[5:7], "big") & 4 and
-                    activity["earliest_us"] >= evidence["trigger_evidence"][0]["latest_us"] and activity["latest_us"] <= item["stop_due_us"], "running report differs")
+                    not int.from_bytes(raw[5:7], "big") & 0x78 and 2 <= activity["step"] <= item["polls"] + 1 and
+                    activity["earliest_us"] > evidence["trigger_evidence"][0]["delivered_us"] and activity["latest_us"] <= item["stop_due_us"], "running report differs")
+        else:
+            require(evidence["activity_evidence"][2], "unobserved activity retains a report")
         latest = item.get("last_observation")
         require(isinstance(latest, dict) and integer(latest.get("step"), 0, 255) and
                 all(integer(latest.get(key)) for key in ("earliest_us", "latest_us", "delivered_us")) and
@@ -557,7 +574,8 @@ class Console:
         if item["observation_known"]:
             raw = bytes.fromhex(latest["raw_hex"])
             require(len(raw) == 9 and raw[:3] == bytes((item["address"], 3, 4)) and wire_crc(raw) == 0 and
-                    latest["step"] >= 2 and latest["earliest_us"] >= evidence["trigger_evidence"][0]["latest_us"] and
+                    item["execution"] == "acknowledged" and item["polls"] >= 1 and latest["step"] == item["polls"] + 1 and
+                    latest["earliest_us"] > evidence["trigger_evidence"][0]["delivered_us"] and
                     item["started_us"] <= latest["earliest_us"] <= latest["latest_us"] <= min(latest["delivered_us"], item["stop_due_us"]) and
                     latest["delivered_us"] <= item["serviced_us"] and item.get("raw_alarm") == int.from_bytes(raw[3:5], "big") and
                     item.get("raw_motion") == int.from_bytes(raw[5:7], "big"), "observation differs")
@@ -565,6 +583,8 @@ class Console:
                 activity = evidence["activity_evidence"][0]
                 require(latest["step"] >= activity["step"] and latest["latest_us"] >= activity["latest_us"] and
                         latest["delivered_us"] >= activity["delivered_us"], "latest observation precedes activity")
+                if latest["step"] == activity["step"]:
+                    require(all(latest[key] == activity[key] for key in latest), "same observation token changed retained evidence")
         else:
             require(item.get("raw_alarm") is None and item.get("raw_motion") is None and latest ==
                     dict(step=0, raw_hex="", earliest_us=0, latest_us=0, delivered_us=0), "unknown observation published")
@@ -572,15 +592,34 @@ class Console:
                 ("none", "observed", "reply_error", "transport_error", "cancelled", "deadline", "timing_unqualified", "unconfirmed_response", "observation_limit") and
                 (item["stop_completion"] == "observed") == (item["stop_outcome"] == "observed") and
                 (item["completion"] == "observed") == (item["stop_completion"] == "observed"), "stop completion invalid")
+        require(item["uncertain"] == (not item["ok"] and any(
+                    evidence[name][0]["tx_accepted"] or evidence[name][0]["execution_unknown"]
+                    for name in ("staging_evidence", "trigger_evidence"))), "uncertainty differs from setup/start evidence")
+        require(item["needs_stop"] == (item["execution"] in ("acknowledged", "unknown") and
+                    item["stop_completion"] != "observed"), "stop obligation differs from possible start execution")
         if item["stop_completion"] == "observed":
             observation, raw = confirmed("stop_observation", (item["address"], 3, 4), 9)
             require(not int.from_bytes(raw[5:7], "big") & 4 and not item["needs_stop"] and item["stop_execution"] == "acknowledged" and
-                    observation["earliest_us"] >= evidence["stop_write_evidence"][0]["latest_us"] and observation["latest_us"] <= item["deadline_us"] and
+                    1 <= observation["step"] <= 64 and
+                    observation["earliest_us"] > evidence["stop_write_evidence"][0]["delivered_us"] and observation["latest_us"] <= item["deadline_us"] and
                     evidence["stop_write_evidence"][0]["latest_us"] <= item["deadline_us"], "stop observation differs")
         if item["ok"]:
             require(item["outcome"] == "observed" and item["status"] == "OK" and item["detail"] == 0 and item["running_observed"] and
                     item["execution"] == "acknowledged" and item["stop_completion"] == "observed" and item["completion"] == "observed" and not item["uncertain"] and
                     not item["service_missed"] and not item["interrupted_by_stop"], "success lacks complete evidence")
+            require(evidence["failure_evidence"][2] and evidence["stop_failure_evidence"][2], "success retains failure evidence")
+        elif evidence["failure_evidence"][2]:
+            # Time service and an absent activity report have no transaction to
+            # copy. A stop failure has its own independently retained evidence.
+            stop_failed = (item["outcome"] == item["stop_outcome"] and
+                           not evidence["stop_failure_evidence"][2])
+            local_deadline = item["outcome"] == "deadline" and item["status"] == "ILLEGAL_VALUE" and (
+                item["serviced_us"] >= item["deadline_us"] or item["service_missed"] or
+                (item["detail"] == 17 and item["phase"] < 2 and item["serviced_us"] >= item["stop_due_us"]) or
+                (item["detail"] == 10 and item["phase"] < 2))
+            absent_activity = (item["outcome"] == "observation_limit" and item["detail"] == 25 and
+                               not item["running_observed"] and item["stop_completion"] == "observed")
+            require(stop_failed or local_deadline or absent_activity, "failure lacks terminal evidence")
 
     @staticmethod
     def _check_move(item: dict, address: int | None, arguments: tuple[str, ...] | None, kind: str = "relative") -> None:
@@ -1748,13 +1787,19 @@ class Console:
             raise ValueError("command handle belongs to another console")
         if not self.synchronized:
             raise BenchError("console framing failed; session cannot be reused")
+        interrupt_safe = False
         try:
             while handle.terminal is None:
                 self._check_deadlines()
                 data = self._read()
                 self._consume(data)
                 if not data:
+                    # An idle pause has no read/write in progress and all bytes
+                    # are retained. A finite campaign can issue its explicit
+                    # cleanup stop while routing this admitted operation.
+                    interrupt_safe = True
                     self.sleep(0.005)
+                    interrupt_safe = False
             self._trailing()
             self.pending.pop(handle.id, None)
             if release and handle.accepted and not handle.released:
@@ -1765,6 +1810,10 @@ class Console:
                 if not acknowledgement["ok"]:
                     raise BenchError("explicit result release was rejected")
             return handle.terminal
+        except KeyboardInterrupt:
+            if not interrupt_safe:
+                self.synchronized = False
+            raise
         except BaseException:
             self.synchronized = False
             raise
@@ -2014,6 +2063,8 @@ def move_campaign(console: Console, *, move_args: tuple[str, ...] | None, cleanu
                     cleanup_error = str(exc) or "cleanup interrupted"
             else:
                 cleanup_error = "framing unavailable; no cleanup command sent"
+        if terminal is None and handle is not None:
+            terminal = handle.terminal  # It may have arrived interleaved with cleanup.
         console.emit("summary", mode=command,
                      **({"velocities_attempted": 1, "velocity_result": terminal} if command == "velocity" else
                         {"moves_attempted": 1, "move_result": terminal}),

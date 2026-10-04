@@ -4,6 +4,8 @@ Prompt11 adds [finite serial velocity](ess_velocity.md) and a bounded Python
 velocity scenario; production action/ramp/sign gates remain closed. See the
 [current handoff](reports/ess_release_11_2026-10-04.md) for read-only regression
 and zero-TX checks; no physical velocity or stop was qualified.
+The [fresh audit](reports/ess_release_11_audit_2026-10-04.md) records the corrected
+host harness and updated help image, with repeated read-only checks.
 
 Prompt10 adds shared relative/absolute/wrapped-angle console and Python routes
 and zero-only device position clear; see [finite positioning](ess_position.md).

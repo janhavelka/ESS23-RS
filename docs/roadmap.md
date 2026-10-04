@@ -156,3 +156,11 @@ Software/package/firmware checks and current read-only COM13 regression pass.
 Equivalent-unit physical motion and independent shaft/origin/clear proof remain
 NOT RUN; linear travel requires a real configured mechanism. Prompt11 is next
 only when separately dispatched, retaining all unresolved ramp/sign/model facts.
+
+Prompt 11 implements [finite signed velocity](ess_velocity.md) using shared
+exact preparation, native ramp snapshots and the existing priority stop.
+Its [fresh audit](reports/ess_release_11_audit_2026-10-04.md) fixes strict host
+evidence and safe idle-interruption cleanup, and checks actual C++ console
+outcomes against Python. Native/package/firmware and read-only COM13 checks
+pass; exact firmware speed/ramp semantics and physical stopping remain NOT RUN.
+Prompt 12 remains separately dispatched with those qualification obligations.

@@ -177,6 +177,9 @@ FieldCore remains read-only; typed identity/state and motion/stop retain their g
 - [x] Implement finite signed serial velocity, configured native ramp snapshots,
   bounded observations and shared priority stop in prompt11; exact rate conversion,
   native/CLI parity and unknown cleanup are tested.
+  The [fresh audit](reports/ess_release_11_audit_2026-10-04.md) fixes clean idle
+  interruption cleanup and strict retained-evidence checks, with ten actual
+  core/console outcomes checked by Python. Physical qualification stays separate.
 - [ ] Qualify ESS speed/ramp factors and physical acceleration/stop. Engineering
   acceleration mapping, external JOG, jerk/blending/live updates, torque/current
   remain unsupported; no ESS refresh or communication-loss stop is established.

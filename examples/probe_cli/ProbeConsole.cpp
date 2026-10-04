@@ -32,7 +32,7 @@ const Entry COMMANDS[] = {
     {"stop", Command::STOP, "stop normal|direct [address]", "priority_stop_with_explicit_policy_then_observe_flags", true},
     {"move", Command::MOVE, "move relative|absolute value unit frame native_rpm configured [basis actual|commanded|queued] [round mode error [approx error]] [address] | move angle value unit frame positive|negative|shortest reject|positive|negative native_rpm configured [round mode error [approx error]] [address]", "finite_move_through_public_coordinate_preparation", true},
     {"position-clear", Command::POSITION_CLEAR, "position-clear [address]", "explicit_device_position_zero_only", true},
-    {"velocity", Command::VELOCITY, "velocity value rpm|steps/s|fullsteps/s|turns/s|deg/s|rad/s|mm/s native|motor|load duration_ms configured normal|direct [round mode error [approx error]] [address]", "finite_serial_velocity_with_explicit_stop", true},
+    {"velocity", Command::VELOCITY, "velocity value rpm|steps/s|fullsteps/s|counts/s|turns/s|deg/s|rad/s|mm/s native|motor|load duration_ms configured normal|direct [round mode error [approx error]] [address]", "finite_serial_velocity_with_explicit_stop", true},
     {"monitor", Command::MONITOR, "monitor [off | interval_ms count]", "finite_nonconsuming_state_polling", false},
     {"caps", Command::CAPS, "caps", "show_public_read_capabilities", false},
     {"axis", Command::AXIS, "axis config [set field value [maximum]] | axis origin exact_native", "configure_host_coordinates_only", false},

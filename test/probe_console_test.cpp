@@ -4,6 +4,7 @@
 #include <cassert>
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
 #include <limits>
 #include <string>
 #include <vector>
@@ -1180,6 +1181,7 @@ void testVelocityExactRoutesRetentionAndBound() {
     Fake fake; auto host = fake.host(false, true); host.startVelocity = Fake::startVelocity; host.axis = Fake::axis;
     fake.axisConfig.target.id = 1; fake.axisConfig.target.generation = 1; fake.axisConfig.target.address = 1;
     Probe::Console console(host);
+    send(console, "help velocity\n"); fake.contains("counts/s");
     send(console, "@41 velocity -3/2 rpm native 500 configured normal round nearest 1 2\n");
     assert(fake.velocities == 1 && fake.address == 2 && fake.id == 41);
     assert(fake.velocityRequest.value.numerator == -3 && fake.velocityRequest.value.denominator == 2);
@@ -1227,9 +1229,95 @@ void testVelocityExactRoutesRetentionAndBound() {
     std::printf("Maximum-width velocity line: %zu/%zu bytes\n", fake.lines.back().size(), Probe::OUTPUT_CAPACITY);
 }
 
+// Produce records from actual public sequencing and console serialization. The
+// Python parity test consumes this mode; no terminal fields are handwritten.
+void velocityFixtures() {
+    using namespace MotorControlRS;
+    AxisConfig axis; axis.target.id = 1; axis.target.address = 1;
+    axis.target.generation = 9; axis.generation = 3;
+    VelocityRequest request; request.value = Rational(60);
+    request.configurationGeneration = axis.generation;
+    request.ramp = VelocityRamp::VERIFIED_CONFIGURED; request.durationUs = 1000;
+    request.stop.behavior = StopBehavior::CONFIGURED_DECELERATION;
+    Ess::VelocityPrerequisites prerequisites;
+    prerequisites.target = axis.target; prerequisites.configurationGeneration = axis.generation;
+    prerequisites.nativeRpmVerified = prerequisites.configuredRampVerified = true;
+    prerequisites.serialInputsPermit = prerequisites.readinessQualified = true;
+    prerequisites.accelerationTime = prerequisites.decelerationTime = 100;
+    prerequisites.observedUs = 80; prerequisites.maximumAgeUs = 2000;
+    prerequisites.rawMotion = 1;
+    ActionOptions options; options.pollIntervalUs = 100; options.maxPolls = 8;
+    const auto prepare = [&](uint64_t readinessAge, bool radians) {
+        auto p = prerequisites; p.maximumAgeUs = readinessAge;
+        auto r = request;
+        if (radians) {
+            r.value = Rational(6283185, 1000000); r.frame = CoordinateFrame::MOTOR;
+            r.unit = VelocityUnit(PositionUnit::RADIANS, TimeUnit::SECOND);
+            r.approximate = true; r.rounding = Rounding::NEAREST;
+            r.maximumApproximationErrorRpm = 0.000001; r.maximumQuantizationErrorRpm = 0.001;
+        }
+        Ess::VelocityContext c;
+        assert(Ess::prepareVelocity(c, axis, 102, r, p, 100, 10000, options));
+        return c;
+    };
+    const auto consume = [](Ess::VelocityContext& c, uint16_t motion, uint64_t delivered) {
+        Ess::PreparedVelocity work;
+        assert(Ess::nextVelocity(c, c.eligibleUs, work));
+        assert(work.kind == Ess::ActionWork::TRANSACTION);
+        uint8_t reply[9] = {}; std::size_t length = 0;
+        if (work.function == 6) { std::memcpy(reply, work.bytes, 8); length = 8; }
+        else if (work.function == 16) { std::memcpy(reply, work.bytes, 6); length = 8; sealTypedReply(reply, length); }
+        else {
+            reply[0] = c.target.address; reply[1] = 3; reply[2] = 4;
+            reply[5] = static_cast<uint8_t>(motion >> 8); reply[6] = static_cast<uint8_t>(motion);
+            length = 9; sealTypedReply(reply, length);
+        }
+        ActionEvent event; event.transport.target = c.target;
+        event.transport.operationId = c.operationId; event.transport.step = c.step;
+        event.transport.frame = reply; event.transport.length = length;
+        event.transport.txAccepted = work.length;
+        event.transport.qualified = event.txComplete = event.responseConfirmed = true;
+        event.transport.earliestUs = c.eligibleUs + 20;
+        event.transport.latestUs = c.eligibleUs + 30;
+        assert(Ess::advanceVelocity(c, event, delivered ? delivered : c.eligibleUs + 40));
+    };
+    const auto emit = [](const char* name, const Ess::VelocityContext& c) {
+        assert(c.state != ActionState::ACTIVE);
+        Fake fake; fake.view.velocityContext = &c; fake.view.commandId = 2;
+        fake.view.operationId = c.operationId; fake.view.address = c.target.address;
+        Probe::Console console(fake.host(false, true)); send(console, "@1 result 102\n");
+        assert(fake.lines.size() == 1 && fake.lines[0].find("\"velocity\":true") != std::string::npos);
+        std::printf("{\"case\":\"%s\",\"record\":%s}\n", name, fake.lines[0].c_str());
+    };
+    auto c = prepare(100, false); assert(Ess::serviceVelocity(c, 180)); emit("readiness_before_tx", c);
+    c = prepare(100, false); consume(c, 4, 0); assert(Ess::serviceVelocity(c, 180)); emit("readiness_after_staging", c);
+    c = prepare(2000, false); consume(c, 4, 0); assert(Ess::serviceVelocity(c, c.stopDueUs)); emit("duration_after_staging", c);
+    for (const char* name : {"absent_activity", "service_missed", "success", "radians"}) {
+        c = prepare(2000, std::strcmp(name, "radians") == 0); consume(c, 4, 0); consume(c, 4, 0);
+        consume(c, std::strcmp(name, "absent_activity") == 0 ? 1 : 4, 0);
+        assert(Ess::serviceVelocity(c, c.stopDueUs + (std::strcmp(name, "service_missed") == 0 ? 101 : 0)));
+        consume(c, 4, 0); consume(c, 1, 0); emit(name, c);
+    }
+    c = prepare(2000, false); consume(c, 4, 0); consume(c, 4, 0); consume(c, 4, 0);
+    assert(Ess::serviceVelocity(c, c.stopDueUs));
+    ActionEvent failure; failure.transport.target = c.target;
+    failure.transport.operationId = c.operationId; failure.transport.step = c.step;
+    failure.transport.kind = ReadEventKind::TRANSPORT_FAILURE;
+    failure.transport.txAccepted = 8; failure.transport.executionUnknown = true;
+    assert(Ess::advanceVelocity(c, failure, c.servicedUs + 1)); emit("stop_failure", c);
+    c = prepare(2000, false); consume(c, 4, 0); consume(c, 4, c.stopDueUs + 101);
+    consume(c, 4, 0); consume(c, 1, 0); emit("late_trigger", c);
+    c = prepare(2000, false); consume(c, 4, 0); consume(c, 4, 0); consume(c, 4, 0);
+    assert(Ess::serviceVelocity(c, c.stopDueUs)); consume(c, 4, 0);
+    assert(Ess::serviceVelocity(c, c.deadlineUs)); emit("stop_deadline_after_ack", c);
+}
+
 } // namespace
 
-int main() {
+int main(int argc, char** argv) {
+    if (argc == 2 && std::strcmp(argv[1], "--velocity-fixtures") == 0) {
+        velocityFixtures(); return 0;
+    }
     testFramingAndIds();
     testInvalidInputHasNoEffects();
     testOverflowAndControlDiscardWholeLine();

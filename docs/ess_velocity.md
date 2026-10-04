@@ -85,7 +85,10 @@ bypass. These commands reject before TX on the current bench.
 The Python `velocity` scenario validates strict command/operation correlation,
 finite duration and raw checked evidence. It shares the finite move scenario's
 bounded cleanup: normal/error exit requests explicit stop for an admitted
-operation and retains UNKNOWN cleanup if framing/communication fails. A rejected
+operation. Ctrl+C during an idle wait preserves known framing, requests one
+explicit stop and retains the original terminal even when it arrives during
+cleanup. An interrupted serial read/write or framing/communication failure
+retains UNKNOWN cleanup and sends no further commands. A rejected
 unadmitted operation generates no cleanup write. No hidden retry or recovery is
 used, including after host interrupt or framing loss. Software cannot stop an
 autonomous motor after host/link loss; such a physical test needs an independent
@@ -102,4 +105,7 @@ raw readback is not decoded as actual RPM. No ESS communication-loss stop is
 established. The user-confirmed ESS23-RS20/nominal1000PPR identity is recorded;
 it does not resolve these firmware semantics.
 
-See [current implementation/evidence](reports/ess_release_11_2026-10-04.md).
+See [implementation/evidence](reports/ess_release_11_2026-10-04.md) and the
+[fresh independent audit](reports/ess_release_11_audit_2026-10-04.md). The native
+console emits ten actual public-operation outcomes for a registered Python
+parity check; synthetic terminal records do not substitute for that path.

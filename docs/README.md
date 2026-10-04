@@ -38,6 +38,9 @@ Prompt11 adds [finite serial velocity](ess_velocity.md), shared exact rate conve
 configured native ramp snapshots and existing priority stop. The [handoff](reports/ess_release_11_2026-10-04.md)
 records native/package/build and read-only bench/gate evidence; physical velocity,
 acceleration and stop remain unqualified.
+The [fresh prompt 11 audit](reports/ess_release_11_audit_2026-10-04.md) verifies
+exact conversions independently and fixes Python interruption/evidence handling;
+actual C++ operation terminals now participate in a registered parity check.
 
 Implemented blocks include exact target preparation, typed non-changing reads, pure unit conversion, an ESS register catalogue,
 checked wire codecs with a minimal probe and standalone build foundations.

@@ -212,3 +212,12 @@ owner/worker stack headroom3476/3268 bytes. Load/monitor off, DE released, owner
 empty and no recovery requirement. Physical velocity/ramp/stop tests remain
 NOT RUN pending electrical/response-source, native speed/ramp and independent
 physical stop qualification. No motion or motor settings writes were sent.
+
+The [fresh prompt 11 audit](reports/ess_release_11_audit_2026-10-04.md) rechecked
+the existing image, then uploaded the help correction and passed 19 checked
+read-only FC03 frames on the final image, four velocity admission gates and
+finite Python rejection cleanup. Model/version/configuration/raw state remain
+unchanged; errors and console drops are zero. Owner/capture gaps are 142/52 us,
+owner/worker stack headroom 3508/3268 bytes. Load/monitor off, DE released,
+owner empty and no recovery requirement. Physical velocity/ramp/stop remains
+NOT RUN; no motor writes or physical-motion qualification occurred.

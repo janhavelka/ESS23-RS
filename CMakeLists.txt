@@ -100,6 +100,9 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
                 ${CMAKE_CURRENT_SOURCE_DIR}/test/generator_test.py)
             add_test(NAME bench_probe COMMAND ${Python3_EXECUTABLE}
                 ${CMAKE_CURRENT_SOURCE_DIR}/test/bench_probe_test.py)
+            add_test(NAME velocity_console_parity COMMAND ${Python3_EXECUTABLE}
+                ${CMAKE_CURRENT_SOURCE_DIR}/test/velocity_console_parity_test.py
+                $<TARGET_FILE:probe_console_test>)
             add_test(NAME operations_inventory COMMAND ${Python3_EXECUTABLE}
                 ${CMAKE_CURRENT_SOURCE_DIR}/scripts/check_ess_operations.py)
             add_test(NAME operations_inventory_failures COMMAND ${Python3_EXECUTABLE}
