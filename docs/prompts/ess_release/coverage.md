@@ -64,7 +64,7 @@ register transcription; prompt 05 extends operational coverage linked to it.
 | All stored speed records, PV policy and shared PT/PV starting speeds | 16 | 23, fixture-dependent 29 |
 | Algorithm/open-loop, encoder configuration, current and lock settings | 17 | 23, 29 |
 | Filters, deviation/arrival criteria, current-loop/LA tuning, collision fields | 18 | 23, 29 |
-| Host baud/format capability, admission/exclusivity, restore | 19 | 20, 22, 26 |
+| Host baud/format capability, admission/exclusivity, restore | 19: [fresh audit](../../reports/ess_release_19_audit_2026-10-04.md), software/setup/restoration PASS; malformed mismatch source unresolved | 20, 22, 26 |
 | Device address/baud/format commissioning, active vs pending semantics | 20 | 21–22, 29 |
 | Explicit save/factory restore and field persistence uncertainty | 21 | 23, controlled cases in 29 |
 | Minimal non-changing probe, identity confidence, bounded discovery | Existing probe; 05, 22 | 24, 29 |

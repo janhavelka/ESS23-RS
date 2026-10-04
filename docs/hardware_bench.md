@@ -1,6 +1,14 @@
 # Motor bench and testing authorization
 
-[Prompt19 current-image evidence](reports/ess_release_19_2026-10-04.md) passes
+[Prompt19 fresh audit](reports/ess_release_19_audit_2026-10-04.md) records the
+corrected image, all sixteen host setups, exact unchanged motor reads and ten
+restored probes. Strict mismatch campaigns failed on reproduced malformed
+traffic; explicit diagnostic recovery/restoration succeeded. Physical byte/UART
+error sources remain unresolved. Final host1152008N1, owner empty, DE released,
+load/monitor off; no motor write or motion. Alternate-tuple/electrical evidence
+remains unqualified.
+
+[Prompt19 implementation-image evidence](reports/ess_release_19_2026-10-04.md) passes
 sixteen host-only tuple setups, retained historical context, two deliberate
 nonresponse/recovery/restore scenarios and ten unloaded probes. Motor settings
 and raw state are unchanged. Final 115200 8N1, owner empty, DE released,

@@ -64,11 +64,18 @@ bool Esp32S3Uart::startCapture(uint32_t periodUs, uint32_t holdUs) noexcept {
     alarm.alarm_count = periodUs;
     alarm.flags.auto_reload_on_alarm = true;
     if (gptimer_register_event_callbacks(timer, &callbacks, this) != ESP_OK ||
-        gptimer_set_alarm_action(timer, &alarm) != ESP_OK || gptimer_enable(timer) != ESP_OK) {
+        gptimer_set_alarm_action(timer, &alarm) != ESP_OK) {
         stopTimer();
         return false;
     }
+    // With this exclusively owned, newly created INIT timer, IDF 5.5.5 moves
+    // its FSM to ENABLE before internal enable steps can return an error.
+    // Track the FSM, not just ESP_OK, so cleanup still performs disable.
     timerEnabled_ = true;
+    if (gptimer_enable(timer) != ESP_OK) {
+        stopTimer();
+        return false;
+    }
     {
         Guard guard;
         holdUs_ = holdUs;
@@ -93,8 +100,13 @@ bool Esp32S3Uart::stopTimer() noexcept {
         timerRunning_ = false;
     }
     if (timerEnabled_) {
-        if (gptimer_disable(timer) != ESP_OK) { Guard guard; fault(false); return false; }
+        // The stopped, exclusively owned ENABLE timer moves to INIT before
+        // internal disable steps in the pinned SDK. Preserve that transition
+        // on an error; an explicit cleanup retry must proceed to deletion,
+        // not repeat disable in INIT. The bench SDK has PM disabled.
+        const esp_err_t disabled = gptimer_disable(timer);
         timerEnabled_ = false;
+        if (disabled != ESP_OK) { Guard guard; fault(false); return false; }
     }
     if (gptimer_del_timer(timer) != ESP_OK) { Guard guard; fault(false); return false; }
     timer_ = nullptr;

@@ -1333,7 +1333,7 @@ void updateActionReservation(App& a, App::Record& record) {
                     (std::memcmp(cache.positiveWords, observed.positiveWords, sizeof(observed.positiveWords)) ||
                      std::memcmp(cache.negativeWords, observed.negativeWords, sizeof(observed.negativeWords))))
                     changed |= static_cast<uint32_t>(ESS::DriverField::POSITIVE_LIMIT) | static_cast<uint32_t>(ESS::DriverField::NEGATIVE_LIMIT);
-            } else if (!tuning && a.configuration.operationId && Probe::sameTarget(a.configuration.target, observed.target)) {
+            } else if (!tuning && a.configuration.target.id && Probe::sameTarget(a.configuration.target, observed.target)) {
                 if (record.driver.group == ESS::DriverGroup::DRIVE) changed |= driverConfigEffects(a.configuration.raw, observed);
                 else if (record.driver.group == ESS::DriverGroup::CONTROL_SETTINGS) changed |= controlConfigEffects(a.configuration.raw, observed);
                 else {
@@ -1805,13 +1805,13 @@ void deliver(App& a) {
                             std::memcmp(old.inputFunctions, updated.inputFunctions, sizeof(old.inputFunctions)) != 0;
                         if (inputsChanged) a.driverInputsQualified = false;
                         uint32_t effects = 0;
-                        if (a.driverSettings.operationId && Probe::sameTarget(a.driverSettings.target, record.read.target))
+                        if (a.driverSettings.target.id && Probe::sameTarget(a.driverSettings.target, record.read.target))
                             effects = driverConfigEffects(updated, a.driverSettings);
-                        if (a.controlSettings.operationId && Probe::sameTarget(a.controlSettings.target, record.read.target))
+                        if (a.controlSettings.target.id && Probe::sameTarget(a.controlSettings.target, record.read.target))
                             effects |= controlConfigEffects(updated, a.controlSettings);
                         if (same && old.algorithm != updated.algorithm) effects |= static_cast<uint32_t>(ESS::DriverField::CONTROL_ALGORITHM);
                         if (same && old.encoderResolution != updated.encoderResolution) effects |= static_cast<uint32_t>(ESS::DriverField::CONFIGURED_ENCODER);
-                        if (a.ioSettings.operationId && Probe::sameTarget(a.ioSettings.target, record.read.target)) {
+                        if (a.ioSettings.target.id && Probe::sameTarget(a.ioSettings.target, record.read.target)) {
                             if (updated.inputPolarity != a.ioSettings.raw[7]) effects |= static_cast<uint32_t>(ESS::DriverField::INPUT_POLARITY);
                             for (uint8_t i = 0; i < 4; ++i)
                                 if (updated.inputFunctions[i] != a.ioSettings.raw[8+i]) effects |= uint32_t(1) << (10+i);

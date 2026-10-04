@@ -4,9 +4,12 @@ Prompt19 adds [host-only serial selection](host_serial.md), `host caps`,
 `host set RATE FORMAT` and `host restore`, with retained tuple/generation
 diagnostics. The finite Python `host-check --baud 9600 --fmt 8N1` exercises an
 expected mismatch, explicit recovery and original restoration without changing
-the drive. [Evidence](reports/ess_release_19_2026-10-04.md) records all sixteen
-host setups and restored 115200 8N1 motor probes; other motor tuples stay
-unqualified. Timing values below describe the default tuple unless stated.
+the drive. The [fresh audit](reports/ess_release_19_audit_2026-10-04.md) records
+all sixteen host setups and restored 115200 8N1 probes, with reproduced malformed
+mismatch traffic left unresolved. A strict host-check can fail and restoration
+can be refused until an explicit diagnostic recovery; no automatic replay occurs.
+Other motor tuples stay unqualified. Timing values below describe the default
+tuple unless stated; 8N2 uses a two-stop-bit publication guard.
 
 The [fresh prompts 17/18 audit](reports/ess_release_17_18_audit_2026-10-04.md) fixes
 settings freshness, copied provenance, partial-refresh invalidation and strict

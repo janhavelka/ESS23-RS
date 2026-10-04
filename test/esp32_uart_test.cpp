@@ -423,7 +423,7 @@ void testPartialTimerCleanupCanResume() {
         hardware.timerFailCalls = {hardware.timerCalls + stage};
         assert(!uart.stopCapture());
         assert(!hardware.timerRunning && hardware.timerCreated);
-        assert(hardware.timerEnabled == (stage == 2));
+        assert(!hardware.timerEnabled); // Disable errors follow the SDK FSM transition.
         assert(!uart.stats().timer && uart.needsRecovery());
         hardware.timerFailCalls.clear();
         assert(uart.stopCapture());
@@ -439,7 +439,7 @@ void testStartupCleanupFailureKeepsOwnership() {
     // the subsequent disable, then require staged cleanup of the retained timer.
     hardware.timerFailCalls = {5, 6};
     assert(!uart.startCapture());
-    assert(hardware.timerCreated && hardware.timerEnabled && !hardware.timerRunning);
+    assert(hardware.timerCreated && !hardware.timerEnabled && !hardware.timerRunning);
     assert(uart.needsRecovery() && !uart.stats().timer);
     assert(!uart.startCapture());
     hardware.timerFailCalls.clear();
@@ -722,6 +722,31 @@ void testHostTimerChangePreservesPolicyAndClock() {
     advanceHardware(hardware.time + 300);
     assert(!uart.needsRecovery() && uart.stats().sampleGapLimitUs == 85);
 }
+void testPostTransitionTimerFailureCanRepair() {
+    // Synthetic internal enable/disable errors reproduce the IDF 5.5.5 FSM
+    // order. Valid bench peripheral calls with PM disabled do not establish
+    // reachability of these errors; this is a software cleanup regression.
+    for (unsigned stage : {2U, 7U}) {
+        resetHardware(); hardware.clockStep = 0;
+        Esp32S3Uart uart; assert(uart.begin(PINS) && uart.startCapture());
+        advanceHardware(2000);
+        const HostTuple original = uart.tuple();
+        HostTuple changed; changed.baud = 9600;
+        // Stop/disable/delete, then create/callback/alarm/enable/start.
+        // Stage 2 is disable; stage 7 is enable after the UART change.
+        hardware.timerFailCalls = {hardware.timerCalls + stage};
+        assert(!uart.reconfigure(changed));
+        assertHostBlocked(uart);
+        assert(!hardware.timerRunning && !hardware.timerEnabled);
+        assert(hardware.timerCreated == (stage == 2));
+        hardware.timerFailCalls.clear();
+        assert(uart.reconfigure(original));
+        assert(sameTuple(uart.tuple(), original) && uart.ready() && uart.stats().timer);
+        advanceHardware(hardware.time + 100);
+        assert(!uart.needsRecovery() && hardware.writes == 0 && hardware.de == 0);
+        assert(uart.stopCapture());
+    }
+}
 void testBlockedRepairSettlesOldTupleTraffic() {
     for (bool captured : {false, true}) {
         resetHardware(); hardware.clockStep = 0;
@@ -793,6 +818,7 @@ int main() {
     testHostTupleMatrix(); testHostInvalidNoMutation(); testHostIdleRefusalAndEpoch();
     testHostFailuresAndExplicitRestoration();
     testHostTimerChangePreservesPolicyAndClock();
+    testPostTransitionTimerFailureCanRepair();
     testBlockedRepairSettlesOldTupleTraffic();
     testTwoStopFifoPublicationBeforeFinalStop();
     return 0;

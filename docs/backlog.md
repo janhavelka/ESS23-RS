@@ -5,9 +5,11 @@
 - [x] Sixteen reviewed SDK/ESS tuples, UART divider readback, character/gap/capture budgets and default-tuple-only first-reply exception.
 - [x] One idle configuration lease; queued/active/DE/continuation exclusion, failed setup/restoration interlock and explicit repair, preserving unread results.
 - [x] Independent serial versus endpoint/configuration generations; historical tuple retention and current confidence invalidation without erasing host coordinates.
-- [x] Matching application callback, console `host` commands and finite Python checks; 47 native suites, 180 Python cases, installed consumption and four firmware builds PASS.
+- [x] Matching application callback, console `host` commands and finite Python checks; 47 native suites, 184 Python cases, installed consumption and four firmware builds PASS.
 - [x] COM13 sixteen host setups and two deliberate mismatched reads/recovery/restoration PASS; ten subsequent probes PASS, unchanged motor settings/state. [Evidence](reports/ess_release_19_2026-10-04.md).
 - [ ] Alternate-tuple successful motor communication, external clock/FIFO/final-stop/TX/RX/DE qualification and loaded tuple-change/endurance tests remain open. Device commissioning/discovery belong to 20/22.
+- [x] Fresh audit fixes retained cross-read configuration comparison, pinned SDK timer transition/fake repair and immutable Python diagnostics; 12 cache cases and 32 complete tuple replies PASS. [Audit](reports/ess_release_19_audit_2026-10-04.md).
+- [ ] Strict NO_RESPONSE mismatch campaigns fail on reproduced LENGTH/F9 at 9600, LENGTH/E5 at 19200 and RX_ERROR at 38400 8E1. Explicit diagnostic recovery/restoration and unchanged readback/ten probes PASS. Physical malformed-byte/UART-error source remains unresolved; raw error bitmap and wire measurement are missing. No retries or relaxed production check.
 
 The [fresh prompts 17/18 audit](reports/ess_release_17_18_audit_2026-10-04.md) fixes
 settings freshness, copied provenance, partial-refresh invalidation and strict

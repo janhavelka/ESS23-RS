@@ -262,6 +262,40 @@ void testSetupDelayPreservesClockEpoch() {
     assert(app->runner.result().reason != Rtu::Reason::CLOCK_ERROR);
 }
 
+void testCompleteRepliesAtEverySupportedTuple() {
+    for (const uint32_t baud : {9600U, 19200U, 38400U, 115200U}) {
+        for (const auto format : {HostFormat::N8_1, HostFormat::N8_2, HostFormat::E8_1, HostFormat::O8_1}) {
+          for (const bool capture : {false, true}) {
+            fresh(); hardware.configDelayUs = 5000;
+            Probe::HostSnapshot state;
+            assert(change(request(baud, format), state) == Probe::Action::OK);
+            const uint32_t character = (uint32_t(bitsPerCharacter(format)) * 1000000U + baud - 1) / baud;
+            hardware.txCharacterUs = character;
+            uint32_t operation = 0;
+            assert((capture ? host(app).startCaptureRead(app, 1, 1, operation) :
+                host(app).startProbe(app, 1, 1, operation)) == Probe::Action::OK);
+            for (unsigned i = 0; i < 10000 && !hardware.writes; ++i) step();
+            assert(hardware.writes == 1);
+            std::vector<uint8_t> bytes = {1, 3, static_cast<uint8_t>(capture ? 32 : 2)};
+            bytes.resize(capture ? 35 : 5, 0);
+            if (!capture) bytes[4] = 60;
+            const uint16_t crc = ESS::calcCrc16(bytes.data(), bytes.size());
+            bytes.push_back(static_cast<uint8_t>(crc)); bytes.push_back(static_cast<uint8_t>(crc >> 8));
+            scheduleReply(std::max(hardware.writeStarted + 8 * character + state.timing.replyGapUs + 500,
+                hardware.time + state.timing.replyGapUs + 500), bytes, character);
+            for (unsigned i = 0; i < 25000 && view(operation).pending; ++i) step();
+            const auto result = view(operation);
+            assert(!result.pending && result.probe.outcome == Rtu::Outcome::SUCCESS);
+            assert((capture || result.probe.rawModel == 60) && result.probe.transport.txAccepted == 8);
+            assert(result.probe.transport.rxLength == bytes.size() && !app->owner.needsRecovery());
+            assert(result.serialTuple.baud == baud && result.serialTuple.format == format);
+            assert(result.serialGeneration == state.generation && hardware.writes == 1);
+            assert(app->runner.result().reason != Rtu::Reason::CLOCK_ERROR);
+          }
+        }
+    }
+}
+
 void testRefusedAdapterWithSettledStrayTrafficCanRepair() {
     for (const bool captured : {false, true}) {
         fresh(); hardware.rx.push_back(0x5A);
@@ -311,6 +345,7 @@ int main() {
     testStaleIdentityCannotRepopulateSelectedCache();
     testFailedChangeRestorationAndExplicitRepair(); testConsoleHostRoutes();
     testSetupDelayPreservesClockEpoch();
+    testCompleteRepliesAtEverySupportedTuple();
     testRefusedAdapterWithSettledStrayTrafficCanRepair();
     testOwnerRejectsInvalidTimingAndRetainsResults();
     if (app) { app->~App(); std::free(app); app = nullptr; }

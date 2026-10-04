@@ -59,12 +59,13 @@ void configReply(uint32_t operation, const std::vector<uint8_t>& supplied) {
     assert(!view(operation).pending || view(operation).typedRead->step != token);
 }
 uint32_t readConfig(uint16_t direction = 0, uint16_t subdivision = 1000, uint16_t input0 = 1,
-                    uint16_t inputPolarity = 0, uint8_t address = 1) {
+                    uint16_t inputPolarity = 0, uint8_t address = 1,
+                    uint16_t algorithm = 1, uint16_t encoder = 4000) {
     uint32_t id = 0;
     assert(host(app).startTypedRead(app,70,address,ESS::ReadKind::CONFIG,id) == Probe::Action::OK);
     configReply(id,words({direction,subdivision},address)); configReply(id,words({0,0,0},address));
     configReply(id,words({1,0,0},address)); configReply(id,words({inputPolarity,input0,2,3,0},address));
-    configReply(id,words({1,4000},address));
+    configReply(id,words({algorithm,encoder},address));
     for (unsigned i = 0; i < 100; ++i) step();
     assert(!view(id).pending && view(id).typedRead->state == ReadState::SUCCEEDED);
     if (address == app->axis.target.address) assert(app->configuration.operationId == id);
@@ -213,6 +214,85 @@ void configurationReconcilesDriverBaseline() {
     assert(view(original).driverContext->configurationGeneration == generation);
     assert(view(original).driverContext->observations[0].raw[3] == 0);
 }
+uint32_t readSharedGroup(ESS::DriverGroup group, bool changed) {
+    if (group == ESS::DriverGroup::DRIVE) return readSettings(0,changed ? 1 : 0,changed ? 1600 : 1000);
+    ESS::DriverRequest request; request.group = group;
+    uint32_t id = 0;
+    assert(host(app).startDriver(app,1,1,ESS::DriverKind::READ,request,id) == Probe::Action::OK);
+    if (group == ESS::DriverGroup::CONTROL_SETTINGS) {
+        reply(id,words({static_cast<uint16_t>(changed ? 3 : 1),static_cast<uint16_t>(changed ? 8000 : 4000),2200,100}));
+        reply(id,words({50,100,50,1000}));
+        assert(app->controlSettings.operationId == id);
+    } else {
+        assert(group == ESS::DriverGroup::IO);
+        reply(id,words({static_cast<uint16_t>(changed ? 1 : 0),static_cast<uint16_t>(changed ? 17 : 1),2,3,0}));
+        reply(id,words({0,0,0})); reply(id,words({0}));
+        assert(app->ioSettings.operationId == id);
+    }
+    assert(!view(id).pending && view(id).driverContext->outcome == ESS::DriverOutcome::SUCCESS);
+    return id;
+}
+std::vector<uint8_t> retainedBytes(uint32_t operation) {
+    const auto result = view(operation);
+    std::vector<uint8_t> bytes;
+    const uint8_t steps = result.typedRead ? result.typedRead->completedSteps : result.driverContext->completedSteps;
+    for (uint8_t i = 0; i < steps; ++i) {
+        const uint8_t* raw = result.typedRead ? result.typedRead->observations[i].raw : result.driverContext->observations[i].raw;
+        const std::size_t length = result.typedRead ? result.typedRead->observations[i].length : result.driverContext->observations[i].length;
+        bytes.insert(bytes.end(),raw,raw + length);
+    }
+    return bytes;
+}
+void hostChangesPreserveCrossReadBaselines() {
+    // Freshness expires with the host session; retained raw settings remain a
+    // comparison baseline when the next refresh uses the other public API.
+    for (const auto group : {ESS::DriverGroup::DRIVE,ESS::DriverGroup::CONTROL_SETTINGS,ESS::DriverGroup::IO})
+        for (const bool configFirst : {false,true})
+            for (const bool changed : {true,false}) {
+                fresh();
+                const uint32_t original = configFirst ? readConfig() : readSharedGroup(group,false);
+                const auto historical = retainedBytes(original);
+                const auto originalSerial = findRecord(*app,original)->serialGeneration;
+                qualify();
+                app->axis.units.encoder.countsPerUnit = UnitScale(4000,1,ScaleSource::QUALIFIED);
+                app->axis.units.encoder.sourceId = 1;
+                app->axis.originSource = ScaleSource::QUALIFIED;
+                app->axis.supportedRelativeBases = 1;
+                app->axis.softLimitsKnown = false;
+                const auto generation = app->axis.generation, binding = app->bindingGeneration;
+                PositionRequest intent; intent.value = Rational(10); intent.configurationGeneration = generation;
+                PreparedTarget prepared; assert(preparePosition(intent,app->axis,nullptr,prepared));
+                Probe::HostRequest change; change.tuple.baud = 9600;
+                Probe::HostSnapshot serial;
+                assert(host(app).hostSerial(app,&change,serial) == Probe::Action::OK);
+                Probe::HostRequest restore; restore.restore = true;
+                assert(host(app).hostSerial(app,&restore,serial) == Probe::Action::OK);
+                assert(app->axis.generation == generation && app->bindingGeneration == binding);
+                assert(app->axis.originKnown && !app->driverInputsQualified && !actionTimingQualified);
+                assert(!app->configuration.operationId && !app->driverSettings.operationId &&
+                       !app->controlSettings.operationId && !app->ioSettings.operationId);
+                if (configFirst) readSharedGroup(group,changed);
+                else readConfig(changed && group == ESS::DriverGroup::DRIVE ? 1 : 0,
+                                changed && group == ESS::DriverGroup::DRIVE ? 1600 : 1000,
+                                changed && group == ESS::DriverGroup::IO ? 17 : 1,
+                                changed && group == ESS::DriverGroup::IO ? 1 : 0,1,
+                                changed && group == ESS::DriverGroup::CONTROL_SETTINGS ? 3 : 1,
+                                changed && group == ESS::DriverGroup::CONTROL_SETTINGS ? 8000 : 4000);
+                assert(retainedBytes(original) == historical);
+                assert(findRecord(*app,original)->serialGeneration == originalSerial && serial.generation > originalSerial);
+                assert(app->bindingGeneration == binding);
+                if (changed) {
+                    assert(app->axis.generation > generation && !app->axis.originKnown && !app->coordinateReference.nativeKnown);
+                    assert(prepared.configurationGeneration != app->axis.generation);
+                } else {
+                    assert(app->axis.generation == generation && app->axis.originKnown && app->coordinateReference.nativeKnown);
+                    assert(prepared.configurationGeneration == app->axis.generation);
+                }
+                assert(app->commandPolarityKnown == !(changed && group == ESS::DriverGroup::DRIVE));
+                assert(app->axis.units.commandStepsPerMotorTurn.numerator == (changed && group == ESS::DriverGroup::DRIVE ? 0u : 1000u));
+                assert(app->axis.units.encoder.countsPerUnit.numerator == (changed && group == ESS::DriverGroup::CONTROL_SETTINGS ? 0u : 4000u));
+            }
+}
 void changedInputsInvalidateQualification() {
     for (unsigned change = 0; change < 2; ++change) {
         fresh(); readConfig(); qualify();
@@ -305,6 +385,7 @@ void backpressureAndPolarityParity() {
 int main() {
     gatesAndReadContext(); successAndEffects(); failuresAndCancellation(); staleContinuation(); externalChangesAndRecovery();
     configurationReconcilesDriverBaseline(); changedInputsInvalidateQualification(); secondaryReadsPreserveAxisBaseline();
+    hostChangesPreserveCrossReadBaselines();
     olderConfigCannotReplaceNewerDriver();
     retentionPressure();
     backpressureAndPolarityParity();

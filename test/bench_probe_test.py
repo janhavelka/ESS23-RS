@@ -2916,6 +2916,7 @@ class HostDevice:
         self.active = dict(self.original); self.requested = dict(self.original)
         self.generation = 1; self.blocked = False; self.failure = "none"
         self.retained = {}; self.mutate = None; self.mismatch_transport = "NO_RESPONSE"
+        self.mismatch_evidence = {}
         self.setup_failure = False; self.restore_failure = False
         self.recovery_required = False
 
@@ -2960,6 +2961,7 @@ class HostDevice:
                 terminal.update(ok=False, transport=self.mismatch_transport, codec="NOT_CHECKED", outcome="transport",
                                 raw_model=None, execution_unknown=True, tx_bytes=8, rx_bytes=0,
                                 timing_valid=False, raw_truncated=False)
+                terminal.update(self.mismatch_evidence)
                 self.recovery_required = True
             if command == "recover": self.recovery_required = False
             if self.mutate: self.mutate(terminal)
@@ -3075,6 +3077,42 @@ class HostSerialTests(unittest.TestCase):
         self.assertNotEqual(inspected["host_serial"]["generation"], c.serial["serial_generation"])
         c.command("release", operation_id=h.operation_id)
 
+    def test_queries_and_refusals_preserve_failure_and_actual_baud(self):
+        for tokens in ((), ("caps",), ("restore",)):
+            with self.subTest(tokens=tokens):
+                c = self.session(); c.command("host"); self.device.setup_failure = True
+                self.assertEqual(c.command("host", host_args=("set", "9600", "8N2"))["failure"], "adapter")
+                if tokens == ("restore",):
+                    original = self.port.handler
+                    def refused(i, command, args):
+                        item = json.loads(original(i, command, [])) if command == "host" else None
+                        if item is not None:
+                            item.update(ok=False, result="busy", failure="runner")
+                            return encoded(item)
+                        return original(i, command, args)
+                    self.port.handler = refused
+                else:
+                    self.device.mutate = lambda item: item.update(failure="runner")
+                with self.assertRaisesRegex(bench.BenchError, "altered host state|changed saved host state"):
+                    c.command("host", host_args=tokens)
+        for tokens in ((), ("caps",), ("restore",), ("set", "9600", "8N1")):
+            with self.subTest(actual_baud=tokens):
+                c = self.session(); c.command("host")
+                self.device.recovery_required = tokens[0:1] == ("set",)
+                self.device.mutate = lambda item: item.update(actual_baud=115201)
+                with self.assertRaisesRegex(bench.BenchError, "altered host state|changed saved host state"):
+                    c.command("host", host_args=tokens)
+
+    def test_compiled_capabilities_cannot_change_on_query_or_selection(self):
+        mutations = (lambda item: item.update(supported_bauds=[9600, 115200]),
+                     lambda item: item.update(supported_formats=["8N1", "8N2"]))
+        for tokens in ((), ("caps",), ("set", "9600", "8N2")):
+            for mutation in mutations:
+                with self.subTest(tokens=tokens, mutation=mutation):
+                    c = self.session(); c.command("host"); self.device.mutate = mutation
+                    with self.assertRaisesRegex(bench.BenchError, "adapter capabilities changed"):
+                        c.command("host", host_args=tokens)
+
     def test_fabricated_historical_tuple_and_typed_tuple_disagreement_rejected(self):
         for field, value in (("baud", 9600), ("format", "8N2"), ("generation", 2), ("known", False)):
             c = self.session(); c.command("host")
@@ -3104,6 +3142,35 @@ class HostSerialTests(unittest.TestCase):
         self.assertEqual(commands.count("probe"), 2); self.assertNotIn("recover", commands)
         self.assertFalse(self.events[-1]["restored"])
 
+    def test_length_mismatch_retains_received_byte_and_refused_restoration(self):
+        c = self.session(); self.device.mismatch_transport = "LENGTH"
+        self.device.mismatch_evidence = dict(rx_bytes=1, rx_hex="F9", timing_valid=True)
+        with self.assertRaisesRegex(bench.BenchError, "expected read-only no-response evidence"):
+            bench.host_check_campaign(c, baud=9600, fmt="8N1", timeout_s=1, address=1)
+        commands = [line.decode().split()[1:] for line in self.port.writes]
+        self.assertEqual(commands, [["version"], ["host"], ["probe", "1"], ["result", "103"], ["release", "103"],
+                                    ["host", "set", "9600", "8N1"], ["probe", "1"], ["result", "107"],
+                                    ["release", "107"], ["host", "restore"]])
+        summary = self.events[-1]
+        self.assertFalse(summary["ok"]); self.assertFalse(summary["restored"])
+        self.assertTrue(summary["restoration_attempted"])
+        self.assertEqual(summary["reads_attempted"], 2)
+        self.assertEqual(summary["recoveries_attempted"], 0)
+        self.assertEqual((summary["motor_writes"], summary["automatic_retries"]), (0, 0))
+        mismatch = summary["mismatch_result"]
+        self.assertEqual((mismatch["transport"], mismatch["tx_bytes"], mismatch["rx_bytes"], mismatch["rx_hex"]),
+                         ("LENGTH", 8, 1, "F9"))
+        self.assertTrue(mismatch["timing_valid"]); self.assertTrue(mismatch["execution_unknown"])
+        self.assertEqual(mismatch["codec"], "NOT_CHECKED")
+        restore = next(event["response"] for event in reversed(self.events)
+                       if event["event"] == "reply" and event["response"].get("command") == "host")
+        self.assertFalse(restore["ok"]); self.assertEqual(restore["result"], "recovery_required")
+        self.assertEqual(c.serial["active"], dict(baud=9600, format="8N1"))
+        self.assertTrue(c.serial["active_known"]); self.assertFalse(c.serial["blocked"])
+        self.assertEqual(c.serial["serial_generation"], 2)
+        self.assertTrue(self.device.recovery_required); self.assertTrue(c.synchronized)
+        self.assertFalse(c.operations); self.assertFalse(self.device.retained)
+
     def test_two_host_checks_release_all_retained_recovery_results(self):
         c = self.session()
         for baud, fmt in ((9600, "8N1"), (115200, "8E1")):
@@ -3121,6 +3188,40 @@ class HostSerialTests(unittest.TestCase):
         self.assertEqual(len(restores), 1)
         self.assertTrue(self.device.blocked); self.assertFalse(self.events[-1]["restored"])
         self.assertTrue(self.events[-1]["restoration_attempted"])
+
+    def test_probe_admission_timeout_or_interruption_counts_each_attempt(self):
+        for stage in (1, 2, 3):
+            for interrupted in (False, True):
+                with self.subTest(stage=stage, interrupted=interrupted):
+                    c = self.session(); original = self.port.handler
+                    attempts = 0
+                    def dropped(i, command, args):
+                        nonlocal attempts
+                        if command == "probe":
+                            attempts += 1
+                            if attempts == stage: return b""
+                        return original(i, command, args)
+                    self.port.handler = dropped
+                    read = self.port.read
+                    def interrupted_read(limit):
+                        if attempts == stage: raise KeyboardInterrupt()
+                        return read(limit)
+                    if interrupted: self.port.read = interrupted_read
+                    error = KeyboardInterrupt if interrupted else bench.BenchError
+                    with self.assertRaises(error):
+                        bench.host_check_campaign(c, baud=9600, fmt="8N1", timeout_s=0.1, address=1)
+                    commands = [line.decode().split()[1:] for line in self.port.writes]
+                    self.assertEqual(sum(command[0] == "probe" for command in commands), stage)
+                    self.assertEqual(sum(command[0] == "recover" for command in commands), int(stage == 3))
+                    self.assertEqual(commands.count(["host", "restore"]), int(stage == 3))
+                    summary = self.events[-1]
+                    self.assertEqual(summary["reads_attempted"], stage)
+                    self.assertFalse(summary["ok"])
+                    self.assertEqual(summary["restored"], stage == 3)
+                    self.assertEqual(summary["restoration_attempted"], stage == 3)
+                    self.assertEqual(summary["automatic_retries"], 0)
+                    self.assertFalse(c.synchronized)
+                    self.assertEqual(self.device.active, self.device.original if stage != 2 else dict(baud=9600, format="8N1"))
 
 
 if __name__ == "__main__":

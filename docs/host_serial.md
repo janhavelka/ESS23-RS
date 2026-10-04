@@ -78,6 +78,12 @@ a transaction or sends a motor command.
 An idle change stops and cleans up GPTimer capture, configures UART2, resets
 old TX/RX observations, then restarts the previous capture period and DE hold
 policy. Failed cleanup retains its owned timer stages for explicit repair.
+The adapter tracks the valid exclusively owned timer's INIT/ENABLE transitions
+in the pinned ESP-IDF 5.5.5 implementation, including an internal error returned
+after the transition. The SDK fakes model that ordering. The current board SDK
+has power management disabled; synthetic timer failures are native repair
+evidence, not proof that those failure paths are reachable on this bench or
+that a corrupted handle can be repaired.
 Every successful change starts a fresh capture epoch; setup and stopped time
 do not count as sampler starvation. `esp_timer` remains the same monotonic
 microsecond clock. RX idle evidence must be sampled again; old completion,
@@ -127,6 +133,13 @@ reads still compare retained raw settings and invalidate motor assumptions if
 they establish actual device changes. The standalone changes one selected
 host session; it does not implement a multi-endpoint tuple scheduler.
 
+Cross-read reconciliation uses the retained checked target provenance even
+when a host change has cleared current freshness. Both full configuration and
+grouped driver/control/I/O reads compare that baseline. Freshness and readiness
+still require a current observation; a retained baseline does not establish
+either. Changed settings invalidate affected origins, scales and prepared
+targets; unchanged settings preserve them.
+
 ## CLI, Python and next steps
 
 `host` and `host caps` query the application snapshot. Explicit changes use
@@ -145,6 +158,12 @@ stop the scenario; restoration failures remain visible. A transmitted read
 without a checked reply retains conservative `execution_unknown` evidence;
 it does not prove the drive failed to receive the request. No motor-setting
 writes or automatic read retries are part of this scenario.
+An incorrect host tuple can instead produce malformed bytes or UART errors.
+Those results fail this strict NO_RESPONSE scenario. Cleanup attempts restoration
+once; a recovery interlock can refuse it. The scenario reports that failure and
+retains the mismatched host state. A subsequent diagnostic recovery/restoration
+must be explicit. Queries and refusals preserve failure, divider readback and
+capability diagnostics; attempted reads include interrupted or lost admissions.
 
 Prompt 20 can use the real restoration and failure APIs when separately
 implementing device communication commissioning. Prompt 22 can reserve the

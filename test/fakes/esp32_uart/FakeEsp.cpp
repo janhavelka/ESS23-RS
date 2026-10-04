@@ -177,8 +177,11 @@ esp_err_t gptimer_set_alarm_action(gptimer_handle_t timer, const gptimer_alarm_c
 }
 esp_err_t gptimer_enable(gptimer_handle_t timer) {
     assert(timer == &fakeTimer && hardware.timerCreated && !hardware.timerEnabled);
+    // IDF 5.5.5 changes INIT -> ENABLE before its internal enable calls.
+    // Synthetic failures model that order; they are not bench reachability.
+    hardware.timerEnabled = true;
     if (!timerCall()) return -1;
-    hardware.timerEnabled = true; return ESP_OK;
+    return ESP_OK;
 }
 esp_err_t gptimer_start(gptimer_handle_t timer) {
     assert(timer == &fakeTimer && hardware.timerEnabled && !hardware.timerRunning && hardware.timerCallback);
@@ -194,8 +197,10 @@ esp_err_t gptimer_stop(gptimer_handle_t timer) {
 esp_err_t gptimer_disable(gptimer_handle_t timer) {
     assert(timer == &fakeTimer);
     if (!hardware.timerEnabled || hardware.timerRunning) return -2;
+    // IDF changes ENABLE -> INIT before fallible internal cleanup calls.
+    hardware.timerEnabled = false;
     if (!timerCall()) return -1;
-    hardware.timerEnabled = false; return ESP_OK;
+    return ESP_OK;
 }
 esp_err_t gptimer_del_timer(gptimer_handle_t timer) {
     assert(timer == &fakeTimer);

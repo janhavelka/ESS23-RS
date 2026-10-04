@@ -2115,6 +2115,8 @@ class Console:
         if old is not None:
             require(item["original"] == old["original"] and item["serial_generation"] >= old["serial_generation"],
                     "original tuple or serial generation changed")
+            require(item["supported_bauds"] == old["supported_bauds"]
+                    and item["supported_formats"] == old["supported_formats"], "adapter capabilities changed")
         if item["ok"]:
             require(item.get("result") == "done", "success result is not explicit")
             if changes:
@@ -2123,6 +2125,8 @@ class Console:
                 if old is not None:
                     changed = not old["active_known"] or old["blocked"] or selected != old["active"]
                     require(item["serial_generation"] == old["serial_generation"] + int(changed), "generation differs from settled change")
+                    if not changed:
+                        require(all(item[key] == value for key, value in old.items()), "unchanged selection altered host state")
             elif old is not None:
                 require(all(item[key] == value for key, value in old.items()), "query changed saved host state")
         else:
@@ -2137,8 +2141,9 @@ class Console:
                             "failed attempt tuple or generation differs")
             elif old is not None:
                 require(all(item[key] == value for key, value in old.items()), "refused change altered host state")
-        self.serial = {key: dict(item[key]) if isinstance(item[key], dict) else item[key]
-                       for key in ("original", "requested", "active", "active_known", "blocked", "serial_generation")}
+        self.serial = {key: item[key].copy() if isinstance(item[key], (dict, list)) else item[key]
+                       for key in ("original", "requested", "active", "active_known", "blocked", "serial_generation",
+                                   "failure", "actual_baud", "supported_bauds", "supported_formats")}
 
     def _complete(self, handle: Command, item: dict) -> None:
         if self.clock() >= handle.deadline:
@@ -2756,8 +2761,8 @@ def host_check_campaign(console: Console, *, baud: int, fmt: str, timeout_s: flo
 
     def read_once():
         nonlocal reads
-        handle = console.begin("probe", timeout_s=timeout_s, address=address)
         reads += 1
+        handle = console.begin("probe", timeout_s=timeout_s, address=address)
         try:
             terminal = console.wait(handle)
             if handle.accepted:

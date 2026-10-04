@@ -3,8 +3,11 @@
 Prompt19 delivers [host serial selection](host_serial.md), exclusive failure
 and restoration handling, per-request tuple evidence and independent logical
 generations. Native/package/four-build checks and available COM13 host setup,
-mismatch and restore checks PASS. [Handoff](reports/ess_release_19_2026-10-04.md)
-records unchanged drive settings and open alternate-tuple/electrical evidence.
+restoration and read-only regression PASS. The [fresh audit](reports/ess_release_19_audit_2026-10-04.md)
+fixes cross-read settings reconciliation, faithful SDK failure settlement and
+Python evidence. Strict NO_RESPONSE-only checks fail on reproduced malformed
+mismatch traffic; its physical source and alternate-tuple/electrical evidence
+remain unresolved/unqualified. Drive settings remain unchanged.
 
 The [fresh prompts 17/18 audit](reports/ess_release_17_18_audit_2026-10-04.md) fixes
 settings freshness, copied provenance, partial-refresh invalidation and strict
