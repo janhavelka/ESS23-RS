@@ -404,7 +404,8 @@ passed on the unchanged image.
 - [x] Pure caller-owned identity/configuration operations, exact gap-safe FC03 windows, checked atomic publication and copied provenance; installed-core consumer verification.
 - [x] Same public preparation/event/decoder APIs through common/profile console routes and strict Python correlation, retention and release.
 - [x] Complete ledger-linked operation inventory with separate source/model/read/write/action/API/CLI/native/hardware dispositions; generated descriptors remain unchanged.
-- [ ] Resolve model `0x4EEA`/firmware/DIP mapping, subdivision physical interpretation and physical encoder evidence. Readback alone does not resolve these.
+- [x] User-confirmed ESS23-RS20 bench identity and documented incremental/differential/three-channel 1000-PPR encoder; nominal4000 decoded counts agrees with RS485 configured4000. See [source reconciliation](reference/11_ess23_rs20_identity.md). Encoder chip/label identification is not a prerequisite for preparation.
+- [ ] Resolve universal model `0x4EEA`/firmware/DIP mapping, subdivision physical interpretation and measured shaft/feedback behavior. Product specifications and readback do not resolve undocumented algorithm3.
 - [x] Prompt 06 state/input-level evidence; retain specific input-dependent homing, limit, enable/stop and trigger prerequisites without requiring external I/O for independent serial-only operations.
 - [ ] Typed I/O changes remain for 15; no configuration writes, save or motion were added in 05.
 

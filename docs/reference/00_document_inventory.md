@@ -19,6 +19,14 @@ are retained in [sources.json](sources.json).
 | [Modbus_Application_Protocol_V1.1b3.pdf](../standards/Modbus_Application_Protocol_V1.1b3.pdf) | Supplemental Modbus function, frame and exception definitions | 50 | 932519 |
 | [Modbus_Serial_Line_V1.02.pdf](../standards/Modbus_Serial_Line_V1.02.pdf) | Supplemental Modbus RTU framing, CRC and serial-line requirements | 44 | 264122 |
 
+## Supplemental product evidence
+
+On 2026-10-04 the user confirmed the bench motor as ESS23-RS20. Its official
+product page supplements the original PDFs with incremental/differential,
+three-channel 1000-PPR encoder specifications. See [the checked source note](11_ess23_rs20_identity.md)
+for the distinction between documented nominal resolution, configured RS485
+readback and unresolved firmware behavior. Original snapshots remain unchanged.
+
 ## Reading order
 
 1. ESS23-RS10/RS20 hardware manual for terminals, power, and DIP switches.

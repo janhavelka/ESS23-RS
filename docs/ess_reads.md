@@ -58,7 +58,10 @@ Subdivision remains SCALE_UNRESOLVED; it never replaces a command scale with
 READBACK merely because its raw value resembles a documented default. Nonzero
 encoder configuration supplies READBACK scale metadata; zero remains raw and
 unusable for conversion. Neither proves physical accuracy, encoder manufacturer,
-chip, interface or measured resolution. The rest of `UnitConfig` stays unknown.
+chip, interface or measured resolution. The [user-confirmed bench model and
+vendor encoder specifications](reference/11_ess23_rs20_identity.md) supply
+separate product evidence; they do not change the decoder's readback provenance.
+The rest of `UnitConfig` stays unknown.
 
 Input assignments, declared wiring and observed levels are independent. Function
 0 is the documented no-function assignment. UNKNOWN or UNCONNECTED wiring never

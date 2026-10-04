@@ -27,6 +27,19 @@ commissioning and motion tests within that scope do not need another
 permission question. Use documented commands and record what actually ran.
 This note does not start a test session or claim any completed validation.
 
+## User-confirmed model on 2026-10-04
+
+The user confirms the attached motor is **ESS23-RS20**, using its official
+product link. Its documented encoder is incremental, differential, three-channel,
+1000 PPR; the nominal four-times count convention agrees with configured
+resolution4000 already read over RS485. The datasheet gives 1.80-degree full
+steps (200/revolution). See [source reconciliation](reference/11_ess23_rs20_identity.md).
+This supersedes the initial uncertainty about the physical model and basic
+encoder specifications. It does not decode firmware version0029 or algorithm3,
+establish shaft accuracy, or turn subdivision-equivalent feedback into raw
+encoder counts. No additional label/chip identification is needed for pure
+preparation. Historical reports and raw evidence remain unchanged.
+
 ## Establish the host connection when testing starts
 
 COM13 originally exposed the board running CO2control; see current status below.
@@ -136,7 +149,9 @@ completion and record changes to the setup for the next session.
 - The [0.5.1 audit](reports/2026-10-03_audit.md) adds 20 checked probes and
   timeout/recovery/alias/reset evidence; the original flash backup is unchanged.
 - Repeated checked model reads succeed at node 1, 115200 8N1, TX47/RX48/DE21.
-- Raw model: `0x4EEA`; exact model/firmware mapping and settings remain unknown.
+- User-confirmed physical model: ESS23-RS20. Raw model `0x4EEA` and version
+  `0x0029` are recorded for this bench; a universal wire-code/firmware mapping
+  remains undocumented. Typed configuration readbacks are retained in the reports.
 - External TX/RX/DE timing qualification remains open; see the explicit bench
   turnaround exception and sampling assumptions in the report.
 - Motion, conversion, stop and persistence qualification: not performed.

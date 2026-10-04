@@ -16,16 +16,18 @@ used only to locate them. Original files and hashes remain in
 | Quantity or finding | Evidence and interpretation |
 | --- | --- |
 | Encoder resolution | [Function manual](../vendor/Modbus-Series-Bus-Product-Function-Manual-V1.0_1_.pdf), p77, ESS register `0x0101`: resolution is four times the encoder value; the default is a 1,000-line encoder and register default is 4,000. Its table range is 0-65535. Zero is not a usable mathematical scale even though it appears in the device table. |
-| Command subdivision | Function manual p69, `0x0011`: default 1,000, range 400-51200. The English table says "Segment settings". Interpreting this as 1,000 command increments per motor revolution is the initial bench assumption; its active setting has not been read. |
+| Command subdivision | Function manual p69, `0x0011`: default 1,000, range 400-51200. The English table says "Segment settings". Interpreting this as 1,000 command increments per motor revolution is the initial bench assumption; the raw active setting was subsequently read as 1000 (see current readback below). |
 | Position observation | Function manual p69, `0x000A/0x000B`: open-loop position is the commanded position; closed-loop position is encoder feedback converted into subdivision units. These registers must not be labelled raw encoder counts. |
 | Full motor step | [RS20 datasheet](../vendor/ESS23-RS20_Full_Datasheet.pdf) p1 and [RS10 datasheet](../vendor/ESS23-RS10_Full_Datasheet.pdf) p1, drawings A4573/A4572 dated 2025-05-26: step angle 1.80 degrees. Therefore 360/1.8 = 200 full motor steps per revolution. |
 | Hardware identity | [Hardware manual](../vendor/ESS23-RS1020_Series_Bus_Integrated_Motor_Hardware_Manual.pdf), p3, explicitly covers ESS23-RS10 and RS20. Its overview/electrical information on pp4-5 and the two model datasheets do not identify an encoder manufacturer, chip/assembly part number or encoder electrical interface. |
 | Operating mode | Function manual p77, `0x0100`: default 2 is the listed closed-loop algorithm; value 1 is open loop. This is a documented default, not a readback of the bench motor. |
 | Speed and ramp distinction | Function manual p70 lists speed in r/min and acceleration/deceleration times in ms, with conflicting default-column annotations. Pure steps/s², deg/s², rad/s² and rpm/s conversions do not establish a mapping to those drive ramp-time fields. |
 
-No exact encoder part number, index-channel behavior, absolute/multiturn
-capability, sensing technology or electrical interface is established by this
-reference pack. The four-times-resolution statement establishes the documented
+The user's exact bench model is now confirmed as ESS23-RS20. Its official
+product page documents an incremental, differential, three-channel 1000-PPR
+encoder; see [the source reconciliation](11_ess23_rs20_identity.md). These details
+supplement the original PDFs. Exact encoder part, sensing technology and
+ESS-specific index behavior remain unspecified in the reviewed sources. The four-times-resolution statement establishes the documented
 count multiplier; it is not a reason to guess an encoder IC or exposed A/B/Z
 connector. The hardware manual's external X/Y terminals are programmable drive
 I/O, not evidence of a raw encoder port.
@@ -170,6 +172,6 @@ boundaries. Software tests are separate from unperformed motor qualification.
 
 ## Current configuration readback (2026-10-04)
 
-[Prompt 05](../reports/ess_release_05_2026-10-04.md) read the configuration through the typed public API on COM13. The raw subdivision is 1000 and configured encoder resolution is 4000. These supersede the earlier statement that the active raw subdivision had not been read; its physical command-unit interpretation remains SCALE_UNRESOLVED. The defaults helper deliberately remains labelled ASSUMED. `getConfig` supplies only the nonzero configured encoder scale as READBACK metadata, with remaining unit fields unknown. No encoder IC/manufacturer, physical resolution, shaft accuracy or external encoder interface has been identified.
+[Prompt 05](../reports/ess_release_05_2026-10-04.md) read the configuration through the typed public API on COM13. The raw subdivision is 1000 and configured encoder resolution is 4000. These supersede the earlier statement that the active raw subdivision had not been read; its physical command-unit interpretation remains SCALE_UNRESOLVED. The defaults helper deliberately remains labelled ASSUMED. `getConfig` supplies only the nonzero configured encoder scale as READBACK metadata, with remaining unit fields unknown. The nominal hardware encoder resolution is now documented as 1000 PPR for the user-confirmed ESS23-RS20, consistent with the manual and configured 4000 decoded counts. Incremental/differential/three-channel specifications are documented; shaft accuracy has not been measured and an externally accessible encoder port is not established. Encoder IC/manufacturer identification is unnecessary for these conversions.
 
-The observed algorithm code is 3, outside the reviewed documented 1/2 enum. It is retained raw with `algorithmKnown=false`; neither a guessed third algorithm nor motion readiness is inferred. Model 0x4EEA and firmware raw0x0029 remain unmapped. Missing label/firmware identification remains explicit. Prompt06 observes logical input levels separately; physical wiring and operation-specific input effects remain unresolved. No motor setting changed.
+The observed algorithm code is 3, outside the reviewed documented 1/2 enum. It is retained raw with `algorithmKnown=false`; neither a guessed third algorithm nor motion readiness is inferred. The physical bench model is user-confirmed ESS23-RS20, associated with recorded raw model0x4EEA and firmware0x0029. A universal wire model-code mapping and firmware version interpretation remain undocumented; no further label identification is required for independent preparation. Prompt06 observes logical input levels separately; physical wiring and operation-specific input effects remain unresolved. No motor setting changed.

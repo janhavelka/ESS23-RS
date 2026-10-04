@@ -58,7 +58,7 @@ this session; integrating there is a separate delivery step.
 | 1. Protocol foundation | Units, complete ESS register ledger, checked FC03/06/10 codecs and non-changing model probe | Native validation, generated-ledger checks, explicit unresolved fields and access limits | Implemented; checked model reads on the bench |
 | 2. Observable transport | Runner, independent capture, read-only CLI, load and failure tools | Delayed servicing/overflow/late-reply tests; measured load, memory and timing; no automatic replay | Implemented in 0.6.0; measured ESP32-S3 bench load envelope; electrical timing qualification remains open |
 | 3. Small bus-owner reference | Bounded request queue, retained results, fairness, deadlines and priority for a pending stop after settling in-flight TX | Multiple simulated clients, full queue, cancellation and starvation tests; read-only hardware regression under load | Prompts 01–03 implemented/native/build PASS; actual owner console and read-only loaded/interleaved timer bench PASS; no physical stop or electrical qualification |
-| 4. Typed ESS observations | Identity, firmware/configuration, alarms, readiness and position/velocity observations | Original-manual review; exact model readback; validity/freshness independent of communication health | Prompts 05–06 implement typed reads and separate health; exact model/firmware, feedback source/sign/units and motion qualification remain unresolved |
+| 4. Typed ESS observations | Identity, firmware/configuration, alarms, readiness and position/velocity observations | Original-manual review; exact model readback; validity/freshness independent of communication health | Prompts 05–06 implement typed reads and separate health; bench SKU is user-confirmed ESS23-RS20; wire-code/firmware interpretation, feedback source/sign/units and motion qualification remain unresolved |
 | 5. First controlled motion | Explicit enable/release, small relative move and documented stop | Verified units and limits, acknowledgement vs completion, interrupted/lost replies, stop while another operation is active; bench measurements | Exact host target preparation implemented in 07; drive actions, motion and stop pending 08–09 |
 | 6. Complete common motion API | Absolute/relative position, step/angle/travel modes, velocity, acceleration, homing and fault clear where supported | Same public API in firmware and CLI; unsupported operations fail before TX; origin/rounding/path policy tested | Exact preparation, host configuration and origin APIs implemented in 07; wrapped paths, profile sequences and physical reference qualification pending |
 | 7. ESS native coverage and discovery | Typed documented ESS extensions; bounded non-changing discovery | Coverage matrix for every documented command/field; uncertain firmware behavior marked explicitly; read side effects reviewed | Ledger/codecs and typed identity/config reads exist; complete operation inventory derives remaining obligations; broader helpers/discovery pending |
@@ -86,8 +86,10 @@ a hardware claim.
 
 ## Remaining release gates
 
-- Identify the actual drive model/firmware and confirm encoder, command units,
-  default configuration and the meaning of raw model `0x4EEA`.
+- Bench model ESS23-RS20 and nominal encoder specifications are established
+  ([sources](reference/11_ess23_rs20_identity.md)); resolve firmware/algorithm3,
+  command/feedback semantics and a universal mapping of raw model `0x4EEA`.
+  Physical direction/accuracy remain qualification work.
 - Capture independent TX/RX/DE waveforms. Validate timestamp bounds, final stop
   bit/DE hold, receiver turn-on, short turnaround and framing under load.
 - Establish an interrupt/cache-off policy. The current stock timer build is
