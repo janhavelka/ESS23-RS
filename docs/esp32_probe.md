@@ -1,7 +1,7 @@
 # ESP32-S3 read-only probe bench
 
 The ordinary firmware exposes [actions and motion checks](functional_bench.md)
-and [passive raw/decoded sniffing](traffic.md). No separate functional image or
+and [runtime debug observation](traffic.md) with `debug off|raw|decoded`. No separate functional image or
 analyzer admission flag exists. The user owns the declared wiring; firmware
 checks command prerequisites and software transport evidence.
 
@@ -57,7 +57,7 @@ gate or test-mode flag is required.
 Prompt 07 adds [host axis configuration and pure target previews](axis_preparation.md)
 through the same installed public API; these commands generate no motor traffic.
 
-Prompts 05–06 implement bounded [typed identity/configuration/state reads](ess_reads.md), common/profile routes, passive per-block status/health and finite opt-in observation polling. The [linked inventory](reference/ess_rs_operations.json) keeps native/hardware evidence and read/write/action obligations separate. Model/firmware compatibility, units, readiness and motion remain unqualified; these reads perform no writes.
+Prompts 05â€“06 implement bounded [typed identity/configuration/state reads](ess_reads.md), common/profile routes, passive per-block status/health and finite opt-in observation polling. The [linked inventory](reference/ess_rs_operations.json) keeps native/hardware evidence and read/write/action obligations separate. Model/firmware compatibility, units, readiness and motion remain unqualified; these reads perform no writes.
 
 This example connects the ESS codecs, application BusOwner, standalone runner and a dedicated
 ESP32-S3 UART adapter. It supports documented reads and explicit typed motor operations through the regular library API. It provides a small console and finite Python campaigns
@@ -134,7 +134,7 @@ the capture section separately, excluding driver dispatch/return overhead;
 these measurements must not be added as if they were disjoint CPU categories.
 
 The [current capture review](reports/ess_release_04_2026-10-04.md) retains the
-20-us sampler at about 20–21% of one core inside capture. `timer_callbacks`
+20-us sampler at about 20â€“21% of one core inside capture. `timer_callbacks`
 counts timer alarms separately from aggregate `capture_samples`; neither
 measures SDK interrupt dispatch cost. `capture_high_water` reports ring occupancy.
 

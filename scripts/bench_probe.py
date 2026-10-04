@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 from collections.abc import Callable
+from contextlib import contextmanager
 from datetime import datetime, timezone
 import json
 import math
@@ -29,7 +30,7 @@ MAX_LINE = 8192
 MAX_INPUT = 32768
 MAX_TRAFFIC_INPUT = 1048576  # Independent finite diagnostic budget per command/drain.
 COMMANDS = frozenset({"version", "config", "probe", "capture-read", "status", "health", "memory", "stats", "load",
-                      "drv", "result", "release", "cancel", "recover", "reset", "caps", "host", "communication", "motion-profile", "sniff",
+                      "drv", "result", "release", "cancel", "recover", "reset", "caps", "host", "communication", "motion-profile", "debug",
                       "read-identity", "read-config", "read-state", "health-check", "monitor", "axis", "prepare", "enable", "motor-release", "alarm-clear", "stop", "position-clear", "move-relative", "move-absolute", "move-angle", "velocity", "driver", "io", "segment", "control", "tuning", "home"})
 MAX_COMMANDS = 11  # Eight ordinary operations, recovery, reserved stop and local query.
 MAX_OPERATIONS = 10  # Eight ordinary operations, one recovery and one reserved stop.
@@ -40,10 +41,67 @@ HOST_BAUDS = (9600, 19200, 38400, 115200)
 HOST_FORMATS = ("8N1", "8N2", "8E1", "8O1")
 
 
-def sniff_arguments(tokens: tuple[str, ...]) -> str | None:
+def debug_arguments(tokens: tuple[str, ...]) -> str | None:
     if not isinstance(tokens, tuple) or len(tokens) > 1 or (tokens and tokens[0] not in ("off", "raw", "decoded")):
-        raise ValueError("sniff accepts off, raw, decoded or no arguments")
+        raise ValueError("debug accepts off, raw, decoded or no arguments")
     return tokens[0] if tokens else None
+
+
+@contextmanager
+def debug_session(console, mode: str | None, timeout_s: float):
+    """Observe ordinary commands on their existing connection; restore display only."""
+    evidence = {}
+    if mode is None:
+        yield evidence
+        return
+    debug_arguments((mode,))
+    def command(tokens=()):
+        result = console.command("debug", host_args=tokens, timeout_s=timeout_s)
+        if not result["ok"]:
+            raise BenchError("debug selection/query failed: " + str(result.get("result")))
+        return result
+    evidence["before"] = command()
+    original = evidence["before"]["mode"]
+    changed = False
+    failed = False
+    try:
+        evidence["selected"] = command((mode,))
+        changed = original != mode
+        yield evidence
+    except BaseException:
+        failed = True
+        raise
+    finally:
+        cleanup_error = None
+        if not console.synchronized:
+            evidence["cleanup"] = "skipped_unsynchronized"
+        else:
+            try:
+                evidence["after"] = command()
+            except BaseException as error:
+                evidence["cleanup_error"] = str(error)
+                cleanup_error = error
+            # A refused local query does not imply lost framing. Restoring the
+            # prior display remains a separate one-attempt, host-only command.
+            if changed and console.synchronized:
+                try:
+                    evidence["restored"] = command((original,))
+                except BaseException as error:
+                    evidence["restore_error"] = str(error)
+                    if cleanup_error is None:
+                        evidence["cleanup_error"] = str(error)
+                        cleanup_error = error
+            evidence["cleanup"] = ("failed" if cleanup_error is not None else
+                                   "restored" if "restored" in evidence else
+                                   "skipped_unsynchronized" if changed else "unchanged")
+        try:
+            console.emit("debug_session", **evidence)
+        except BaseException as error:
+            evidence["evidence_error"] = str(error)
+            if cleanup_error is None:
+                cleanup_error = error
+        if cleanup_error is not None and not failed:
+            raise cleanup_error
 
 
 def motion_profile_arguments(tokens: tuple[str, ...]) -> str:
@@ -505,8 +563,8 @@ class Console:
         self.communication = None
         self.communication_candidate = None
         self.motion_profile = None
-        self.sniff_mode = None
-        self.sniff_snapshot = None
+        self.debug_mode = None
+        self.debug_snapshot = None
         self.traffic_sequence = 0
 
     def _lines(self, data: bytes) -> list[bytes]:
@@ -584,7 +642,7 @@ class Console:
         compact = re.sub(rb"\s+", b"", bytes(self.buffer))
         prefix = b'{"type":"traffic"'
         return bool(compact) and (compact.startswith(prefix + b",") or
-            ((self.sniff_mode in ("raw", "decoded") or self.traffic_sequence > 0) and prefix.startswith(compact)))
+            ((self.debug_mode in ("raw", "decoded") or self.traffic_sequence > 0) and prefix.startswith(compact)))
 
     def _load_line_pending(self) -> bool:
         """Recognize the bounded load fixture text stream."""
@@ -2424,20 +2482,32 @@ class Console:
             self.communication = json.loads(json.dumps(c))
             self.communication_candidate = candidate_check
 
-    def _check_sniff(self, handle: Command, item: dict) -> None:
+    def _check_debug(self, handle: Command, item: dict) -> None:
         if not item["ok"]:
             return
-        desired = sniff_arguments(handle.host_args)
+        desired = debug_arguments(handle.host_args)
         if item.get("mode") not in ("off", "raw", "decoded") or (desired is not None and desired != item["mode"]):
-            raise BenchError("sniff mode differs from requested mode")
-        check_counts(item, ("observed", "emitted", "dropped", "cursor", "overwritten", "capture_dropped", "retained", "capacity"), "sniff")
-        if item["retained"] > item["capacity"] or item["capacity"] > 64 or item["emitted"] > item["observed"]:
-            raise BenchError("sniff counters are inconsistent")
-        if self.sniff_snapshot is not None and any(item[k] < self.sniff_snapshot[k] for k in
-                ("observed", "emitted", "dropped", "cursor", "overwritten", "capture_dropped")):
-            raise BenchError("sniff counters regressed without a reset")
-        self.sniff_snapshot = dict(item)
-        self.sniff_mode = item["mode"]
+            raise BenchError("debug mode differs from requested mode")
+        check_counts(item, ("observed", "emitted", "dropped", "missed", "skipped", "cursor", "overwritten", "capture_dropped", "retained", "capacity"), "debug")
+        if (item["retained"] > item["capacity"] or item["capacity"] > 64 or
+                min(0xFFFFFFFFFFFFFFFF,item["emitted"] + item["dropped"]) != item["observed"] or
+                min(0xFFFFFFFFFFFFFFFF,item["observed"] + item["missed"] + item["skipped"]) != item["cursor"]):
+            raise BenchError("debug counters are inconsistent")
+        if self.debug_snapshot is not None and any(item[k] < self.debug_snapshot[k] for k in
+                ("observed", "emitted", "dropped", "missed", "skipped", "cursor", "overwritten", "capture_dropped")):
+            raise BenchError("debug counters regressed without a reset")
+        owner, capture, memory = (item.get(k) for k in ("owner", "capture", "memory"))
+        if not all(isinstance(v, dict) for v in (owner, capture, memory)):
+            raise BenchError("debug cached diagnostics missing")
+        if (owner.get("phase") not in ("IDLE", "WAIT_BUS", "SETUP", "DRAIN", "HOLD", "RECEIVE", "DONE", "FAULT") or
+                any(type(owner.get(k)) is not bool for k in ("busy", "recovery_required")) or
+                capture.get("mode") not in ("poll", "timer") or type(memory.get("valid")) is not bool):
+            raise BenchError("debug cached diagnostics invalid")
+        check_counts(owner, ("pending", "retained"), "debug owner")
+        check_counts(capture, ("faults", "max_poll_gap_us"), "debug capture")
+        check_counts(memory, ("stack_free_bytes", "internal_free", "psram_free"), "debug memory")
+        self.debug_snapshot = dict(item)
+        self.debug_mode = item["mode"]
 
     def _check_traffic(self, item: dict) -> None:
         """Validate observational copies without consuming or satisfying a command."""
@@ -2641,8 +2711,8 @@ class Console:
             self._check_host(handle, item)
         if handle.command == "communication":
             self._check_communication(handle, item)
-        if handle.command == "sniff":
-            self._check_sniff(handle, item)
+        if handle.command == "debug":
+            self._check_debug(handle, item)
         if handle.command == "motion-profile":
             self._check_motion_profile(handle, item)
         if handle.command in ("status", "config") and item["ok"]:
@@ -2891,9 +2961,9 @@ class Console:
         elif command == "communication":
             host_args = () if host_args is None else host_args
             communication_arguments(host_args)
-        elif command == "sniff":
+        elif command == "debug":
             host_args = () if host_args is None else host_args
-            sniff_arguments(host_args)
+            debug_arguments(host_args)
         elif command == "motion-profile":
             motion_profile_arguments(host_args)
         elif host_args is not None:
@@ -3617,14 +3687,16 @@ def arguments(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument("--log", type=Path, required=True, help="new JSONL evidence file")
     parser.add_argument("--timeout", type=float, default=3.0, help="each command deadline in seconds")
     parser.add_argument("--startup", type=float, default=0.5, help="bounded boot-log collection in seconds")
+    parser.add_argument("--debug", choices=("off", "raw", "decoded"), default=None,
+                        help="observe the ordinary campaign on this connection, then restore the previous display mode")
     sub = parser.add_subparsers(dest="mode", required=True)
     sub.add_parser("probe", help="one model-register read and cached observations")
     host = sub.add_parser("host", help="one host-only serial query or explicit tuple change; no motor writes")
     host.add_argument("host_tokens", nargs="*")
     communication = sub.add_parser("communication", help="one explicit communication session action; no retries/save/restart")
     communication.add_argument("communication_tokens", nargs="*")
-    sniff = sub.add_parser("sniff", help="query or select non-consuming traffic display")
-    sniff.add_argument("sniff_mode", nargs="?", choices=("off", "raw", "decoded"))
+    debug = sub.add_parser("debug", help="query or select non-consuming traffic display")
+    debug.add_argument("debug_mode", nargs="?", choices=("off", "raw", "decoded"))
     motion_profile = sub.add_parser("motion-profile", help="read position parameters, inspect or restore the original snapshot")
     motion_profile.add_argument("motion_profile_action", choices=("read", "inspect", "restore"))
     commissioning = sub.add_parser("communication-check", help="finite preview, optional one write and explicitly selected confirmation")
@@ -3704,6 +3776,8 @@ def arguments(argv: list[str] | None) -> argparse.Namespace:
             child.add_argument("--console-bytes", type=int, default=0,
                                help="competing console payload per 10 ms, 0..256 bytes")
     result = parser.parse_args(argv)
+    if result.mode == "debug" and result.debug is not None:
+        parser.error("use either the debug command or --debug with an ordinary campaign")
     if not 1 <= result.baud <= 4_000_000:
         parser.error("baud must be within 1..4000000")
     if not 1 <= result.address <= 247:
@@ -3720,8 +3794,8 @@ def arguments(argv: list[str] | None) -> argparse.Namespace:
         parser.error("interval must be finite and within 0..60 seconds")
     result.move_args = None
     result.host_args = None
-    if result.mode == "sniff":
-        result.host_args = (result.sniff_mode,) if result.sniff_mode else ()
+    if result.mode == "debug":
+        result.host_args = (result.debug_mode,) if result.debug_mode else ()
     if result.mode == "motion-profile":
         result.host_args = (result.motion_profile_action,)
     if result.mode == "communication":
@@ -3809,51 +3883,52 @@ def main(argv: list[str] | None = None) -> int:
                 console = Console(port, on_event=evidence)
                 console.drain_startup(args.startup)
                 console.identify(timeout_s=args.timeout)
-                if args.mode == "sniff":
-                    result = console.command("sniff", host_args=args.host_args, timeout_s=args.timeout)
-                    if not result["ok"]:
-                        raise BenchError("sniff command failed")
-                elif args.mode == "motion-profile":
-                    result = console.command("motion-profile", host_args=args.host_args, timeout_s=args.timeout)
-                    if not result["ok"]:
-                        raise BenchError("motion-profile command failed: " + str(result.get("result")))
-                elif args.mode == "communication":
-                    result = console.command("communication", host_args=args.host_args, timeout_s=args.timeout)
-                    if not result["ok"]:
-                        raise BenchError("communication command failed: " + str(result.get("result")))
-                elif args.mode == "communication-check":
-                    communication_campaign(console, field=args.field, value=args.value, address=args.address,
-                                           timeout_s=args.timeout, execute=args.execute, confirm=args.confirm, finish=args.finish)
-                elif args.mode == "host":
-                    result = console.command("host", host_args=args.host_args, timeout_s=args.timeout)
-                    if not result["ok"]:
-                        raise BenchError("host command failed: " + str(result.get("result")))
-                elif args.mode == "host-check":
-                    host_check_campaign(console, baud=args.host_baud, fmt=args.fmt,
-                                        timeout_s=args.timeout, address=args.address)
-                elif args.mode in ACTION_COMMANDS:
-                    result = console.command(args.mode, timeout_s=args.timeout, address=args.address,
-                                             stop_policy=getattr(args, "stop_policy", None))
-                    if not result["ok"]:
-                        raise BenchError("action rejected or failed: " + str(result.get("result", result.get("outcome"))))
-                elif args.mode == "home":
-                    move_campaign(console, command="home", move_args=None, home_args=args.home_args,
-                                  cleanup_stop=args.cleanup_stop, timeout_s=args.timeout, address=args.address)
-                elif args.mode == "driver-read":
-                    driver_read_campaign(console, timeout_s=args.timeout, address=args.address)
-                elif args.mode in ("io", "segment", "control", "tuning"):
-                    driver_read_campaign(console, timeout_s=args.timeout, address=args.address, command=args.mode, driver_args=args.driver_args)
-                elif args.mode == "velocity":
-                    velocity_campaign(console, velocity_args=args.velocity_args, cleanup_stop=args.cleanup_stop,
-                                      timeout_s=args.timeout, address=args.address)
-                elif args.mode in MOVE_COMMANDS:
-                    move_campaign(console, command=args.mode, move_args=args.move_args,
-                                  cleanup_stop=args.cleanup_stop, timeout_s=args.timeout, address=args.address)
-                else:
-                    campaign(console, args.mode, count=args.count, interval_s=args.interval,
-                             timeout_s=args.timeout, address=args.address, load=args.load,
-                             typed_kind=getattr(args, "kind", "both"),
-                             read_command="capture-read" if getattr(args, "capture_read", False) else "probe")
+                with debug_session(console, args.debug, args.timeout):
+                    if args.mode == "debug":
+                        result = console.command("debug", host_args=args.host_args, timeout_s=args.timeout)
+                        if not result["ok"]:
+                            raise BenchError("debug command failed")
+                    elif args.mode == "motion-profile":
+                        result = console.command("motion-profile", host_args=args.host_args, timeout_s=args.timeout)
+                        if not result["ok"]:
+                            raise BenchError("motion-profile command failed: " + str(result.get("result")))
+                    elif args.mode == "communication":
+                        result = console.command("communication", host_args=args.host_args, timeout_s=args.timeout)
+                        if not result["ok"]:
+                            raise BenchError("communication command failed: " + str(result.get("result")))
+                    elif args.mode == "communication-check":
+                        communication_campaign(console, field=args.field, value=args.value, address=args.address,
+                                               timeout_s=args.timeout, execute=args.execute, confirm=args.confirm, finish=args.finish)
+                    elif args.mode == "host":
+                        result = console.command("host", host_args=args.host_args, timeout_s=args.timeout)
+                        if not result["ok"]:
+                            raise BenchError("host command failed: " + str(result.get("result")))
+                    elif args.mode == "host-check":
+                        host_check_campaign(console, baud=args.host_baud, fmt=args.fmt,
+                                            timeout_s=args.timeout, address=args.address)
+                    elif args.mode in ACTION_COMMANDS:
+                        result = console.command(args.mode, timeout_s=args.timeout, address=args.address,
+                                                 stop_policy=getattr(args, "stop_policy", None))
+                        if not result["ok"]:
+                            raise BenchError("action rejected or failed: " + str(result.get("result", result.get("outcome"))))
+                    elif args.mode == "home":
+                        move_campaign(console, command="home", move_args=None, home_args=args.home_args,
+                                      cleanup_stop=args.cleanup_stop, timeout_s=args.timeout, address=args.address)
+                    elif args.mode == "driver-read":
+                        driver_read_campaign(console, timeout_s=args.timeout, address=args.address)
+                    elif args.mode in ("io", "segment", "control", "tuning"):
+                        driver_read_campaign(console, timeout_s=args.timeout, address=args.address, command=args.mode, driver_args=args.driver_args)
+                    elif args.mode == "velocity":
+                        velocity_campaign(console, velocity_args=args.velocity_args, cleanup_stop=args.cleanup_stop,
+                                          timeout_s=args.timeout, address=args.address)
+                    elif args.mode in MOVE_COMMANDS:
+                        move_campaign(console, command=args.mode, move_args=args.move_args,
+                                      cleanup_stop=args.cleanup_stop, timeout_s=args.timeout, address=args.address)
+                    else:
+                        campaign(console, args.mode, count=args.count, interval_s=args.interval,
+                                 timeout_s=args.timeout, address=args.address, load=args.load,
+                                 typed_kind=getattr(args, "kind", "both"),
+                                 read_command="capture-read" if getattr(args, "capture_read", False) else "probe")
             except (Exception, KeyboardInterrupt) as exc:
                 evidence("failure", error=str(exc) or "interrupted", ok=False)
                 raise

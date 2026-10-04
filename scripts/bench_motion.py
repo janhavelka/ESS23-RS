@@ -9,7 +9,7 @@ import json
 from pathlib import Path
 import time
 
-from bench_probe import BenchError, Console, Evidence, open_port
+from bench_probe import BenchError, Console, Evidence, debug_session, open_port
 
 
 def phase_plan(phase):
@@ -40,6 +40,13 @@ def phase_plan(phase):
 
 
 def run_phase(console, phase, record):
+    record['version'] = console.identify()
+    with debug_session(console, record.get('debug_mode'), 5) as diagnostics:
+        record['debug'] = diagnostics
+        return _run_phase(console, phase, record)
+
+
+def _run_phase(console, phase, record):
     record['events'] = []
     move = None
     stop_attempted = False
@@ -86,8 +93,6 @@ def run_phase(console, phase, record):
             result = command('motion-profile', host_args=('inspect',))
         raise BenchError('motion snapshot/restoration observation bound exhausted')
 
-    record['version'] = console.identify()
-    record['sniff'] = command('sniff', host_args=(record.get('sniff_mode', 'off'),))
     record['host'] = command('host')
     if record['host']['active'] != dict(baud=115200, format='8N1') or record['host']['blocked']:
         raise BenchError('unexpected host tuple; no automatic reconfiguration')
@@ -174,26 +179,29 @@ def run_phase(console, phase, record):
         raise
     finally:
         if console.synchronized:
-            for name in ('stats', 'load', 'drv', 'memory', 'host', 'sniff'):
+            for name in ('stats', 'load', 'drv', 'memory', 'host'):
                 try:
                     record['ending_' + name] = command(name)
                 except BaseException as error:
                     record['ending_error'] = str(error)
-                    raise
+                    if 'phase_error' not in record:
+                        raise
+                    break
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--port', default='COM13')
-    parser.add_argument('--sniff', choices=('off', 'raw', 'decoded'), default='off')
+    parser.add_argument('--debug', choices=('off', 'raw', 'decoded'), default=None)
     parser.add_argument('--phase', required=True, choices=('inspect', 'actions', 'forward', 'absolute', 'return', 'stop-normal', 'stop-direct', 'restore', 'status'))
     parser.add_argument('--out', required=True, type=Path, help='new evidence filename prefix; existing files are never overwritten')
     parser.add_argument('--plan-only', action='store_true')
     args = parser.parse_args()
     plan = phase_plan(args.phase)
-    plan.insert(1, 'sniff ' + args.sniff)
-    plan.append('sniff')
-    record = dict(phase=args.phase, sniff_mode=args.sniff, plan=plan, physical_shaft_observation='unmeasured',
+    if args.debug is not None:
+        plan[1:1] = ['debug', 'debug ' + args.debug]
+        plan.extend(['debug', 'restore previous debug mode if changed and console synchronized'])
+    record = dict(phase=args.phase, debug_mode=args.debug, plan=plan, physical_shaft_observation='unmeasured',
                   electrical_timing='unmeasured', automatic_write_replay=False, hours_soak='NOT RUN')
     print(json.dumps(record, indent=2), flush=True)
     if args.plan_only:

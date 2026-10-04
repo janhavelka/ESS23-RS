@@ -1,7 +1,8 @@
 # Short unattended motion checks
 
 Supported operations use the regular library API and ordinary firmware. There is
-no functional-test mode, special firmware image or analyzer admission flag.
+no separate motor execution path or analyzer admission flag. Runtime debug
+mode groups raw/decoded observation around those same operations.
 The user owns correct wiring/electrical installation; firmware owns commands,
 sequencing, framing, software timing and retained outcomes. HIL diagnostics and
 independent physical measurements are separate from ordinary operation.
@@ -39,7 +40,7 @@ of completion. Applications without confirmed response provenance may supply
 execution while following a fully transmitted, valid, timely FC06 frame with
 read-only observations. Short TX, invalid frames and timing ambiguity still fail.
 
-Prepare a phase with `python scripts/bench_motion.py --phase PHASE --sniff decoded
+Prepare a phase with `python scripts/bench_motion.py --phase PHASE --debug decoded
 --out build/bench/NEW_PREFIX --plan-only`, then run without `--plan-only`.
 Phases are inspect, actions, forward, absolute, return, stop-normal, stop-direct, restore
 and status. Inspect each outcome before the next physical action. The tool

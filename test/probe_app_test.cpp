@@ -711,9 +711,12 @@ void testStopKeepsKnownTargetAfterUnrelatedReadAndAction() {
     assert(view(unrelated).actionContext->execution == ActionExecution::NOT_TRANSMITTED);
     assert(!axisReserved(*app, 1) && !axisReserved(*app, 2));
 }
-void testStopAndInterruptedResultSurviveBlockedConsole() {
+void testStopAndInterruptedResultSurviveBlockedConsole(const char* debugMode) {
     using namespace MotorControlRS;
-    fresh(); timerCapture(); qualifyActions(); command("@1 enable\n");
+    fresh(); timerCapture(); qualifyActions();
+    command((std::string("@90 debug ") + debugMode + "\n").c_str());
+    assert(hardware.writes == 0 && app->owner.pending() == 0);
+    command("@1 enable\n");
     const uint32_t original = view(0).operationId; startTx(0);
     Serial.writeCapacity = 0;
     for (unsigned id = 2; id < 15; ++id) Serial.input += "@" + std::to_string(id) + " status\n";
@@ -1387,7 +1390,9 @@ int main() {
     testUncertainStopSurvivesReleaseRecoveryAndCanBeStoppedAgain(); testBadActionReplyKeepsCodecEvidenceAndNoReplay();
     testUnknownActionExceptionKeepsReservationAcrossReleaseAndRecovery();
     testAcceptedStopRetainsBothResultsWhenInterruptedWriteLaterFails();
-    testStopKeepsKnownTargetAfterUnrelatedReadAndAction(); testStopAndInterruptedResultSurviveBlockedConsole();
+    testStopKeepsKnownTargetAfterUnrelatedReadAndAction();
+    for (const char* mode : {"off", "raw", "decoded"})
+        testStopAndInterruptedResultSurviveBlockedConsole(mode);
     testActionEffectsInvalidateHistoricalFreshnessAndReleaseOrigin();
     testCaptureReadUsesOwnerAndPreservesModel(); testCaptureReadRejectsMalformedRepliesAndArguments();
     testActiveConsoleAndBoundedInputOutput(); testQueuePressureAndQueuedCancellation();

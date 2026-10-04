@@ -1,5 +1,11 @@
 # ESS release implementation sequence
 
+The [debug refactor](../../reports/debug_refactor_2026-10-04.md) replaces the
+console `sniff` spelling with `debug off|raw|decoded`, keeps one production
+execution path and consolidates diagnostics/profile state. Prompts23/24 reuse
+this interface and its same-session harness; no subsequent numbered prompt is
+executed by this refactor.
+
 Prepared 2026-10-03 against MotorControl-RS `4ae0c4d` (0.6.0).
 Preparing this set executed no numbered prompt. **Prompts 01-20 have implementation and available verification dispositions;
 21-30 remain prepared and unexecuted. Independent electrical and physical action/motion qualification remain open.**

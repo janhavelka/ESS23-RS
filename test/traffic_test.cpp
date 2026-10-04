@@ -91,7 +91,7 @@ void decode() {
 }
 struct Fake {
     uint64_t now = 0, txEnd = 0;
-    unsigned reads = 0, writes = 0; bool partial = false, corrupt = false;
+    unsigned reads = 0, writes = 0; bool partial = false, corrupt = false, nextFrame = false;
     std::vector<Rtu::RxByte> input; std::size_t next = 0;
     static bool direction(void*, bool) { return true; }
     static Rtu::WriteResult write(void* p, const uint8_t*, std::size_t length) {
@@ -99,6 +99,10 @@ struct Fake {
         if (!f.partial) for (std::size_t i = 0; i < sizeof(REPLY); ++i) {
             Rtu::RxByte b; b.startUs = f.txEnd + 1750 + i * 100; b.endUs = b.startUs + 100;
             b.value = static_cast<uint8_t>(REPLY[i] ^ (f.corrupt && i == sizeof(REPLY)-1 ? 1 : 0)); f.input.push_back(b);
+        }
+        if (f.nextFrame && !f.partial) {
+            Rtu::RxByte b; b.startUs=f.input.back().endUs+1850; b.endUs=b.startUs+100;
+            b.value=0x55; f.input.push_back(b);
         }
         return Rtu::WriteResult(f.partial ? 3 : length);
     }
@@ -115,8 +119,9 @@ struct Fake {
     }
 };
 struct RunResult { Rtu::Result result; unsigned reads, writes; };
-RunResult run(bool observe, bool partial, std::size_t capacity, bool corrupt = false) {
-    Fake fake; fake.partial = partial; fake.corrupt = corrupt;
+RunResult run(bool observe, bool partial, std::size_t capacity, bool corrupt = false,
+              bool nextFrame = false) {
+    Fake fake; fake.partial = partial; fake.corrupt = corrupt; fake.nextFrame=nextFrame;
     Rtu::Port port; port.context=&fake; port.setTransmit=Fake::direction; port.write=Fake::write; port.txState=Fake::tx; port.read=Fake::read;
     uint8_t tx[256],rx[256]; Rtu::Storage storage; storage.tx=tx; storage.txCapacity=sizeof(tx); storage.rx=rx; storage.rxCapacity=sizeof(rx);
     Rtu::Timing timing; Rtu::setRtuTiming(115200,10,timing); timing.busTimeoutUs=10000; timing.txTimeoutUs=10000; timing.captureTimeoutUs=10000;
@@ -126,17 +131,28 @@ RunResult run(bool observe, bool partial, std::size_t capacity, bool corrupt = f
     Rtu::Request request; request.bytes=PROBE; request.length=sizeof(PROBE); request.replyLength=sizeof(REPLY); request.responseTimeoutUs=10000;
     assert(runner.start(request,0)==Rtu::Admission::STARTED);
     assert(!runner.setTrafficCapture(nullptr));
-    for (fake.now=0;fake.now<20000 && runner.busy();fake.now+=50) runner.poll(fake.now);
+    bool delayed=false;
+    for (fake.now=0;fake.now<20000 && runner.busy();fake.now+=50) {
+        // Both frames are already queued when service resumes. The following
+        // frame's first byte, not EMPTY, proves the original reply's idle gap.
+        if (nextFrame && !delayed && runner.phase()==Rtu::Phase::RECEIVE) {
+            fake.now+=5000; delayed=true;
+        }
+        runner.poll(fake.now);
+    }
     assert(runner.result().reason == (partial ? Rtu::Reason::TX_ERROR : Rtu::Reason::FRAME));
     if (!partial) {
         assert(runner.result().rxLength==sizeof(REPLY));
         for (std::size_t i=0;i<sizeof(REPLY);++i) assert(runner.received()[i]==fake.input[i].value);
     }
     if (observe && capacity==16) {
-        uint64_t cursor=0; TrafficRecord item,expected; bool foundTx=false,foundRx=false,foundEnd=false;
+        uint64_t cursor=0; TrafficRecord item,expected; bool foundTx=false,foundRx=false,foundEnd=false,foundNext=false;
         while(capture.copyAfter(cursor,item)) {
             if(item.kind==TrafficKind::TX) { foundTx=true; expected=item; assert(item.length==(partial ? 3 : sizeof(PROBE))); }
             if(item.kind==TrafficKind::RX) {
+                if (nextFrame && item.length==1) {
+                    assert(item.bytes[0]==0x55 && !item.complete); foundNext=true; continue;
+                }
                 foundRx=true; Ess::TrafficDecoded value;
                 assert(std::memcmp(item.bytes,runner.received(),sizeof(REPLY))==0);
                 const Status parsed=Ess::decodeTraffic(item,&expected,value);
@@ -146,6 +162,7 @@ RunResult run(bool observe, bool partial, std::size_t capacity, bool corrupt = f
             if(item.kind==TrafficKind::TX_END) foundEnd=true;
         }
         assert(foundTx && foundEnd && foundRx==!partial);
+        assert(foundNext==nextFrame);
         if(partial) {
             Rtu::RxByte byte; byte.value=0xFF; byte.startUs=fake.now; byte.endUs=fake.now+100; fake.input.push_back(byte);
             fake.now+=100; const Rtu::Result before=runner.result(); runner.discard(fake.now);
@@ -165,6 +182,11 @@ void integration() {
     run(true,true,16);
     const RunResult badPlain=run(false,false,16,true),badObserved=run(true,false,16,true);
     assert(badPlain.reads==badObserved.reads && badPlain.result.reason==badObserved.result.reason);
+    const RunResult delayedPlain=run(false,false,16,false,true),
+        delayedObserved=run(true,false,16,false,true);
+    assert(delayedPlain.reads==delayedObserved.reads &&
+           delayedPlain.result.endedUs==delayedObserved.result.endedUs &&
+           delayedObserved.result.rxLength==sizeof(REPLY));
 }
 } // namespace
 int main() { storage(); decode(); integration(); }

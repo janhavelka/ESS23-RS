@@ -1,5 +1,10 @@
 # Roadmap to a supported ESS release
 
+The [debug refactor](reports/debug_refactor_2026-10-04.md) consolidates runtime
+observation and profile state around the ordinary execution path. Debug changes
+no motor prerequisites or wire policy; software timing remains distinct from
+electrical measurements. See the [debug workflow](traffic.md).
+
 The [regular API and sniff integration](reports/regular_api_sniff_2026-10-04.md)
 removes the functional-test image and flags. Standard firmware performs the
 reviewed actions and finite motion; passive raw/decoded traffic display runs

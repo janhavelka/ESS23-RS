@@ -1,4 +1,33 @@
-# Passive RS485 traffic observation
+# Debugging normal RS485 operation
+
+Debug mode uses the ordinary preparations, sequences, bus owner and checked
+parsers. Turn it on with `debug raw` or `debug decoded`, run the normal command
+you want to investigate, inspect its retained result, then use `debug off`.
+There is one execution path and one UART owner. Changing the display mode sends
+no motor command and changes no admission rule, timeout, recovery or retry policy.
+
+| Need | Command | Effect |
+| --- | --- | --- |
+| Current debug/owner/capture/memory overview | `debug` | Cached host snapshot; no bus traffic |
+| Copied bytes and software events | `debug raw` | Enable bounded diagnostic display |
+| Checked function/register interpretation | `debug decoded` | Decode the same copied traffic |
+| Stop diagnostic capture/display | `debug off` | Ordinary operations continue |
+| Exact retained request/reply/outcome | `result operation_id` | Non-consuming inspection |
+| Current owner, queue and output state | `drv` | Cached host snapshot |
+| Transport failures and capture gaps | `stats` | Cached host counters |
+| Capture-section time, scheduler estimates, service gaps | `load` | Cached HIL fixture measurements, if built |
+| Memory and stack watermarks | `memory` | Host measurements |
+| Bounded injected CPU/service/output load | `load work_us delay_us bytes` | Explicit host fixture change, only while settled |
+| Long checked read for capture diagnostics | `capture-read [address]` | Fixed non-consuming FC03, 16 reviewed words |
+| Position parameters and restoration | `motion-profile read|inspect|restore` | Ordinary typed read / cached inspect / explicit write and readback |
+
+The low-level views preserve raw bytes, CRC/parser errors, TX completion,
+direction, RX bounds and execution uncertainty. Device actions and parameter
+changes continue to use their normal typed commands. Debugging does not introduce
+unchecked register writes or a second motion implementation.
+
+The console command previously named `sniff` is now `debug`; update host scripts.
+The installed library API remains `TrafficCapture` plus the ESS traffic decoder.
 
 `MotorControlRS::TrafficCapture` is an installed, framework-independent observer.
 It copies traffic supplied by the application transport into caller-owned fixed
@@ -46,25 +75,42 @@ strings; the console uses register names for display.
 
 The regular console supports:
 
-- `sniff`: show mode, retained/copy/display/drop counters.
-- `sniff raw`: display copied bytes with direction, correlation and software timing.
-- `sniff decoded`: also display checked function, register names and values.
-- `sniff off`: stop observation/display without changing normal operations.
+- `debug`: show mode, diagnostic counters and the ordinary owner/capture/memory snapshot.
+- `debug raw`: display copied bytes with direction, correlation and software timing.
+- `debug decoded`: also display checked function, register names and values.
+- `debug off`: stop observation/display without changing normal operations.
 
 These commands send no motor traffic. JSONL `type:"traffic"` events can appear
 between ordinary command replies and operation results; they have their own
 sequence/transaction identity. The Python harness validates and logs them
-without consuming a command result. `bench_motion.py --sniff raw|decoded`
+without consuming a command result. `bench_motion.py --debug raw|decoded`
 exercises the same regular API with observation enabled.
 
 The example retains16 records in application storage and formats at most one
 copy per service loop. It reserves output room for ordinary replies. If console
 output is blocked it drops diagnostic display copies and reports the loss,
 leaving bus work and operation results intact. Mode changes skip old display
-copies without clearing the underlying records for other readers.
+copies without clearing the underlying records for other readers. Counters
+separate observed copies, emitted lines, display drops, missed overwritten
+records and intentionally skipped mode-change records. `observed = emitted +
+dropped`; missed and skipped copies are separate. Historical ring overwrites
+are not automatically display losses if that reader already saw the record.
 
 Existing `drv`, `load`, `memory` and retained transaction fields supply HIL
 software measurements: service/capture gaps, TX completion, RX timing bounds,
 faults, CPU-section time, buffer loss and memory watermarks. Wiring is supplied
 by the user; the firmware checks its configured timing/echo contract. Electrical
 qualification is not an admission switch or an alternate execution mode.
+
+For a finite read-only campaign on the existing bench:
+
+```powershell
+python scripts/bench_probe.py --port COM13 --debug decoded --log build/bench/debug_reads.jsonl stress --count 10 --interval 0.05
+```
+
+The harness enables observation on the same connection as the ordinary campaign,
+validates diagnostic events separately from command results, and restores the
+previous mode afterward. `bench_motion.py --debug raw|decoded` supplies the same
+observation for its explicitly selected bounded motion phases. See the
+[short motion procedure](functional_bench.md). Debug display is best effort;
+retained operation results remain the authority for transaction outcomes.

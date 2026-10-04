@@ -1,5 +1,13 @@
 # Motor bench and testing authorization
 
+[Latest debug-refactor evidence](reports/debug_refactor_2026-10-04.md): the normal
+timer image passed short finite forward/return moves, both moving stops,
+release/enable, exact profile restoration and loaded long-frame reads. Final303
+frames have zero transport/capture failures; alarm0, motion1, raw speed0 and
+position0. Load/monitor/debug off, DE released and owner/results empty. Raw/decoded
+debug observes the same production path; electrical/independent shaft evidence
+and the omitted soak remain separate.
+
 [Latest regular-firmware evidence](reports/regular_api_sniff_2026-10-04.md):
 finite relative and nonzero absolute moves, returns, enable/release and both
 moving stops passed while raw/decoded sniffing was active. Original profile and
@@ -56,7 +64,7 @@ input filter `2?3?2` and lock delay `200?201?200`; physical effects remain unqua
 
 [Prompt18](reports/ess_release_18_2026-10-04.md) is a prior named timer
 image: 108 cumulative frames, all20 native tuning reads and exact input-filter
-2→3→2 stored restoration, zero transport/capture errors. Settings/state restored,
+2â†’3â†’2 stored restoration, zero transport/capture errors. Settings/state restored,
 owner empty, DEreleased, load/monitor off. Physical tuning effects and repeated
 out-of-range collision0/0 remain unqualified; no motion or gain change was sent.
 

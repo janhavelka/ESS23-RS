@@ -330,14 +330,22 @@ void Runner::completedFrame(uint64_t latestUs, uint32_t uncertaintyUs) noexcept 
 }
 
 bool Runner::onByte(const RxByte& byte, uint64_t nowUs) noexcept {
-    if (traffic_) {
-        // Split copied traffic at an observed idle gap. The original parser below
-        // remains the sole authority for framing; this observation performs no reads.
-        if (haveRx_ && byte.startUs >= lastRxEndUs_ &&
-            byte.startUs - lastRxEndUs_ >= timing_.gap35Us)
-            traffic_->flushReceived(false, nowUs);
+    if (traffic_ && haveRx_ && byte.startUs >= lastRxEndUs_ &&
+        byte.startUs - lastRxEndUs_ >= timing_.gap35Us) {
+        // The next-frame byte may qualify the preceding frame's closure. Let
+        // the unchanged parser publish that result before copying this byte;
+        // otherwise the valid preceding RX copy would be labelled incomplete.
+        const bool accepted = processByte(byte, nowUs);
+        traffic_->flushReceived(false, nowUs);
         traffic_->received(byte.value, byte.startUs, byte.endUs, byte.uncertaintyUs, nowUs);
+        traffic_->flushReceived(false, nowUs); // Retain even a rejected next-frame byte.
+        return accepted;
     }
+    if (traffic_) traffic_->received(byte.value, byte.startUs, byte.endUs, byte.uncertaintyUs, nowUs);
+    return processByte(byte, nowUs);
+}
+
+bool Runner::processByte(const RxByte& byte, uint64_t nowUs) noexcept {
     // Retain every observed byte in the optional trace, including rejected bytes.
     record(Event::RX, byte.endUs, byte.value, result_.rxLength, byte.startUs,
            byte.uncertaintyUs);

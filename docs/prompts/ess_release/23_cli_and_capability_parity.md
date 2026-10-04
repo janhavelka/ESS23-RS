@@ -1,17 +1,16 @@
-# 23 — Complete public API and CLI coverage
+# 23 â€” Complete public API and CLI coverage
 
 Execute only this prompt under [the execution contract](execution_contract.md).
 Read [the sequence index](README.md); all prerequisite dispositions must be current.
 
-Prerequisite: 05–22 have recorded implementation and qualification dispositions. This step audits and closes integration gaps; it must not hide an unimplemented native family behind generic register access.
+Prerequisite: 05â€“22 have recorded implementation and qualification dispositions. This step audits and closes integration gaps; it must not hide an unimplemented native family behind generic register access.
 
 ## Read and reuse
 
 Read the full axis/profile/CLI/discovery contracts and operation coverage inventory. Trace every public operation to its implementation, console entry, help text and test. Reuse passive status/diagnostic conventions from the existing console.
 
 Reuse the installed `TrafficCapture`/ESS traffic decoder and ordinary
-`sniff off|raw|decoded` and `motion-profile` routes. No functional-test firmware
-mode remains. Diagnostic copies and display-loss counters must stay independent
+`debug off|raw|decoded` and `motion-profile` routes. Runtime debug observation uses the same production execution path. Diagnostic copies and display-loss counters must stay independent
 of protocol bytes, command correlation and retained operation results.
 
 ## Work
@@ -33,4 +32,4 @@ Test help/dispatch/API inventory parity, strict argument counts/ranges, large in
 
 ## Subagents and handoff
 
-Assign an independent API/CLI inventory reviewer and a state/side-effect reviewer. Audit contradictions in docs against actual code. Deliver the final command/result contract for 24–26; complete common fixes, evidence and commit/sync.
+Assign an independent API/CLI inventory reviewer and a state/side-effect reviewer. Audit contradictions in docs against actual code. Deliver the final command/result contract for 24â€“26; complete common fixes, evidence and commit/sync.

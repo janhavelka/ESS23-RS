@@ -15,10 +15,10 @@
 namespace MotorControlRSExample { namespace Probe {
 namespace {
 
-enum class Command : uint8_t { HELP, VERSION, CONFIG, STATUS, HEALTH, STATS, PROBE, CAPTURE_READ, RECOVER, RESET, MEMORY, LOAD, DRV, RESULT, CANCEL, RELEASE, READ, PROFILE, CAPS, READ_IDENTITY, READ_CONFIG, READ_STATE, HEALTH_CHECK, MONITOR, AXIS, PREPARE, ENABLE, MOTOR_RELEASE, ALARM_CLEAR, STOP, MOVE, POSITION_CLEAR, VELOCITY, DRIVER, IO, HOME, SEGMENT, CONTROL, TUNING, HOST, COMMUNICATION, MOTION_PROFILE, SNIFF };
+enum class Command : uint8_t { HELP, VERSION, CONFIG, STATUS, HEALTH, STATS, PROBE, CAPTURE_READ, RECOVER, RESET, MEMORY, LOAD, DRV, RESULT, CANCEL, RELEASE, READ, PROFILE, CAPS, READ_IDENTITY, READ_CONFIG, READ_STATE, HEALTH_CHECK, MONITOR, AXIS, PREPARE, ENABLE, MOTOR_RELEASE, ALARM_CLEAR, STOP, MOVE, POSITION_CLEAR, VELOCITY, DRIVER, IO, HOME, SEGMENT, CONTROL, TUNING, HOST, COMMUNICATION, MOTION_PROFILE, DEBUG };
 struct Entry { const char* name; Command command; const char* syntax; const char* effect; bool bus; };
 const Entry COMMANDS[] = {
-    {"sniff", Command::SNIFF, "sniff [off|raw|decoded]", "nonconsuming_traffic_observation", false},
+    {"debug", Command::DEBUG, "debug [off|raw|decoded]", "observe_regular_operations_and_cached_diagnostics", false},
     {"motion-profile", Command::MOTION_PROFILE, "motion-profile read|inspect|restore", "snapshot_position_parameters_and_restore_exact_original", true},
     {"help", Command::HELP, "help [command]", "show_callable_commands", false},
     {"version", Command::VERSION, "version", "show_build", false},
@@ -548,9 +548,9 @@ const char* cancellationName(Rtu::Cancellation value) {
 
 } // namespace
 
-bool Console::reportSniff(const Core::TrafficRecord& record, SniffMode mode,
+bool Console::reportTraffic(const Core::TrafficRecord& record, DebugMode mode,
                           const Core::TrafficRecord* request) noexcept {
-    if (mode==SniffMode::OFF || mode>SniffMode::DECODED || outputPending() || !host_.emitLine ||
+    if (mode==DebugMode::OFF || mode>DebugMode::DECODED || outputPending() || !host_.emitLine ||
         record.length>Core::TRAFFIC_MAX_BYTES) return false;
     char raw[Core::TRAFFIC_MAX_BYTES*2+1], expected[Core::TRAFFIC_MAX_BYTES*2+1];
     hex(record.bytes,record.length,raw,sizeof(raw));
@@ -559,12 +559,12 @@ bool Console::reportSniff(const Core::TrafficRecord& record, SniffMode mode,
     std::size_t used=0;
     if (!append(output_,sizeof(output_),used,
         "{\"type\":\"traffic\",\"profile\":\"ess_rs\",\"mode\":\"%s\",\"sequence\":%llu,\"transaction\":%llu,\"kind\":\"%s\",\"at_us\":%llu,\"start_us\":%llu,\"end_us\":%llu,\"uncertainty_us\":%lu,\"length\":%u,\"code\":%u,\"complete\":%s,\"raw_hex\":\"%s\",\"expected_request_hex\":\"%s\",\"expected_request_sequence\":%llu,\"decode_status\":",
-        mode==SniffMode::RAW?"raw":"decoded",static_cast<unsigned long long>(record.sequence),
+        mode==DebugMode::RAW?"raw":"decoded",static_cast<unsigned long long>(record.sequence),
         static_cast<unsigned long long>(record.transaction),Core::trafficKindName(record.kind),
         static_cast<unsigned long long>(record.atUs),static_cast<unsigned long long>(record.startUs),
         static_cast<unsigned long long>(record.endUs),static_cast<unsigned long>(record.uncertaintyUs),
-        record.length,record.code,boolean(record.complete),raw,mode==SniffMode::DECODED && record.kind==Core::TrafficKind::RX?expected:"",static_cast<unsigned long long>(mode==SniffMode::DECODED && record.kind==Core::TrafficKind::RX && matching?request->sequence:0))) return false;
-    if (mode==SniffMode::DECODED && (record.kind==Core::TrafficKind::TX || record.kind==Core::TrafficKind::RX)) {
+        record.length,record.code,boolean(record.complete),raw,mode==DebugMode::DECODED && record.kind==Core::TrafficKind::RX?expected:"",static_cast<unsigned long long>(mode==DebugMode::DECODED && record.kind==Core::TrafficKind::RX && matching?request->sequence:0))) return false;
+    if (mode==DebugMode::DECODED && (record.kind==Core::TrafficKind::TX || record.kind==Core::TrafficKind::RX)) {
         Ess::TrafficDecoded decoded; Ess::FrameError frameError=Ess::FrameError::NONE;
         const auto status=Ess::decodeTraffic(record,matching?request:nullptr,decoded,&frameError);
         if (!append(output_,sizeof(output_),used,"\"%s\",\"decode_detail\":%ld,\"frame_error\":%u,\"decoded\":",Core::errToString(status.code),static_cast<long>(status.detail),static_cast<unsigned>(frameError))) return false;
@@ -739,30 +739,35 @@ void Console::dispatch() noexcept {
         error(id, capability, "unsupported"); return;
     }
     if (!entry) { error(id, "unknown", "unknown_command"); return; }
-    if (entry->command == Command::SNIFF) {
-        if (!host_.sniff) { error(id,"sniff","unavailable"); return; }
-        SniffMode mode=SniffMode::OFF; bool change=count==first+2;
-        if (count<first+1 || count>first+2) { error(id,"sniff","invalid_arguments"); return; }
+    if (entry->command == Command::DEBUG) {
+        if (!host_.debug || !host_.snapshot) { error(id,"debug","unavailable"); return; }
+        DebugMode mode=DebugMode::OFF; bool change=count==first+2;
+        if (count<first+1 || count>first+2) { error(id,"debug","invalid_arguments"); return; }
         if (change) {
-            if (!std::strcmp(tokens[first+1],"raw")) mode=SniffMode::RAW;
-            else if (!std::strcmp(tokens[first+1],"decoded")) mode=SniffMode::DECODED;
-            else if (std::strcmp(tokens[first+1],"off")) { error(id,"sniff","invalid_arguments"); return; }
+            if (!std::strcmp(tokens[first+1],"raw")) mode=DebugMode::RAW;
+            else if (!std::strcmp(tokens[first+1],"decoded")) mode=DebugMode::DECODED;
+            else if (std::strcmp(tokens[first+1],"off")) { error(id,"debug","invalid_arguments"); return; }
         }
-        if (outputPending() && (!change || mode!=SniffMode::OFF)) { ++inputDropped_; return; }
-        SniffSnapshot view;
-        const auto result=host_.sniff(host_.context,change?&mode:nullptr,view);
+        if (outputPending() && (!change || mode!=DebugMode::OFF)) { ++inputDropped_; return; }
+        DebugSnapshot view;
+        const auto result=host_.debug(host_.context,change?&mode:nullptr,view);
         // Disabling remains possible under pressure; an existing ordinary reply
         // keeps its ownership and the diagnostic reply may be dropped.
         if (outputPending()) { ++inputDropped_; return; }
+        Snapshot data;
+        if (host_.snapshot) host_.snapshot(host_.context,data);
         std::size_t used=0;
         if (append(output_,sizeof(output_),used,
-            "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"sniff\",\"ok\":%s,\"result\":\"%s\",\"mode\":\"%s\",\"observed\":%llu,\"emitted\":%llu,\"dropped\":%llu,\"cursor\":%llu,\"overwritten\":%lu,\"capture_dropped\":%lu,\"retained\":%u,\"capacity\":%u}",
+            "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"debug\",\"ok\":%s,\"result\":\"%s\",\"mode\":\"%s\",\"observed\":%llu,\"emitted\":%llu,\"dropped\":%llu,\"missed\":%llu,\"skipped\":%llu,\"cursor\":%llu,\"overwritten\":%lu,\"capture_dropped\":%lu,\"retained\":%u,\"capacity\":%u,\"owner\":{\"phase\":\"%s\",\"busy\":%s,\"recovery_required\":%s,\"pending\":%u,\"retained\":%u},\"capture\":{\"mode\":\"%s\",\"faults\":%lu,\"max_poll_gap_us\":%llu},\"memory\":{\"valid\":%s,\"stack_free_bytes\":%lu,\"internal_free\":%lu,\"psram_free\":%lu}}",
             static_cast<unsigned long>(id),boolean(result==Action::OK),actionName(result),
-            view.mode==SniffMode::RAW?"raw":view.mode==SniffMode::DECODED?"decoded":"off",
+            view.mode==DebugMode::RAW?"raw":view.mode==DebugMode::DECODED?"decoded":"off",
             static_cast<unsigned long long>(view.observed),static_cast<unsigned long long>(view.emitted),
-            static_cast<unsigned long long>(view.dropped),static_cast<unsigned long long>(view.cursor),
-            static_cast<unsigned long>(view.overwritten),static_cast<unsigned long>(view.captureDropped),static_cast<unsigned>(view.retained),static_cast<unsigned>(view.capacity))) emit();
-        else error(id,"sniff","output_capacity");
+            static_cast<unsigned long long>(view.dropped),static_cast<unsigned long long>(view.missed),static_cast<unsigned long long>(view.skipped),static_cast<unsigned long long>(view.cursor),
+            static_cast<unsigned long>(view.overwritten),static_cast<unsigned long>(view.captureDropped),static_cast<unsigned>(view.retained),static_cast<unsigned>(view.capacity),
+            Rtu::phaseName(data.phase),boolean(data.busy),boolean(data.recoveryRequired),static_cast<unsigned>(data.pending),static_cast<unsigned>(data.retained),
+            data.timerCapture?"timer":"poll",static_cast<unsigned long>(data.captureFaults),static_cast<unsigned long long>(data.maxPollGapUs),
+            boolean(data.memoryValid),static_cast<unsigned long>(data.stackFreeBytes),static_cast<unsigned long>(data.internalFree),static_cast<unsigned long>(data.psramFree))) emit();
+        else error(id,"debug","output_capacity");
         return;
     }
     if (entry->command == Command::MOTION_PROFILE) {
@@ -782,7 +787,7 @@ void Console::dispatch() noexcept {
         std::size_t used=0;
         if (append(output_,sizeof(output_),used,
             "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"motion-profile\",\"ok\":%s,\"result\":\"%s\",\"pending\":%s,\"saved\":%s,\"restored\":%s,\"session_ok\":%s,\"phase\":%u,\"address\":%u,\"configuration_generation\":%lu,\"serial_generation\":%lu,\"original\":[%u,%u,%u,%u,%u,%u],\"current\":[%u,%u,%u,%u,%u,%u],\"tx_hex\":\"%s\",\"rx_hex\":\"%s\",\"write_reply_hex\":\"%s\",\"tx_accepted\":%llu,\"closure_qualified\":%s,\"closure_earliest_us\":%llu,\"closure_latest_us\":%llu,\"execution_unknown\":%s,\"error\":\"%s\"}",
-            static_cast<unsigned long>(id),boolean(result==Action::OK),actionName(result),boolean(v.pending),boolean(v.saved),boolean(v.restored),boolean(v.ok),v.phase,v.address,
+            static_cast<unsigned long>(id),boolean(result==Action::OK),actionName(result),boolean(v.pending),boolean(v.saved),boolean(v.restored),boolean(v.ok),static_cast<unsigned>(v.phase),v.address,
             static_cast<unsigned long>(v.generation),static_cast<unsigned long>(v.serialGeneration),
             v.original[0],v.original[1],v.original[2],v.original[3],v.original[4],v.original[5],
             v.current[0],v.current[1],v.current[2],v.current[3],v.current[4],v.current[5],tx,rx,write,
@@ -1330,6 +1335,8 @@ void Console::dispatch() noexcept {
         case Command::MONITOR: return host_.monitor != nullptr;
         case Command::LOAD: return host_.load != nullptr;
         case Command::HOST: return host_.hostSerial != nullptr;
+        case Command::DEBUG: return host_.debug && host_.snapshot;
+        case Command::MOTION_PROFILE: return host_.motionProfile != nullptr;
         case Command::COMMUNICATION: return host_.communication != nullptr;
         case Command::CAPTURE_READ: return host_.startCaptureRead != nullptr;
         case Command::ENABLE: case Command::MOTOR_RELEASE: case Command::ALARM_CLEAR: case Command::STOP: case Command::POSITION_CLEAR: return host_.startAction && host_.snapshot;

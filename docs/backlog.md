@@ -1,10 +1,17 @@
 # Features implementation tasks and open questions
 
+## Debugging the production path
+
+- [x] One runtime `debug off|raw|decoded` interface, cohesive fixed observer state and ordinary owner/capture/memory snapshot.
+- [x] Explicit missed/skipped/display-loss counters and corrected delayed-service frame observation; no alternate motor execution path.
+- [x] Separated motion-readiness checks from typed parameter snapshot/restoration, one profile session/deadline and named phases.
+- [x] Same-session Python observation with explicit mode restoration; native pressure/parity coverage. [Verification](reports/debug_refactor_2026-10-04.md).
+
 ## Regular API and passive traffic observation
 
 - [x] Removed the separate functional firmware/flags; regular preparations and console routes handle actions and native finite positioning.
 - [x] Typed position-profile snapshot/staging/restoration; native absolute targets retain unknown displacement when a reference is unnecessary.
-- [x] Installed caller-owned TrafficCapture and checked ESS translation; console `sniff off|raw|decoded`, independent reader cursors and explicit diagnostic loss.
+- [x] Installed caller-owned TrafficCapture and checked ESS translation; console `debug off|raw|decoded`, independent reader cursors and explicit diagnostic loss.
 - [x] Observer on/off/overflow native equivalence; ordinary firmware motion/stop/readback with raw/decoded display. [Evidence](reports/regular_api_sniff_2026-10-04.md).
 
 

@@ -21,6 +21,12 @@ def encoded(item):
 
 
 def reply(request_id, command, **fields):
+    if command == "debug":
+        fields.setdefault("missed", 0)
+        fields.setdefault("skipped", 0)
+        fields.setdefault("owner", dict(phase="IDLE", busy=False, recovery_required=False, pending=0, retained=0))
+        fields.setdefault("capture", dict(mode="timer", faults=0, max_poll_gap_us=12))
+        fields.setdefault("memory", dict(valid=True, stack_free_bytes=2000, internal_free=10000, psram_free=100000))
     if command in ("status", "health"):
         fields.setdefault("state_blocks", [dict(block=i, valid=False, current=False, fresh=False, source="absent",
             target=0, address=0, generation=0, operation_id=0, attempt_known=False, last_attempt_ok=False,
@@ -1260,13 +1266,13 @@ class Framing(unittest.TestCase):
         self.assertIn("framing", events[-1][1]["cleanup_error"])
         self.assertFalse(events[-1][1]["ok"])
 
-    def test_sniff_commands_and_nonconsuming_interleaved_frames(self):
+    def test_debug_commands_and_nonconsuming_interleaved_frames(self):
         mode="off"
         def handler(request_id, command, args):
             nonlocal mode
-            if command=="sniff":
+            if command=="debug":
                 if args: mode=args[0]
-                return encoded(reply(request_id,"sniff",mode=mode,observed=2,emitted=2,dropped=0,cursor=2,
+                return encoded(reply(request_id,"debug",mode=mode,observed=2,emitted=2,dropped=0,cursor=2,
                     overwritten=0,capture_dropped=0,retained=2,capacity=16))
             normal=Serial.normal(request_id,command,args)
             if command=="probe":
@@ -1274,19 +1280,142 @@ class Framing(unittest.TestCase):
                 return accepted+encoded(traffic_record())+encoded(traffic_record(2,"RX"))+terminal
             return normal
         console=self.session(handler,fragment=17)
-        self.assertEqual(console.command("sniff",host_args=("decoded",))["mode"],"decoded")
+        self.assertEqual(console.command("debug",host_args=("decoded",))["mode"],"decoded")
         result=console.command("probe",address=1)
         self.assertTrue(result["ok"])
         self.assertEqual(len([e for e in self.events if e["event"]=="traffic"]),2)
         self.assertFalse(console.operations)
-        self.assertEqual(console.command("sniff",host_args=())["mode"],"decoded")
-        self.assertEqual(console.command("sniff",host_args=("off",))["mode"],"off")
+        self.assertEqual(console.command("debug",host_args=())["mode"],"decoded")
+        self.assertEqual(console.command("debug",host_args=("off",))["mode"],"off")
         before=len(self.port.writes)
         for args in (("invalid",),("raw","off"),["raw"],("decoded\n",)):
-            with self.assertRaises(ValueError): console.command("sniff",host_args=args)
+            with self.assertRaises(ValueError): console.command("debug",host_args=args)
         self.assertEqual(len(self.port.writes),before)
 
-    def test_sniff_invalid_translation_cannot_publish_invented_values(self):
+    def test_debug_cached_snapshot_and_independent_loss_counters(self):
+        good = reply(2,"debug",mode="raw",observed=3,emitted=2,dropped=1,missed=4,skipped=5,cursor=12,
+                     overwritten=4,capture_dropped=0,retained=3,capacity=16)
+        for mutate in (lambda x:x.update(missed=3), lambda x:x.update(dropped=2),
+                lambda x:x.update(skipped=-1), lambda x:x.pop("owner"),
+                lambda x:x["owner"].update(busy=1), lambda x:x["owner"].update(phase="running"),
+                lambda x:x["capture"].update(faults=-1), lambda x:x["capture"].update(mode="unknown"),
+                lambda x:x["memory"].update(valid=1), lambda x:x["memory"].update(internal_free=-1)):
+            bad=copy.deepcopy(good); mutate(bad)
+            def handler(i,cmd,args):
+                if cmd=="debug": return encoded(dict(bad,id=i))
+                return Serial.normal(i,cmd,args)
+            console=self.session(handler)
+            with self.assertRaises(bench.BenchError): console.command("debug",host_args=("raw",))
+        def valid(i,cmd,args):
+            return encoded(dict(good,id=i)) if cmd=="debug" else Serial.normal(i,cmd,args)
+        console=self.session(valid)
+        self.assertEqual(console.command("debug",host_args=("raw",))["missed"],4)
+
+    def test_debug_session_uses_regular_path_and_restores_previous_mode(self):
+        mode="raw"
+        def handler(i,cmd,args):
+            nonlocal mode
+            if cmd=="debug":
+                if args: mode=args[0]
+                return encoded(reply(i,cmd,mode=mode,observed=0,emitted=0,dropped=0,cursor=0,
+                                     overwritten=0,capture_dropped=0,retained=0,capacity=16))
+            return Serial.normal(i,cmd,args)
+        console=self.session(handler)
+        with bench.debug_session(console,"decoded",.1) as evidence:
+            result=console.command("probe",address=1)
+            self.assertTrue(result["ok"])
+        self.assertEqual(mode,"raw")
+        self.assertEqual(evidence["cleanup"],"restored")
+        commands=[line.decode().split()[1:] for line in self.port.writes]
+        self.assertEqual(commands,[['version'],['debug'],['debug','decoded'],['probe','1'],['release','104'],['debug'],['debug','raw']])
+        before=len(self.port.writes)
+        with bench.debug_session(console,None,.1): pass
+        self.assertEqual(len(self.port.writes),before)
+
+    def test_debug_session_preserves_operation_error_if_display_cleanup_fails(self):
+        mode="off"; queries=0
+        def handler(i,cmd,args):
+            nonlocal mode,queries
+            if cmd!="debug": return Serial.normal(i,cmd,args)
+            queries+=1
+            if queries>2: return encoded(reply(i,cmd,ok=False,result="unavailable"))
+            if args: mode=args[0]
+            return encoded(reply(i,cmd,mode=mode,observed=0,emitted=0,dropped=0,cursor=0,
+                                 overwritten=0,capture_dropped=0,retained=0,capacity=16))
+        console=self.session(handler)
+        with self.assertRaisesRegex(bench.BenchError,"original operation failure"):
+            with bench.debug_session(console,"decoded",.1) as evidence:
+                raise bench.BenchError("original operation failure")
+        self.assertEqual(evidence["cleanup"],"failed")
+        self.assertIn("debug selection",evidence["cleanup_error"])
+        self.assertFalse(any(b"probe" in line for line in self.port.writes))
+
+    def test_debug_session_does_not_send_cleanup_into_untrusted_stream(self):
+        def handler(i,cmd,args):
+            if cmd!="debug": return Serial.normal(i,cmd,args)
+            return encoded(reply(i,cmd,mode=args[0] if args else "off",observed=0,emitted=0,dropped=0,cursor=0,
+                                 overwritten=0,capture_dropped=0,retained=0,capacity=16))
+        console=self.session(handler)
+        with bench.debug_session(console,"raw",.1) as evidence:
+            console.synchronized=False
+        self.assertEqual(evidence["cleanup"],"skipped_unsynchronized")
+        self.assertEqual(len(self.port.writes),3)
+
+    def test_debug_session_restores_after_synchronized_final_query_refusal(self):
+        mode="off"; queries=0
+        def handler(i,cmd,args):
+            nonlocal mode,queries
+            if cmd!="debug": return Serial.normal(i,cmd,args)
+            queries+=1
+            if queries==3: return encoded(reply(i,cmd,ok=False,result="unavailable"))
+            if args: mode=args[0]
+            return encoded(reply(i,cmd,mode=mode,observed=0,emitted=0,dropped=0,cursor=0,
+                                 overwritten=0,capture_dropped=0,retained=0,capacity=16))
+        console=self.session(handler)
+        with self.assertRaisesRegex(bench.BenchError,"debug selection/query failed"):
+            with bench.debug_session(console,"decoded",.1) as evidence:
+                pass
+        self.assertEqual(mode,"off")
+        self.assertEqual(evidence["restored"]["mode"],"off")
+        self.assertEqual(evidence["cleanup"],"failed")
+        self.assertEqual([line.decode().split()[1:] for line in self.port.writes],
+                         [['version'],['debug'],['debug','decoded'],['debug'],['debug','off']])
+
+    def test_debug_session_evidence_failure_preserves_primary_or_first_cleanup_error(self):
+        for failure in ("body", "query", "none"):
+            queries=0
+            def handler(i,cmd,args):
+                nonlocal queries
+                if cmd!="debug": return Serial.normal(i,cmd,args)
+                queries+=1
+                if failure=="query" and queries==3:
+                    return encoded(reply(i,cmd,ok=False,result="unavailable"))
+                return encoded(reply(i,cmd,mode=args[0] if args else "off",observed=0,emitted=0,dropped=0,cursor=0,
+                                     overwritten=0,capture_dropped=0,retained=0,capacity=16))
+            console=self.session(handler)
+            def failing_sink(event,**fields):
+                if event=="debug_session": raise OSError("evidence sink unavailable")
+            console.emit=failing_sink
+            expected="primary operation" if failure=="body" else "debug selection/query" if failure=="query" else "evidence sink"
+            with self.subTest(failure=failure), self.assertRaisesRegex((bench.BenchError,OSError),expected):
+                with bench.debug_session(console,"raw",.1) as evidence:
+                    if failure=="body": raise bench.BenchError("primary operation")
+            self.assertEqual(evidence["evidence_error"],"evidence sink unavailable")
+            self.assertEqual(evidence["restored"]["mode"],"off")
+            self.assertEqual(len(self.port.writes),5)
+
+    def test_debug_cli_selection_is_optional_and_no_old_alias(self):
+        prefix=["--port","fake","--log","unused.jsonl"]
+        self.assertIsNone(bench.arguments(prefix+["probe"]).debug)
+        self.assertEqual(bench.arguments(prefix+["--debug","decoded","probe"]).debug,"decoded")
+        self.assertEqual(bench.arguments(prefix+["debug","raw"]).host_args,("raw",))
+        with redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit): bench.arguments(prefix+["--debug","raw","debug","off"])
+            with self.assertRaises(SystemExit): bench.arguments(prefix+["sniff","raw"])
+        console=self.session()
+        with self.assertRaises(ValueError): console.command("sniff",host_args=("raw",))
+
+    def test_debug_invalid_translation_cannot_publish_invented_values(self):
         good=traffic_record(2,"RX")
         for mutate in (lambda x:x.update(raw_hex=x["raw_hex"][:-4]+"0000"),
                 lambda x:x.update(expected_request_hex=""),lambda x:x.update(expected_request_sequence=2),
@@ -1304,7 +1433,7 @@ class Framing(unittest.TestCase):
         self.assertEqual(self.events[-1]["response"]["raw_hex"],bad["raw_hex"])
         with self.assertRaises(bench.BenchError): console._dispatch(bad)
 
-    def test_sniff_noise_budget_is_separate_from_command_response(self):
+    def test_debug_noise_budget_is_separate_from_command_response(self):
         def handler(request_id,command,args):
             normal=Serial.normal(request_id,command,args)
             if command!="probe": return normal
@@ -1340,14 +1469,15 @@ class Framing(unittest.TestCase):
         self.assertEqual(console.traffic_sequence,1)
         self.assertEqual(len([e for e in self.events if e["event"]=="traffic"]),1)
 
-    def test_sniff_counter_regression_rejected_across_mode_changes(self):
+    def test_debug_counter_regression_rejected_across_mode_changes(self):
         def handler(request_id,command,args):
-            if command!="sniff": return Serial.normal(request_id,command,args)
-            return encoded(reply(request_id,"sniff",mode=args[0],observed=2 if args[0]=="raw" else 1,
-                emitted=1,dropped=0,cursor=2,overwritten=0,capture_dropped=0,retained=2,capacity=16))
+            if command!="debug": return Serial.normal(request_id,command,args)
+            return encoded(reply(request_id,"debug",mode=args[0],observed=2 if args[0]=="raw" else 1,
+                emitted=2 if args[0]=="raw" else 1,dropped=0,cursor=2 if args[0]=="raw" else 1,
+                overwritten=0,capture_dropped=0,retained=2,capacity=16))
         console=self.session(handler)
-        console.command("sniff",host_args=("raw",))
-        with self.assertRaises(bench.BenchError): console.command("sniff",host_args=("off",))
+        console.command("debug",host_args=("raw",))
+        with self.assertRaises(bench.BenchError): console.command("debug",host_args=("off",))
 
     def test_motion_profile_commands_retain_snapshot_and_restore_proof(self):
         restored = False

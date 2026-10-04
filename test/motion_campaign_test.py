@@ -27,6 +27,11 @@ class FakeConsole:
         self.released = False
         self.stop_sent = False
         self.handle = None
+        self.debug_mode = "off"
+        self.events = []
+
+    def emit(self, event, **fields):
+        self.events.append((event, fields))
 
     def identify(self):
         self.calls.append(("version", {}))
@@ -34,6 +39,10 @@ class FakeConsole:
 
     def command(self, name, **kwargs):
         self.calls.append((name, kwargs))
+        if name == "debug":
+            args=kwargs.get("host_args",())
+            if args: self.debug_mode=args[0]
+            return dict(ok=True, mode=self.debug_mode)
         if name == "host":
             return dict(ok=True, active=dict(baud=115200, format="8N1"), blocked=False)
         if name == "load":
@@ -74,6 +83,35 @@ class FakeConsole:
 
 
 class FunctionalCampaignTest(unittest.TestCase):
+    def test_selected_debug_observes_regular_phase_and_restores_mode(self):
+        console=FakeConsole(); console.debug_mode="raw"
+        record=dict(debug_mode="decoded")
+        campaign.run_phase(console,"inspect",record)
+        self.assertEqual(console.debug_mode,"raw")
+        self.assertEqual([v["host_args"] for v in console.commands("debug")],[(),("decoded",),(),("raw",)])
+        self.assertEqual(record["debug"]["cleanup"],"restored")
+        self.assertEqual(len(console.commands("read-identity")),1)
+        self.assertFalse(console.commands("stop"))
+        ordinary=FakeConsole(); campaign.run_phase(ordinary,"inspect",{})
+        self.assertFalse(ordinary.commands("debug"))
+        self.assertEqual([name for name,_ in console.calls if name!="debug"],[name for name,_ in ordinary.calls])
+
+    def test_debug_cleanup_failure_preserves_failed_motion(self):
+        console=FakeConsole(move_ok=False)
+        original=console.command
+        def command(name,**kwargs):
+            if name=="debug" and console.handle is not None:
+                raise campaign.BenchError("display query failed")
+            return original(name,**kwargs)
+        console.command=command
+        record=dict(debug_mode="decoded")
+        with self.assertRaises(campaign.BenchError) as raised:
+            campaign.run_phase(console,"forward",record)
+        self.assertNotIn("display query",str(raised.exception))
+        self.assertEqual(record["debug"]["cleanup"],"failed")
+        self.assertEqual(record["debug"]["cleanup_error"],"display query failed")
+        self.assertEqual(len(console.commands("move-relative")),1)
+
     def test_experiments_require_bounded_feedback_before_any_motion_write(self):
         for phase in ("forward", "return", "stop-normal", "stop-direct"):
             for position in (-1, 251):

@@ -1,5 +1,9 @@
 # MotorControl-RS
 
+The [runtime debug interface](docs/traffic.md) observes normal operations with
+`debug off|raw|decoded` and a combined owner/capture/memory overview. Typed low-level
+reads, parameter snapshots/restoration and retained results use the ordinary APIs.
+
 The regular API and firmware support actions and finite positioning without a
 special test mode. [Passive RS485 sniffing](docs/traffic.md) displays raw or
 decoded copies while normal communication continues. Applications can use the

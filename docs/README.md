@@ -1,5 +1,9 @@
 # MotorControl-RS documentation
 
+[Debugging normal operations](traffic.md) groups passive traffic, checked
+translation, software timing and retained outcomes around the production path.
+Use `debug off|raw|decoded`; the former console `sniff` spelling is replaced.
+
 The [ordinary motion procedure](functional_bench.md) uses regular APIs and
 firmware. [Passive raw/decoded sniffing](traffic.md) copies traffic without
 consuming protocol bytes. Earlier [recorded results](reports/functional_motion_2026-10-04.md)

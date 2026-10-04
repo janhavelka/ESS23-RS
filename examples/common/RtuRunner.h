@@ -230,6 +230,7 @@ private:
     void finish(Reason reason, uint64_t nowUs, bool fault) noexcept;
     bool receive(uint64_t nowUs) noexcept; // true only when adapter reaches EMPTY.
     bool onByte(const RxByte& byte, uint64_t nowUs) noexcept;
+    bool processByte(const RxByte& byte, uint64_t nowUs) noexcept;
     void frame(uint64_t nowUs) noexcept;
     void completedFrame(uint64_t latestUs, uint32_t uncertaintyUs) noexcept;
     void closure(uint64_t latestUs, uint32_t uncertaintyUs, bool qualified) noexcept;

@@ -30,19 +30,21 @@ enum class Action : uint8_t { OK, BUSY, RECOVERY_REQUIRED, UNAVAILABLE, FAILED,
     QUEUE_FULL, RESULTS_FULL, IDS_EXHAUSTED, INVALID, ALREADY_TERMINAL,
     TIMING_UNQUALIFIED, UNSUPPORTED, AXIS_CONFLICT };
 
-enum class SniffMode : uint8_t { OFF, RAW, DECODED };
-struct SniffSnapshot {
-    SniffMode mode = SniffMode::OFF;
-    uint64_t observed = 0, emitted = 0, dropped = 0, cursor = 0;
+enum class DebugMode : uint8_t { OFF, RAW, DECODED };
+struct DebugSnapshot {
+    DebugMode mode = DebugMode::OFF;
+    uint64_t observed = 0, emitted = 0, dropped = 0, missed = 0, skipped = 0, cursor = 0;
     uint32_t overwritten = 0, captureDropped = 0;
     std::size_t retained = 0, capacity = 0;
 };
 
 enum class MotionProfileCommand : uint8_t { INSPECT, SNAPSHOT, RESTORE };
+enum class MotionProfilePhase : uint8_t { EMPTY, READ, RESTORE, READBACK };
 /** Explicit position-parameter snapshot and checked restoration. */
 struct MotionProfileView {
     bool pending = false, saved = false, restored = false, ok = false;
-    uint8_t phase = 0, address = 0;
+    MotionProfilePhase phase = MotionProfilePhase::EMPTY;
+    uint8_t address = 0;
     uint32_t generation = 0, serialGeneration = 0;
     uint16_t original[6] = {}, current[6] = {};
     uint8_t tx[19] = {}, rx[64] = {}, writeReply[8] = {}, writeTx[19] = {};
@@ -271,7 +273,7 @@ struct Host {
      * command, retry or automatic recovery. Request is consumed during the call. */
     Action (*hostSerial)(void*, const HostRequest* requested, HostSnapshot&) = nullptr;
     Action (*communication)(void*, const CommunicationCommand*, CommunicationView&) = nullptr;
-    Action (*sniff)(void*, const SniffMode* requested, SniffSnapshot&) = nullptr;
+    Action (*debug)(void*, const DebugMode* requested, DebugSnapshot&) = nullptr;
     Action (*motionProfile)(void*, MotionProfileCommand, MotionProfileView&) = nullptr;
     bool (*result)(void*, uint32_t operationId, ResultView&) = nullptr; ///< Zero selects latest.
     Action (*cancel)(void*, uint32_t operationId) = nullptr; ///< Local only; zero selects latest.
@@ -298,7 +300,7 @@ public:
     explicit Console(const Host& host) noexcept : host_(host) {}
     /** Best-effort diagnostic copy. Never reserves pending output or touches any
      * command correlation; false drops this display record only. */
-    bool reportSniff(const MotorControlRS::TrafficRecord&, SniffMode,
+    bool reportTraffic(const MotorControlRS::TrafficRecord&, DebugMode,
                      const MotorControlRS::TrafficRecord* request = nullptr) noexcept;
     /** Consume one character. Under output pressure local cancel, monitor off
      * and one reserved stop can dispatch. Other commands are counted and discarded. */

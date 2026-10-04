@@ -31,9 +31,9 @@ void reply(const Rtu::RequestId& id, const std::vector<uint8_t>& bytes) {
     scheduleReply(std::max(hardware.writeStarted+hardware.tx.size()*87+1000,hardware.time+1000),bytes);
 }
 void fixtureReply(const std::vector<uint8_t>& bytes) {
-    const auto phase=app->motionProfile.phase; reply(app->motionProfileRequest,bytes);
-    for (unsigned i=0;i<25000 && app->motionProfile.pending && app->motionProfile.phase==phase;++i) step();
-    assert(!app->motionProfile.pending || app->motionProfile.phase!=phase);
+    const auto phase=app->motionProfile.view.phase; reply(app->motionProfile.request,bytes);
+    for (unsigned i=0;i<25000 && app->motionProfile.view.pending && app->motionProfile.view.phase==phase;++i) step();
+    assert(!app->motionProfile.view.pending || app->motionProfile.view.phase!=phase);
 }
 }
 int main() {
@@ -41,9 +41,17 @@ int main() {
     resetHardware(); setup(); assert(app); hardware.txCharacterUs=87;
     assert(uart.startCapture(20,timing().holdUs)); refresh();
     Probe::MotionProfileView v;
+    v.address = 77;
+    unsigned char savedProfile[sizeof(app->motionProfile)];
+    std::memcpy(savedProfile,&app->motionProfile,sizeof(savedProfile));
+    const auto writesBeforeInvalidCommand = hardware.writes;
+    assert(motionProfileCommand(app,static_cast<Probe::MotionProfileCommand>(255),v)==Probe::Action::INVALID);
+    assert(v.address==77 && hardware.writes==writesBeforeInvalidCommand && !app->owner.pending());
+    assert(!std::memcmp(savedProfile,&app->motionProfile,sizeof(savedProfile)));
+
     assert(motionProfileCommand(app,Probe::MotionProfileCommand::SNAPSHOT,v)==Probe::Action::OK && v.pending);
     fixtureReply(words({10,100,100,30,0,7}));
-    assert(app->motionProfile.saved && app->motionProfile.ok && !writeResponseConfirmed);
+    assert(app->motionProfile.view.saved && app->motionProfile.view.ok && !writeResponseConfirmed);
     auto request=MoveRequest(); request.position.value=Rational(100); request.position.configurationGeneration=app->axis.generation;
     request.speedRpm=60; request.ramp=MoveRamp::VERIFIED_CONFIGURED;
     ESS::MovePrerequisites p;
@@ -56,17 +64,38 @@ int main() {
     auto* r=findRecord(*app,operation); assert(r);
     // A copied-traffic observer under full console pressure cannot consume or
     // mutate the admitted move, its result or its bus queue.
-    Probe::SniffSnapshot sniff; Probe::SniffMode mode=Probe::SniffMode::RAW;
-    assert(sniffCommand(app,&mode,sniff)==Probe::Action::OK);
+    Probe::DebugSnapshot debug; Probe::DebugMode mode=Probe::DebugMode::RAW;
+    assert(debugCommand(app,&mode,debug)==Probe::Action::OK);
     const auto queued=app->owner.pending(); const auto originalRequest=r->requestId;
     const auto outputCount=app->outputCount; const bool pendingOutput=app->console.outputPending();
-    const auto dropped=app->sniffState.dropped;
+    const auto dropped=app->debug.state.dropped;
     const uint8_t diagnostic[]={1,3,0,0,0,1,0x84,0x0A};
-    app->traffic.begin(hardware.time); app->traffic.transmitted(diagnostic,sizeof(diagnostic),true,hardware.time);
-    app->outputCount=OUTPUT_LINES-2; serviceSniff(*app); app->outputCount=outputCount;
-    assert(app->sniffState.dropped==dropped+1 && app->owner.pending()==queued);
+    app->debug.capture.begin(hardware.time); app->debug.capture.transmitted(diagnostic,sizeof(diagnostic),true,hardware.time);
+    app->outputCount=OUTPUT_LINES-2; serviceDebug(*app); app->outputCount=outputCount;
+    assert(app->debug.state.dropped==dropped+1 && app->owner.pending()==queued);
     assert(r->requestId.owner==originalRequest.owner && r->requestId.generation==originalRequest.generation && r->requestId.slot==originalRequest.slot);
     assert(app->owner.result(r->requestId)==nullptr && app->console.outputPending()==pendingOutput);
+
+    // Ring loss and deliberate mode-change skips are distinct from copies that
+    // were observed but could not be displayed. Changing mode flushes partial RX
+    // before skipping it, preserving it for independent readers.
+    const auto beforeDebug=app->debug.state;
+    for (unsigned i=0;i<20;++i) app->debug.capture.event(TrafficKind::END,hardware.time);
+    app->outputCount=OUTPUT_LINES-2; serviceDebug(*app); app->outputCount=outputCount;
+    assert(app->debug.state.missed==beforeDebug.missed+4);
+    assert(app->debug.state.observed==beforeDebug.observed+1);
+    assert(app->debug.state.dropped==beforeDebug.dropped+1);
+    app->debug.capture.received(0xAB,hardware.time-1,hardware.time,0,hardware.time);
+    mode=Probe::DebugMode::DECODED;
+    assert(debugCommand(app,&mode,debug)==Probe::Action::OK);
+    assert(debug.skipped==beforeDebug.skipped+16 && !app->debug.requestKnown);
+    assert(debug.emitted+debug.dropped==debug.observed);
+    assert(debug.observed+debug.missed+debug.skipped==debug.cursor);
+    uint64_t independent=0; TrafficRecord copied; bool partialPreserved=false;
+    while (app->debug.capture.copyAfter(independent,copied))
+        if (copied.kind==TrafficKind::RX && copied.length==1 && copied.bytes[0]==0xAB)
+            partialPreserved=!copied.complete;
+    assert(partialPreserved && app->owner.pending()==queued);
 
     reply(r->requestId,crc({1,16,0,0x21,0,5}));
     for (unsigned i=0;i<25000 && r->move.step==0;++i) step();
@@ -102,6 +131,11 @@ int main() {
     assert(absoluteMoveInEnvelope(*app,request,hardware.time));
     app->stateCache.blocks[2].value.rawPosition=251;
     assert(!absoluteMoveInEnvelope(*app,request,hardware.time));
+    p.startSpeed = 777;
+    unsigned char savedPrerequisites[sizeof(p)]; std::memcpy(savedPrerequisites,&p,sizeof(p));
+    assert(!moveRequirements(*app,request,hardware.time,p));
+    assert(!std::memcmp(savedPrerequisites,&p,sizeof(p)));
+
     app->stateCache.blocks[2].value.rawPosition=99;
     request.position.value=Rational(251);
     assert(!absoluteMoveInEnvelope(*app,request,hardware.time));
@@ -120,14 +154,14 @@ int main() {
     findRecord(*app,returning)->delivered=true;
     assert(release(app,returning)==Probe::Action::OK);
     assert(motionProfileCommand(app,Probe::MotionProfileCommand::RESTORE,v)==Probe::Action::OK);
-    fixtureReply(crc({1,16,0,0x21,0,5})); assert(app->motionProfile.phase==3);
-    fixtureReply(words({10,100,100,30,0,7})); assert(app->motionProfile.restored && app->motionProfile.ok);
+    fixtureReply(crc({1,16,0,0x21,0,5})); assert(app->motionProfile.view.phase==Probe::MotionProfilePhase::READBACK);
+    fixtureReply(words({10,100,100,30,0,7})); assert(app->motionProfile.view.restored && app->motionProfile.view.ok);
     // Refresh preserves originals; a second profile read cannot overwrite them.
     assert(motionProfileCommand(app,Probe::MotionProfileCommand::SNAPSHOT,v)==Probe::Action::OK);
-    fixtureReply(words({10,100,100,60,0,100})); assert(app->motionProfile.original[3]==30 && app->motionProfile.current[3]==60);
+    fixtureReply(words({10,100,100,60,0,100})); assert(app->motionProfile.view.original[3]==30 && app->motionProfile.view.current[3]==60);
     assert(motionProfileCommand(app,Probe::MotionProfileCommand::RESTORE,v)==Probe::Action::OK);
     fixtureReply(crc({1,16,0,0x21,0,5})); fixtureReply(words({10,100,100,60,0,100}));
-    assert(!app->motionProfile.ok && !app->motionProfile.restored && !std::strcmp(app->motionProfile.error,"readback_mismatch"));
+    assert(!app->motionProfile.view.ok && !app->motionProfile.view.restored && !std::strcmp(app->motionProfile.view.error,"readback_mismatch"));
     Serial.input="@99 motion-profile inspect\n";
     for (unsigned i=0;i<1000;++i) step();
     assert(Serial.output.find("\"command\":\"motion-profile\"")!=std::string::npos);

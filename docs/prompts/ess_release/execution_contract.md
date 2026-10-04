@@ -143,8 +143,10 @@ remains source-unconfirmed: an explicit observation policy may follow it with
 read-only verification without relabelling it an acknowledged write. Preserve
 all framing, overflow, stale evidence and no-replay guards. The user owns correct
 wiring/electrical installation; firmware owns documented commands, sequencing
-and software timing. Do not add a special functional mode or analyzer admission
-flag. HIL timing measurements and passive traffic display remain diagnostics.
+and software timing. A runtime debug mode may group HIL timing and passive traffic diagnostics,
+while operations retain one production API/owner/parser path and unchanged
+admission rules. Do not add an analyzer admission flag or alternate execution
+semantics.
 Resolve or bound
 actual command semantics; do not promote unknown encoding into a safe command.
 

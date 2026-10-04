@@ -25,8 +25,8 @@ struct Fake {
     unsigned loads = 0, loadChanges = 0;
     unsigned typedReads = 0, monitors = 0, monitorChanges = 0;
     unsigned actions = 0;
-    unsigned sniffCalls = 0;
-    Probe::SniffSnapshot sniffState;
+    unsigned debugCalls = 0;
+    Probe::DebugSnapshot debugState;
     unsigned moves = 0;
     unsigned velocities = 0;
     MotorControlRS::VelocityRequest velocityRequest;
@@ -63,10 +63,10 @@ struct Fake {
         ++self.snapshots;
         output = self.data;
     }
-    static Probe::Action sniff(void* context, const Probe::SniffMode* mode, Probe::SniffSnapshot& out) {
-        Fake& self=*static_cast<Fake*>(context); ++self.sniffCalls;
-        if (mode) self.sniffState.mode=*mode;
-        self.sniffState.capacity=16; out=self.sniffState; return Probe::Action::OK;
+    static Probe::Action debug(void* context, const Probe::DebugMode* mode, Probe::DebugSnapshot& out) {
+        Fake& self=*static_cast<Fake*>(context); ++self.debugCalls;
+        if (mode) self.debugState.mode=*mode;
+        self.debugState.capacity=16; out=self.debugState; return Probe::Action::OK;
     }
     static Probe::Action probe(void* context, uint32_t id, uint8_t address, uint32_t& operation) {
         Fake& self = *static_cast<Fake*>(context);
@@ -185,51 +185,65 @@ void send(Probe::Console& console, const std::string& input) {
     for (char c : input) console.feed(c);
 }
 
-void sniffFixtures() {
+void debugFixtures() {
     Fake fake; auto host=fake.host(); Probe::Console console(host);
     MotorControlRS::TrafficRecord tx; tx.kind=MotorControlRS::TrafficKind::TX;
     tx.sequence=1; tx.transaction=1; tx.atUs=100; tx.complete=true;
     tx.length=static_cast<uint16_t>(Ess::buildReadRegisters(1,0,1,tx.bytes,sizeof(tx.bytes)));
-    assert(console.reportSniff(tx,Probe::SniffMode::DECODED));
+    assert(console.reportTraffic(tx,Probe::DebugMode::DECODED));
     auto rx=tx; rx.kind=MotorControlRS::TrafficKind::RX; rx.sequence=2; rx.atUs=rx.endUs=200; rx.startUs=150;
     rx.bytes[0]=1; rx.bytes[1]=3; rx.bytes[2]=2; rx.bytes[3]=0x4E; rx.bytes[4]=0xEA; rx.length=7;
     const auto crc=Ess::calcCrc16(rx.bytes,5); rx.bytes[5]=crc; rx.bytes[6]=crc>>8;
-    assert(console.reportSniff(rx,Probe::SniffMode::DECODED,&tx));
+    assert(console.reportTraffic(rx,Probe::DebugMode::DECODED,&tx));
     rx.sequence=3; rx.bytes[6]^=1;
-    assert(console.reportSniff(rx,Probe::SniffMode::DECODED,&tx));
+    assert(console.reportTraffic(rx,Probe::DebugMode::DECODED,&tx));
     rx.sequence=4; rx.complete=false; rx.length=3;
-    assert(console.reportSniff(rx,Probe::SniffMode::RAW));
+    assert(console.reportTraffic(rx,Probe::DebugMode::RAW));
     MotorControlRS::TrafficRecord end; end.kind=MotorControlRS::TrafficKind::END;
     end.sequence=5; end.transaction=1; end.atUs=300; end.code=1;
-    assert(console.reportSniff(end,Probe::SniffMode::DECODED));
+    assert(console.reportTraffic(end,Probe::DebugMode::DECODED));
     for (const auto& line:fake.lines) std::puts(line.c_str());
 }
 
-void testSniffTranslationAndOutputIsolation() {
-    Fake fake; auto host=fake.host(); host.sniff=Fake::sniff; Probe::Console console(host);
-    send(console,"@1 sniff decoded\n"); fake.contains("\"mode\":\"decoded\"");
-    assert(fake.sniffCalls==1 && fake.sniffState.mode==Probe::SniffMode::DECODED);
+void testDebugTranslationAndOutputIsolation() {
+    Fake fake; auto host=fake.host(); host.debug=Fake::debug; Probe::Console console(host);
+    fake.data.phase=Rtu::Phase::RECEIVE; fake.data.busy=true; fake.data.pending=2; fake.data.retained=3;
+    fake.data.timerCapture=true; fake.data.captureFaults=4; fake.data.maxPollGapUs=17;
+    fake.data.memoryValid=true; fake.data.stackFreeBytes=2345; fake.data.internalFree=12345; fake.data.psramFree=54321;
+    fake.debugState.missed=4; fake.debugState.skipped=7;
+    send(console,"@1 debug decoded\n"); fake.contains("\"mode\":\"decoded\"");
+    fake.contains("\"missed\":4,\"skipped\":7");
+    fake.contains("\"owner\":{\"phase\":\"RECEIVE\",\"busy\":true,\"recovery_required\":false,\"pending\":2,\"retained\":3}");
+    fake.contains("\"capture\":{\"mode\":\"timer\",\"faults\":4,\"max_poll_gap_us\":17}");
+    fake.contains("\"memory\":{\"valid\":true,\"stack_free_bytes\":2345,\"internal_free\":12345,\"psram_free\":54321}");
+    assert(fake.snapshots==1);
+    assert(fake.debugCalls==1 && fake.debugState.mode==Probe::DebugMode::DECODED);
     MotorControlRS::TrafficRecord tx; tx.kind=MotorControlRS::TrafficKind::TX;
     tx.sequence=1; tx.transaction=1; tx.atUs=100; tx.complete=true;
     tx.length=static_cast<uint16_t>(Ess::buildReadRegisters(1,0,1,tx.bytes,sizeof(tx.bytes)));
-    assert(console.reportSniff(tx,Probe::SniffMode::DECODED));
+    assert(console.reportTraffic(tx,Probe::DebugMode::DECODED));
     fake.contains("\"function_name\":\"read_registers\""); fake.contains("\"register_names\":[\"DRIVER_MODEL\"]");
     auto rx=tx; rx.kind=MotorControlRS::TrafficKind::RX; rx.sequence=2; rx.atUs=rx.endUs=200; rx.startUs=150;
     rx.bytes[0]=1; rx.bytes[1]=3; rx.bytes[2]=2; rx.bytes[3]=0x4E; rx.bytes[4]=0xEA; rx.length=7;
     const auto crc=Ess::calcCrc16(rx.bytes,5); rx.bytes[5]=crc; rx.bytes[6]=crc>>8;
-    assert(console.reportSniff(rx,Probe::SniffMode::DECODED,&tx)); fake.contains("\"words\":[20202]");
+    assert(console.reportTraffic(rx,Probe::DebugMode::DECODED,&tx)); fake.contains("\"words\":[20202]");
     rx.complete=false; rx.length=3;
-    assert(console.reportSniff(rx,Probe::SniffMode::DECODED,&tx)); fake.contains("\"decoded\":null");
-    assert(console.reportSniff(rx,Probe::SniffMode::RAW,&tx)); fake.contains("\"raw_hex\":\"010302\"");
+    assert(console.reportTraffic(rx,Probe::DebugMode::DECODED,&tx)); fake.contains("\"decoded\":null");
+    assert(console.reportTraffic(rx,Probe::DebugMode::RAW,&tx)); fake.contains("\"raw_hex\":\"010302\"");
     fake.contains("\"decode_status\":null");
     fake.blocked=true;
-    assert(!console.reportSniff(tx,Probe::SniffMode::RAW)); assert(!console.outputPending());
+    assert(!console.reportTraffic(tx,Probe::DebugMode::RAW)); assert(!console.outputPending());
     send(console,"@2 status\n"); assert(console.outputPending());
-    assert(!console.reportSniff(tx,Probe::SniffMode::DECODED));
-    send(console,"@3 sniff off\n"); assert(fake.sniffState.mode==Probe::SniffMode::OFF && console.outputPending());
+    assert(!console.reportTraffic(tx,Probe::DebugMode::DECODED));
+    send(console,"@3 debug off\n"); assert(fake.debugState.mode==Probe::DebugMode::OFF && console.outputPending());
     fake.blocked=false; assert(console.serviceOutput()); fake.contains("\"id\":2"); fake.contains("\"command\":\"status\"");
-    assert(!console.reportSniff(tx,Probe::SniffMode::OFF));
-    send(console,"@4 sniff invalid\n"); fake.contains("invalid_arguments"); assert(fake.sniffCalls==2);
+    assert(!console.reportTraffic(tx,Probe::DebugMode::OFF));
+    send(console,"@4 debug invalid\n"); fake.contains("invalid_arguments"); assert(fake.debugCalls==2);
+    send(console,"help debug\n"); fake.contains("debug [off|raw|decoded]"); fake.contains("\"bus_traffic\":false");
+    send(console,"sniff raw\n"); fake.contains("unknown_command");
+    Fake absent; Probe::Console other(absent.host()); send(other,"help\n");
+    assert(absent.lines.back().find("\"debug\"")==std::string::npos);
+    send(other,"help debug\n"); absent.contains("unavailable");
     fake.untouched();
 }
 
@@ -1979,7 +1993,7 @@ void testSegmentGrammarAndCorrelation() {
     assert(f.drivers == 3);
 }
 int main(int argc, char** argv) {
-    if (argc==2 && !std::strcmp(argv[1],"--sniff-fixtures")) { sniffFixtures(); return 0; }
+    if (argc==2 && !std::strcmp(argv[1],"--debug-fixtures")) { debugFixtures(); return 0; }
     if (argc == 2 && !std::strcmp(argv[1], "--tuning-fixtures")) { tuningFixtures(); return 0; }
     if (argc == 2 && !std::strcmp(argv[1], "--control-fixtures")) { controlFixtures(); return 0; }
     if (argc == 2 && !std::strcmp(argv[1], "--segment-fixtures")) { segmentFixtures(); return 0; }
@@ -1991,7 +2005,7 @@ int main(int argc, char** argv) {
     }
     if (argc == 2 && std::strcmp(argv[1], "--home-fixtures") == 0) { homeFixtures(); return 0; }
     if (argc == 2 && std::strcmp(argv[1], "--io-fixtures") == 0) { driverFixtures(true); return 0; }
-    testSniffTranslationAndOutputIsolation();
+    testDebugTranslationAndOutputIsolation();
     testSegmentGrammarAndCorrelation();
     testControlRoutes();
     testTuningRoutes();

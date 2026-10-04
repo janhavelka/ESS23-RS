@@ -6,6 +6,7 @@
 #include <cstring>
 #include <algorithm>
 #include "ProbeConsole.h"
+#include "DebugSession.h"
 #include "StateCache.h"
 #include <MotorControlRS/profiles/ess_rs/Actions.h>
 #include <MotorControlRS/profiles/ess_rs/Position.h>
@@ -134,16 +135,13 @@ struct App {
     bool commandPolarityKnown = true; // Host declaration; invalidated by possible device-direction changes.
     MotorControlRS::AxisReference coordinateReference; // Qualified command-coordinate evidence; never inferred from an unsigned/raw zero.
     bool positionClearQualified = false; // Supplied commissioning semantics, independent of electrical qualification.
-    MotorControlRS::TrafficRecord sniffRecords[16], sniffRequest, sniffScratch;
-    MotorControlRS::TrafficCapture traffic{sniffRecords,16};
-    Probe::SniffSnapshot sniffState;
-    bool sniffRequestKnown = false;
-    uint64_t sniffCursor = 0;
-    Probe::MotionProfileView motionProfile;
-    ESS::RawConfig motionProfileConfig;
-    Rtu::RequestId motionProfileRequest;
-    uint32_t motionProfileBinding = 0;
-    uint64_t motionProfileDeadline = 0;
+    Probe::DebugSession debug;
+    struct MotionProfileState {
+        Probe::MotionProfileView view;
+        ESS::RawConfig configuration;
+        Rtu::RequestId request;
+        uint32_t bindingGeneration = 0;
+    } motionProfile;
     ESS::MovePrerequisites movePrerequisites; // Supplied commissioning evidence; false until verified.
     ESS::HomePrerequisites homePrerequisites; // Explicit method/active-auxiliary/native/reference qualification.
     ESS::VelocityPrerequisites velocityPrerequisites; // Independent commissioning evidence, initially unqualified.
@@ -216,7 +214,7 @@ bool terminal(const App& a, const App::Record& record) {
     return record.typedRead ? record.read.state != ReadState::ACTIVE : a.owner.result(record.requestId) != nullptr;
 }
 bool axisReserved(const App& a, uint8_t address = 0) {
-    if (a.motionProfile.pending && (!address || a.motionProfile.address == address)) return true;
+    if (a.motionProfile.view.pending && (!address || a.motionProfile.view.address == address)) return true;
     // Recovery changes correlation generation, not the physical target's uncertainty.
     if (address) {
         if (a.actionConflicts[address / 8] & (1U << (address % 8))) return true;
@@ -548,6 +546,7 @@ Rtu::BusAdmission admitActionStep(App& a, App::Record& record, const ESS::Prepar
     return record.action.request.kind == MotorControlRS::ActionKind::STOP ?
         a.owner.admitUrgent(request, now, record.requestId) : a.owner.admit(request, now, record.requestId);
 }
+#include "MotionReadinessApp.h"
 #include "MotionProfileApp.h"
 
 Probe::Action startAction(void* context, uint32_t commandId, uint8_t address,
@@ -1779,13 +1778,13 @@ Probe::Action hostSerial(void* context, const Probe::HostRequest* requested, Pro
 }
 #include "CommunicationApp.h"
 
-#include "SniffApp.h"
+#include "DebugApp.h"
 Probe::Host host(App* a) {
     Probe::Host h; h.context = a; h.emitLine = emit; h.snapshot = snapshot;
     h.startProbe = probe; h.startCaptureRead = captureRead; h.recover = recover; h.resetStats = reset;
     h.startTypedRead = typedRead;
     h.startAction = startAction; h.startMove = startMove; h.startVelocity = startVelocity; h.startDriver = startDriver; h.startHome = startHome;
-    h.monitor = monitor; h.motionProfile = motionProfileCommand; h.sniff = sniffCommand;
+    h.monitor = monitor; h.motionProfile = motionProfileCommand; h.debug = debugCommand;
     h.axis = axisCommand; h.hostSerial = hostSerial; h.communication = communication;
     h.result = lookup; h.cancel = cancel; h.release = release;
 #if MOTORCONTROLRS_LOAD_FIXTURE
@@ -1919,7 +1918,7 @@ void setup() {
     fixtureReady = loadFixture.begin(); platformReady = platformReady && fixtureReady;
 #endif
     app = new (memory) App;
-    app->runner.setTrafficCapture(&app->traffic);
+    app->runner.setTrafficCapture(&app->debug.capture);
 }
 void loop() {
     if (!app) { delay(10); return; }
@@ -1969,7 +1968,7 @@ void loop() {
         if (loadFixture.takeLine(text, sizeof(text), size)) emit(&a, text, size);
     }
 #endif
-    serviceSniff(a);
+    serviceDebug(a);
     drainOutput(a);
     if (!a.owner.active() || !serviceDue) delay(1);
 }
