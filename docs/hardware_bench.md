@@ -2,6 +2,13 @@
 
 ## User report on 2026-10-02
 
+Latest prompt08 check: [action/stop report](reports/ess_release_08_2026-10-04.md).
+Final timer image passes 28-frame read-only regression and five action-admission
+rejections with zero TX. The retained initial report-script failure also completed
+28 checked reads. Total 56 frames/576 RX bytes, zero transport errors; configuration
+and raw state unchanged. Load/monitor off, DE released, owner empty. Physical
+enable/release/alarm-clear/stop remain NOT RUN pending independent timing/echo evidence.
+
 | Item | Reported setup |
 | --- | --- |
 | Host port | COM13 |

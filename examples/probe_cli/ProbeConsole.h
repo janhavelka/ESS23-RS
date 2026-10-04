@@ -6,12 +6,13 @@
 #include "AxisConsole.h"
 #include "MotorControlRS/profiles/ess_rs/Codec.h"
 #include "MotorControlRS/profiles/ess_rs/Reads.h"
+#include "MotorControlRS/profiles/ess_rs/Actions.h"
 
 namespace MotorControlRSExample { namespace Probe {
 
 constexpr std::size_t LINE_CAPACITY = 128;
 constexpr std::size_t OUTPUT_CAPACITY = 4096;
-constexpr std::size_t OUTSTANDING_CAPACITY = 9;
+constexpr std::size_t OUTSTANDING_CAPACITY = 10; // Nine ordinary correlations plus one stop.
 constexpr std::size_t PROBE_TX_CAPACITY = 8;
 constexpr std::size_t PROBE_RX_CAPACITY = 64;
 // Fixed non-consuming FC03 timing fixture; function manual physical p77.
@@ -19,7 +20,8 @@ constexpr uint16_t CAPTURE_FIRST = 0x0130, CAPTURE_WORDS = 16;
 
 /** Host action result; admitted reads and recovery complete asynchronously. */
 enum class Action : uint8_t { OK, BUSY, RECOVERY_REQUIRED, UNAVAILABLE, FAILED,
-    QUEUE_FULL, RESULTS_FULL, IDS_EXHAUSTED, INVALID, ALREADY_TERMINAL };
+    QUEUE_FULL, RESULTS_FULL, IDS_EXHAUSTED, INVALID, ALREADY_TERMINAL,
+    TIMING_UNQUALIFIED, UNSUPPORTED, AXIS_CONFLICT };
 
 /** Host-only qualification workload. Changes never configure the motor. */
 struct LoadSettings {
@@ -65,6 +67,7 @@ struct Snapshot {
     uint64_t uptimeMs = 0;
     bool ready = false;
     bool timingQualified = false;
+    bool actionsQualified = false, axisReserved = false;
     bool busy = false;
     bool transmitEnabled = false; ///< Asserted or uncertain DE, including fault cleanup.
     bool recoveryRequired = false;
@@ -138,6 +141,8 @@ struct ResultView {
     uint8_t address = 0;
     bool pending = false, recovery = false, captureRead = false;
     const MotorControlRS::ESS_RS::ReadContext* typedRead = nullptr; ///< Borrowed only during formatting.
+    const MotorControlRS::ESS_RS::ActionContext* actionContext = nullptr;
+    bool interruptedByStop = false;
     ProbeResult probe;
     Rtu::RecoveryResult recoveryResult;
 };
@@ -146,7 +151,7 @@ struct ResultView {
  * without a newline and must consume/copy it before returning. It must not call
  * back into the console. Return false without copying any bytes for backpressure.
  * The console retains one complete blocked line. With that line pending,
- * only valid cancel and monitor off commands dispatch; other complete commands and local
+ * valid cancel, monitor off and one reserved stop can dispatch; other complete commands and local
  * cancel replies are discarded and counted by inputDropped(). Terminal lines
  * remain retained and are never replaced by a discarded command reply.
  * snapshot only reads cached state and must not touch the
@@ -172,6 +177,8 @@ struct Host {
     Action (*startCaptureRead)(void*, uint32_t commandId, uint8_t address, uint32_t& operationId) = nullptr;
     Action (*startTypedRead)(void*, uint32_t commandId, uint8_t address,
                             MotorControlRS::ESS_RS::ReadKind, uint32_t& operationId) = nullptr;
+    Action (*startAction)(void*, uint32_t commandId, uint8_t address,
+                         const MotorControlRS::ActionRequest&, uint32_t& operationId) = nullptr;
     Action (*recover)(void*, uint32_t commandId, uint32_t& operationId) = nullptr;
     void (*resetStats)(void*) = nullptr;
     Action (*load)(void*, const LoadSettings* requested, LoadSnapshot&) = nullptr;
@@ -186,12 +193,12 @@ struct Host {
     MotorControlRS::Status (*axis)(void*, const AxisCommand&, AxisView&) = nullptr;
 };
 
-/** Fixed-capacity read-only ESS console; no allocation, clocks or platform I/O.
+/** Fixed-capacity ESS console; no allocation, clocks or platform I/O.
  * Feed at most the application's character budget each loop. CR, LF and CRLF
  * end a line. Reject overflow/control bytes as a whole line, never execute a
  * prefix. Optional @1..4294967295 prefix supplies a host correlation id; plain
  * commands use monotonically increasing local ids (wrapping to 1), skipping
- * outstanding correlations. Nine asynchronous commands may be outstanding;
+ * outstanding correlations. Nine ordinary commands and one reserved stop may be outstanding;
  * duplicate explicit IDs fail before callbacks. Operation result retention
  * belongs to the host and is released only by its explicit release hook.
  * Host callbacks and terminal reports share one task. Place this object in PSRAM if
@@ -200,11 +207,11 @@ struct Host {
 class Console {
 public:
     explicit Console(const Host& host) noexcept : host_(host) {}
-    /** Consume one character. Under output pressure only valid local cancel and monitor off
-     * commands dispatch; other completed commands are counted and discarded. */
+    /** Consume one character. Under output pressure local cancel, monitor off
+     * and one reserved stop can dispatch. Other commands are counted and discarded. */
     void feed(char value) noexcept;
     bool serviceOutput() noexcept;
-    bool outputPending() const noexcept { return outputPending_; }
+    bool outputPending() const noexcept { return outputPending_ || stopReply_.pending; }
     uint64_t inputDropped() const noexcept { return inputDropped_; }
     /** True transfers the terminal line to the console/sink; false changes nothing.
      * A blocked sink retains exactly one line. Never retry a transferred result. */
@@ -213,6 +220,8 @@ public:
     /** Same transfer contract as reportProbe. Context is borrowed during this
      * call only; operation identity and terminal state are checked before use. */
     bool reportRead(uint32_t id, uint32_t operationId, const MotorControlRS::ESS_RS::ReadContext&) noexcept;
+    bool reportAction(uint32_t id, uint32_t operationId, const MotorControlRS::ESS_RS::ActionContext&,
+                      bool interruptedByStop = false) noexcept;
 
 private:
     void dispatch() noexcept;
@@ -220,7 +229,7 @@ private:
     void action(uint32_t id, const char* command, Action result, uint8_t address = 0, uint32_t operationId = 0) noexcept;
     void emit(uint32_t terminalOperation = 0) noexcept;
     bool outstanding(uint32_t id) const noexcept;
-    bool track(uint32_t id, uint32_t operationId) noexcept;
+    bool track(uint32_t id, uint32_t operationId, bool stop = false) noexcept;
     void untrack(uint32_t operationId) noexcept;
     bool formatProbe(uint32_t id, uint32_t commandId, uint8_t address, uint32_t operationId,
                      const ProbeResult&, bool inspection) noexcept;
@@ -228,6 +237,8 @@ private:
                         const Rtu::RecoveryResult&, bool inspection) noexcept;
     bool formatRead(uint32_t id, uint32_t commandId, uint32_t operationId,
                     const MotorControlRS::ESS_RS::ReadContext&, bool inspection) noexcept;
+    bool formatAction(uint32_t id, uint32_t commandId, uint32_t operationId,
+                      const MotorControlRS::ESS_RS::ActionContext&, bool inspection, bool interruptedByStop) noexcept;
 
     Host host_;
     char line_[LINE_CAPACITY] = {};
@@ -242,6 +253,13 @@ private:
     uint32_t nextId_ = 1;
     struct Outstanding { uint32_t commandId = 0, operationId = 0; bool transferred = false; } outstanding_[OUTSTANDING_CAPACITY];
     uint32_t pendingTerminalOperation_ = 0;
+    // Retain one stop admission under output pressure without a second line buffer.
+    struct StopReply {
+        bool pending = false;
+        uint32_t id = 0, operationId = 0;
+        uint8_t address = 0;
+        Action result = Action::FAILED;
+    } stopReply_;
     uint64_t inputDropped_ = 0;
     bool outputPending_ = false;
     bool overflow_ = false;

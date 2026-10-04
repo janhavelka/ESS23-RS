@@ -9,4 +9,5 @@
 #include "Units.h"
 #include "Axis.h"
 #include "ReadOperation.h"
+#include "ActionOperation.h"
 #include "Version.h"

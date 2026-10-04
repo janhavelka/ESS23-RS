@@ -3,6 +3,7 @@
 #include <MotorControlRS/ReadOperation.h>
 #include <MotorControlRS/Axis.h>
 #include <MotorControlRS/profiles/ess_rs/Reads.h>
+#include <MotorControlRS/profiles/ess_rs/Actions.h>
 
 int main() {
     using namespace MotorControlRS;
@@ -47,5 +48,22 @@ int main() {
         prepared.effectiveNative != position.value.numerator || !prepared.exactArithmetic) return 14;
     Rational number;
     if (!parseExactNumber("-0.125", number) || number.numerator != -1 || number.denominator != 8) return 15;
+    ActionContext action;
+    StopPolicy policy; policy.behavior = StopBehavior::CONFIGURED_DECELERATION;
+    if (!MotorControlRS::prepareStop(action, target, 6, policy, 1000, 100000)) return 16;
+    PreparedAction work;
+    if (!nextAction(action, 1000, work) || !work.write || work.reg != 0x27 || work.value != 0x100) return 17;
+    ActionEvent evidence; evidence.transport.target = target; evidence.transport.operationId = 6;
+    evidence.transport.frame = work.bytes; evidence.transport.length = work.length;
+    evidence.transport.txAccepted = work.length; evidence.transport.qualified = true;
+    evidence.transport.earliestUs = 1100; evidence.transport.latestUs = 1200;
+    evidence.txComplete = true; evidence.responseConfirmed = true;
+    if (!advanceAction(action, evidence, 1300) || action.execution != ActionExecution::ACKNOWLEDGED ||
+        action.completion != ActionCompletion::NOT_OBSERVED) return 18;
+    if (!nextAction(action, 1300, work) || work.kind != ActionWork::WAIT) return 19;
+    evidence = ActionEvent(); evidence.transport.target = target; evidence.transport.operationId = 6;
+    evidence.transport.step = action.step; evidence.transport.kind = ReadEventKind::CANCEL;
+    if (!advanceAction(action, evidence, 1400) || action.outcome != ActionOutcome::CANCELLED ||
+        action.execution != ActionExecution::ACKNOWLEDGED) return 20;
     return 0;
 }

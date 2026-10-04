@@ -163,6 +163,14 @@ public:
     /** Local cancellation only; physical TX drains. CANCELLED means accepted,
      * possibly pending. Captured on-time completion or earlier expiry can win. */
     Cancel cancel(const RequestId& id, uint64_t nowUs) noexcept;
+    /** Supersede one unsent request after replacement capacity is reserved.
+     * Cancels queued work or WAIT_BUS/SETUP before TX; an in-flight frame and
+     * its sequence remain untouched so its reply can settle naturally. Returns
+     * false for terminal/stale/in-flight requests. No other request is changed. */
+    bool cancelUnsent(const RequestId& id, uint64_t nowUs) noexcept;
+    /** Bytes accepted by the port for this live request, including active TX.
+     * Zero for queued/foreign/released IDs; acceptance is not acknowledgement. */
+    std::size_t txAccepted(const RequestId& id) const noexcept;
     /** One bounded service step; supplied monotonic microseconds share port epoch.
      * recoveryReady=false still polls/settles TX and enforces the recovery deadline,
      * but postpones drain/reinitialization until application adapter cleanup is safe. */

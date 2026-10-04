@@ -7,6 +7,7 @@
 #include <algorithm>
 #include "ProbeConsole.h"
 #include "StateCache.h"
+#include <MotorControlRS/profiles/ess_rs/Actions.h>
 #include "../common/EssRtuValidator.h"
 #include "../common/Esp32S3Uart.h"
 #include "../common/BuildConfig.h"
@@ -29,6 +30,8 @@ bool fixtureReady = false;
 uint64_t nextServiceUs = 0;
 #endif
 bool platformReady = false;
+// Physical TX/RX/DE and local-echo exclusion remain unqualified on this bench.
+bool actionTimingQualified = false;
 uint64_t nowUs() { return static_cast<uint64_t>(esp_timer_get_time()); }
 Rtu::Storage storage(uint8_t* tx, uint8_t* rx, Rtu::Trace* trace) {
     Rtu::Storage s; s.tx = tx; s.txCapacity = 32; s.rx = rx; s.rxCapacity = 64;
@@ -66,7 +69,9 @@ struct App {
         bool typedRead = false, monitored = false;
         bool cancelContinuation = false; ///< Cancel the operation after its current frame settles.
         ESS::ReadContext read;
-    } records[REQUEST_CAPACITY + 1]; // Final slot belongs to the finite poll consumer.
+        bool actionOperation = false, axisReserved = false, effectsInvalidated = false, interruptedByStop = false;
+        ESS::ActionContext action;
+    } records[REQUEST_CAPACITY + 2]; // Dedicated monitor and urgent-stop frontend reservations.
     Probe::StateCache stateCache;
     Probe::MonitorSnapshot monitorState;
     struct Recovery {
@@ -87,6 +92,8 @@ struct App {
     ESS::ConfigObservation configuration;
     MotorControlRS::AxisConfig axis;
     uint32_t bindingGeneration = 1;
+    uint8_t actionConflicts[32] = {}; ///< Physical address conflicts survive result release and host recovery.
+    uint8_t knownTargets[32] = {}; ///< Checked physical addresses, independent of the latest passive observation.
     MotorControlRS::ReadTarget communicationTarget;
     uint64_t communicationEarliestUs = 0, communicationLatestUs = 0;
     bool communicationKnown = false;
@@ -120,7 +127,22 @@ App::Record* findRecord(App& a, uint32_t operation) {
     return nullptr;
 }
 bool terminal(const App& a, const App::Record& record) {
+    if (record.actionOperation) return record.action.state != MotorControlRS::ActionState::ACTIVE;
     return record.typedRead ? record.read.state != ReadState::ACTIVE : a.owner.result(record.requestId) != nullptr;
+}
+bool axisReserved(const App& a, uint8_t address = 0) {
+    // Recovery changes correlation generation, not the physical target's uncertainty.
+    if (address) {
+        if (a.actionConflicts[address / 8] & (1U << (address % 8))) return true;
+    } else for (const auto value : a.actionConflicts) if (value) return true;
+    for (const auto& record : a.records)
+        if (record.axisReserved && (!address || record.address == address)) return true;
+    return false;
+}
+bool acting(const App& a) {
+    for (const auto& record : a.records)
+        if (record.actionOperation && !terminal(a, record)) return true;
+    return false;
 }
 bool reading(const App& a) {
     for (const auto& record : a.records)
@@ -142,7 +164,8 @@ MotorControlRS::AxisReference axisReference(const App& a) {
     evidence.target = a.axis.target; evidence.configurationGeneration = a.axis.generation;
     evidence.nowUs = nowUs(); evidence.maximumAgeUs = 5000000;
     evidence.idle = !a.owner.active() && !a.owner.pending() && !a.owner.recovering() &&
-        !a.owner.needsRecovery() && !uart.needsRecovery() && !reading(a) && !a.monitorState.settings.enabled;
+        !a.owner.needsRecovery() && !uart.needsRecovery() && !reading(a) && !a.monitorState.settings.enabled &&
+        !axisReserved(a, a.axis.target.address);
     const auto& motion = a.stateCache.blocks[static_cast<uint8_t>(ESS::StateBlock::MOTION)];
     if (Probe::fresh(motion, a.axis.target, evidence.nowUs, evidence.maximumAgeUs)) {
         evidence.observedUs = motion.observedEarliestUs;
@@ -213,7 +236,8 @@ void snapshot(void* context, Probe::Snapshot& s) {
     s.address = 1; s.probeAddress = a.address; s.baud = BAUD; s.responseTimeoutUs = RESPONSE_US;
     s.replyGapUs = REPLY_GAP_US; s.gap15Us = timing().gap15Us; s.gap35Us = timing().gap35Us;
     s.uptimeMs = nowUs() / 1000; s.ready = platformReady; s.timingQualified = false;
-    s.busy = a.owner.active() || a.owner.pending() || a.owner.recovering() || reading(a);
+    s.actionsQualified = actionTimingQualified; s.axisReserved = axisReserved(a);
+    s.busy = a.owner.active() || a.owner.pending() || a.owner.recovering() || reading(a) || acting(a);
     s.recoveryRequired = a.owner.needsRecovery() || uart.needsRecovery();
     s.phase = a.runner.phase(); s.transport = a.runner.result().reason; s.transmitEnabled = a.runner.transmitEnabled();
     s.codecChecked = a.codecChecked; s.codec = a.codec; s.frameError = a.frameError;
@@ -354,6 +378,71 @@ Probe::Action startTypedRead(void* context, uint32_t commandId, uint8_t address,
 Probe::Action typedRead(void* context, uint32_t commandId, uint8_t address, ESS::ReadKind kind, uint32_t& operationId) {
     return startTypedRead(context, commandId, address, kind, operationId, false);
 }
+MotorControlRS::ActionEvent actionEvent(const App::Record& record, ReadEventKind kind) {
+    MotorControlRS::ActionEvent event;
+    event.transport.target = record.action.target; event.transport.operationId = record.operationId;
+    event.transport.step = record.action.step; event.transport.kind = kind;
+    return event;
+}
+Rtu::BusAdmission admitActionStep(App& a, App::Record& record, const ESS::PreparedAction& prepared, uint64_t now) {
+    Rtu::BusRequest request;
+    request.wire.bytes = prepared.bytes; request.wire.length = prepared.length;
+    request.wire.replyLength = prepared.write ? ESS::WRITE_RESPONSE_LEN : ESS::expectedReadRegistersLen(prepared.count);
+    request.wire.responseTimeoutUs = RESPONSE_US; request.wire.replyGapUs = REPLY_GAP_US;
+    request.wire.deadlineUs = prepared.deadlineUs;
+    request.expected.address = prepared.target.address; request.expected.function = prepared.write ? 6 : 3;
+    request.expected.target = prepared.target.id; request.expected.targetGeneration = prepared.target.generation;
+    request.expected.first = prepared.reg; request.expected.count = prepared.write ? 1 : prepared.count;
+    request.expected.value = prepared.value; request.validator = Rtu::essValidator();
+    return record.action.request.kind == MotorControlRS::ActionKind::STOP ?
+        a.owner.admitUrgent(request, now, record.requestId) : a.owner.admit(request, now, record.requestId);
+}
+Probe::Action startAction(void* context, uint32_t commandId, uint8_t address,
+                          const MotorControlRS::ActionRequest& request, uint32_t& operationId) {
+    using namespace MotorControlRS;
+    App& a = *static_cast<App*>(context);
+    if (!platformReady) return Probe::Action::UNAVAILABLE;
+    if (!a.nextOperationId) return Probe::Action::IDS_EXHAUSTED;
+    const uint64_t now = uart.sample();
+    ReadTarget target; target.id = address; target.address = address; target.generation = a.bindingGeneration;
+    ESS::ActionContext preparedContext;
+    const Status prepared = ESS::prepareAction(preparedContext, target, a.nextOperationId, request, now, now + REQUEST_US);
+    if (!prepared) return prepared.code == Err::UNSUPPORTED ? Probe::Action::UNSUPPORTED : Probe::Action::INVALID;
+    if (!actionTimingQualified) return Probe::Action::TIMING_UNQUALIFIED;
+    if (a.owner.needsRecovery() || uart.needsRecovery()) return Probe::Action::RECOVERY_REQUIRED;
+    if (!(a.knownTargets[address / 8] & (1U << (address % 8)))) return Probe::Action::UNAVAILABLE;
+    const bool stop = request.kind == ActionKind::STOP;
+    if (!stop && axisReserved(a, address)) return Probe::Action::AXIS_CONFLICT;
+    App::Record* record = nullptr;
+    if (stop) {
+        if (!a.records[REQUEST_CAPACITY + 1].operationId) record = &a.records[REQUEST_CAPACITY + 1];
+    } else for (std::size_t i = 0; i < REQUEST_CAPACITY; ++i)
+        if (!a.records[i].operationId) { record = &a.records[i]; break; }
+    if (!record) return Probe::Action::RESULTS_FULL;
+    record->action = preparedContext;
+    ESS::PreparedAction work;
+    if (!ESS::nextAction(record->action, now, work) || work.kind != ESS::ActionWork::TRANSACTION) {
+        *record = App::Record(); return Probe::Action::FAILED;
+    }
+    const auto admitted = admitActionStep(a, *record, work, now);
+    if (admitted != Rtu::BusAdmission::ACCEPTED) {
+        *record = App::Record();
+        return admitted == Rtu::BusAdmission::QUEUE_FULL ? Probe::Action::QUEUE_FULL :
+            admitted == Rtu::BusAdmission::RESULTS_FULL || admitted == Rtu::BusAdmission::URGENT_FULL ?
+            Probe::Action::RESULTS_FULL : Probe::Action::FAILED;
+    }
+    record->operationId = a.nextOperationId++; record->commandId = commandId; record->address = address;
+    record->deadlineUs = preparedContext.deadlineUs; record->actionOperation = record->axisReserved = true;
+    operationId = a.latestOperationId = record->operationId;
+    if (stop) for (auto& interrupted : a.records) {
+        if (&interrupted == record || !interrupted.actionOperation || interrupted.address != address ||
+            terminal(a, interrupted)) continue;
+        interrupted.cancelContinuation = true;
+        interrupted.interruptedByStop = true;
+        if (interrupted.requestId.owner) a.owner.cancelUnsent(interrupted.requestId, now);
+    }
+    return Probe::Action::OK;
+}
 void observeCommunication(App& a, const Rtu::Completion& result) {
     const bool checked = result.outcome == Rtu::Outcome::SUCCESS || result.outcome == Rtu::Outcome::DEVICE_REJECTED;
     if (!checked || !result.transport.closureQualified || result.transport.txAccepted != result.txLength ||
@@ -363,6 +452,7 @@ void observeCommunication(App& a, const Rtu::Completion& result) {
         result.expected.targetGeneration != a.bindingGeneration ||
         (a.communicationKnown && result.transport.closureLatestUs < a.communicationLatestUs)) return;
     a.communicationKnown = true;
+    a.knownTargets[result.expected.address / 8] |= static_cast<uint8_t>(1U << (result.expected.address % 8));
     a.communicationTarget.id = result.expected.target;
     a.communicationTarget.address = result.expected.address;
     a.communicationTarget.generation = result.expected.targetGeneration;
@@ -425,6 +515,80 @@ void advanceReads(App& a, uint64_t sampled) {
         }
     }
 }
+void updateActionReservation(App& a, App::Record& record) {
+    using namespace MotorControlRS;
+    if (record.action.state == ActionState::ACTIVE) return;
+    record.axisReserved = false;
+    const uint8_t mask = static_cast<uint8_t>(1U << (record.address % 8));
+    if (record.action.execution == ActionExecution::UNKNOWN ||
+        (record.action.execution == ActionExecution::ACKNOWLEDGED && record.action.completion != ActionCompletion::OBSERVED))
+        a.actionConflicts[record.address / 8] |= mask;
+    if (record.action.request.kind == ActionKind::STOP && record.action.completion == ActionCompletion::OBSERVED) {
+        // A new checked stopped-state report reconciles conflicts; historical
+        // interrupted outcomes and their execution uncertainty stay unchanged.
+        a.actionConflicts[record.address / 8] &= static_cast<uint8_t>(~mask);
+    }
+}
+void advanceActions(App& a, uint64_t now) {
+    for (auto& record : a.records) {
+        if (!record.actionOperation || terminal(a, record)) continue;
+        if (record.requestId.owner) {
+            if (!record.effectsInvalidated && record.action.step == 0 && a.owner.txAccepted(record.requestId)) {
+                record.effectsInvalidated = true;
+                for (auto& block : a.stateCache.blocks)
+                    if (block.valid && block.value.target.address == record.address) block.invalidatedUs = now;
+                if (record.action.request.kind == MotorControlRS::ActionKind::RELEASE &&
+                    a.axis.target.address == record.address) invalidateAxis(a);
+            }
+            const auto* result = a.owner.result(record.requestId); if (!result) continue;
+            const auto kind = result->transport.reason == Rtu::Reason::FRAME ? ReadEventKind::FRAME :
+                result->transport.reason == Rtu::Reason::REQUEST_DEADLINE ||
+                result->outcome == Rtu::Outcome::QUEUE_EXPIRED || result->outcome == Rtu::Outcome::DISPATCH_EXPIRED ? ReadEventKind::DEADLINE :
+                result->outcome == Rtu::Outcome::CANCELLED ? ReadEventKind::CANCEL : ReadEventKind::TRANSPORT_FAILURE;
+            auto event = actionEvent(record, kind);
+            event.transport.target.id = result->expected.target;
+            event.transport.target.address = result->expected.address;
+            event.transport.target.generation = result->expected.targetGeneration;
+            event.transport.txAccepted = result->transport.txAccepted;
+            event.transport.executionUnknown = result->executionUnknown;
+            event.transport.transportDetail = static_cast<int32_t>(result->transport.reason);
+            event.transport.frame = result->transport.rxLength ? result->raw : nullptr;
+            event.transport.length = result->transport.rxLength;
+            event.txComplete = result->transport.txComplete;
+            event.responseConfirmed = kind == ReadEventKind::FRAME && actionTimingQualified;
+            if (kind == ReadEventKind::FRAME) {
+                event.transport.qualified = result->transport.closureQualified;
+                if (event.transport.qualified) {
+                    event.transport.earliestUs = result->transport.closureEarliestUs;
+                    event.transport.latestUs = result->transport.closureLatestUs;
+                }
+            }
+            if (!ESS::advanceAction(record.action, event, now)) {
+                auto failed = actionEvent(record, ReadEventKind::TRANSPORT_FAILURE);
+                failed.transport.transportDetail = -1;
+                failed.transport.txAccepted = event.transport.txAccepted;
+                failed.transport.executionUnknown = true;
+                failed.transport.frame = event.transport.frame; failed.transport.length = event.transport.length;
+                failed.txComplete = event.txComplete;
+                if (!ESS::advanceAction(record.action, failed, now)) continue;
+            }
+            observeCommunication(a, *result);
+            a.owner.release(record.requestId); record.requestId = Rtu::RequestId();
+        }
+        if (!terminal(a, record)) {
+            if (record.cancelContinuation || record.action.target.generation != a.bindingGeneration)
+                ESS::advanceAction(record.action, actionEvent(record, ReadEventKind::CANCEL), now);
+            else if (now >= record.deadlineUs)
+                ESS::advanceAction(record.action, actionEvent(record, ReadEventKind::DEADLINE), now);
+            else if (!a.owner.needsRecovery() && !uart.needsRecovery()) {
+                ESS::PreparedAction work;
+                if (ESS::nextAction(record.action, now, work) && work.kind == ESS::ActionWork::TRANSACTION)
+                    admitActionStep(a, record, work, now); // Pressure defers unadmitted work, never replays a frame.
+            }
+        }
+        updateActionReservation(a, record);
+    }
+}
 Probe::Action recover(void* context, uint32_t commandId, uint32_t& operationId) {
     App& a = *static_cast<App*>(context);
     if (!platformReady) return Probe::Action::UNAVAILABLE;
@@ -439,6 +603,13 @@ Probe::Action recover(void* context, uint32_t commandId, uint32_t& operationId) 
     for (auto& record : a.records) if (record.operationId && record.typedRead &&
         record.read.state == ReadState::ACTIVE && !record.requestId.owner)
         ESS::advanceRead(record.read, readEvent(record, ReadEventKind::CANCEL), now);
+    for (auto& record : a.records) if (record.actionOperation && !terminal(a, record)) {
+        record.cancelContinuation = true;
+        if (!record.requestId.owner) {
+            ESS::advanceAction(record.action, actionEvent(record, ReadEventKind::CANCEL), now);
+            updateActionReservation(a, record);
+        }
+    }
     a.recovery.id = id; a.recovery.commandId = commandId; a.recovery.operationId = a.nextOperationId++;
     a.recovery.deadlineUs = now + 2000000;
     a.recoveryGuardUntilUs = std::max(a.recoveryGuardUntilUs, now + RECOVER_US);
@@ -456,6 +627,10 @@ bool lookup(void* context, uint32_t operationId, Probe::ResultView& out) {
     out = Probe::ResultView();
     out.commandId = record->commandId; out.operationId = operationId; out.address = record->address;
     out.captureRead = record->captureRead;
+    if (record->actionOperation) {
+        out.actionContext = &record->action; out.pending = !terminal(a, *record);
+        out.interruptedByStop = record->interruptedByStop; return true;
+    }
     if (record->typedRead) {
         out.typedRead = &record->read; out.pending = record->read.state == ReadState::ACTIVE;
         return true;
@@ -485,6 +660,16 @@ bool lookup(void* context, uint32_t operationId, Probe::ResultView& out) {
 Probe::Action cancel(void* context, uint32_t operationId) {
     App& a = *static_cast<App*>(context); if (!operationId) operationId = a.latestOperationId;
     auto* record = findRecord(a, operationId); if (!record) return Probe::Action::INVALID;
+    if (record->actionOperation) {
+        if (terminal(a, *record)) return Probe::Action::ALREADY_TERMINAL;
+        record->cancelContinuation = true;
+        if (record->requestId.owner) a.owner.cancel(record->requestId, uart.sample());
+        else {
+            ESS::advanceAction(record->action, actionEvent(*record, ReadEventKind::CANCEL), nowUs());
+            updateActionReservation(a, *record);
+        }
+        return Probe::Action::OK;
+    }
     if (record->typedRead && record->read.state != ReadState::ACTIVE) return Probe::Action::ALREADY_TERMINAL;
     if (record->typedRead && !record->requestId.owner) {
         ESS::advanceRead(record->read, readEvent(*record, ReadEventKind::CANCEL), nowUs());
@@ -561,7 +746,7 @@ void reset(void* context) {
 Probe::Action load(void* context, const Probe::LoadSettings* requested, Probe::LoadSnapshot& out) {
     App& a = *static_cast<App*>(context);
     if (!fixtureReady) return Probe::Action::UNAVAILABLE;
-    if (requested && (a.owner.active() || a.owner.pending() || a.owner.recovering() || reading(a) || a.runner.transmitEnabled())) return Probe::Action::BUSY;
+    if (requested && (a.owner.active() || a.owner.pending() || a.owner.recovering() || reading(a) || acting(a) || a.runner.transmitEnabled())) return Probe::Action::BUSY;
     const auto result = loadFixture.configure(requested, out, uart); out.ready = platformReady;
     if (requested) nextServiceUs = 0;
     return result;
@@ -571,6 +756,7 @@ Probe::Host host(App* a) {
     Probe::Host h; h.context = a; h.emitLine = emit; h.snapshot = snapshot;
     h.startProbe = probe; h.startCaptureRead = captureRead; h.recover = recover; h.resetStats = reset;
     h.startTypedRead = typedRead;
+    h.startAction = startAction;
     h.monitor = monitor;
     h.axis = axisCommand;
     h.result = lookup; h.cancel = cancel; h.release = release;
@@ -592,6 +778,10 @@ void deliver(App& a) {
             continue;
         }
         Probe::ResultView view; if (!lookup(&a, record.operationId, view) || view.pending) continue;
+        if (record.actionOperation) {
+            if (!a.console.reportAction(record.commandId, record.operationId, record.action, record.interruptedByStop)) continue;
+            record.delivered = true; record.deliveredUs = nowUs(); continue;
+        }
         if (record.typedRead) {
             if (!record.observed) {
                 record.observed = true;
@@ -687,6 +877,7 @@ void loop() {
         a.observedEarliestUs = a.observedLatestUs = a.deliveredUs = 0;
     }
     advanceReads(a, nowUs());
+    advanceActions(a, nowUs());
     a.console.serviceOutput(); deliver(a);
     serviceMonitor(a, nowUs());
     for (unsigned i = 0; i < 32 && Serial.available(); ++i) {

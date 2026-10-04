@@ -257,6 +257,28 @@ Cancel BusOwner::cancel(const RequestId& id, uint64_t nowUs) noexcept {
         Cancel::ALREADY_TERMINAL : Cancel::CANCELLED;
 }
 
+bool BusOwner::cancelUnsent(const RequestId& id, uint64_t nowUs) noexcept {
+    if (!valid_ || !clock(nowUs)) return false;
+    ResultSlot* slot = reservation(id);
+    if (!slot || slot->state == ResultSlot::State::READY) return false;
+    if (active_ == id.slot) {
+        if ((runner_.phase() != Phase::WAIT_BUS && runner_.phase() != Phase::SETUP) ||
+            runner_.result().txAccepted) return false;
+        cancelActive(nowUs, Cancellation::REQUEST);
+        return true;
+    }
+    for (std::size_t i = 0; i < count_; ++i) if (queued(i).resultSlot == id.slot) {
+        queuedResult(queued(i), Outcome::CANCELLED, nowUs, Cancellation::REQUEST);
+        remove(i); return true;
+    }
+    return false;
+}
+std::size_t BusOwner::txAccepted(const RequestId& id) const noexcept {
+    const ResultSlot* slot = reservation(id);
+    if (!slot) return 0;
+    return active_ == id.slot ? runner_.result().txAccepted : slot->completion.transport.txAccepted;
+}
+
 void BusOwner::finishRecovery(RecoveryOutcome outcome, uint64_t nowUs, Reason reason) noexcept {
     recovery_.outcome = outcome; recovery_.finishedUs = nowUs; recovery_.reason = reason;
     recoveryState_ = RecoveryState::READY;

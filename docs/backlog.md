@@ -76,8 +76,10 @@ capture, enforces timer starvation failure and extends available read-only
 bench evidence to fixed 37-byte replies. Cache-off capture is explicitly
 unsupported. Prompts 05–06 implement typed identity/configuration/state reads
 and separate health. [Prompt 07](reports/ess_release_07_2026-10-04.md) implements
-exact host target preparation. Prompt 08 is next when separately dispatched;
-physical actions retain their units, stop and timing prerequisites.
+exact host target preparation. [Prompt 08](reports/ess_release_08_2026-10-04.md)
+implements bounded actions and priority stop with retained uncertainty and
+application axis reservation. Prompt 09 is next when separately dispatched;
+physical actions/motion retain their timing/echo and operation-specific prerequisites.
 The [release roadmap](roadmap.md) defines the delivery order and release gates.
 
 Release prompt 01 is implemented: [BusOwner](bus_owner.md) provides FIFO
@@ -176,9 +178,9 @@ FieldCore remains read-only; typed identity/state and motion/stop retain their g
   optional torque/current modes only where the profile supports them.
 - [ ] Implement enable/release, homing methods, host-origin changes, documented
   device-counter changes, alarm clear and state observations.
-- [ ] Implement caller-owned contexts, operation correlation, retained
+- [x] Implement caller-owned action contexts, operation correlation, retained
   uncertain outcomes, stop preemption and explicit queue disposition.
-- [ ] Reserve same-axis operations across parameter staging/trigger/observation
+- [x] Reserve same-axis operations across action staging/trigger/observation
   while allowing eligible unrelated bus work. Validate/reserve stop before
   superseding active work; rejected stop admission must not cancel it.
 - [ ] Preserve per-field actual/commanded, valid/unknown/stale and raw/native
@@ -458,3 +460,25 @@ relative-displacement range checking with a reference, zero-radian exactness,
 normal cancellation onto zero and malformed decimal fraction operands. Native,
 installed consumer, four firmware builds and a repeated 23-frame read-only COM13
 campaign pass; no device setting or qualification claim changed.
+
+## Prompt08 disposition
+
+- [x] Installed bounded enable/release/alarm-clear and normal/direct stop preparations,
+  correlated events and separate TX/acknowledgement/completion evidence.
+- [x] Shared application axis reservation, retained uncertainty across release/recovery,
+  reserved stop capacity, unsent cancellation and settled in-flight evidence.
+- [x] Common/native CLI and bounded Python one-attempt commands; blocked output
+  preserves stop admission and both operation results.
+- [x] Independent review and regressions for wrong/late events, bad FC06 responses,
+  every relevant stop phase, pressure, stale knowledge and unrelated addresses.
+- [x] Mark exactly five named action choices implemented/native PASS; full auxiliary
+  and motion command registers remain partially implemented.
+- [x] Native/package/four firmware builds and current-image read-only/action-gate
+  checks; see [evidence](reports/ess_release_08_2026-10-04.md).
+- [ ] Independent TX/RX/DE and FC06 echo-source qualification, then reviewed stopped-state
+  enable/release/normal/direct-stop physical checks with before/after flags.
+- [ ] Dynamic stop latency, moving commands, travel and independent bench stop proof
+  remain dependent work. Missing fixtures do not block independent software for 09.
+
+No new ramp/device queue behavior is inferred. Explicit unsupported policies
+reject before writes; no motor writes or moves occurred in this prompt.

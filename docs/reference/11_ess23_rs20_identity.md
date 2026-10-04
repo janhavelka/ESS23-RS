@@ -40,4 +40,6 @@ additional label photograph is a prerequisite for independent preparation.
 
 This correction changes documentation only. No motor setting, firmware, host
 axis configuration or generated descriptor was changed; no new hardware run
-was performed. Prompt08 remains undispatched.
+was performed. Prompt08 was not executed by this documentation correction;
+its subsequent [action/stop disposition](../reports/ess_release_08_2026-10-04.md)
+retains the independent timing/echo and physical-action gates.

@@ -1,5 +1,6 @@
 """Exercise host framing and finite campaigns using a fake serial stream only."""
 
+import copy
 import importlib.util
 import io
 import json
@@ -24,7 +25,7 @@ def reply(request_id, command, **fields):
             target=0, address=0, generation=0, operation_id=0, attempt_known=False, last_attempt_ok=False,
             last_attempt_us=0, last_attempt_target=0, last_attempt_address=0, last_attempt_generation=0,
             last_attempt_operation_id=0, last_attempt_status="OK", last_attempt_detail=0, last_success_us=0,
-            observed_earliest_us=0, observed_latest_us=0, delivered_us=0, age_us=None, value=None) for i in range(3)])
+            observed_earliest_us=0, observed_latest_us=0, delivered_us=0, invalidated_us=0, age_us=None, value=None) for i in range(3)])
         fields["state_blocks"][2].setdefault("current_config_operation_id", 0)
         fields["state_blocks"][2].setdefault("interpretation_current", False)
         for key, value in dict(now_us=20000, stale_after_ms=5000, selected_target=1, selected_address=1,
@@ -158,6 +159,43 @@ class TypedSerial:
         return Serial.normal(request_id, command, args)
 
 
+def action_terminal(request_id, command, policy=None):
+    tx = {"enable": "0106002D001299CE", "motor-release": "0106002D0011D9CF",
+          "alarm-clear": "0106002D0021D9DB", "stop": "0106002701003851" if policy == "normal" else "01060027020038A1"}[command]
+    motion = 17 if command == "motor-release" else 1
+    raw = bytes((1, 3, 4, 0, 0, 0, motion))
+    rx = (raw + bench.wire_crc(raw).to_bytes(2, "little")).hex()
+    empty = dict(step=0, event=0, raw_hex="", received_length=0, tx_accepted=0, tx_complete=False,
+        response_confirmed=False, qualified=False, execution_unknown=False, earliest_us=0,
+        latest_us=0, delivered_us=0, transport_detail=0, status="OK", detail=0, frame_error=0)
+    write = dict(empty, raw_hex=tx, received_length=8, tx_accepted=8, tx_complete=True,
+        response_confirmed=True, qualified=True, earliest_us=1100, latest_us=1200, delivered_us=1250)
+    observation = dict(write, step=1, raw_hex=rx, received_length=9, earliest_us=2000, latest_us=2200, delivered_us=2300)
+    return reply(request_id, command, type="action", command_id=request_id, operation_id=request_id + 100,
+        action_kind=bench.ACTION_KINDS[command], stop_policy=policy, read_kind=None, capture_read=False,
+        recovery=False, target=1, address=1, generation=9, state="succeeded", outcome="observed",
+        execution="acknowledged", completion="observed", observation_known=True, interrupted_by_stop=False, raw_alarm=0,
+        raw_motion=motion, started_us=1000, deadline_us=10000, serviced_us=2300, polls=1,
+        write_evidence=write, last_observation=observation, failure_evidence=empty)
+
+
+class ActionSerial:
+    def __init__(self, mutate=None):
+        self.retained = {}
+        self.mutate = mutate
+
+    def __call__(self, request_id, command, args):
+        if command in bench.ACTION_COMMANDS:
+            terminal = action_terminal(request_id, command, args[0] if command == "stop" else None)
+            if self.mutate: self.mutate(terminal)
+            self.retained[request_id + 100] = terminal
+            return encoded(reply(request_id, command, result="accepted", operation_id=request_id + 100, address=1)) + encoded(terminal)
+        if command == "result":
+            return encoded(dict(self.retained[int(args[0])], type="reply", id=request_id, command="result"))
+        if command == "release": self.retained.pop(int(args[0]), None)
+        return Serial.normal(request_id, command, args)
+
+
 class Clock:
     def __init__(self):
         self.now = 0.0
@@ -181,7 +219,7 @@ class Serial:
     def normal(request_id, command, args):
         if command == "version":
             return encoded(reply(request_id, command, product="MotorControl-RS",
-                                 protocol=2, version="0.test", outstanding_capacity=9))
+                                 protocol=2, version="0.test", outstanding_capacity=10))
         if command == "probe":
             address = int(args[0]) if args else 1
             return (encoded(reply(request_id, command, result="accepted", address=address))
@@ -242,6 +280,112 @@ class Serial:
 
 
 class Framing(unittest.TestCase):
+    def test_action_terminal_and_retained_round_trip(self):
+        for command, policy in (("enable", None), ("motor-release", None), ("alarm-clear", None),
+                                ("stop", "normal"), ("stop", "direct")):
+            with self.subTest(command=command, policy=policy):
+                console = self.session(ActionSerial())
+                handle = console.begin(command, address=1, stop_policy=policy)
+                result = console.wait(handle)
+                self.assertTrue(result["ok"])
+                inspected = console.command("result", operation_id=handle.operation_id)
+                self.assertEqual(inspected["write_evidence"], result["write_evidence"])
+                console.command("release", operation_id=handle.operation_id)
+                self.assertFalse(console.operations)
+
+    def test_action_acknowledgement_requires_confirmed_source_and_exact_request(self):
+        changes = [lambda t: t.pop("interrupted_by_stop"),
+                   lambda t: t.update(interrupted_by_stop=1),
+                   lambda t: t["write_evidence"].update(response_confirmed=False),
+                   lambda t: t["write_evidence"].update(tx_complete=False),
+                   lambda t: t["write_evidence"].update(raw_hex="0106002D0011D9CF"),
+                   lambda t: t.update(raw_motion=17),
+                   lambda t: t.update(action_kind="release"),
+                   lambda t: t.update(command_id=999),
+                   lambda t: t["last_observation"].update(raw_hex="010304000000010000")]
+        for change in changes:
+            with self.subTest(change=change):
+                console = self.session(ActionSerial(change))
+                with self.assertRaises(bench.BenchError): console.command("enable", address=1)
+                self.assertEqual(len(self.port.writes), 2)
+
+    def test_completed_action_can_retain_accepted_stop_interruption(self):
+        console = self.session(ActionSerial(lambda t: t.update(interrupted_by_stop=True)))
+        handle = console.begin("enable", address=1)
+        result = console.wait(handle)
+        self.assertTrue(result["ok"] and result["interrupted_by_stop"])
+        inspected = console.command("result", operation_id=handle.operation_id)
+        self.assertTrue(inspected["interrupted_by_stop"])
+        console.command("release", operation_id=handle.operation_id)
+
+    def test_action_partial_and_full_tx_failures_remain_unknown_without_replay(self):
+        for accepted in (1, 8):
+            def failure(t):
+                empty = copy.deepcopy(t["failure_evidence"])
+                t.update(ok=False, state="failed", outcome="transport_error", execution="unknown",
+                    completion="not_observed", observation_known=False, raw_alarm=None, raw_motion=None, polls=0,
+                    last_observation=empty)
+                t["write_evidence"].update(event=1, raw_hex="", received_length=0, tx_accepted=accepted,
+                    tx_complete=accepted == 8, qualified=False, response_confirmed=False, execution_unknown=True,
+                    earliest_us=0, latest_us=0, status="ILLEGAL_VALUE", detail=12)
+                t["failure_evidence"] = copy.deepcopy(t["write_evidence"])
+            console = self.session(ActionSerial(failure))
+            result = console.command("enable", address=1)
+            self.assertEqual(result["execution"], "unknown")
+            self.assertEqual(len(self.port.writes), 3)  # identify, one write request, local result release
+            self.assertFalse(console.operations)
+
+    def test_retained_action_kind_and_stop_policy_cannot_change(self):
+        fixture = ActionSerial()
+        console = self.session(fixture)
+        handle = console.begin("stop", address=1, stop_policy="normal")
+        console.wait(handle)
+        fixture.retained[handle.operation_id] = dict(fixture.retained[handle.operation_id], stop_policy="direct")
+        with self.assertRaisesRegex(bench.BenchError, "policy"):
+            console.command("result", operation_id=handle.operation_id)
+
+    def test_actions_share_ordinary_quota_but_stop_has_reserved_result(self):
+        fixture = ActionSerial()
+        console = self.session(fixture)
+        for _ in range(bench.MAX_PROBES):
+            handle = console.begin("enable", address=1)
+            console.wait(handle)
+        recovery = console.begin("recover"); console.wait(recovery)
+        stop = console.begin("stop", address=1, stop_policy="direct"); console.wait(stop)
+        self.assertEqual(len(console.operations), bench.MAX_OPERATIONS)
+        with self.assertRaisesRegex(bench.BenchError, "retained result limit"):
+            console.begin("enable", address=1)
+
+    def test_actions_are_explicit_single_attempts_when_timing_unqualified(self):
+        for command in bench.ACTION_COMMANDS:
+            with self.subTest(command=command):
+                def rejected(i, name, args):
+                    if name in bench.ACTION_COMMANDS:
+                        return encoded(reply(i, name, ok=False, result="timing_unqualified", address=1))
+                    return Serial.normal(i, name, args)
+                console = self.session(rejected)
+                policy = "normal" if command == "stop" else None
+                result = console.command(command, address=1, stop_policy=policy)
+                self.assertFalse(result["ok"])
+                self.assertEqual(result["result"], "timing_unqualified")
+                self.assertFalse(console.operations)
+                expected = f"@2 {command}" + (" normal" if policy else "") + " 1\n"
+                self.assertEqual(self.port.writes, [b"@1 version\n", expected.encode()])
+
+    def test_stop_policy_rejected_before_serial_and_actions_not_campaigns(self):
+        console = self.session()
+        for command, policy in (("stop", None), ("stop", "release"), ("enable", "normal")):
+            with self.assertRaises(ValueError):
+                console.command(command, stop_policy=policy)
+        for command in bench.ACTION_COMMANDS:
+            with self.assertRaises(ValueError):
+                bench.campaign(console, command, count=1, interval_s=0, timeout_s=1, address=1)
+        self.assertEqual(self.port.writes, [b"@1 version\n"])
+        for policy in ("normal", "direct"):
+            args = bench.arguments(["--port", "fake", "--log", "fake.jsonl", "stop", policy])
+            self.assertEqual(args.stop_policy, policy)
+            self.assertEqual(args.count, 1)
+
     def test_host_preparation_preserves_integer_precision_and_correlation(self):
         value = 9007199254740993
         def handler(request_id, command, args):
@@ -463,6 +607,22 @@ class Framing(unittest.TestCase):
         result = console.command("read-state", address=1, timeout_s=0.1)
         self.assertFalse(result["ok"])
         self.assertEqual(len(result["state_blocks"]), 2)
+
+    def test_action_invalidation_retains_raw_but_invalidates_current_cache(self):
+        item = cached_state(2)
+        original = copy.deepcopy(item["state_blocks"][0]["value"])
+        item["state_blocks"][0].update(invalidated_us=2100, current=False, fresh=False)
+        item.update(alarms="unknown", state="unknown")
+        bench.Console._check_cached_state(item)
+        self.assertEqual(item["state_blocks"][0]["value"], original)
+        for invalid in (None, True, -1, 5001):
+            bad = copy.deepcopy(item); bad["state_blocks"][0]["invalidated_us"] = invalid
+            with self.assertRaises(bench.BenchError): bench.Console._check_cached_state(bad)
+        item["state_blocks"][0].update(current=True, fresh=True)
+        with self.assertRaises(bench.BenchError): bench.Console._check_cached_state(item)
+        item["state_blocks"][0].update(invalidated_us=999)
+        item.update(alarms="clear", state="observed")
+        bench.Console._check_cached_state(item)
 
     def test_cached_state_separate_ages_unknown_alarms_and_generation(self):
         item = cached_state(2)
@@ -1694,11 +1854,11 @@ class Framing(unittest.TestCase):
         self.assertEqual(len(console.operations), bench.MAX_PROBES)
         recovery = console.begin("recover", timeout_s=0.1)
         console.wait(recovery)
-        self.assertEqual(len(console.operations), bench.MAX_OPERATIONS)
+        self.assertEqual(len(console.operations), bench.MAX_PROBES + 1)
         self.port.handler = lambda i, command, args: encoded(reply(i, command, ok=False, result="results_full"))
         rejection = console.command("probe", timeout_s=0.1)
         self.assertFalse(rejection["ok"])
-        self.assertEqual(len(console.operations), bench.MAX_OPERATIONS)
+        self.assertEqual(len(console.operations), bench.MAX_PROBES + 1)
         self.port.handler = Serial.normal
         console.command("release", operation_id=handles[0].operation_id, timeout_s=0.1)
         replacement = console.begin("probe", timeout_s=0.1)
@@ -1730,7 +1890,7 @@ class Framing(unittest.TestCase):
     def test_protocol_one_cannot_hide_missing_operation_correlation(self):
         console = self.session(identify=False)
         self.port.handler = lambda i, command, args: encoded(reply(i, command, product="MotorControl-RS",
-                                                                  protocol=1, outstanding_capacity=9))
+                                                                  protocol=1, outstanding_capacity=10))
         self.failed(lambda: console.identify(timeout_s=0.1), "not the supported")
 
     def test_begin_rejects_admission_received_after_its_original_deadline(self):

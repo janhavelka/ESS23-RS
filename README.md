@@ -135,7 +135,11 @@ not establish a device-wide maximum. The malformed position example on manual
 p16 is corrected in the builder and covered by an independent frame fixture.
 Builders validate raw access/framing, not register-value meaning, motion limits,
 readiness or persistence. Typed identity/configuration reads are implemented;
-typed setting changes and motor actions remain future work.
+typed setting changes and moves remain future work. The installed
+[action API](docs/ess_actions.md) prepares bounded enable/release, alarm-clear
+and explicit normal/direct stop operations. It separates acknowledgement from
+reported completion; physical action admission on the current bench remains
+gated by independent timing/echo qualification.
 
 The probe reads the read-only model word at `0x0000`; no consuming side effect is
 documented. Its successful reply is seven bytes. Pure 32-bit helpers require an

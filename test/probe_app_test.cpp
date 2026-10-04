@@ -18,7 +18,7 @@ void fresh() {
     loadFixture.~Esp32Load(); new (&loadFixture) Esp32Load;
     fixtureReady = false; nextServiceUs = 0;
 #endif
-    resetHardware(); Serial = FakeSerial(); platformReady = false;
+    resetHardware(); Serial = FakeSerial(); platformReady = false; actionTimingQualified = false;
     setup();
     assert(app && uart.ready() && app->owner.valid() && hardware.writes == 0);
     assert(Serial.txTimeoutMs == 0);
@@ -481,6 +481,201 @@ std::vector<uint8_t> registerReply(std::initializer_list<uint16_t> words) {
     const uint16_t crc = ESS::calcCrc16(bytes.data(), bytes.size());
     bytes.push_back(static_cast<uint8_t>(crc)); bytes.push_back(static_cast<uint8_t>(crc >> 8)); return bytes;
 }
+void qualifyActions(uint8_t address = 1) {
+    actionTimingQualified = true; app->communicationKnown = true;
+    app->knownTargets[address / 8] |= static_cast<uint8_t>(1U << (address % 8));
+    app->communicationTarget.id = app->communicationTarget.address = address;
+    app->communicationTarget.generation = app->bindingGeneration;
+}
+uint32_t actionAdmission(MotorControlRS::ActionKind kind, uint32_t commandId = 1, uint8_t address = 1) {
+    MotorControlRS::ActionRequest request; request.kind = kind;
+    if (kind == MotorControlRS::ActionKind::STOP) request.stop.behavior = MotorControlRS::StopBehavior::CONFIGURED_DECELERATION;
+    uint32_t operation = 0;
+    assert(startAction(app, commandId, address, request, operation) == Probe::Action::OK);
+    assert(operation && view(operation).actionContext); return operation;
+}
+void actionStep(uint32_t operation, const std::vector<uint8_t>& bytes = {}) {
+    const uint8_t token = view(operation).actionContext->step;
+    const auto* record = findRecord(*app, operation);
+    const auto initialAccepted = app->owner.txAccepted(record->requestId);
+    const unsigned initialWrites = hardware.writes;
+    for (unsigned i = 0; i < 25000 && !app->owner.txAccepted(record->requestId); ++i) step();
+    if (app->owner.txAccepted(record->requestId) != 8)
+        std::fprintf(stderr, "Action frame unavailable: id=%u token=%u accepted=%zu writes=%u->%u state=%u outcome=%u phase=%u\n",
+            operation, token, initialAccepted, initialWrites, hardware.writes, static_cast<unsigned>(record->action.state),
+            static_cast<unsigned>(record->action.outcome), static_cast<unsigned>(app->runner.phase()));
+    assert(app->owner.txAccepted(record->requestId) == 8);
+    const std::vector<uint8_t> response = bytes.empty() ? hardware.tx : bytes;
+    scheduleReply(std::max(hardware.writeStarted + 8 * 87 + 1000, hardware.time + 1000), response);
+    for (unsigned i = 0; i < 25000 && view(operation).pending && view(operation).actionContext->step == token; ++i) step();
+    assert(!view(operation).pending || view(operation).actionContext->step != token);
+}
+void testActionGateAndSeparateAcknowledgement() {
+    using namespace MotorControlRS;
+    fresh(); timerCapture(); ActionRequest request; uint32_t id = 123;
+    assert(startAction(app, 1, 1, request, id) == Probe::Action::TIMING_UNQUALIFIED);
+    assert(id == 123 && hardware.writes == 0 && app->owner.pending() == 0);
+    qualifyActions(); const uint32_t operation = actionAdmission(ActionKind::ENABLE);
+    assert(axisReserved(*app, 1));
+    assert(startAction(app, 2, 1, request, id) == Probe::Action::AXIS_CONFLICT && id == 123);
+    actionStep(operation);
+    assert(view(operation).actionContext->execution == ActionExecution::ACKNOWLEDGED);
+    assert(view(operation).actionContext->completion == ActionCompletion::NOT_OBSERVED);
+    assert(view(operation).pending && axisReserved(*app, 1) && !app->owner.active() && !app->owner.pending());
+    // Non-consuming reads can use the released bus during the observation wait.
+    uint32_t read = 0; assert(probe(app, 3, 1, read) == Probe::Action::OK);
+    reply(read, 1);
+    actionStep(operation, registerReply({0, 0}));
+    assert(view(operation).actionContext->completion == ActionCompletion::OBSERVED && !axisReserved(*app, 1));
+    assert(hardware.writes == 3 && !app->owner.needsRecovery());
+}
+void testStopSupersedesOnlyAfterAdmissionAndSettlesInflight() {
+    using namespace MotorControlRS;
+    for (unsigned phase = 0; phase < 8; ++phase) {
+        fresh(); timerCapture(); qualifyActions();
+        const uint32_t operation = actionAdmission(ActionKind::ENABLE);
+        if (phase >= 1) { step(); assert(app->runner.phase() == Rtu::Phase::WAIT_BUS); }
+        if (phase >= 2) {
+            for (unsigned i = 0; i < 1000 && app->runner.phase() != Rtu::Phase::SETUP; ++i) step();
+            assert(app->runner.phase() == Rtu::Phase::SETUP);
+        }
+        if (phase >= 3) startTx(0);
+        if (phase >= 4 && phase != 7) actionStep(operation);
+        if (phase >= 5 && phase != 7) startTx(1); // Already-transmitted observation, also settles.
+        if (phase == 7) {
+            for (unsigned i = 0; i < 1000 && app->runner.phase() != Rtu::Phase::RECEIVE; ++i) step();
+            assert(app->runner.phase() == Rtu::Phase::RECEIVE && hardware.de == 0);
+        }
+        const unsigned oldWrites = hardware.writes;
+        ActionRequest unsupported; unsupported.kind = ActionKind::STOP;
+        unsupported.stop.behavior = StopBehavior::CONFIGURED_DECELERATION;
+        unsupported.stop.deviceQueue = DeviceQueue::DISCARD;
+        uint32_t rejected = 555;
+        assert(startAction(app, 2, 1, unsupported, rejected) == Probe::Action::UNSUPPORTED);
+        assert(rejected == 555 && !findRecord(*app, operation)->cancelContinuation && hardware.writes == oldWrites);
+        const uint32_t stop = actionAdmission(ActionKind::STOP, 3);
+        assert(findRecord(*app, operation)->cancelContinuation);
+        if (phase == 3 || phase == 7) actionStep(operation);
+        else if (phase >= 5) actionStep(operation, registerReply({0, static_cast<uint16_t>(phase == 5 ? 0x10 : 0)}));
+        else advanceActions(*app, nowUs());
+        assert(!view(operation).pending);
+        const auto interrupted = *view(operation).actionContext;
+        assert(interrupted.outcome == (phase == 6 ? ActionOutcome::OBSERVED : ActionOutcome::CANCELLED));
+        assert(view(operation).interruptedByStop);
+        actionStep(stop); actionStep(stop, registerReply({0x1234, 8})); // Alarm does not block stop completion.
+        assert(view(stop).actionContext->completion == ActionCompletion::OBSERVED);
+        assert(view(operation).actionContext->outcome == interrupted.outcome);
+        assert(view(operation).actionContext->execution == interrupted.execution);
+        assert(!axisReserved(*app, 1) && !app->owner.needsRecovery());
+        assert(hardware.writes == oldWrites + 2);
+    }
+}
+void testStopUsesReservedCapacityAndFullAdmissionPreservesWork() {
+    using namespace MotorControlRS;
+    fresh(); timerCapture(); qualifyActions();
+    const uint32_t active = actionAdmission(ActionKind::ENABLE);
+    App::Record occupied; occupied.action.request.kind = ActionKind::STOP;
+    ESS::ActionContext stopContext; ReadTarget target; target.id = target.address = target.generation = 1;
+    assert(ESS::prepareNormalStop(stopContext, target, 999, nowUs(), nowUs() + REQUEST_US));
+    ESS::PreparedAction work; assert(ESS::nextAction(stopContext, nowUs(), work));
+    assert(admitActionStep(*app, occupied, work, nowUs()) == Rtu::BusAdmission::ACCEPTED);
+    const auto pending = app->owner.pending();
+    ActionRequest stop; stop.kind = ActionKind::STOP; stop.stop.behavior = StopBehavior::DIRECT;
+    uint32_t unchanged = 777;
+    assert(startAction(app, 2, 1, stop, unchanged) == Probe::Action::RESULTS_FULL);
+    assert(unchanged == 777 && app->owner.pending() == pending && hardware.writes == 0);
+    assert(!findRecord(*app, active)->cancelContinuation && !view(active).interruptedByStop);
+    assert(view(active).actionContext->state == ActionState::ACTIVE);
+
+    fresh(); timerCapture(); qualifyActions();
+    uint32_t retained[REQUEST_CAPACITY];
+    for (unsigned i = 0; i < REQUEST_CAPACITY; ++i) { retained[i] = admit(i + 1); reply(retained[i], i); }
+    command("@20 stop normal\n"); contains("\"result\":\"accepted\"");
+    const uint32_t stopping = view(0).operationId;
+    actionStep(stopping); actionStep(stopping, registerReply({0, 0})); pump(200);
+    assert(view(stopping).actionContext->completion == ActionCompletion::OBSERVED);
+    for (const auto operation : retained) assert(view(operation).probe.outcome == Rtu::Outcome::SUCCESS);
+    assert(hardware.writes == REQUEST_CAPACITY + 2);
+    command(("@21 release " + std::to_string(stopping) + "\n").c_str()); contains("\"result\":\"done\"");
+}
+void testUncertainStopSurvivesReleaseRecoveryAndCanBeStoppedAgain() {
+    using namespace MotorControlRS;
+    fresh(); timerCapture(); qualifyActions();
+    command("@1 stop direct\n"); const uint32_t old = view(0).operationId; startTx(0);
+    for (unsigned i = 0; i < 30000 && view(old).pending; ++i) step();
+    assert(!view(old).pending && view(old).actionContext->execution == ActionExecution::UNKNOWN);
+    assert(axisReserved(*app, 1) && app->owner.needsRecovery() && hardware.writes == 1);
+    pump(1000); assert(hardware.writes == 1);
+    command(("@2 release " + std::to_string(old) + "\n").c_str()); contains("\"result\":\"done\"");
+    Probe::ResultView removed; assert(!lookup(app, old, removed) && axisReserved(*app, 1));
+    command("@3 recover\n");
+    for (unsigned i = 0; i < 80000 && app->owner.recovering(); ++i) step();
+    assert(!app->owner.needsRecovery() && axisReserved(*app, 1));
+    command("@4 enable\n"); contains("axis_conflict"); assert(hardware.writes == 1);
+    command("@5 stop normal\n"); contains("\"result\":\"accepted\"");
+    const uint32_t freshStop = view(0).operationId;
+    actionStep(freshStop); actionStep(freshStop, registerReply({0xFFFF, 8})); pump(100);
+    assert(!axisReserved(*app, 1) && hardware.writes == 3);
+    assert(view(freshStop).actionContext->completion == ActionCompletion::OBSERVED);
+}
+void testBadActionReplyKeepsCodecEvidenceAndNoReplay() {
+    using namespace MotorControlRS;
+    fresh(); timerCapture(); qualifyActions(); const uint32_t action = actionAdmission(ActionKind::RELEASE);
+    startTx(0); auto invalid = hardware.tx; invalid.back() ^= 1;
+    actionStep(action, invalid);
+    const auto& failed = *view(action).actionContext;
+    assert(failed.outcome == ActionOutcome::REPLY_ERROR && failed.execution == ActionExecution::UNKNOWN);
+    assert(failed.writeEvidence.status.code == Err::CRC_ERROR);
+    assert(failed.writeEvidence.length == 8 && failed.writeEvidence.raw[7] == invalid[7]);
+    assert(axisReserved(*app, 1) && app->owner.needsRecovery());
+    pump(1000); assert(hardware.writes == 1);
+}
+void testStopKeepsKnownTargetAfterUnrelatedReadAndAction() {
+    using namespace MotorControlRS;
+    fresh(); timerCapture(); qualifyActions();
+    const uint32_t original = actionAdmission(ActionKind::ENABLE);
+    actionStep(original);
+    uint32_t otherRead = 0; assert(probe(app, 2, 2, otherRead) == Probe::Action::OK);
+    auto bytes = REPLY; bytes[0] = 2;
+    const uint16_t crc = ESS::calcCrc16(bytes.data(), bytes.size() - 2);
+    bytes[5] = static_cast<uint8_t>(crc); bytes[6] = static_cast<uint8_t>(crc >> 8);
+    reply(otherRead, 1, bytes);
+    assert(app->communicationTarget.address == 2 && axisReserved(*app, 1));
+    const uint32_t unrelated = actionAdmission(ActionKind::RELEASE, 3, 2);
+    assert(axisReserved(*app, 1) && axisReserved(*app, 2));
+    assert(cancel(app, unrelated) == Probe::Action::OK);
+    const uint32_t stopping = actionAdmission(ActionKind::STOP, 4, 1);
+    if (app->owner.txAccepted(findRecord(*app, original)->requestId)) actionStep(original, registerReply({0, 0x10}));
+    else advanceActions(*app, nowUs());
+    actionStep(stopping); actionStep(stopping, registerReply({0xFFFF, 8}));
+    assert(view(stopping).actionContext->completion == ActionCompletion::OBSERVED);
+    assert(view(unrelated).actionContext->execution == ActionExecution::NOT_TRANSMITTED);
+    assert(!axisReserved(*app, 1) && !axisReserved(*app, 2));
+}
+void testStopAndInterruptedResultSurviveBlockedConsole() {
+    using namespace MotorControlRS;
+    fresh(); timerCapture(); qualifyActions(); command("@1 enable\n");
+    const uint32_t original = view(0).operationId; startTx(0);
+    Serial.writeCapacity = 0;
+    for (unsigned id = 2; id < 15; ++id) Serial.input += "@" + std::to_string(id) + " status\n";
+    for (unsigned i = 0; i < 100 && !Serial.input.empty(); ++i) step();
+    assert(app->console.outputPending() && app->outputCount == OUTPUT_LINES);
+    Serial.input = "@20 stop normal\n";
+    for (unsigned i = 0; i < 100 && !Serial.input.empty(); ++i) step();
+    assert(Serial.input.empty()); const uint32_t stopping = app->latestOperationId;
+    assert(stopping != original && view(stopping).actionContext && view(original).interruptedByStop);
+    actionStep(original); actionStep(stopping); actionStep(stopping, registerReply({0, 0}));
+    assert(!view(original).pending && !view(stopping).pending);
+    assert(release(app, stopping) == Probe::Action::BUSY);
+    Serial.writeCapacity = 4096; pump(2000);
+    const std::string acceptance = "\"id\":20,\"command\":\"stop\",\"ok\":true,\"result\":\"accepted\"";
+    const auto accepted = Serial.output.find(acceptance);
+    const auto terminal = Serial.output.find("\"type\":\"action\",\"profile\":\"ess_rs\",\"id\":20");
+    assert(accepted != std::string::npos && terminal != std::string::npos && accepted < terminal);
+    assert(findRecord(*app, original)->delivered && findRecord(*app, stopping)->delivered);
+    assert(view(original).actionContext->outcome == ActionOutcome::CANCELLED);
+    assert(view(stopping).actionContext->completion == ActionCompletion::OBSERVED && hardware.writes == 3);
+}
 void readStep(uint32_t operation, uint8_t index, const std::vector<uint8_t>& bytes) {
     const unsigned writes = hardware.writes;
     if (app->runner.phase() != Rtu::Phase::DRAIN) startTx(writes);
@@ -705,6 +900,32 @@ void completeState(uint32_t operation, uint16_t alarm = 0, uint16_t motion = 0) 
     readStep(operation, 0, registerReply({alarm, motion}));
     readStep(operation, 1, registerReply({0x8005, 0x4002}));
     readStep(operation, 2, registerReply({0x1234, 0xABCD, 0xFFFF})); pump(100);
+}
+void testActionEffectsInvalidateHistoricalFreshnessAndReleaseOrigin() {
+    using namespace MotorControlRS;
+    fresh(); timerCapture(); qualifyActions();
+    command("@1 read state\n"); completeState(view(0).operationId);
+    const auto prior = app->stateCache.blocks[0];
+    assert(Probe::current(prior, app->axis.target));
+    app->axis.originKnown = app->axis.encoderOriginKnown = app->axis.softLimitsKnown = true;
+    const uint32_t generation = app->axis.generation;
+    const uint32_t unsent = actionAdmission(ActionKind::RELEASE, 2);
+    assert(cancel(app, unsent) == Probe::Action::OK); advanceActions(*app, nowUs());
+    assert(app->axis.originKnown && app->axis.generation == generation);
+    assert(Probe::current(app->stateCache.blocks[0], app->axis.target));
+    const uint32_t released = actionAdmission(ActionKind::RELEASE, 3);
+    startTx(3);
+    assert(!app->axis.originKnown && !app->axis.encoderOriginKnown && !app->axis.softLimitsKnown);
+    assert(app->axis.generation == generation + 1);
+    const auto& invalidated = app->stateCache.blocks[0];
+    assert(invalidated.valid && invalidated.invalidatedUs && !Probe::current(invalidated, app->axis.target));
+    assert(invalidated.value.rawMotion == prior.value.rawMotion && invalidated.lastSuccessUs == prior.lastSuccessUs);
+    assert(invalidated.observedEarliestUs == prior.observedEarliestUs && invalidated.observedLatestUs == prior.observedLatestUs);
+    actionStep(released); actionStep(released, registerReply({0, 0x10}));
+    assert(app->axis.generation == generation + 1 && !app->axis.originKnown);
+    command("@4 read state\n"); completeState(view(0).operationId, 0, 0x10);
+    assert(Probe::current(app->stateCache.blocks[0], app->axis.target));
+    assert(app->stateCache.blocks[0].value.released && !app->axis.originKnown);
 }
 void testHostAxisPreparationUsesPublicApiWithoutTraffic() {
     using namespace MotorControlRS;
@@ -1002,6 +1223,11 @@ int main() {
         sizeof(App), sizeof(App::Record), sizeof(Probe::Console), sizeof(ESS::ReadContext), sizeof(ESS::PreparedRead),
         sizeof(ESS::IdentityObservation), sizeof(ESS::ConfigObservation), sizeof(Probe::StateCache), sizeof(ESS::StateObservation));
     testSuccessfulProbeAndReset(); testCheckedExceptionAndParserRejection();
+    testActionGateAndSeparateAcknowledgement(); testStopSupersedesOnlyAfterAdmissionAndSettlesInflight();
+    testStopUsesReservedCapacityAndFullAdmissionPreservesWork();
+    testUncertainStopSurvivesReleaseRecoveryAndCanBeStoppedAgain(); testBadActionReplyKeepsCodecEvidenceAndNoReplay();
+    testStopKeepsKnownTargetAfterUnrelatedReadAndAction(); testStopAndInterruptedResultSurviveBlockedConsole();
+    testActionEffectsInvalidateHistoricalFreshnessAndReleaseOrigin();
     testCaptureReadUsesOwnerAndPreservesModel(); testCaptureReadRejectsMalformedRepliesAndArguments();
     testActiveConsoleAndBoundedInputOutput(); testQueuePressureAndQueuedCancellation();
     testOutputBackpressureKeepsTransportAndTerminal(); testFullRetainedResultsAndIndependentRecovery();

@@ -19,10 +19,14 @@ checks current interpretation confidence and strict host validation.
 Prompt 07 implements [exact host coordinate preparation](axis_preparation.md),
 configuration/reference validation and pure console previews.
 
+Prompt 08 adds [bounded actions and priority stop](ess_actions.md), application
+axis reservations, explicit uncertainty and console routes. Physical action
+testing remains gated by independent TX/RX/DE and FC06 echo qualification.
+
 Implemented blocks include exact target preparation, typed non-changing reads, pure unit conversion, an ESS register catalogue,
 checked wire codecs with a minimal probe and standalone build foundations.
 The standalone RTU runner and ESP32-S3 adapter have native fake tests. The read-only
-probe CLI has bench evidence; external timing qualification, typed setting/action
+probe CLI has bench evidence; external timing qualification, typed setting
 commands, motion workflows, discovery orchestration and full CLI coverage remain future
 work. See the [root README](../README.md)
 for current code and builds.

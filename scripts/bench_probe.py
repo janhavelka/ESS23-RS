@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Bounded, read-only tests of the standalone MotorControl-RS JSONL console.
+"""Bounded read tests and explicit one-attempt actions for the standalone MotorControl-RS JSONL console.
 
-Only reviewed probes and typed reads create motor-bus traffic. Status, health and memory are cached
+Reviewed probes, typed reads and explicitly selected actions create motor-bus traffic. Status, health and memory are cached
 host reports. A lost or malformed reply stops the run; nothing is replayed and
 host recovery is never automatic. Python 3.10+; pyserial is needed only for a
 real port. See ``--help`` for finite probe, stress, watch and load runs. Load
@@ -28,12 +28,19 @@ MAX_LINE = 4096
 MAX_INPUT = 32768
 COMMANDS = frozenset({"version", "config", "probe", "capture-read", "status", "health", "memory", "stats", "load",
                       "drv", "result", "release", "cancel", "recover", "reset", "caps",
-                      "read-identity", "read-config", "read-state", "health-check", "monitor", "axis", "prepare"})
-MAX_COMMANDS = 10  # Eight probes, one recovery and one interleaved local report.
-MAX_OPERATIONS = 9  # Firmware retains eight ordinary results plus one recovery.
+                      "read-identity", "read-config", "read-state", "health-check", "monitor", "axis", "prepare", "enable", "motor-release", "alarm-clear", "stop"})
+MAX_COMMANDS = 11  # Eight ordinary operations, recovery, reserved stop and local query.
+MAX_OPERATIONS = 10  # Eight ordinary operations, one recovery and one reserved stop.
 MAX_PROBES = 8
 TYPED_READS = {"read-identity": "identity", "read-config": "config", "read-state": "state"}
 READ_COMMANDS = ("probe", "capture-read", *TYPED_READS)
+ACTION_COMMANDS = ("enable", "motor-release", "alarm-clear", "stop")
+ACTION_KINDS = {"enable": "enable", "motor-release": "release", "alarm-clear": "clear_alarm", "stop": "stop"}
+
+
+def operation_quota(command):
+    return command if command in ("stop", "recover") else "ordinary"
+
 TYPED_WINDOWS = {"identity": ((0x0000, 4),),
                  "config": ((0x0010, 2), (0x0013, 3), (0x0017, 3), (0x0040, 5), (0x0100, 2)),
                  "state": ((0x0006, 2), (0x0008, 2), (0x000A, 3))}
@@ -161,6 +168,7 @@ class Command:
         self.terminal = None
         self.input_bytes = 0
         self.released = False
+        self.stop_policy = None
 
 
 class Console:
@@ -333,6 +341,97 @@ class Console:
                 raise ValueError("wrong request/reply shape")
         except ValueError as exc:
             raise BenchError("capture-read raw frame evidence is inconsistent") from exc
+
+    @staticmethod
+    def _check_action(item: dict, command: str, address: int | None, policy: str | None) -> None:
+        """Separate a confirmed write acknowledgement from a later drive report."""
+        def require(condition, message):
+            if not condition:
+                raise BenchError("action " + message)
+
+        def integer(value, maximum=0xFFFFFFFFFFFFFFFF):
+            return type(value) is int and 0 <= value <= maximum
+
+        require(item.get("action_kind") == ACTION_KINDS.get(command)
+                and item.get("stop_policy") == policy and (command != "stop" or policy in ("normal", "direct"))
+                and item.get("read_kind") is None and item.get("capture_read", False) is False
+                and item.get("recovery", False) is False, "kind or policy does not match request")
+        require(integer(item.get("address"), 247) and item["address"] >= 1
+                and (address is None or item["address"] == address), "address does not match acceptance")
+        require(Console._operation_id(item.get("target")) and Console._operation_id(item.get("generation")),
+                "target or generation is invalid")
+        check_counts(item, ("started_us", "deadline_us", "serviced_us", "polls"), "action")
+        require(item["started_us"] < item["deadline_us"] and item["serviced_us"] >= item["started_us"]
+                and item["polls"] <= 64, "time budget or observation count is inconsistent")
+        require(item.get("state") == ("succeeded" if item["ok"] else "failed"), "state is inconsistent")
+        require(item.get("outcome") in ({"observed"} if item["ok"] else
+                {"reply_error", "transport_error", "cancelled", "deadline", "timing_unqualified",
+                 "unconfirmed_response", "observation_limit"}), "outcome is inconsistent")
+        require(item.get("execution") in ("not_transmitted", "acknowledged", "rejected", "unknown"),
+                "execution evidence is invalid")
+        require(item.get("completion") == ("observed" if item["ok"] else "not_observed"),
+                "reported completion is inconsistent")
+        require(type(item.get("observation_known")) is bool, "observation validity is missing")
+        require(type(item.get("interrupted_by_stop")) is bool, "stop interruption evidence is missing")
+        evidence = {}
+        for name in ("write_evidence", "last_observation", "failure_evidence"):
+            entry = item.get(name)
+            require(isinstance(entry, dict), "missing " + name)
+            for key, limit in (("received_length", 0xFFFFFFFF), ("tx_accepted", 8), ("event", 3),
+                               ("step", 64), ("frame_error", 255), ("earliest_us", 0xFFFFFFFFFFFFFFFF),
+                               ("latest_us", 0xFFFFFFFFFFFFFFFF), ("delivered_us", 0xFFFFFFFFFFFFFFFF)):
+                require(integer(entry.get(key), limit), name + " has invalid " + key)
+            for key in ("tx_complete", "response_confirmed", "qualified", "execution_unknown"):
+                require(type(entry.get(key)) is bool, name + " has invalid " + key)
+            require(type(entry.get("detail")) is int and type(entry.get("transport_detail")) is int
+                    and entry.get("status") in {"OK", "INVALID_CONFIG", "ILLEGAL_VALUE", "UNSUPPORTED",
+                        "CRC_ERROR", "FRAME_ERROR", "EXCEPTION"}, name + " has invalid status")
+            raw = entry.get("raw_hex")
+            require(isinstance(raw, str) and re.fullmatch(r"(?:[0-9a-fA-F]{2}){0,9}", raw) is not None,
+                    name + " raw frame is malformed")
+            raw = bytes.fromhex(raw)
+            require(len(raw) == min(entry["received_length"], 9), name + " length is inconsistent")
+            require(not entry["tx_complete"] or entry["tx_accepted"] == 8, name + " physical TX lacks full acceptance")
+            if entry["qualified"]:
+                require(entry["event"] == 0 and item["started_us"] <= entry["earliest_us"] <= entry["latest_us"]
+                        <= entry["delivered_us"] <= item["serviced_us"], name + " timing is inconsistent")
+            else:
+                require(entry["earliest_us"] == entry["latest_us"] == 0, name + " unqualified bounds are published")
+            evidence[name] = (entry, raw)
+        write, raw = evidence["write_evidence"]
+        require(write["step"] == 0, "write token is inconsistent")
+        if item["execution"] in ("acknowledged", "rejected"):
+            require(write["qualified"] and write["response_confirmed"] and write["tx_complete"]
+                    and write["event"] == 0 and wire_crc(raw) == 0, "acknowledgement lacks confirmed drive response")
+            if item["execution"] == "acknowledged":
+                reg, value = {"enable": (0x2D, 0x12), "motor-release": (0x2D, 0x11),
+                              "alarm-clear": (0x2D, 0x21), "stop": (0x27, 0x100 if policy == "normal" else 0x200)}[command]
+                require(raw[:6] == bytes((item["address"], 6, reg >> 8, reg & 255, value >> 8, value & 255))
+                        and len(raw) == 8 and write["status"] == "OK" and write["frame_error"] == 0,
+                        "write echo differs from requested action")
+            else:
+                require(len(raw) == 5 and raw[:2] == bytes((item["address"], 0x86))
+                        and write["status"] == "EXCEPTION", "device rejection lacks checked exception")
+        elif item["execution"] == "not_transmitted":
+            require(write["tx_accepted"] == 0 and not write["execution_unknown"], "non-transmission contradicts TX evidence")
+        if item["observation_known"]:
+            obs, raw = evidence["last_observation"]
+            require(item["execution"] == "acknowledged" and item["polls"] >= 1
+                    and obs["step"] >= 1 and obs["event"] == 0 and obs["qualified"]
+                    and obs["response_confirmed"] and obs["tx_complete"] and obs["status"] == "OK"
+                    and obs["frame_error"] == 0 and len(raw) == 9 and wire_crc(raw) == 0
+                    and raw[:3] == bytes((item["address"], 3, 4)), "observation lacks checked FC03 evidence")
+            alarm, motion = int.from_bytes(raw[3:5], "big"), int.from_bytes(raw[5:7], "big")
+            require(type(item.get("raw_alarm")) is int and item["raw_alarm"] == alarm
+                    and type(item.get("raw_motion")) is int and item["raw_motion"] == motion,
+                    "decoded report differs from retained RX")
+            if item["ok"]:
+                observed = {"enable": not bool(motion & 16), "motor-release": bool(motion & 16),
+                            "alarm-clear": alarm == 0 and not bool(motion & 8), "stop": not bool(motion & 4)}[command]
+                require(observed, "status does not establish requested reported completion")
+        else:
+            require(item.get("raw_alarm") is None and item.get("raw_motion") is None and not item["ok"],
+                    "unknown observation publishes completion or decoded values")
 
     @staticmethod
     def _check_typed_read(item: dict, kind: str, address: int | None) -> None:
@@ -614,7 +713,7 @@ class Console:
                 require(type(block.get(key)) is bool, "block flags are invalid")
             check_counts(block, ("target", "address", "generation", "operation_id", "last_attempt_us", "last_attempt_target",
                                "last_attempt_address", "last_attempt_generation", "last_attempt_operation_id", "last_success_us",
-                               "observed_earliest_us", "observed_latest_us", "delivered_us"), "cached state block")
+                               "observed_earliest_us", "observed_latest_us", "delivered_us", "invalidated_us"), "cached state block")
             require(block["last_attempt_us"] <= item["now_us"], "last attempt is in the future")
             require(type(block.get("last_attempt_status")) is str and type(block.get("last_attempt_detail")) is int, "attempt error is unavailable")
             if index == 2 and not block["valid"]:
@@ -638,7 +737,10 @@ class Console:
                         "feedback interpretation generation is inconsistent")
             require(0 <= block["observed_earliest_us"] <= block["observed_latest_us"] <= block["delivered_us"] <= item["now_us"]
                     and block["last_success_us"] == block["observed_latest_us"], "observation timing bounds are invalid")
+            invalidated = block.get("invalidated_us")
+            require(type(invalidated) is int and 0 <= invalidated <= item["now_us"], "action invalidation watermark is invalid")
             expected_current = all(block[key] == item["selected_" + key] for key in ("target", "address", "generation"))
+            expected_current = expected_current and (invalidated == 0 or block["observed_earliest_us"] > invalidated)
             age = item["now_us"] - block["observed_earliest_us"]
             require(type(block.get("age_us")) is int and block["age_us"] == age and block["current"] == expected_current
                     and block["fresh"] == (expected_current and age <= item["stale_after_ms"] * 1000), "observation age or generation is inconsistent")
@@ -792,7 +894,7 @@ class Console:
         if self.clock() >= handle.deadline:
             raise BenchError("command response deadline expired; command was not replayed")
         self.emit("reply", response=item)
-        asynchronous = handle.command in (*READ_COMMANDS, "recover")
+        asynchronous = handle.command in (*READ_COMMANDS, *ACTION_COMMANDS, "recover")
         if asynchronous:
             if item.get("type") == "reply" and not handle.accepted:
                 if not item["ok"]:
@@ -800,7 +902,7 @@ class Console:
                     return
                 if item.get("result") != "accepted":
                     raise BenchError(f"{handle.command} acceptance is not explicit")
-                if handle.command in READ_COMMANDS:
+                if handle.command in (*READ_COMMANDS, *ACTION_COMMANDS):
                     address = item.get("address")
                     if (type(address) is not int or not 1 <= address <= 247
                             or (handle.address is not None and address != handle.address)):
@@ -813,9 +915,9 @@ class Console:
                     raise BenchError("accepted operation ID is missing, reused or not monotonic")
                 if len(self.operations) == MAX_OPERATIONS:
                     raise BenchError("accepted operation exceeds retained result limit")
-                same_kind = sum((original.command in READ_COMMANDS) == (handle.command in READ_COMMANDS)
-                                for original in self.operations.values())
-                if same_kind >= (MAX_PROBES if handle.command in READ_COMMANDS else 1):
+                quota = operation_quota(handle.command)
+                same_kind = sum(operation_quota(original.command) == quota for original in self.operations.values())
+                if same_kind >= (MAX_PROBES if quota == "ordinary" else 1):
                     raise BenchError("accepted operation exceeds its retained result quota")
                 handle.operation_id = operation_id
                 handle.accepted = True
@@ -823,7 +925,8 @@ class Console:
                 self.last_operation_id = operation_id
                 return
             expected_type = {"probe": "probe", "capture-read": "capture_read", "recover": "recovery",
-                             "read-identity": "read", "read-config": "read", "read-state": "read"}[handle.command]
+                             "read-identity": "read", "read-config": "read", "read-state": "read",
+                             **dict.fromkeys(ACTION_COMMANDS, "action")}[handle.command]
             if item.get("type") != expected_type or not handle.accepted:
                 raise BenchError(f"{handle.command} response sequence is invalid")
             if (not self._operation_id(item.get("operation_id"))
@@ -836,6 +939,8 @@ class Console:
                 self._check_capture_read(item, handle.address)
             elif handle.command in TYPED_READS:
                 self._check_typed_read(item, TYPED_READS[handle.command], handle.address)
+            elif handle.command in ACTION_COMMANDS:
+                self._check_action(item, handle.command, handle.address, handle.stop_policy)
             else:
                 self._check_recovery(item)
         else:
@@ -855,6 +960,15 @@ class Console:
                     recovery = item.get("recovery", False)
                     capture_read = item.get("capture_read", False)
                     read_kind = item.get("read_kind")
+                    action_kind = item.get("action_kind")
+                    stop_policy = item.get("stop_policy")
+                    if (action_kind is not None and action_kind not in ACTION_KINDS.values()) or (
+                            action_kind == "stop" and stop_policy not in ("normal", "direct")) or (
+                            action_kind != "stop" and stop_policy is not None) or (
+                            action_kind is not None and (recovery or capture_read or read_kind is not None)) or (
+                            original is not None and action_kind != ACTION_KINDS.get(original.command)) or (
+                            stop_policy != (original.stop_policy if original else stop_policy)):
+                        raise BenchError("result action kind or policy does not match retained operation")
                     if (type(recovery) is not bool or
                             type(capture_read) is not bool or (recovery and capture_read) or
                             (read_kind is not None and (type(read_kind) is not str or read_kind not in TYPED_WINDOWS)) or
@@ -868,6 +982,9 @@ class Console:
                             raise BenchError("pending result lacks a valid lifecycle")
                         if original is not None and original.terminal is not None:
                             raise BenchError("completed retained operation regressed to pending")
+                    elif action_kind is not None:
+                        action_command = next(name for name, kind in ACTION_KINDS.items() if kind == action_kind)
+                        self._check_action(item, action_command, original.address if original else None, stop_policy)
                     elif recovery:
                         self._check_recovery(item)
                     elif capture_read:
@@ -918,16 +1035,18 @@ class Console:
     def begin(self, command: str, *, timeout_s: float = 3.0,
               address: int | None = None, load: tuple[int, int, int] | None = None,
               operation_id: int | None = None, monitor: tuple[int, int] | bool | None = None,
-              host_args: tuple[str, ...] | None = None) -> Command:
+              host_args: tuple[str, ...] | None = None, stop_policy: str | None = None) -> Command:
         """Send once and collect admission/local reply; bus completion can stay pending.
 
-        Up to ten handles (eight probes, one recovery and one local query) may be
+        Up to eleven handles (eight ordinary operations, recovery, stop and a local query) may be
         outstanding. Accepted operation IDs stay retained until explicit release.
         No command, including recovery, is retried after any framing failure.
         """
         positive(timeout_s, "command timeout")
         if command not in COMMANDS:
-            raise ValueError("command is not in the read-only/host-control harness inventory")
+            raise ValueError("command is not in the explicit harness inventory")
+        if (command == "stop" and stop_policy not in ("normal", "direct")) or (command != "stop" and stop_policy is not None):
+            raise ValueError("stop requires explicit normal or direct policy")
         if host_args is not None:
             if (command not in ("axis", "prepare") or not isinstance(host_args, tuple) or
                     not 1 <= len(host_args) <= 8 or any(type(token) is not str or not token or
@@ -944,7 +1063,7 @@ class Console:
                  type(monitor[0]) is not int or type(monitor[1]) is not int or
                  not 100 <= monitor[0] <= 60000 or not 1 <= monitor[1] <= 1000)):
                 raise ValueError("monitor requires off or interval 100..60000/count 1..1000")
-        if address is not None and (command not in READ_COMMANDS or type(address) is not int
+        if address is not None and (command not in (*READ_COMMANDS, *ACTION_COMMANDS) or type(address) is not int
                                     or not 1 <= address <= 247):
             raise ValueError("an ESS probe address must be an integer within 1..247")
         if load is not None:
@@ -973,6 +1092,7 @@ class Console:
             if self.clock() >= deadline:
                 raise BenchError("command deadline expired before transmission")
             handle = Command(self, request_id, command, started, deadline, address, load, operation_id)
+            handle.stop_policy = stop_policy
             self.pending[request_id] = handle
             suffix = "" if address is None else f" {address}"
             if load is not None:
@@ -983,6 +1103,8 @@ class Console:
                 suffix = " off" if monitor is False else f" {monitor[0]} {monitor[1]}"
             if host_args is not None:
                 suffix = " " + " ".join(host_args)
+            if stop_policy is not None:
+                suffix = " " + stop_policy + suffix
             wire_command = "health check" if health_check else "read " + TYPED_READS[command] if command in TYPED_READS else command
             payload = f"@{request_id} {wire_command}{suffix}\n".encode("ascii")
             self.emit("send", id=request_id, command=command, address=address,
@@ -1040,10 +1162,10 @@ class Console:
     def command(self, command: str, *, timeout_s: float = 3.0,
                 address: int | None = None, load: tuple[int, int, int] | None = None,
                 operation_id: int | None = None, monitor: tuple[int, int] | bool | None = None,
-                host_args: tuple[str, ...] | None = None) -> dict:
+                host_args: tuple[str, ...] | None = None, stop_policy: str | None = None) -> dict:
         """Send once, wait for its terminal, then explicitly release admitted results."""
         handle = self.begin(command, timeout_s=timeout_s, address=address, load=load,
-                            operation_id=operation_id, monitor=monitor, host_args=host_args)
+                            operation_id=operation_id, monitor=monitor, host_args=host_args, stop_policy=stop_policy)
         return self.wait(handle, release=True)
 
     def identify(self, *, timeout_s: float = 3.0) -> dict:
@@ -1311,6 +1433,10 @@ def arguments(argv: list[str] | None) -> argparse.Namespace:
     sub = parser.add_subparsers(dest="mode", required=True)
     sub.add_parser("probe", help="one model-register read and cached observations")
     sub.add_parser("capture-read", help="one fixed 0x0130/16-word timing-fixture read")
+    for name in ACTION_COMMANDS:
+        action = sub.add_parser(name, help="one explicit action attempt; never retried")
+        if name == "stop":
+            action.add_argument("stop_policy", choices=("normal", "direct"))
     typed = sub.add_parser("typed-read", help="typed identity/configuration/state reads, retained inspection and release")
     typed.add_argument("--kind", choices=("identity", "config", "state", "both"), default="both")
     for mode, default_count, default_interval, description in (
@@ -1370,10 +1496,16 @@ def main(argv: list[str] | None = None) -> int:
                 console = Console(port, on_event=evidence)
                 console.drain_startup(args.startup)
                 console.identify(timeout_s=args.timeout)
-                campaign(console, args.mode, count=args.count, interval_s=args.interval,
-                         timeout_s=args.timeout, address=args.address, load=args.load,
-                         typed_kind=getattr(args, "kind", "both"),
-                         read_command="capture-read" if getattr(args, "capture_read", False) else "probe")
+                if args.mode in ACTION_COMMANDS:
+                    result = console.command(args.mode, timeout_s=args.timeout, address=args.address,
+                                             stop_policy=getattr(args, "stop_policy", None))
+                    if not result["ok"]:
+                        raise BenchError("action rejected or failed: " + str(result.get("result", result.get("outcome"))))
+                else:
+                    campaign(console, args.mode, count=args.count, interval_s=args.interval,
+                             timeout_s=args.timeout, address=args.address, load=args.load,
+                             typed_kind=getattr(args, "kind", "both"),
+                             read_command="capture-read" if getattr(args, "capture_read", False) else "probe")
             except (Exception, KeyboardInterrupt) as exc:
                 evidence("failure", error=str(exc) or "interrupted", ok=False)
                 raise

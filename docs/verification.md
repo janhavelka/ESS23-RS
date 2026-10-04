@@ -1,5 +1,13 @@
 # Software verification
 
+## Prompt08 bounded actions and stop
+
+[Action verification](reports/ess_release_08_2026-10-04.md): 21/21 CTest suites
+pass under strict C++11 Release with warnings as errors, including 118 Python
+harness cases and 13 inventory cases. Installed consumer and all four firmware
+builds pass. Final COM13 campaign passes 28 read-only frames and five zero-TX
+action gates. Physical action/stop and electrical qualification remain NOT RUN.
+
 ## Fresh prompt07 audit
 
 [Fresh independent review](reports/ess_release_07_audit_2026-10-04.md) corrects

@@ -26,12 +26,32 @@ class Coverage(unittest.TestCase):
         self.assertEqual((summary["records"], summary["reserved"], summary["unresolved_access"], summary["named_choices"]),
                          (221, 16, 2, 135))
         self.assertEqual(sum(count for state, count in summary["read"].items() if state in operations.IMPLEMENTATION), 201)
-        self.assertEqual(summary["write"]["NOT_IMPLEMENTED"], 193)
-        self.assertEqual(summary["action"]["NOT_IMPLEMENTED"], 2)
+        self.assertEqual(summary["write"]["NOT_IMPLEMENTED"], 191)
+        self.assertEqual(summary["action"]["IN_PROGRESS"], 2)
         linked = {record for group in INVENTORY["operations"] for record in group["records"]}
-        self.assertEqual(len(linked), 25)
+        self.assertEqual(len(linked), 27)
         self.assertEqual(len(result["records"]), len({record["id"] for record in result["records"]}))
         self.assertTrue(all(choice["default_disposition"] == operations.DEFAULT for choice in result["named_choices"]))
+
+    def test_only_exact_action_choices_implemented(self):
+        result = operations.check(INVENTORY, LEDGER)
+        implemented = {choice["id"] for choice in result["named_choices"]
+                       if choice["disposition"]["implementation"] == "IMPLEMENTED"}
+        self.assertEqual(implemented, {"AuxiliaryCommand.ENABLE", "AuxiliaryCommand.RELEASE",
+            "AuxiliaryCommand.CLEAR_ALARM", "MotionCommandBit.STOP", "MotionCommandBit.EMERGENCY_STOP"})
+        self.assertEqual(result["summary"]["choice_implementation"], {"NOT_IMPLEMENTED": 130, "IMPLEMENTED": 5})
+        for record in result["records"]:
+            if record["id"] in ("AUXILIARY_COMMAND", "MOTION_COMMAND"):
+                self.assertEqual(record["obligations"]["write"], "IN_PROGRESS")
+                self.assertEqual(record["obligations"]["action"], "IN_PROGRESS")
+
+    def test_action_choices_must_match_ledger_record(self):
+        for choices in ([], ["AuxiliaryCommand.MISSING"], ["MotionCommandBit.STOP"],
+                        ["AuxiliaryCommand.ENABLE", "AuxiliaryCommand.ENABLE"]):
+            self.rejected(lambda value: value["operations"][-5].update(choices=choices))
+        self.rejected(lambda value: value["operations"][0].update(choices=["AuxiliaryCommand.ENABLE"]))
+        self.rejected(lambda value: value["operations"][-4].update(choices=["AuxiliaryCommand.ENABLE"]))
+        self.rejected(lambda value: value["operations"][-5]["records"].append("MOTION_COMMAND"))
 
     def test_unresolved_and_reserved_never_disappear(self):
         records = {record["id"]: record for record in operations.check(INVENTORY, LEDGER)["records"]}

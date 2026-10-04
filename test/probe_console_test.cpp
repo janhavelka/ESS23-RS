@@ -22,6 +22,9 @@ struct Fake {
     unsigned snapshots = 0, probes = 0, recoveries = 0, resets = 0;
     unsigned loads = 0, loadChanges = 0;
     unsigned typedReads = 0, monitors = 0, monitorChanges = 0;
+    unsigned actions = 0;
+    MotorControlRS::ActionRequest actionRequest;
+    Probe::Action actionResult = Probe::Action::OK;
     Probe::MonitorSnapshot monitorData;
     Ess::ReadKind typedKind = Ess::ReadKind::IDENTITY;
     uint32_t id = 0, nextOperation = 100;
@@ -70,6 +73,13 @@ struct Fake {
         self.typedKind = kind; self.id = commandId; self.address = address;
         if (self.probeAction == Probe::Action::OK) operation = self.nextOperation++;
         return self.probeAction;
+    }
+    static Probe::Action startAction(void* context, uint32_t commandId, uint8_t address,
+                                    const MotorControlRS::ActionRequest& request, uint32_t& operation) {
+        Fake& self = *static_cast<Fake*>(context); ++self.actions;
+        self.actionRequest = request; self.id = commandId; self.address = address;
+        if (self.actionResult == Probe::Action::OK) operation = self.nextOperation++;
+        return self.actionResult;
     }
     static Probe::Action load(void* context, const Probe::LoadSettings* requested,
                               Probe::LoadSnapshot& output) {
@@ -436,15 +446,15 @@ void testCorrelationAndOutstandingLimit() {
     send(console, "@2 reset\n"); assert(fake.resets == 1);
 
     Fake bounded; Probe::Console full(bounded.host());
-    for (unsigned i = 1; i <= Probe::OUTSTANDING_CAPACITY; ++i)
+    for (unsigned i = 1; i < Probe::OUTSTANDING_CAPACITY; ++i)
         send(full, "@" + std::to_string(i) + " probe\n");
-    assert(bounded.probes == Probe::OUTSTANDING_CAPACITY);
+    assert(bounded.probes == Probe::OUTSTANDING_CAPACITY - 1);
     send(full, "@100 probe\n@101 recover\n");
     bounded.contains("\"result\":\"busy\"");
-    assert(bounded.probes == Probe::OUTSTANDING_CAPACITY && bounded.recoveries == 0);
+    assert(bounded.probes == Probe::OUTSTANDING_CAPACITY - 1 && bounded.recoveries == 0);
     send(full, "@102 health\n"); bounded.contains("\"command\":\"health\"");
     assert(full.reportProbe(1, 1, 100, result));
-    send(full, "@103 probe\n"); assert(bounded.probes == Probe::OUTSTANDING_CAPACITY + 1);
+    send(full, "@103 probe\n"); assert(bounded.probes == Probe::OUTSTANDING_CAPACITY);
 }
 
 void testOutputBackpressureOwnership() {
@@ -606,7 +616,7 @@ void testTypedRoutesAndValidation() {
     assert(fake.typedReads == 3 && fake.snapshots == snapshots && fake.probes == 0);
     send(console, "caps\n"); fake.contains("\"identity\":true"); fake.contains("\"max_steps\":5");
     send(console, "profile ess_rs caps\n"); fake.contains("\"command\":\"caps\"");
-    assert(fake.typedReads == 3 && fake.snapshots == snapshots);
+    assert(fake.typedReads == 3 && fake.snapshots == snapshots + 2); // Cached action qualification only.
     send(console, "help read\n"); fake.contains("read identity|config|state [address]");
     send(console, "help profile\n"); fake.contains("profile ess_rs caps");
     fake.data.cachedIdentityId = 91; fake.data.cachedIdentityAddress = 4; fake.data.cachedIdentityGeneration = 2;
@@ -696,6 +706,7 @@ void testStateRoutesCacheAndPolling() {
         block.lastAttemptTarget = context.target; block.lastAttemptOperationId = UINT32_MAX;
         block.lastAttemptUs = UINT64_MAX - 1000; block.lastSuccessUs = UINT64_MAX - 800;
         block.observedEarliestUs = UINT64_MAX - 1000; block.observedLatestUs = UINT64_MAX - 800;
+        block.invalidatedUs = UINT64_MAX - 1200;
         block.deliveredUs = UINT64_MAX - 600; block.lastAttemptStatus = MotorControlRS::Status(MotorControlRS::Err::FRAME_ERROR, INT32_MIN, "");
         block.value.operationId = block.value.configOperationId = UINT32_MAX;
     }
@@ -880,6 +891,78 @@ void testZeroRadiansAndApproximateCancellationMatchApi() {
     fake.untouched(); assert(fake.snapshots == 0);
 }
 
+void testActionRoutesAndStopPressure() {
+    namespace Core = MotorControlRS;
+    const char* commands[] = {"enable 2", "profile ess_rs enable 2", "motor-release 2", "profile ess_rs release 2",
+        "alarm-clear 2", "profile ess_rs clear-alarm 2", "stop normal 2", "profile ess_rs normal-stop 2",
+        "stop direct 2", "profile ess_rs emergency-stop 2"};
+    for (unsigned i = 0; i < 10; ++i) {
+        Fake fake; auto host = fake.host(false, true); host.startAction = Fake::startAction;
+        Probe::Console console(host); send(console, std::string("@42 ") + commands[i] + "\n");
+        assert(fake.actions == 1 && fake.address == 2 && fake.id == 42);
+        assert(fake.actionRequest.kind == (i < 2 ? Core::ActionKind::ENABLE : i < 4 ? Core::ActionKind::RELEASE : i < 6 ? Core::ActionKind::CLEAR_ALARM : Core::ActionKind::STOP));
+        if (i >= 6) assert(fake.actionRequest.stop.behavior == (i < 8 ? Core::StopBehavior::CONFIGURED_DECELERATION : Core::StopBehavior::DIRECT));
+        fake.contains("\"result\":\"accepted\"");
+        Ess::ActionContext context; context.operationId = 100; context.request = fake.actionRequest;
+        context.target.id = 2; context.target.address = 2; context.target.generation = 1;
+        context.state = Core::ActionState::FAILED; context.outcome = Core::ActionOutcome::TRANSPORT_ERROR;
+        context.execution = Core::ActionExecution::UNKNOWN; context.writeEvidence.txAccepted = 3;
+        assert(!console.reportAction(43, 100, context));
+        assert(console.reportAction(42, 100, context)); fake.contains("\"type\":\"action\""); fake.contains("\"execution\":\"unknown\"");
+        assert(!console.reportAction(42, 100, context));
+        fake.view.actionContext = &context; fake.view.commandId = 42; fake.view.operationId = 100;
+        send(console, "result 100\n"); fake.contains("\"command\":\"result\""); fake.contains("\"tx_accepted\":3");
+    }
+    Fake fake; auto host = fake.host(); host.startAction = Fake::startAction; Probe::Console console(host);
+    for (const char* text : {"stop", "stop zero", "stop normal 0", "stop normal 2 3", "enable -1", "alarm-clear 1junk", "profile ess_rs release 248"}) {
+        send(console, std::string(text) + "\n"); fake.contains("\"ok\":false"); assert(fake.actions == 0);
+    }
+    for (unsigned i = 1; i < Probe::OUTSTANDING_CAPACITY; ++i) send(console, "@" + std::to_string(100 + i) + " probe\n");
+    send(console, "enable\n"); assert(fake.actions == 0); fake.contains("busy");
+    fake.blocked = true; send(console, "@500 status\n"); assert(console.outputPending());
+    send(console, "@501 stop direct\n"); assert(fake.actions == 1);
+    send(console, "@502 stop normal\n"); assert(fake.actions == 1); // Reserved admission reply cannot be overwritten.
+    Ess::ActionContext stopped; stopped.operationId = fake.nextOperation - 1; stopped.request = fake.actionRequest;
+    stopped.state = Core::ActionState::SUCCEEDED; stopped.completion = Core::ActionCompletion::OBSERVED;
+    assert(!console.reportAction(501, stopped.operationId, stopped));
+    const auto before = fake.lines.size(); fake.blocked = false; assert(console.serviceOutput());
+    assert(fake.lines.size() == before + 2); fake.contains("\"id\":501"); fake.contains("accepted");
+    assert(console.reportAction(501, stopped.operationId, stopped)); fake.contains("\"completion\":\"observed\"");
+    // Failed stop admission is also retained under pressure and has no terminal.
+    fake.actionResult = Probe::Action::TIMING_UNQUALIFIED; fake.blocked = true;
+    send(console, "@600 status\n@601 stop normal\n"); assert(fake.actions == 2);
+    fake.blocked = false; assert(console.serviceOutput()); fake.contains("timing_unqualified");
+}
+
+void testMaximumActionAndInvalidatedCacheFormatting() {
+    namespace Core = MotorControlRS;
+    Fake fake; auto host = fake.host(false, true); host.startAction = Fake::startAction;
+    Probe::Console console(host); fake.nextOperation = UINT32_MAX;
+    send(console, "@4294967295 motor-release 247\n");
+    Ess::ActionContext context; context.operationId = UINT32_MAX;
+    context.target.id = context.target.generation = UINT32_MAX; context.target.address = 247;
+    context.request.kind = Core::ActionKind::RELEASE; context.state = Core::ActionState::FAILED;
+    context.execution = Core::ActionExecution::ACKNOWLEDGED; context.outcome = Core::ActionOutcome::OBSERVATION_LIMIT;
+    context.startedUs = context.deadlineUs = context.servicedUs = UINT64_MAX;
+    context.observationKnown = true; context.rawAlarm = context.rawMotion = UINT16_MAX; context.polls = 64;
+    for (auto* e : {&context.writeEvidence, &context.lastObservation, &context.failureEvidence}) {
+        e->step = 64; e->event = Core::ReadEventKind::TRANSPORT_FAILURE; e->length = sizeof(e->raw); e->receivedLength = UINT32_MAX;
+        for (auto& byte : e->raw) byte = 255;
+        e->txAccepted = 8; e->earliestUs = e->latestUs = e->deliveredUs = UINT64_MAX;
+        e->transportDetail = INT32_MIN; e->status = Core::Status(Core::Err::INVALID_CONFIG, INT32_MIN, "not serialized");
+    }
+    assert(console.reportAction(UINT32_MAX, UINT32_MAX, context, true));
+    fake.contains("\"interrupted_by_stop\":true"); fake.contains("FFFFFFFFFFFFFFFFFF");
+    std::printf("Maximum-width action line: %zu/%zu bytes\n", fake.lines.back().size(), Probe::OUTPUT_CAPACITY);
+    Probe::StateCache cache; auto& block = cache.blocks[0]; block.valid = true;
+    block.value.target.id = block.value.target.address = 1; block.value.target.generation = 1;
+    block.observedEarliestUs = 10; block.invalidatedUs = 20;
+    fake.data.bindingGeneration = 1; fake.data.nowUs = 30; fake.data.stateCache = &cache;
+    send(console, "status\n"); fake.contains("\"invalidated_us\":20"); fake.contains("\"current\":false");
+    assert(!Probe::current(block, block.value.target));
+    block.observedEarliestUs = 21; assert(Probe::current(block, block.value.target));
+}
+
 } // namespace
 
 int main() {
@@ -905,4 +988,6 @@ int main() {
     testExactHostPreparationAndParsing();
     testHostArgumentsAndBackpressure();
     testZeroRadiansAndApproximateCancellationMatchApi();
+    testActionRoutesAndStopPressure();
+    testMaximumActionAndInvalidatedCacheFormatting();
 }

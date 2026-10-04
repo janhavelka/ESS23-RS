@@ -1,5 +1,9 @@
 # ESP32-S3 read-only probe bench
 
+Prompt 08 adds [typed actions and priority stop](ess_actions.md) to this console.
+The application exposes `actions_qualified:false` and rejects physical action
+admission before TX until independent timing/echo qualification is available.
+Read-only campaigns retain their existing scope.
 
 Prompt 07 adds [host axis configuration and pure target previews](axis_preparation.md)
 through the same installed public API; these commands generate no motor traffic.

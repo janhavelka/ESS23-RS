@@ -355,6 +355,15 @@ statistics only and does not erase uncertain operations or coordinate state.
 
 ## Independent consumers and verification
 
+Prompt 08 implements the [bounded action routes](ess_actions.md): `enable`,
+`motor-release`, `alarm-clear`, and `stop normal|direct`, with matching ESS-native
+spellings. `release operation_id` continues to release a host result. Stop
+admission has reserved correlation/output capacity and never substitutes another
+stop policy. Terminal evidence exposes accepted-stop interruption separately
+from actual write acknowledgement and checked completion. The current bench
+reports actions unqualified and rejects before TX pending independent timing/echo
+evidence.
+
 Standalone operation has no dependency on FieldCore queues, settings, headers
 or CLI registry. A future FieldCore adapter uses its existing bus owner and
 retained-result routing, mapping common/profile operations into typed product

@@ -1,8 +1,8 @@
 # ESS release implementation sequence
 
 Prepared 2026-10-03 against MotorControl-RS `4ae0c4d` (0.6.0).
-Preparing this set executed no numbered prompt. **Prompts 01–07 have implementation and available verification dispositions;
-08–30 remain prepared and unexecuted. Independent electrical qualification remains open.**
+Preparing this set executed no numbered prompt. **Prompts 01–08 have implementation and available verification dispositions;
+09–30 remain prepared and unexecuted. Independent electrical and physical action qualification remain open.**
 The current core, runner, ESP32-S3 capture and probe/load tools are existing work;
 do not rebuild them from an old prompt as if they were missing.
 
@@ -46,7 +46,7 @@ Never mark all preceding physical work qualified just because code compiles.
 | [05 — Typed identity/configuration reads and coverage tracking](05_identity_configuration_and_coverage.md) | 4 | Implemented and freshly audited; native/package/build PASS; read-only typed COM13 PASS; model/firmware/units unresolved | [Handoff](../../reports/ess_release_05_2026-10-04.md), [fresh audit](../../reports/ess_release_05_audit_2026-10-04.md) |
 | [06 — Typed state, feedback and separate health observations](06_state_feedback_and_health.md) | 4 | Implemented and freshly audited; native/build PASS; stationary read-only hardware PASS | [Handoff](../../reports/ess_release_06_2026-10-04.md), [fresh audit](../../reports/ess_release_06_audit_2026-10-04.md) |
 | [07 — Exact target preparation, coordinates and limits](07_coordinates_and_target_preparation.md) | 5 / 6 | Implemented and freshly audited; native/package/build PASS; host API plus 23-frame read-only COM13 PASS; physical origins/travel/motion unqualified | [Handoff](../../reports/ess_release_07_2026-10-04.md), [fresh audit](../../reports/ess_release_07_audit_2026-10-04.md) |
-| [08 — Bounded actions, enable/release and priority stop](08_operations_enable_release_and_stop.md) | 5 | Prepared | — |
+| [08 — Bounded actions, enable/release and priority stop](08_operations_enable_release_and_stop.md) | 5 | Implemented and independently reviewed; native/package/build PASS; read-only COM13 and zero-TX action gates PASS; physical actions NOT RUN pending timing/echo evidence | [Handoff](../../reports/ess_release_08_2026-10-04.md) |
 | [09 — First finite relative move and dynamic stop](09_first_relative_motion.md) | 5 | Prepared | — |
 | [10 — Absolute positions, wrapped angles and coordinate changes](10_absolute_angle_and_origins.md) | 6 | Prepared | — |
 | [11 — Velocity operation and verified ramp semantics](11_velocity_and_ramp_semantics.md) | 6 | Prepared | — |

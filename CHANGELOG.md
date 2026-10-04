@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Add bounded ESS enable/release, alarm-clear and explicit normal/direct stop
+  operations, application axis reservations and reserved stop delivery. Preserve
+  write uncertainty separately from checked status completion; physical actions
+  remain gated by independent timing and echo qualification.
+
 - Add exact host target preparation, native/rational input, frame-aware scaling,
   origin/reference validation, quantization and limits. Reuse the units factor
   planner; host-only console configuration and previews perform no motor writes.

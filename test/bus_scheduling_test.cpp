@@ -821,6 +821,36 @@ void testLateIdenticalReplyLimitation() {
     assert(done(rig, fresh).outcome == Outcome::SUCCESS && done(rig, old).executionUnknown);
     assert(done(rig, old).outcome == Outcome::CANCELLED && rig.fake.sent.size() == 2);
 }
+void testCancelUnsentLeavesInflightAndOtherWorkIntact() {
+    for (unsigned phase = 0; phase < 4; ++phase) {
+        Rig rig; uint8_t bytes[32], nextBytes[32];
+        const RequestId old = admit(rig, request(bytes));
+        const RequestId other = admit(rig, request(nextBytes, 1));
+        if (phase >= 1) rig.service(1000); // WAIT_BUS
+        if (phase >= 2) rig.service(1350); // SETUP
+        if (phase >= 3) rig.service(1360); // TX started
+        const uint64_t now = rig.fake.now;
+        assert(rig.owner.txAccepted(old) == (phase == 3 ? 8U : 0U));
+        assert(rig.owner.txAccepted(other) == 0 && rig.owner.txAccepted(RequestId()) == 0);
+        assert(rig.owner.cancelUnsent(old, now) == (phase < 3));
+        assert(!rig.owner.result(other));
+        if (phase < 3) {
+            assert(done(rig, old).outcome == Outcome::CANCELLED);
+            assert(!done(rig, old).executionUnknown && rig.fake.sent.empty());
+            assert(!rig.owner.needsRecovery());
+            assert(!rig.owner.cancelUnsent(old, now));
+        } else {
+            assert(!rig.owner.result(old) && rig.fake.sent.size() == 1);
+            rig.fake.bytes(reply(), rig.fake.txEnd + 350); rig.until(old);
+            assert(done(rig, old).outcome == Outcome::SUCCESS);
+            assert(done(rig, old).cancellation == Cancellation::NONE);
+            assert(!rig.owner.needsRecovery());
+            assert(rig.owner.txAccepted(old) == 8);
+            assert(rig.owner.release(old) && rig.owner.txAccepted(old) == 0);
+        }
+        assert(!rig.owner.cancelUnsent(RequestId(), rig.fake.now));
+    }
+}
 } // namespace
 int main() {
     testScheduleBounds(); testCancellationPhases(); testDeadlineCancellation(); testLateCancelOverReadBudget();
@@ -830,5 +860,6 @@ int main() {
     testRecoveryRejectsContradictoryDrainEvidence(); testRequestCancellationSurvivesRecoveryExpiry(); testUrgentCannotBypassRecovery();
     testExpiredRecoveryCannotReopenThroughHistoricalSuccess(); testRecoveryDoesNotDoubleReadBudgetAfterCompletion();
     testLateIdenticalReplyLimitation();
+    testCancelUnsentLeavesInflightAndOtherWorkIntact();
     return 0;
 }

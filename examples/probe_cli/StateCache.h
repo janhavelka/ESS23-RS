@@ -15,6 +15,7 @@ struct StateCache {
         bool valid = false, attemptKnown = false, lastAttemptOk = false;
         uint64_t lastAttemptUs = 0, lastSuccessUs = 0;
         uint64_t observedEarliestUs = 0, observedLatestUs = 0, deliveredUs = 0;
+        uint64_t invalidatedUs = 0; ///< Action TX invalidates earlier observations without erasing provenance.
         MotorControlRS::Status lastAttemptStatus;
     } blocks[MotorControlRS::ESS_RS::STATE_BLOCK_COUNT];
 };
@@ -23,7 +24,8 @@ inline bool sameTarget(const MotorControlRS::ReadTarget& a, const MotorControlRS
     return a.id == b.id && a.address == b.address && a.generation == b.generation;
 }
 inline bool current(const StateCache::Block& block, const MotorControlRS::ReadTarget& target) {
-    return block.valid && sameTarget(block.value.target, target);
+    return block.valid && sameTarget(block.value.target, target) &&
+        (!block.invalidatedUs || block.observedEarliestUs > block.invalidatedUs);
 }
 /** Age bounds the transaction observation conservatively from request dispatch,
  * including bus wait. The drive's internal sample age remains undocumented.

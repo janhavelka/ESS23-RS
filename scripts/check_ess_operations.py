@@ -68,19 +68,30 @@ def check(inventory, ledger):
             "access": row["source_access"], "pages": row["pages"], "issues": row["issues"],
             "source_certainty": "EXPLICIT_RESERVED" if reserved else "UNRESOLVED_ACCESS" if unresolved else
                 "DOCUMENTED_WITH_ISSUES" if row["issues"] else "DOCUMENTED_NO_RECORDED_ISSUES",
-            "obligations": obligations, "read_operations": [], "default_disposition": DEFAULT.copy()
+            "obligations": obligations, "read_operations": [], "action_operations": [], "default_disposition": DEFAULT.copy()
         }
 
+    choices = {group["name"] + "." + value["name"]: {"id": group["name"] + "." + value["name"],
+                "value": value["value"], "pages": value["pages"], "default_disposition": DEFAULT.copy(),
+                "disposition": DEFAULT.copy(), "operations": []}
+               for group in ledger["enums"] for value in group["values"]}
+    choice_groups = {row["name"]: row.get("choices") for row in rows}
     seen = set()
     referenced = Counter()
     for operation in inventory.get("operations", []):
-        keys(operation, "id kind records api cli_commands implementation cli native hardware reason", "operation")
+        keys(operation, "id kind records choices api cli_commands implementation cli native hardware reason", "operation")
         op_id = operation.get("id")
         if not isinstance(op_id, str) or not re.fullmatch(r"[a-z][a-z0-9_]*", op_id) or op_id in seen:
             raise ValueError("invalid or duplicate operation ID")
         seen.add(op_id)
-        if operation.get("kind") != "READ":
-            raise ValueError("this inventory implements only reviewed read groups")
+        kind = operation.get("kind")
+        if kind not in {"READ", "ACTION"}:
+            raise ValueError("unsupported operation kind")
+        selected = operation.get("choices", [])
+        if kind == "READ" and selected:
+            raise ValueError("a read is not named-choice action coverage")
+        if kind == "ACTION" and (not selected or len(selected) != len(set(selected))):
+            raise ValueError("action requires distinct explicit source choices")
         linked = operation.get("records", [])
         if not linked or len(linked) != len(set(linked)):
             raise ValueError("empty or duplicate record IDs in " + op_id)
@@ -88,10 +99,18 @@ def check(inventory, ledger):
             if record_id not in records:
                 raise ValueError("unknown record ID: " + str(record_id))
             record = records[record_id]
-            if record["obligations"]["read"] not in IMPLEMENTATION:
+            if record["obligations"][kind.lower()] not in IMPLEMENTATION:
                 raise ValueError("read group references reserved/unreadable/unresolved record: " + record_id)
             referenced[record_id] += 1
-            record["read_operations"].append(op_id)
+            record[kind.lower() + "_operations"].append(op_id)
+        if kind == "ACTION" and {choice_id.split(".")[0] for choice_id in selected} != {choice_groups[name] for name in linked}:
+            raise ValueError("every action record requires explicit matching choices")
+        for choice_id in selected:
+            if choice_id not in choices or choice_id.split(".")[0] not in {choice_groups[name] for name in linked}:
+                raise ValueError("unknown choice or choice not owned by action record: " + str(choice_id))
+            if choices[choice_id]["operations"]:
+                raise ValueError("duplicate named-choice action coverage: " + choice_id)
+            choices[choice_id]["operations"].append(op_id)
 
         state = operation.get("implementation")
         cli = operation.get("cli")
@@ -127,10 +146,18 @@ def check(inventory, ledger):
             for reference in evidence["evidence"]:
                 if not local_file(reference).is_file():
                     raise ValueError("missing " + column + " evidence: " + reference)
+        for choice_id in selected:
+            choices[choice_id]["disposition"] = {"implementation": state, "cli": cli,
+                "native": operation["native"]["state"], "hardware": operation["hardware"]["state"]}
         for record_id in linked:
-            current = records[record_id]["obligations"]["read"]
-            if state == "IMPLEMENTED" or current != "IMPLEMENTED":
-                records[record_id]["obligations"]["read"] = state
+            if kind == "READ":
+                current = records[record_id]["obligations"]["read"]
+                if state == "IMPLEMENTED" or current != "IMPLEMENTED":
+                    records[record_id]["obligations"]["read"] = state
+            elif state in {"IMPLEMENTED", "IN_PROGRESS"}:
+                # Partial choice coverage never marks the entire command register implemented.
+                for column in ("write", "action"):
+                    records[record_id]["obligations"][column] = "IN_PROGRESS"
 
     shared = inventory.get("shared_records", [])
     if len(shared) != len(set(shared)) or set(shared) != {name for name, count in referenced.items() if count > 1}:
@@ -138,17 +165,13 @@ def check(inventory, ledger):
 
     # Source choices remain a separate denominator, including inactive/unknown
     # interpretations. Reading a raw setting is never setting/action coverage.
-    choices = [{"id": group["name"] + "." + value["name"], "value": value["value"],
-                "pages": value["pages"], "default_disposition": DEFAULT.copy()}
-               for group in ledger["enums"] for value in group["values"]]
-    if len({choice["id"] for choice in choices}) != len(choices):
-        raise ValueError("duplicate named source choice ID")
     summary = {"records": len(records), "reserved": sum(row["signedness"] == "RESERVED" for row in rows),
                "unresolved_access": sum(row["source_access"] == "UNSPECIFIED" for row in rows),
-               "operations": len(seen), "named_choices": len(choices)}
+               "operations": len(seen), "named_choices": len(choices),
+               "choice_implementation": dict(Counter(choice["disposition"]["implementation"] for choice in choices.values()))}
     for kind in ("read", "write", "action"):
         summary[kind] = dict(Counter(record["obligations"][kind] for record in records.values()))
-    return {"summary": summary, "records": list(records.values()), "named_choices": choices,
+    return {"summary": summary, "records": list(records.values()), "named_choices": list(choices.values()),
             "operations": inventory["operations"], "model_availability": model}
 
 
