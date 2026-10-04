@@ -9,6 +9,7 @@
 #include <MotorControlRS/VelocityOperation.h>
 #include <MotorControlRS/profiles/ess_rs/Velocity.h>
 #include <MotorControlRS/profiles/ess_rs/DriverSettings.h>
+#include <MotorControlRS/profiles/ess_rs/Segments.h>
 
 int main() {
     using namespace MotorControlRS;
@@ -139,5 +140,9 @@ int main() {
         !nextDriver(driver, 2500, setting) || setting.reg != 0x40 || setting.count != 5) return 38;
     IoObservation ioObservation;
     if (getIo(driver, ioObservation)) return 39;
+    if (!prepareSegmentRead(driver, target, 14, axis.generation, 2600, 100000, SegmentKind::POSITION, 16) ||
+        !nextDriver(driver, 2600, setting) || setting.reg != 0xBA || setting.count != 5) return 40;
+    SegmentObservation segment;
+    if (getSegment(driver, segment)) return 41;
     return 0;
 }

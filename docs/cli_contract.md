@@ -1,5 +1,8 @@
 # MotorControl-RS standalone CLI contract
 
+Prompt16 adds `profile ess_rs segment position|speed|start INDEX read|set ... [address]`. Index1..16, strict integer field/value pairs and the public whole-candidate validator precede admission. Supported scalar fields are speed/acceleration/deceleration and shared starting `value`; `target` reports unsupported before any write. Type/command `segment`, driver group and retained `segment_index` correlate accepted/terminal/inspection records. Configuration does not generate an external trigger; see [stored record contracts](ess_segments.md).
+
+
 Prompt14 adds `home methods` and `home METHOD SEARCH_NATIVE RETURN_NATIVE RAMP_NATIVE zero [address]`, plus `profile ess_rs home ...`, through [the installed homing API](ess_homing.md). Methods33/34/35 are implemented; all35 method dispositions and reasons are queryable. Production timing/method gates remain closed; parameters are native words, not inferred RPM or acceleration.
 
 Implemented driver routes: `profile ess_rs driver read [address]` and

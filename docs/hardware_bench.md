@@ -277,3 +277,5 @@ unchanged; errors and console drops are zero. Owner/capture gaps are 142/52 us,
 owner/worker stack headroom 3508/3268 bytes. Load/monitor off, DE released,
 owner empty and no recovery requirement. Physical velocity/ramp/stop remains
 NOT RUN; no motor writes or physical-motion qualification occurred.
+
+Prompt16 [current record evidence](reports/ess_release_16_2026-10-04.md) uses the final timer image and140 frames/1387 RX bytes with zero transport/capture errors. PT1/PV16 scalar updates were read back and restored; shared-start1 native1 read back0 and remains FAIL/uncertain with preserved raw traffic. Delayed non-changing reads corroborate original settings; no replay or external trigger occurred. Load/monitor off, DE released, owner/results empty. Starting-speed firmware/source semantics and external-trigger fixtures remain open.

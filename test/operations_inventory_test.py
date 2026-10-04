@@ -29,8 +29,7 @@ class Coverage(unittest.TestCase):
             self.assertEqual(policy["split_fc06"], "UNAVAILABLE")
             if row["id"] not in ("POSITION_PULSES", "HOMING_OFFSET"):
                 self.assertEqual(policy["reviewed_windows"], [])
-                self.assertEqual(row["obligations"]["write"], "UNSUPPORTED" if row["id"] in
-                                 ("POSITIVE_SOFT_LIMIT", "NEGATIVE_SOFT_LIMIT") else "NOT_IMPLEMENTED")
+                self.assertEqual(row["obligations"]["write"], "UNSUPPORTED")
 
     def rejected(self, change):
         inventory = copy.deepcopy(INVENTORY)
@@ -44,11 +43,11 @@ class Coverage(unittest.TestCase):
         self.assertEqual((summary["records"], summary["reserved"], summary["unresolved_access"], summary["named_choices"]),
                          (221, 16, 2, 135))
         self.assertEqual(sum(count for state, count in summary["read"].items() if state in operations.IMPLEMENTATION), 201)
-        self.assertEqual(summary["write"]["NOT_IMPLEMENTED"], 161)
-        self.assertEqual(summary["write"]["UNSUPPORTED"], 2)
+        self.assertEqual(summary["write"]["NOT_IMPLEMENTED"], 33)
+        self.assertEqual(summary["write"]["UNSUPPORTED"], 18)
         self.assertEqual(summary["action"]["IN_PROGRESS"], 2)
         linked = {record for group in INVENTORY["operations"] for record in group["records"]}
-        self.assertEqual(len(linked), 47)
+        self.assertEqual(len(linked), 175)
         self.assertEqual(len(result["records"]), len({record["id"] for record in result["records"]}))
         self.assertTrue(all(choice["default_disposition"] == operations.DEFAULT for choice in result["named_choices"]))
 
@@ -91,6 +90,37 @@ class Coverage(unittest.TestCase):
         records = {row["id"]: row for row in result["records"]}
         self.assertEqual(records["INPUT_STATUS"]["obligations"]["write"], "NOT_APPLICABLE")
         self.assertEqual(records["OUTPUT_STATUS"]["obligations"]["write"], "NOT_APPLICABLE")
+
+    def test_all_stored_records_have_independent_access_dispositions(self):
+        records = {row["id"]: row for row in operations.check(INVENTORY, LEDGER)["records"]}
+        for index in range(1, 17):
+            with self.subTest(index=index):
+                prefix = f"POSITION_SEGMENT_{index:02}_"
+                pair = records[prefix + "PULSES"]
+                self.assertEqual(pair["obligations"]["read"], "IMPLEMENTED")
+                self.assertEqual(pair["obligations"]["write"], "UNSUPPORTED")
+                self.assertEqual(pair["pair_write_policy"]["reviewed_windows"], [])
+                reserved = records[prefix + "RESERVED"]
+                self.assertEqual(set(reserved["obligations"].values()), {"ACCOUNTED_RESERVED"})
+                self.assertEqual(reserved["read_operations"], [])
+                for family in ("POSITION_SEGMENT", "SPEED_SEGMENT"):
+                    for field in ("SPEED", "ACCELERATION_TIME", "DECELERATION_TIME"):
+                        record = records[f"{family}_{index:02}_{field}"]
+                        self.assertEqual(record["obligations"]["read"], "IMPLEMENTED")
+                        self.assertEqual(record["obligations"]["write"], "IMPLEMENTED")
+                        self.assertEqual(record["obligations"]["action"], "NOT_APPLICABLE")
+                start = records[f"SEGMENT_START_SPEED_{index:02}_VALUE"]
+                self.assertEqual(start["obligations"]["read"], "IMPLEMENTED")
+                self.assertEqual(start["obligations"]["write"], "IMPLEMENTED")
+                self.assertIn("SIGNED_ENCODING_UNRESOLVED", start["issues"])
+
+    def test_stored_configuration_is_not_external_execution_qualification(self):
+        result = operations.check(INVENTORY, LEDGER)
+        choices = {row["id"]: row["disposition"] for row in result["named_choices"]}
+        for function in ("PT_TRIGGER", "PV_TRIGGER", "SEGMENT_PIN0", "SEGMENT_PIN1", "SEGMENT_PIN2", "SEGMENT_PIN3"):
+            self.assertEqual(choices["InputFunction." + function]["hardware"], "NOT_RUN")
+        self.assertFalse(any(operation["kind"] == "ACTION" and
+                             operation["id"].startswith("stored_") for operation in INVENTORY["operations"]))
 
     def test_action_choices_must_match_ledger_record(self):
         def operation(value, name):

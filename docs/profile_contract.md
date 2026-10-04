@@ -1,5 +1,8 @@
 # Drive profile and complete native API contract
 
+Prompt16 implements [stored PT/PV records](ess_segments.md) through the existing bounded typed settings mechanism. All16 records are readable; reserved slots remain unavailable and pulse-pair writes unsupported. Storage, externally selectable combinations and physical qualification remain separate.
+
+
 Prompt14 implements [ESS homing methods33/34/35](ess_homing.md), with [all35 source dispositions](ess_homing_methods.md), existing active auxiliary7 and qualified zero offset only. No I/O setter, collision alias or new paired span is introduced.
 
 Prompts 05–06 implement bounded [typed identity/configuration/state reads](ess_reads.md), common/profile routes, passive per-block status/health and finite opt-in polling. The [linked inventory](reference/ess_rs_operations.json) separates read/write/action, native and hardware evidence. Model/firmware compatibility, physical feedback units, readiness and motion remain unqualified; these reads perform no writes.

@@ -1243,6 +1243,82 @@ void testMonitorCheckedFailureHasOneAttemptAndNoFeedback() {
     assert(!app->owner.needsRecovery() && hardware.writes == 1);
     advanceHardware(hardware.time + 500000); loop(); pump(100); assert(hardware.writes == 1);
 }
+void driverStep(uint32_t operation, const std::vector<uint8_t>& supplied) {
+    auto* record = findRecord(*app, operation); assert(record && record->driverOperation);
+    const uint8_t oldStep = record->driver.step;
+    const unsigned before = hardware.writes;
+    if (app->runner.phase() != Rtu::Phase::DRAIN && app->runner.phase() != Rtu::Phase::HOLD && app->runner.phase() != Rtu::Phase::RECEIVE) startTx(before);
+    scheduleReply(std::max(hardware.writeStarted + 8 * 87 + 1000, hardware.time + 1000), supplied);
+    for (unsigned i = 0; i < 25000 && record->driver.state == ReadState::ACTIVE && record->driver.step == oldStep; ++i) step();
+    assert(record->driver.state != ReadState::ACTIVE || record->driver.step != oldStep);
+    if (record->driver.state != ReadState::ACTIVE) pump(100);
+}
+void segmentBaseline() {
+    fresh(); timerCapture();
+    const auto probeId = admit(); reply(probeId, 0); assert(release(app, probeId) == Probe::Action::OK);
+    command("@2 read state\n"); const auto stateId = app->latestOperationId;
+    readStep(stateId, 0, registerReply({0, 1})); readStep(stateId, 1, registerReply({0, 0})); readStep(stateId, 2, registerReply({0, 0, 0}));
+    assert(release(app, stateId) == Probe::Action::OK);
+    command("@3 profile ess_rs io read\n"); const auto ioId = app->latestOperationId;
+    driverStep(ioId, registerReply({0, 1, 2, 3, 0})); driverStep(ioId, registerReply({0, 0, 0})); driverStep(ioId, registerReply({0}));
+    assert(release(app, ioId) == Probe::Action::OK);
+}
+void testSegmentRoutesStoredSettlementAndNoImplicitTrigger() {
+    segmentBaseline();
+    command("@4 profile ess_rs segment position 16 read\n"); contains("\"result\":\"accepted\"");
+    const auto baseline = app->latestOperationId;
+    startTx(hardware.writes);
+    assert(hardware.tx[3] == 0xBA && hardware.tx[5] == 5);
+    driverStep(baseline, registerReply({0x1234, 0xABCD, 120, 100, 100}));
+    contains("\"segment_index\":16"); contains("\"driver_group\":\"position_segment\"");
+    assert(app->segmentSettings.segmentIndex == 16 && app->segmentSettings.raw[3] == 0x1234);
+    assert(release(app, baseline) == Probe::Action::OK);
+    const auto before = hardware.writes;
+    command("@5 profile ess_rs segment position 16 set speed 60 target 0\n"); contains("unsupported"); assert(hardware.writes == before);
+    command("@6 profile ess_rs segment position 16 set speed 60 acceleration 90\n"); contains("accepted");
+    const auto update = app->latestOperationId; auto* record = findRecord(*app, update);
+    assert(record->axisReserved && record->driver.prerequisites.allowEchoReadback);
+    // Unwired passive origin/limit assignments permit stored settings, without
+    // clearing them or pretending that they are disabled functions.
+    assert(record->driver.prerequisites.externalTriggerInhibitedQualified);
+    startTx(before); const std::vector<uint8_t> echo(hardware.tx.begin(), hardware.tx.end());
+    driverStep(update, echo); assert(!record->driver.progress[0].acknowledged);
+    driverStep(update, registerReply({60}));
+    startTx(hardware.writes); const std::vector<uint8_t> echo2(hardware.tx.begin(), hardware.tx.end());
+    driverStep(update, echo2); driverStep(update, registerReply({90}));
+    assert(!view(update).pending && record->driver.outcome == ESS::DriverOutcome::SUCCESS);
+    assert(!record->driver.uncertain && record->driver.progress[0].execution == MotorControlRS::ActionExecution::UNKNOWN);
+    assert(record->driver.progress[0].readbackKnown && !record->axisReserved);
+    assert(hardware.writes == before + 4 && !app->owner.needsRecovery());
+    const auto retained = record->driver.observations[0].deliveredUs;
+    command("@7 result\n"); assert(record->driver.observations[0].deliveredUs == retained);
+    assert(!actionTimingQualified && app->ioSettings.operationId == 0);
+}
+void testSegmentIndexCancellationAndTriggerPolicy() {
+    fresh(); timerCapture();
+    ESS::DriverRequest invalidGroup; invalidGroup.group = static_cast<ESS::DriverGroup>(255); uint32_t untouched = 999;
+    assert(startDriver(app,99,1,ESS::DriverKind::READ,invalidGroup,untouched) == Probe::Action::INVALID && untouched == 999);
+    for (const char* invalid : {"profile ess_rs segment position 0 read\n", "profile ess_rs segment speed 17 read\n", "profile ess_rs segment start 1 set value 1.0\n", "profile ess_rs segment start 1 set value 1 value 2\n", "profile ess_rs segment speed 1 set target 1\n"}) command(invalid);
+    assert(hardware.writes == 0 && app->nextOperationId == 1);
+    command("@20 profile ess_rs segment speed 1 read\n"); const auto id = app->latestOperationId;
+    command("@21 cancel\n"); pump(1000); assert(!view(id).pending && hardware.writes <= 1);
+    segmentBaseline();
+    command("@4 profile ess_rs segment start 1 read\n"); const auto baseline = app->latestOperationId;
+    driverStep(baseline, registerReply({50})); assert(release(app, baseline) == Probe::Action::OK);
+    const auto before = hardware.writes;
+    app->inputWiring[0] = MotorControlRS::InputWiring::UNKNOWN;
+    command("@5 profile ess_rs segment start 1 set value 60\n"); contains("invalid"); assert(hardware.writes == before);
+    app->inputWiring[0] = MotorControlRS::InputWiring::UNCONNECTED;
+    app->ioSettings.raw[7] = 0x8000;
+    command("@6 profile ess_rs segment start 1 set value 60\n"); contains("invalid"); assert(hardware.writes == before);
+    app->ioSettings.raw[7] = 0;
+    app->stateCache.blocks[static_cast<uint8_t>(ESS::StateBlock::IO)].value.rawInputs = 1;
+    command("@7 profile ess_rs segment start 1 set value 60\n"); contains("invalid"); assert(hardware.writes == before);
+    app->stateCache.blocks[static_cast<uint8_t>(ESS::StateBlock::IO)].value.rawInputs = 0;
+    command("@8 profile ess_rs segment start 16 set value 60\n"); contains("invalid"); assert(hardware.writes == before);
+    app->ioSettings.raw[8] = 17; // Not a passive assignment; no trigger policy can be inferred.
+    command("@9 profile ess_rs segment start 1 set value 60\n"); contains("invalid"); assert(hardware.writes == before);
+}
 #if MOTORCONTROLRS_LOAD_FIXTURE
 void testLoadLocalAdmission() {
     fresh(); command("@1 load\n"); contains("\"command\":\"load\"");
@@ -1285,6 +1361,7 @@ int main() {
     std::printf("Storage bytes: App=%zu Record=%zu Console=%zu ReadContext=%zu PreparedRead=%zu Identity=%zu Config=%zu StateCache=%zu StateObservation=%zu\n",
         sizeof(App), sizeof(App::Record), sizeof(Probe::Console), sizeof(ESS::ReadContext), sizeof(ESS::PreparedRead),
         sizeof(ESS::IdentityObservation), sizeof(ESS::ConfigObservation), sizeof(Probe::StateCache), sizeof(ESS::StateObservation));
+    testSegmentRoutesStoredSettlementAndNoImplicitTrigger(); testSegmentIndexCancellationAndTriggerPolicy();
     testSuccessfulProbeAndReset(); testCheckedExceptionAndParserRejection();
     testActionGateAndSeparateAcknowledgement(); testStopSupersedesOnlyAfterAdmissionAndSettlesInflight();
     testStopUsesReservedCapacityAndFullAdmissionPreservesWork();

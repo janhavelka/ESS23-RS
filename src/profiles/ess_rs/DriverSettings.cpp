@@ -30,7 +30,26 @@ bool aliasesContext(const DriverContext& context, const void* input, std::size_t
     const uintptr_t other = reinterpret_cast<uintptr_t>(input);
     return other >= begin ? other - begin < sizeof(context) : begin - other < size;
 }
-uint32_t bit(uint8_t index) { return index < 7 ? 1u << index : 1u << (index + 2); }
+bool segmentGroup(DriverGroup group) { return group >= DriverGroup::POSITION_SEGMENT && group <= DriverGroup::SEGMENT_START_SPEED; }
+uint8_t readSteps(DriverGroup group) { return segmentGroup(group) ? 1 : group == DriverGroup::IO ? 3 : DRIVER_READ_STEPS; }
+uint32_t bit(uint8_t index, DriverGroup group = DriverGroup::DRIVE) {
+    if (segmentGroup(group)) return group == DriverGroup::SEGMENT_START_SPEED ?
+        (index == 0 ? 1u << 21 : 0) : (index < 3 ? 1u << (18 + index) : 0);
+    return index < 7 ? 1u << index : 1u << (index + 2);
+}
+const RegisterDescriptor* segmentRegister(DriverGroup group, uint8_t record, uint8_t index) {
+    if (group == DriverGroup::POSITION_SEGMENT) {
+        const PositionSegmentField fields[] = { PositionSegmentField::SPEED, PositionSegmentField::ACCELERATION_TIME, PositionSegmentField::DECELERATION_TIME };
+        return index < 3 ? positionSegmentRegister(record, fields[index]) : nullptr;
+    }
+    if (group == DriverGroup::SPEED_SEGMENT) return index < 3 ? speedSegmentRegister(record, static_cast<SpeedSegmentField>(index)) : nullptr;
+    return group == DriverGroup::SEGMENT_START_SPEED && index == 0 ? segmentStartSpeedRegister(record) : nullptr;
+}
+uint16_t fieldRegister(const DriverRequest& r, uint8_t index) {
+    if (!segmentGroup(r.group)) return REGS[index];
+    const RegisterDescriptor* d = segmentRegister(r.group, r.segmentIndex, index);
+    return d ? d->address : 0;
+}
 bool legal(uint8_t index, uint16_t value) {
     if (index >= 8 && index <= 11) return value <= 17;
     if (index == 13 || index == 14) return value <= 5 || value == 9 || value == 10;
@@ -39,6 +58,10 @@ bool legal(uint8_t index, uint16_t value) {
     return index == 1 ? value >= 400 && value <= 51200 : value <= 1;
 }
 uint16_t requested(const DriverRequest& request, uint8_t index) {
+    if (segmentGroup(request.group)) {
+        if (request.group == DriverGroup::SEGMENT_START_SPEED) return static_cast<uint16_t>(request.segmentStartSpeed);
+        return index == 0 ? static_cast<uint16_t>(request.segmentSpeed) : index == 1 ? request.segmentAcceleration : request.segmentDeceleration;
+    }
     switch (index) {
     case 0: return static_cast<uint16_t>(request.direction);
     case 1: return request.subdivision;
@@ -54,7 +77,14 @@ uint16_t requested(const DriverRequest& request, uint8_t index) {
     default: return static_cast<uint16_t>(request.inputFunctions[index - 8]);
     }
 }
-bool readWindow(DriverGroup group, uint8_t step, uint16_t& reg, uint16_t& count) {
+bool readWindow(DriverGroup group, uint8_t step, uint16_t& reg, uint16_t& count, uint8_t record = 1) {
+    if (segmentGroup(group)) {
+        if (step || !record || record > 16) return false;
+        const RegisterDescriptor* d = group == DriverGroup::POSITION_SEGMENT ? positionSegmentRegister(record, PositionSegmentField::PULSES) : segmentRegister(group, record, 0);
+        if (!d) return false;
+        reg = d->address; count = group == DriverGroup::POSITION_SEGMENT ? 5 : group == DriverGroup::SPEED_SEGMENT ? 3 : 1;
+        return true;
+    }
     if (group == DriverGroup::IO) {
         switch (step) {
         case 0: reg = Registers::INPUT_POLARITY; count = 5; return true;
@@ -72,7 +102,7 @@ bool readWindow(DriverGroup group, uint8_t step, uint16_t& reg, uint16_t& count)
     }
 }
 uint8_t totalSteps(const DriverContext& c) {
-    return c.kind == DriverKind::READ ? (c.group == DriverGroup::IO ? 3 : DRIVER_READ_STEPS) : static_cast<uint8_t>(c.fieldCount * 2);
+    return c.kind == DriverKind::READ ? readSteps(c.group) : static_cast<uint8_t>(c.fieldCount * 2);
 }
 void finish(DriverContext& c, DriverOutcome outcome, Status status) {
     c.outcome = outcome; c.status = status;
@@ -87,6 +117,10 @@ uint64_t stationaryDeadline(const DriverContext& c) {
     if (c.group == DriverGroup::IO) {
         const uint64_t ioUntil = p.maxAgeUs > maximum - p.ioEarliestUs ? maximum : p.ioEarliestUs + p.maxAgeUs;
         if (ioUntil < deadline) deadline = ioUntil;
+    }
+    if (segmentGroup(c.group)) {
+        const uint64_t triggerUntil = p.maxAgeUs > maximum - p.triggerEarliestUs ? maximum : p.triggerEarliestUs + p.maxAgeUs;
+        if (triggerUntil < deadline) deadline = triggerUntil;
     }
     return deadline;
 }
@@ -107,12 +141,12 @@ void initialize(DriverContext& output, const ReadTarget& target, uint32_t id,
     output.state = ReadState::ACTIVE; output.deadlineUs = deadline;
     output.startedUs = output.servicedUs = output.eligibleUs = now;
 }
-Status decode(const DriverEvidence* evidence, const ReadTarget& target, DriverGroup group, DriverObservation& out) {
+Status decode(const DriverEvidence* evidence, const ReadTarget& target, DriverGroup group, DriverObservation& out, uint8_t record = 1) {
     uint16_t data[4][5] = {};
     out.group = group;
-    const uint8_t steps = group == DriverGroup::IO ? 3 : DRIVER_READ_STEPS;
+    const uint8_t steps = readSteps(group);
     for (uint8_t i = 0; i < steps; ++i) {
-        uint16_t reg = 0, count = 0; readWindow(group, i, reg, count);
+        uint16_t reg = 0, count = 0; readWindow(group, i, reg, count, record);
         std::size_t decoded = 0;
         if (evidence[i].write || evidence[i].reg != reg || evidence[i].count != count ||
             !evidence[i].qualified || !evidence[i].responseConfirmed || !evidence[i].status)
@@ -121,6 +155,17 @@ Status decode(const DriverEvidence* evidence, const ReadTarget& target, DriverGr
             target.address, count, data[i], 5, decoded);
         if (!status) return status;
         out.provenance[i] = evidence[i];
+    }
+    if (segmentGroup(group)) {
+        out.segmentIndex = record;
+        const uint8_t values = group == DriverGroup::SEGMENT_START_SPEED ? 1 : 3;
+        for (uint8_t i = 0; i < values; ++i) {
+            out.raw[i] = data[0][i + (group == DriverGroup::POSITION_SEGMENT ? 2 : 0)];
+            const uint16_t maximum = group == DriverGroup::SEGMENT_START_SPEED ? 180 : i == 0 ? 3000 : 2000;
+            if (out.raw[i] <= maximum) out.knownFields |= bit(i, group);
+        }
+        if (group == DriverGroup::POSITION_SEGMENT) { out.raw[3] = data[0][0]; out.raw[4] = data[0][1]; }
+        return Ok();
     }
     if (group == DriverGroup::IO) {
         for (uint8_t i = 0; i < 5; ++i) out.raw[7 + i] = data[0][i];
@@ -149,7 +194,7 @@ Status decode(const DriverEvidence* evidence, const ReadTarget& target, DriverGr
 bool unresolvedWrite(const DriverContext& c) {
     for (uint8_t i = 0; i < DRIVER_FIELD_COUNT; ++i) {
         const DriverProgress& p = c.progress[i];
-        const bool storedSettled = c.group == DriverGroup::IO && c.prerequisites.allowEchoReadback &&
+        const bool storedSettled = (c.group == DriverGroup::IO || segmentGroup(c.group)) && c.prerequisites.allowEchoReadback &&
             p.readbackKnown && p.readback == p.requested;
         if (p.selected && ((p.execution == ActionExecution::UNKNOWN && !storedSettled) ||
             (p.execution == ActionExecution::ACKNOWLEDGED &&
@@ -160,17 +205,18 @@ bool unresolvedWrite(const DriverContext& c) {
 } // namespace
 
 Status prepareDriverRead(DriverContext& output, const ReadTarget& target, uint32_t operationId,
-                         uint32_t configurationGeneration, uint64_t nowUs, uint64_t deadlineUs, DriverGroup group) noexcept {
+                         uint32_t configurationGeneration, uint64_t nowUs, uint64_t deadlineUs, DriverGroup group, uint8_t segmentIndex) noexcept {
     const Status status = validateIdentity(target, operationId, configurationGeneration, nowUs, deadlineUs);
     if (!status) return status;
-    if (group > DriverGroup::IO) return invalid(DriverError::INVALID_CANDIDATE, "invalid driver group");
-    for (uint8_t i = 0; i < (group == DriverGroup::IO ? 3 : DRIVER_READ_STEPS); ++i) {
-        uint16_t reg = 0, count = 0; readWindow(group, i, reg, count);
+    if (group > DriverGroup::SEGMENT_START_SPEED) return invalid(DriverError::INVALID_CANDIDATE, "invalid driver group");
+    if (segmentGroup(group) && (!segmentIndex || segmentIndex > 16)) return invalid(DriverError::SEGMENT_INDEX, "segment index must be 1..16");
+    for (uint8_t i = 0; i < readSteps(group); ++i) {
+        uint16_t reg = 0, count = 0; readWindow(group, i, reg, count, segmentIndex);
         const Status wire = validateReadRegistersRequest(target.address, reg, count);
         if (!wire) return wire;
     }
     initialize(output, target, operationId, configurationGeneration, nowUs, deadlineUs);
-    output.group = group;
+    output.group = group; output.request.group = group; output.request.segmentIndex = segmentIndex;
     return Ok();
 }
 Status prepareDriverSettings(DriverContext& output, const ReadTarget& target, uint32_t operationId,
@@ -180,33 +226,50 @@ Status prepareDriverSettings(DriverContext& output, const ReadTarget& target, ui
     if (!initial) return initial;
     if (aliasesContext(output, &request, sizeof(request)) || aliasesContext(output, &prerequisites, sizeof(prerequisites)))
         return invalid(DriverError::INVALID_CANDIDATE, "preparation inputs must not alias output members");
-    if (request.group > DriverGroup::IO || !request.fields || (request.fields & ~(FIELD_MASK | PAIR_MASK | IO_MASK)) ||
-        (request.group == DriverGroup::IO ? (request.fields & (FIELD_MASK | PAIR_MASK)) : (request.fields & IO_MASK)))
+    const bool segment = segmentGroup(request.group);
+    const uint32_t allowed = segment ? (request.group == DriverGroup::SEGMENT_START_SPEED ? 1u << 21 : (7u << 18) | (request.group == DriverGroup::POSITION_SEGMENT ? 1u << 22 : 0)) :
+        request.group == DriverGroup::IO ? IO_MASK : FIELD_MASK | PAIR_MASK;
+    if (request.group > DriverGroup::SEGMENT_START_SPEED || !request.fields || (request.fields & ~allowed))
         return invalid(DriverError::INVALID_CANDIDATE, "invalid or empty driver-settings selection");
     if (request.group == DriverGroup::DRIVE && prerequisites.allowEchoReadback)
-        return invalid(DriverError::INVALID_CANDIDATE, "echo/readback policy is restricted to IO settings");
+        return invalid(DriverError::INVALID_CANDIDATE, "echo/readback policy requires IO or inhibited segment settings");
+    if (segment && (!request.segmentIndex || request.segmentIndex > 16)) return invalid(DriverError::SEGMENT_INDEX, "segment index must be 1..16");
+    if (segment && (request.fields & (1u << 22)))
+        return Status(Err::UNSUPPORTED, static_cast<int32_t>(DriverError::PAIR_WRITE_UNSUPPORTED), "stored pulse pair has no reviewed FC10 window");
+    if (segment) {
+        const int32_t speed = request.group == DriverGroup::SEGMENT_START_SPEED ? request.segmentStartSpeed : request.segmentSpeed;
+        const uint32_t speedBit = request.group == DriverGroup::SEGMENT_START_SPEED ? 1u << 21 : 1u << 18;
+        if ((request.fields & speedBit) && speed < 0) {
+            if (request.group == DriverGroup::POSITION_SEGMENT) return invalid(DriverError::INVALID_CANDIDATE, "PT speed is nonnegative");
+            return Status(Err::UNSUPPORTED, static_cast<int32_t>(DriverError::SEGMENT_SIGN_UNRESOLVED), "negative segment speed encoding unresolved");
+        }
+        if (((request.fields & speedBit) && speed > (request.group == DriverGroup::SEGMENT_START_SPEED ? 180 : 3000)) ||
+            ((request.fields & (1u << 19)) && request.segmentAcceleration > 2000) ||
+            ((request.fields & (1u << 20)) && request.segmentDeceleration > 2000))
+            return invalid(DriverError::INVALID_CANDIDATE, "segment native value out of range");
+    }
     // Reject the entire candidate before producing even an otherwise legal single write.
     if (request.fields & PAIR_MASK)
         return Status(Err::UNSUPPORTED, static_cast<int32_t>(DriverError::PAIR_WRITE_UNSUPPORTED),
             "software-limit pair has no reviewed FC10 window; split writes are unavailable");
     for (uint8_t i = 0; i < DRIVER_FIELD_COUNT; ++i) {
-        if (!(request.fields & bit(i))) continue;
-        if ((i == 13 || i == 14) && requested(request, i) == 11)
+        if (!(request.fields & bit(i, request.group))) continue;
+        if (!segment && (i == 13 || i == 14) && requested(request, i) == 11)
             return Status(Err::UNSUPPORTED, static_cast<int32_t>(DriverError::OUTPUT_FUNCTION_UNRESOLVED), "custom output 2 has no resolved ESS terminal mapping");
-        if (!legal(i, requested(request, i)))
+        if (!segment && !legal(i, requested(request, i)))
             return invalid(DriverError::INVALID_CANDIDATE, "illegal driver-setting enum or native range");
-        const Status wire = validateWriteSingleRegisterRequest(target.address, REGS[i], requested(request, i));
+        const Status wire = validateWriteSingleRegisterRequest(target.address, fieldRegister(request, i), requested(request, i));
         if (!wire) return wire;
-        const Status readback = validateReadRegistersRequest(target.address, REGS[i], 1);
+        const Status readback = validateReadRegistersRequest(target.address, fieldRegister(request, i), 1);
         if (!readback) return readback;
     }
     const DriverObservation& previous = prerequisites.previous;
     if (request.configurationGeneration != prerequisites.configurationGeneration ||
         request.configurationGeneration != previous.configurationGeneration ||
-        !sameTarget(previous.target, target) || !previous.operationId || previous.group != request.group)
+        !sameTarget(previous.target, target) || !previous.operationId || previous.group != request.group || (segment && previous.segmentIndex != request.segmentIndex))
         return invalid(DriverError::STALE_SETTINGS, "previous driver-settings context does not match");
     DriverObservation checked;
-    const Status decoded = decode(previous.provenance, target, request.group, checked);
+    const Status decoded = decode(previous.provenance, target, request.group, checked, request.segmentIndex);
     if (!decoded) return invalid(DriverError::STALE_SETTINGS, "previous driver-settings provenance is invalid");
     if (checked.knownFields != previous.knownFields || checked.pairKnown != previous.pairKnown ||
         checked.positiveBits != previous.positiveBits || checked.negativeBits != previous.negativeBits ||
@@ -221,11 +284,26 @@ Status prepareDriverSettings(DriverContext& output, const ReadTarget& target, ui
         nowUs - prerequisites.stationaryEarliestUs >= prerequisites.maxAgeUs ||
         prerequisites.rawAlarm || (prerequisites.rawMotion & 0xFFEC))
         return invalid(DriverError::STATIONARY_REQUIRED, "fresh qualified stopped-state and input policy required");
-    for (uint8_t i = 0; i < (request.group == DriverGroup::IO ? 3 : DRIVER_READ_STEPS); ++i) {
+    for (uint8_t i = 0; i < readSteps(request.group); ++i) {
         const DriverEvidence& e = previous.provenance[i];
         if (e.attemptedUs > e.earliestUs || e.earliestUs > e.latestUs || e.latestUs > nowUs ||
             nowUs - e.attemptedUs >= prerequisites.maxAgeUs)
             return invalid(DriverError::STALE_SETTINGS, "previous driver-settings observation is stale");
+    }
+    if (segment) {
+        const DriverRequest& q = prerequisites.qualifiedSegment;
+        if (!prerequisites.externalTriggerInhibitedQualified || !sameTarget(prerequisites.triggerTarget, target) ||
+            prerequisites.triggerConfigurationGeneration != request.configurationGeneration ||
+            prerequisites.triggerEarliestUs > prerequisites.triggerLatestUs || prerequisites.triggerLatestUs > nowUs ||
+            nowUs - prerequisites.triggerEarliestUs >= prerequisites.maxAgeUs ||
+            q.group != request.group || q.segmentIndex != request.segmentIndex || q.fields != request.fields ||
+            q.configurationGeneration != request.configurationGeneration)
+            return invalid(DriverError::TRIGGER_POLICY_REQUIRED, "fresh exact external-trigger inhibition policy required");
+        if (((request.fields & (1u << 18)) && request.segmentSpeed != q.segmentSpeed) ||
+            ((request.fields & (1u << 19)) && request.segmentAcceleration != q.segmentAcceleration) ||
+            ((request.fields & (1u << 20)) && request.segmentDeceleration != q.segmentDeceleration) ||
+            ((request.fields & (1u << 21)) && request.segmentStartSpeed != q.segmentStartSpeed))
+            return invalid(DriverError::TRIGGER_POLICY_REQUIRED, "qualified segment values differ from candidate");
     }
     if (request.group == DriverGroup::IO) {
         const uint8_t maskIndices[] = {7, 12, 15};
@@ -275,8 +353,8 @@ Status prepareDriverSettings(DriverContext& output, const ReadTarget& target, ui
             }
         }
     }
-    const bool disabling = (request.fields & bit(3)) && request.softLimitEnable == SoftLimitEnable::LIMITS_OFF;
-    const bool enabling = (request.fields & bit(3)) && request.softLimitEnable == SoftLimitEnable::AFTER_HOMING;
+    const bool disabling = request.group == DriverGroup::DRIVE && (request.fields & bit(3)) && request.softLimitEnable == SoftLimitEnable::LIMITS_OFF;
+    const bool enabling = request.group == DriverGroup::DRIVE && (request.fields & bit(3)) && request.softLimitEnable == SoftLimitEnable::AFTER_HOMING;
     if ((request.fields & GEOMETRY_MASK) && !disabling &&
         (!(previous.knownFields & bit(3)) || previous.raw[3] != 0))
         return invalid(DriverError::LIMIT_DEPENDENCY, "geometry changes require known disabled limits or explicit disable");
@@ -299,9 +377,9 @@ Status prepareDriverSettings(DriverContext& output, const ReadTarget& target, ui
     output.group = request.group; output.kind = DriverKind::UPDATE; output.request = request; output.prerequisites = prerequisites;
     for (uint8_t i = 0; i < DRIVER_FIELD_COUNT; ++i) {
         DriverProgress& progress = output.progress[i];
-        progress.field = static_cast<DriverField>(bit(i)); progress.reg = REGS[i];
+        progress.field = static_cast<DriverField>(bit(i, request.group)); progress.reg = fieldRegister(request, i);
         progress.previous = previous.raw[i]; progress.requested = requested(request, i);
-        progress.selected = (request.fields & bit(i)) != 0;
+        progress.selected = (request.fields & bit(i, request.group)) != 0;
     }
     // Only an explicit OFF request can precede dependent changes. Never invent one.
     if (disabling) output.order[output.fieldCount++] = 3;
@@ -318,7 +396,7 @@ Status nextDriver(const DriverContext& c, uint64_t nowUs, PreparedDriver& output
     if (c.state != ReadState::ACTIVE) { output = next; return Ok(); }
     if (nowUs >= c.deadlineUs) return failure(DriverError::DEADLINE_EXPIRED, "driver-settings deadline expired");
     if (c.step >= totalSteps(c)) return invalid(DriverError::INVALID_STATE, "invalid driver-settings step");
-    if (c.kind == DriverKind::READ) readWindow(c.group, c.step, next.reg, next.count);
+    if (c.kind == DriverKind::READ) readWindow(c.group, c.step, next.reg, next.count, c.request.segmentIndex);
     else {
         const DriverProgress& progress = c.progress[c.order[c.step / 2]];
         next.reg = progress.reg; next.value = progress.requested; next.count = 1;
@@ -365,7 +443,7 @@ Status advanceDriver(DriverContext& c, const ActionEvent& supplied, uint64_t now
     evidence.length = event.length < DRIVER_MAX_REPLY_BYTES ? event.length : DRIVER_MAX_REPLY_BYTES;
     if (evidence.length) std::memcpy(evidence.raw, event.frame, evidence.length);
     DriverProgress* progress = nullptr;
-    if (c.kind == DriverKind::READ) readWindow(c.group, c.step, evidence.reg, evidence.count);
+    if (c.kind == DriverKind::READ) readWindow(c.group, c.step, evidence.reg, evidence.count, c.request.segmentIndex);
     else {
         progress = &c.progress[c.order[c.step / 2]]; evidence.reg = progress->reg;
         evidence.count = 1; evidence.write = (c.step % 2) == 0;
@@ -400,7 +478,7 @@ Status advanceDriver(DriverContext& c, const ActionEvent& supplied, uint64_t now
     else if (event.latestUs > transactionDeadline) finish(c, DriverOutcome::DEADLINE,
         failure(DriverError::DEADLINE_EXPIRED, "driver frame closure exceeds transaction budget"));
     else if (!evidence.status) finish(c, DriverOutcome::REPLY_ERROR, evidence.status);
-    else if (!supplied.responseConfirmed && !(evidence.write && c.group == DriverGroup::IO && c.prerequisites.allowEchoReadback)) finish(c, DriverOutcome::UNCONFIRMED_RESPONSE,
+    else if (!supplied.responseConfirmed && !(evidence.write && (c.group == DriverGroup::IO || segmentGroup(c.group)) && c.prerequisites.allowEchoReadback)) finish(c, DriverOutcome::UNCONFIRMED_RESPONSE,
         failure(DriverError::UNCONFIRMED_RESPONSE, "driver response source is not confirmed"));
     else {
         if (progress && !evidence.write) {
@@ -426,17 +504,17 @@ Status getDriver(const DriverContext& c, DriverObservation& output) noexcept {
         return invalid(DriverError::NOT_COMPLETE, "complete driver READ required");
     DriverObservation observation; observation.target = c.target; observation.operationId = c.operationId;
     observation.configurationGeneration = c.configurationGeneration;
-    const Status status = decode(c.observations, c.target, c.group, observation);
+    const Status status = decode(c.observations, c.target, c.group, observation, c.request.segmentIndex);
     if (!status) return status;
     output = observation; return Ok();
 }
-DriverField driverFieldAt(uint8_t index) noexcept {
-    return static_cast<DriverField>(index < DRIVER_FIELD_COUNT ? bit(index) : 0);
+DriverField driverFieldAt(uint8_t index, DriverGroup group) noexcept {
+    return static_cast<DriverField>(index < DRIVER_FIELD_COUNT && group <= DriverGroup::SEGMENT_START_SPEED ? bit(index, group) : 0);
 }
 Status prepareInputFunction(DriverRequest& request, uint8_t terminal, InputFunction function) noexcept {
     if (terminal >= 4 || !legal(8 + terminal, static_cast<uint16_t>(function)))
         return invalid(DriverError::INVALID_CANDIDATE, "invalid ESS input terminal or function");
-    if (request.fields & (FIELD_MASK | PAIR_MASK))
+    if ((request.group != DriverGroup::DRIVE && request.group != DriverGroup::IO) || request.fields & (FIELD_MASK | PAIR_MASK))
         return invalid(DriverError::INVALID_CANDIDATE, "cannot mix drive and IO settings");
     request.group = DriverGroup::IO; request.fields |= bit(8 + terminal);
     request.inputFunctions[terminal] = function; return Ok();
@@ -445,7 +523,7 @@ Status prepareOutputFunction(DriverRequest& request, uint8_t terminal, OutputFun
     if (terminal >= 2) return invalid(DriverError::INVALID_CANDIDATE, "invalid ESS output terminal");
     if (static_cast<uint16_t>(function) == 11)
         return Status(Err::UNSUPPORTED, static_cast<int32_t>(DriverError::OUTPUT_FUNCTION_UNRESOLVED), "custom output 2 terminal mapping unresolved");
-    if (!legal(13 + terminal, static_cast<uint16_t>(function)) || (request.fields & (FIELD_MASK | PAIR_MASK)))
+    if (!legal(13 + terminal, static_cast<uint16_t>(function)) || ((request.group != DriverGroup::DRIVE && request.group != DriverGroup::IO) || (request.fields & (FIELD_MASK | PAIR_MASK))))
         return invalid(DriverError::INVALID_CANDIDATE, "invalid ESS output function or mixed settings");
     request.group = DriverGroup::IO; request.fields |= bit(13 + terminal);
     request.outputFunctions[terminal] = function; return Ok();

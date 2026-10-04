@@ -1628,7 +1628,67 @@ void testMaximumHomeOutputAndRetention() {
     f.contains("\"result\":\"pending\""); f.contains("\"home\":true");
 }
 
+void segmentFixtures() {
+    using namespace MotorControlRS;
+    ReadTarget target; target.id = target.address = 1; target.generation = 9;
+    auto consume = [](Ess::DriverContext& c, int failure) {
+        Ess::PreparedDriver w; assert(Ess::nextDriver(c, c.servicedUs, w));
+        uint8_t raw[15] = {}; size_t length = w.write ? 8 : 5 + 2 * w.count;
+        if (w.write) std::memcpy(raw, w.bytes, 8);
+        else {
+            raw[0]=1; raw[1]=3; raw[2]=2*w.count;
+            uint16_t words[5] = {120,100,100,0,0};
+            if (c.group == Ess::DriverGroup::POSITION_SEGMENT && c.kind == Ess::DriverKind::READ) { words[0]=0x1234; words[1]=0xABCD; words[2]=120; words[3]=100; words[4]=100; }
+            if (c.group == Ess::DriverGroup::SEGMENT_START_SPEED) words[0]=50;
+            if (c.kind == Ess::DriverKind::UPDATE) words[0]=w.value;
+            for (unsigned i=0;i<w.count;++i) { raw[3+2*i]=words[i]>>8; raw[4+2*i]=words[i]; }
+            sealTypedReply(raw,length);
+        }
+        ActionEvent e; e.transport.target=c.target; e.transport.operationId=c.operationId; e.transport.step=c.step;
+        e.transport.kind=ReadEventKind::FRAME; e.transport.frame=raw; e.transport.length=length;
+        e.transport.txAccepted=8; e.transport.qualified=true; e.transport.earliestUs=c.servicedUs+1; e.transport.latestUs=c.servicedUs+2;
+        e.txComplete=true; e.responseConfirmed=!w.write;
+        if (failure) { e.transport.kind=ReadEventKind::CANCEL; e.transport.frame=nullptr; e.transport.length=0; e.transport.qualified=false; e.transport.earliestUs=e.transport.latestUs=0; e.responseConfirmed=false; }
+        assert(Ess::advanceDriver(c,e,c.servicedUs+3));
+    };
+    auto emit = [](const char* name, const Ess::DriverContext& c) {
+        Fake f; f.nextOperation=c.operationId; auto h=f.host(false,true); h.startDriver=Fake::startDriver; Probe::Console console(h);
+        send(console,"@77 profile ess_rs segment position 1 read\n"); f.lines.clear();
+        assert(console.reportDriver(77,c.operationId,c));
+        assert(f.lines.size()==1); std::printf("{\"case\":\"%s\",\"record\":%s}\n", name, f.lines[0].c_str());
+    };
+    for (auto group : {Ess::DriverGroup::POSITION_SEGMENT,Ess::DriverGroup::SPEED_SEGMENT,Ess::DriverGroup::SEGMENT_START_SPEED}) {
+        for (uint8_t index : {uint8_t(1),uint8_t(16)}) {
+            Ess::DriverContext c; assert(Ess::prepareDriverRead(c,target,101,3,100,10000,group,index)); consume(c,0); emit("read",c);
+            Ess::DriverPrerequisites p; assert(Ess::getDriver(c,p.previous));
+            Ess::DriverRequest r; r.group=group; r.segmentIndex=index; r.configurationGeneration=3;
+            r.fields=group==Ess::DriverGroup::SEGMENT_START_SPEED ? 1<<21 : (1<<18)|(1<<19)|(1<<20);
+            r.segmentSpeed=60; r.segmentAcceleration=90; r.segmentDeceleration=80; r.segmentStartSpeed=60;
+            p.configurationGeneration=3; p.stationaryQualified=true; p.stationaryTarget=target; p.maxAgeUs=20000;
+            p.stationaryEarliestUs=p.stationaryLatestUs=100; p.externalTriggerInhibitedQualified=true; p.triggerTarget=target;
+            p.triggerConfigurationGeneration=3; p.triggerEarliestUs=p.triggerLatestUs=100; p.qualifiedSegment=r; p.allowEchoReadback=true;
+            assert(Ess::prepareDriverSettings(c,target,101,r,p,200,10000));
+            while(c.state==ReadState::ACTIVE) consume(c,0);
+            emit("stored_update",c);
+            assert(Ess::prepareDriverSettings(c,target,101,r,p,200,10000)); consume(c,0); consume(c,1); emit("cancelled_readback",c);
+        }
+    }
+}
+void testSegmentGrammarAndCorrelation() {
+    Fake f; auto hook = f.host(false,true); hook.startDriver = Fake::startDriver;
+    Probe::Console c(hook);
+    send(c, "@80 profile ess_rs segment position 16 read 2\n");
+    assert(f.drivers == 1 && f.address == 2 && f.driverRequest.segmentIndex == 16 && f.driverRequest.group == Ess::DriverGroup::POSITION_SEGMENT);
+    f.contains("\"result\":\"accepted\"");
+    send(c, "@81 profile ess_rs segment speed 1 set speed -1 acceleration 2000\n");
+    assert(f.drivers == 2 && f.driverRequest.segmentSpeed == -1 && f.driverRequest.segmentAcceleration == 2000);
+    send(c, "@82 profile ess_rs segment start 16 set value 180\n");
+    assert(f.drivers == 3 && f.driverRequest.segmentStartSpeed == 180);
+    for (const char* bad : {"segment position 1 read", "profile ess_rs segment position 0 read", "profile ess_rs segment position 17 read", "profile ess_rs segment speed 1 set target 0", "profile ess_rs segment start 1 set value 1/1", "profile ess_rs segment position 1 set speed 1 speed 2", "profile ess_rs segment position 1 set acceleration -1", "profile ess_rs segment start 1 set value 2147483648"}) send(c, std::string(bad)+"\n");
+    assert(f.drivers == 3);
+}
 int main(int argc, char** argv) {
+    if (argc == 2 && !std::strcmp(argv[1], "--segment-fixtures")) { segmentFixtures(); return 0; }
     if (argc == 2 && std::strcmp(argv[1], "--velocity-fixtures") == 0) {
         velocityFixtures(); return 0;
     }
@@ -1637,6 +1697,7 @@ int main(int argc, char** argv) {
     }
     if (argc == 2 && std::strcmp(argv[1], "--home-fixtures") == 0) { homeFixtures(); return 0; }
     if (argc == 2 && std::strcmp(argv[1], "--io-fixtures") == 0) { driverFixtures(true); return 0; }
+    testSegmentGrammarAndCorrelation();
     testIoRoutes();
     testHomeRoutesAndDescriptors();
     testMaximumHomeOutputAndRetention();

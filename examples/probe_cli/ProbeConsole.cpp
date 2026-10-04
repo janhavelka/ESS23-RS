@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 #include "ProbeConsole.h"
 #include "MotorControlRS/Version.h"
+#include "MotorControlRS/profiles/ess_rs/Segments.h"
 
 #include <cstdio>
 #include <cstdarg>
@@ -10,7 +11,7 @@
 namespace MotorControlRSExample { namespace Probe {
 namespace {
 
-enum class Command : uint8_t { HELP, VERSION, CONFIG, STATUS, HEALTH, STATS, PROBE, CAPTURE_READ, RECOVER, RESET, MEMORY, LOAD, DRV, RESULT, CANCEL, RELEASE, READ, PROFILE, CAPS, READ_IDENTITY, READ_CONFIG, READ_STATE, HEALTH_CHECK, MONITOR, AXIS, PREPARE, ENABLE, MOTOR_RELEASE, ALARM_CLEAR, STOP, MOVE, POSITION_CLEAR, VELOCITY, DRIVER, IO, HOME };
+enum class Command : uint8_t { HELP, VERSION, CONFIG, STATUS, HEALTH, STATS, PROBE, CAPTURE_READ, RECOVER, RESET, MEMORY, LOAD, DRV, RESULT, CANCEL, RELEASE, READ, PROFILE, CAPS, READ_IDENTITY, READ_CONFIG, READ_STATE, HEALTH_CHECK, MONITOR, AXIS, PREPARE, ENABLE, MOTOR_RELEASE, ALARM_CLEAR, STOP, MOVE, POSITION_CLEAR, VELOCITY, DRIVER, IO, HOME, SEGMENT };
 struct Entry { const char* name; Command command; const char* syntax; const char* effect; bool bus; };
 const Entry COMMANDS[] = {
     {"help", Command::HELP, "help [command]", "show_callable_commands", false},
@@ -25,9 +26,10 @@ const Entry COMMANDS[] = {
     {"ping", Command::PROBE, "ping [address]", "read_model_word_only", true},
     {"capture-read", Command::CAPTURE_READ, "capture-read [address]", "read_0x0130_16_words_for_capture_qualification", true},
     {"read", Command::READ, "read identity|config|state [address]", "checked_nonchanging_read", true},
-    {"profile", Command::PROFILE, "profile ess_rs identity|config|state|enable|release|clear-alarm|clear-position|normal-stop|emergency-stop [address] | profile ess_rs move-relative|move-absolute|move-angle ... | profile ess_rs velocity ... | profile ess_rs driver read|set ... | profile ess_rs io read|set ... | profile ess_rs caps", "public_profile_operations", true},
+    {"profile", Command::PROFILE, "profile ess_rs identity|config|state|enable|release|clear-alarm|clear-position|normal-stop|emergency-stop [address] | profile ess_rs move-relative|move-absolute|move-angle ... | profile ess_rs velocity ... | profile ess_rs driver read|set ... | profile ess_rs io read|set ... | profile ess_rs segment ... | profile ess_rs caps", "public_profile_operations", true},
     {"driver", Command::DRIVER, "profile ess_rs driver read [address] | profile ess_rs driver set field integer [field integer ...] [address]", "typed_drive_settings_with_checked_readback", true},
     {"io", Command::IO, "profile ess_rs io read [address] | profile ess_rs io set input-polarity|x0|x1|x2|x3|output-polarity|y0|y1|custom value [field value ...] [address]; none assigns function 0", "explicit_typed_terminal_settings_and_readback", true},
+    {"segment", Command::SEGMENT, "profile ess_rs segment position|speed|start INDEX read [address] | profile ess_rs segment position|speed|start INDEX set FIELD INTEGER [FIELD INTEGER ...] [address]", "indexed_stored_records_only_external_execution", true},
     {"home", Command::HOME, "home methods | home method search_native return_native ramp_native zero [address] | profile ess_rs home ...", "qualified_homing_with_fresh_completion_and_zero_evidence", true},
     {"enable", Command::ENABLE, "enable [address]", "request_enable_then_observe_flags", true},
     {"motor-release", Command::MOTOR_RELEASE, "motor-release [address]", "request_release_then_observe_flags", true},
@@ -509,7 +511,7 @@ void Console::error(uint32_t id, const char* command, const char* reason) noexce
 
 void Console::action(uint32_t id, const char* command, Action result, uint8_t address, uint32_t operationId) noexcept {
     const bool typed = std::strcmp(command, "read-identity") == 0 || std::strcmp(command, "read-config") == 0 || std::strcmp(command, "read-state") == 0;
-    const bool motor = std::strcmp(command, "enable") == 0 || std::strcmp(command, "motor-release") == 0 || std::strcmp(command, "alarm-clear") == 0 || std::strcmp(command, "position-clear") == 0 || std::strcmp(command, "stop") == 0 || std::strncmp(command, "move-", 5) == 0 || std::strcmp(command, "velocity") == 0 || std::strcmp(command, "driver") == 0 || std::strcmp(command, "io") == 0;
+    const bool motor = std::strcmp(command, "enable") == 0 || std::strcmp(command, "motor-release") == 0 || std::strcmp(command, "alarm-clear") == 0 || std::strcmp(command, "position-clear") == 0 || std::strcmp(command, "stop") == 0 || std::strncmp(command, "move-", 5) == 0 || std::strcmp(command, "velocity") == 0 || std::strcmp(command, "driver") == 0 || (std::strcmp(command, "io") == 0 || std::strcmp(command, "segment") == 0);
     std::snprintf(output_, sizeof(output_),
         "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"%s\",\"ok\":%s,\"result\":\"%s\",\"address\":%u,\"operation_id\":%lu%s}",
         static_cast<unsigned long>(id), command, boolean(result == Action::OK),
@@ -628,15 +630,27 @@ void Console::dispatch() noexcept {
         std::strcmp(tokens[first + 1], "ess_rs") == 0 && std::strcmp(tokens[first + 2], "driver") == 0;
     const bool nativeIo = entry->command == Command::PROFILE && count > first + 2 &&
         std::strcmp(tokens[first + 1], "ess_rs") == 0 && std::strcmp(tokens[first + 2], "io") == 0;
-    if (entry->command == Command::DRIVER || entry->command == Command::IO || nativeDriver || nativeIo) {
-        const char* command = nativeIo || entry->command == Command::IO ? "io" : "driver";
+    const bool nativeSegment = entry->command == Command::PROFILE && count > first + 2 &&
+        std::strcmp(tokens[first + 1], "ess_rs") == 0 && std::strcmp(tokens[first + 2], "segment") == 0;
+    if (entry->command == Command::DRIVER || entry->command == Command::IO || entry->command == Command::SEGMENT || nativeDriver || nativeIo || nativeSegment) {
+        const char* command = nativeSegment || entry->command == Command::SEGMENT ? "segment" : nativeIo || entry->command == Command::IO ? "io" : "driver";
         if (outputPending()) { ++inputDropped_; return; }
-        if (!nativeDriver && !nativeIo) { error(id, command, "use_profile_route"); return; }
+        if (!nativeDriver && !nativeIo && !nativeSegment) { error(id, command, "use_profile_route"); return; }
         if (!host_.startDriver || !host_.snapshot) { error(id, command, "unavailable"); return; }
         std::size_t next = first + 3;
         if (next >= count) { error(id, command, "invalid_arguments"); return; }
         Ess::DriverRequest request;
         request.group = nativeIo ? Ess::DriverGroup::IO : Ess::DriverGroup::DRIVE;
+        if (nativeSegment) {
+            if (count < next + 3) { error(id, command, "invalid_arguments"); return; }
+            if (!std::strcmp(tokens[next], "position")) request.group = Ess::DriverGroup::POSITION_SEGMENT;
+            else if (!std::strcmp(tokens[next], "speed")) request.group = Ess::DriverGroup::SPEED_SEGMENT;
+            else if (!std::strcmp(tokens[next], "start")) request.group = Ess::DriverGroup::SEGMENT_START_SPEED;
+            else { error(id, command, "invalid_record_kind"); return; }
+            uint32_t index = 0;
+            if (!number(tokens[next + 1], index) || index < 1 || index > 16) { error(id, command, "invalid_index"); return; }
+            request.segmentIndex = static_cast<uint8_t>(index); next += 2;
+        }
         const bool reading = std::strcmp(tokens[next], "read") == 0;
         if (!reading && std::strcmp(tokens[next], "set") != 0) { error(id, command, "invalid_arguments"); return; }
         ++next;
@@ -649,13 +663,16 @@ void Console::dispatch() noexcept {
         if (hasAddress && (!number(tokens[end], address) || address < 1 || address > 247)) { error(id, command, "invalid_address"); return; }
         const char* driveFields[] = {"direction", "subdivision", "word-order", "soft-limit", "over-limit", "interruption", "position-mode", "positive-limit", "negative-limit"};
         const char* ioFields[] = {"input-polarity", "x0", "x1", "x2", "x3", "output-polarity", "y0", "y1", "custom"};
-        const char* const* fields = nativeIo ? ioFields : driveFields;
-        const std::size_t fieldCount = 9;
+        const char* segmentFields[] = {"speed", "acceleration", "deceleration", "target"};
+        const char* startFields[] = {"value"};
+        const bool startRecord = request.group == Ess::DriverGroup::SEGMENT_START_SPEED;
+        const char* const* fields = nativeSegment ? (startRecord ? startFields : segmentFields) : nativeIo ? ioFields : driveFields;
+        const std::size_t fieldCount = nativeSegment ? (startRecord ? 1 : request.group == Ess::DriverGroup::POSITION_SEGMENT ? 4 : 3) : 9;
         for (; next < end; next += 2) {
             std::size_t field = 0;
             while (field < fieldCount && std::strcmp(tokens[next], fields[field]) != 0) ++field;
             if (field == fieldCount) { error(id, command, "unknown_field"); return; }
-            const uint32_t mask = 1UL << (field + (nativeIo ? 9 : 0));
+            const uint32_t mask = nativeSegment ? 1UL << (startRecord ? 21 : field == 3 ? 22 : 18 + field) : 1UL << (field + (nativeIo ? 9 : 0));
             if (request.fields & mask) { error(id, command, "duplicate_field"); return; }
             const bool noFunction = nativeIo && std::strcmp(tokens[next + 1], "none") == 0 &&
                 ((field >= 1 && field <= 4) || field == 6 || field == 7);
@@ -664,7 +681,18 @@ void Console::dispatch() noexcept {
             if (!*digit) { error(id, command, "invalid_integer"); return; }
             for (const char* p = digit; *p; ++p) if (*p < '0' || *p > '9') { error(id, command, "invalid_integer"); return; }
             if (!Core::parseExactNumber(noFunction ? "0" : tokens[next + 1], value) || value.denominator != 1 ||
-                ((nativeIo || field < 7) && (value.numerator < 0 || value.numerator > 65535))) { error(id, command, "invalid_integer"); return; }
+                (!nativeSegment && (nativeIo || field < 7) && (value.numerator < 0 || value.numerator > 65535))) { error(id, command, "invalid_integer"); return; }
+            if (nativeSegment) {
+                if (field != 3 && (value.numerator < -2147483648LL || value.numerator > 2147483647LL)) { error(id, command, "invalid_integer"); return; }
+                if (!startRecord && (field == 1 || field == 2) && (value.numerator < 0 || value.numerator > 65535)) { error(id, command, "invalid_integer"); return; }
+                request.fields |= mask;
+                if (startRecord) request.segmentStartSpeed = static_cast<int32_t>(value.numerator);
+                else if (field == 0) request.segmentSpeed = static_cast<int32_t>(value.numerator);
+                else if (field == 1) request.segmentAcceleration = static_cast<uint16_t>(value.numerator);
+                else if (field == 2) request.segmentDeceleration = static_cast<uint16_t>(value.numerator);
+                else request.segmentPulseTarget = value.numerator;
+                continue;
+            }
             request.fields |= mask;
             const uint16_t word = static_cast<uint16_t>(value.numerator);
             if (nativeIo) {
@@ -955,7 +983,7 @@ void Console::dispatch() noexcept {
         case Command::ENABLE: case Command::MOTOR_RELEASE: case Command::ALARM_CLEAR: case Command::STOP: case Command::POSITION_CLEAR: return host_.startAction && host_.snapshot;
         case Command::MOVE: return host_.startMove && host_.snapshot && host_.axis;
         case Command::VELOCITY: return host_.startVelocity && host_.snapshot && host_.axis;
-        case Command::IO: case Command::DRIVER: return host_.startDriver && host_.snapshot;
+        case Command::SEGMENT: case Command::IO: case Command::DRIVER: return host_.startDriver && host_.snapshot;
         case Command::HOME: return host_.startHome && host_.snapshot && host_.axis;
         case Command::PROFILE: return ((host_.startTypedRead || host_.startAction) && host_.snapshot) ||
             ((host_.startMove || host_.startVelocity || host_.startHome) && host_.snapshot && host_.axis) || (host_.startDriver && host_.snapshot);
@@ -1003,7 +1031,7 @@ void Console::dispatch() noexcept {
         const auto caps = Ess::readCapabilities();
         Snapshot snapshot; host_.snapshot(host_.context, snapshot);
         std::snprintf(output_, sizeof(output_),
-            "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"caps\",\"ok\":true,\"probe\":%s,\"identity\":%s,\"config\":%s,\"state\":%s,\"max_steps\":%u,\"max_reply_bytes\":%u,\"writes\":true,\"motion\":%s,\"actions_qualified\":%s,\"axis_reserved\":%s,\"actions\":[\"enable\",\"release\",\"clear_alarm\",\"clear_position\",\"stop_normal\",\"stop_direct\"],\"device_queue_guarantee\":false,\"velocity\":%s,\"configured_ramp_policy\":true,\"acceleration_mapping\":false,\"velocity_unsupported\":[\"jerk\",\"blending\",\"live_updates\",\"torque\",\"current\",\"external_jog\"],\"driver_settings\":%s,\"limit_pair_writes\":false,\"home\":%s,\"home_methods\":[33,34,35],\"home_physical_qualified\":false,\"io_settings\":%s,\"input_terminals\":4,\"output_terminals\":2,\"no_function\":0,\"input_function_codes\":[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17],\"output_function_codes\":[0,1,2,3,4,5,9,10],\"output_function_11\":\"unresolved\",\"input_mask\":15,\"output_mask\":3,\"external_enable_precedence\":\"unknown\",\"electrical_output_state_known\":false}",
+            "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"caps\",\"ok\":true,\"probe\":%s,\"identity\":%s,\"config\":%s,\"state\":%s,\"max_steps\":%u,\"max_reply_bytes\":%u,\"writes\":true,\"motion\":%s,\"actions_qualified\":%s,\"axis_reserved\":%s,\"actions\":[\"enable\",\"release\",\"clear_alarm\",\"clear_position\",\"stop_normal\",\"stop_direct\"],\"device_queue_guarantee\":false,\"velocity\":%s,\"configured_ramp_policy\":true,\"acceleration_mapping\":false,\"velocity_unsupported\":[\"jerk\",\"blending\",\"live_updates\",\"torque\",\"current\",\"external_jog\"],\"driver_settings\":%s,\"limit_pair_writes\":false,\"home\":%s,\"home_methods\":[33,34,35],\"home_physical_qualified\":false,\"io_settings\":%s,\"input_terminals\":4,\"output_terminals\":2,\"no_function\":0,\"input_function_codes\":[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17],\"output_function_codes\":[0,1,2,3,4,5,9,10],\"output_function_11\":\"unresolved\",\"input_mask\":15,\"output_mask\":3,\"external_enable_precedence\":\"unknown\",\"electrical_output_state_known\":false,\"segment_storage\":16,\"maximum_input_selections\":8,\"segment_execution\":\"external_input\",\"segment_pulse_writes\":false,\"negative_segment_speed_encoding\":\"unresolved\"}",
             static_cast<unsigned long>(id), boolean(caps.probe), boolean(caps.identity), boolean(caps.config), boolean(caps.state), caps.maxSteps, caps.maxReplyBytes,
             boolean(host_.startMove && host_.snapshot && host_.axis), boolean(snapshot.actionsQualified), boolean(snapshot.axisReserved), boolean(host_.startVelocity && host_.snapshot && host_.axis), boolean(host_.startDriver && host_.snapshot), boolean(host_.startHome && host_.snapshot && host_.axis), boolean(host_.startDriver && host_.snapshot));
         emit(); return;
@@ -1278,15 +1306,16 @@ bool Console::formatDriver(uint32_t id, uint32_t commandId, uint32_t operationId
                            const Ess::DriverContext& c, bool inspection) noexcept {
     std::size_t used = 0;
     const bool io = c.group == Ess::DriverGroup::IO;
-    const char* command = io ? "io" : "driver";
+    const bool segment = c.group >= Ess::DriverGroup::POSITION_SEGMENT;
+    const char* command = segment ? "segment" : io ? "io" : "driver";
     uint64_t stationaryUntil = c.deadlineUs;
     if (c.kind == Ess::DriverKind::UPDATE) {
         const auto& p = c.prerequisites;
         const uint64_t maximum = std::numeric_limits<uint64_t>::max();
         const uint64_t until = p.maxAgeUs > maximum - p.stationaryEarliestUs ? maximum : p.stationaryEarliestUs + p.maxAgeUs;
         if (until < stationaryUntil) stationaryUntil = until;
-        if (io) {
-            const uint64_t ioUntil = p.maxAgeUs > maximum - p.ioEarliestUs ? maximum : p.ioEarliestUs + p.maxAgeUs;
+        if (io || segment) {
+            const uint64_t ioUntil = p.maxAgeUs > maximum - (segment ? p.triggerEarliestUs : p.ioEarliestUs) ? maximum : (segment ? p.triggerEarliestUs : p.ioEarliestUs) + p.maxAgeUs;
             if (ioUntil < stationaryUntil) stationaryUntil = ioUntil;
         }
     }
@@ -1329,6 +1358,12 @@ bool Console::formatDriver(uint32_t id, uint32_t commandId, uint32_t operationId
             if (!append(output_, sizeof(output_), used, "{\"raw\":[%u,%u,%u,%u,%u,%u,%u,%u,%u],\"known_fields\":%u,\"unknown_input_polarity_bits\":%u,\"unknown_output_polarity_bits\":%u,\"unknown_custom_output_bits\":%u}",
                 v.raw[7], v.raw[8], v.raw[9], v.raw[10], v.raw[11], v.raw[12], v.raw[13], v.raw[14], v.raw[15], v.knownFields,
                 v.raw[7] & ~15U, v.raw[12] & ~3U, v.raw[15] & ~3U)) return false;
+        } else if (segment) {
+            Ess::SegmentObservation typed;
+            if (!Ess::getSegment(c, typed)) return false;
+            const auto& v = driverView_;
+            if (!append(output_, sizeof(output_), used, "{\"raw\":[%u,%u,%u,%u,%u],\"known_fields\":%u,\"paired_write_supported\":false,\"signed_encoding\":\"unresolved\",\"active_settings_known\":false}",
+                v.raw[0], v.raw[1], v.raw[2], v.raw[3], v.raw[4], v.knownFields)) return false;
         } else {
         const auto& v = driverView_;
         if (!append(output_, sizeof(output_), used,
@@ -1339,7 +1374,12 @@ bool Console::formatDriver(uint32_t id, uint32_t commandId, uint32_t operationId
         }
     } else if (!append(output_, sizeof(output_), used, "null")) return false;
     if (!append(output_, sizeof(output_), used, ",\"driver_group\":\"%s\",\"echo_readback_policy\":%s,\"settlement\":\"%s\"}",
-        io ? "io" : "drive", boolean(c.prerequisites.allowEchoReadback), io ? "stored_readback" : "checked_ack_readback")) return false;
+        segment ? (c.group == Ess::DriverGroup::POSITION_SEGMENT ? "position_segment" : c.group == Ess::DriverGroup::SPEED_SEGMENT ? "speed_segment" : "segment_start_speed") : io ? "io" : "drive", boolean(c.prerequisites.allowEchoReadback), io || segment ? "stored_readback" : "checked_ack_readback")) return false;
+    // Index belongs to the retained request context, separately from host correlation.
+    if (segment) {
+        used -= 1;
+        if (!append(output_, sizeof(output_), used, ",\"segment_index\":%u,\"execution_path\":\"external_input\",\"storage_capacity\":16,\"maximum_input_selections\":8}", c.request.segmentIndex)) return false;
+    }
     emit(inspection ? 0 : operationId); return true;
 }
 

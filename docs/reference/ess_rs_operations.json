@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "register_ledger": "docs/reference/ess_rs_registers.json",
-  "scope": "Typed ESS reads, bounded actions/motion/homing and stopped-state driver settings; ledger-linked obligations with independent native and hardware evidence.",
+  "scope": "Typed ESS reads, bounded actions/motion/homing, stopped-state driver/I/O settings and indexed stored PT/PV records; ledger-linked obligations with independent native and hardware evidence.",
   "default_disposition": {
     "implementation": "NOT_IMPLEMENTED",
     "cli": "NOT_REACHABLE",
@@ -36,9 +36,137 @@
     "OUTPUT_Y0_FUNCTION",
     "OUTPUT_Y1_FUNCTION",
     "OVER_LIMIT_STOP",
+    "POSITION_SEGMENT_01_ACCELERATION_TIME",
+    "POSITION_SEGMENT_01_DECELERATION_TIME",
+    "POSITION_SEGMENT_01_PULSES",
+    "POSITION_SEGMENT_01_SPEED",
+    "POSITION_SEGMENT_02_ACCELERATION_TIME",
+    "POSITION_SEGMENT_02_DECELERATION_TIME",
+    "POSITION_SEGMENT_02_PULSES",
+    "POSITION_SEGMENT_02_SPEED",
+    "POSITION_SEGMENT_03_ACCELERATION_TIME",
+    "POSITION_SEGMENT_03_DECELERATION_TIME",
+    "POSITION_SEGMENT_03_PULSES",
+    "POSITION_SEGMENT_03_SPEED",
+    "POSITION_SEGMENT_04_ACCELERATION_TIME",
+    "POSITION_SEGMENT_04_DECELERATION_TIME",
+    "POSITION_SEGMENT_04_PULSES",
+    "POSITION_SEGMENT_04_SPEED",
+    "POSITION_SEGMENT_05_ACCELERATION_TIME",
+    "POSITION_SEGMENT_05_DECELERATION_TIME",
+    "POSITION_SEGMENT_05_PULSES",
+    "POSITION_SEGMENT_05_SPEED",
+    "POSITION_SEGMENT_06_ACCELERATION_TIME",
+    "POSITION_SEGMENT_06_DECELERATION_TIME",
+    "POSITION_SEGMENT_06_PULSES",
+    "POSITION_SEGMENT_06_SPEED",
+    "POSITION_SEGMENT_07_ACCELERATION_TIME",
+    "POSITION_SEGMENT_07_DECELERATION_TIME",
+    "POSITION_SEGMENT_07_PULSES",
+    "POSITION_SEGMENT_07_SPEED",
+    "POSITION_SEGMENT_08_ACCELERATION_TIME",
+    "POSITION_SEGMENT_08_DECELERATION_TIME",
+    "POSITION_SEGMENT_08_PULSES",
+    "POSITION_SEGMENT_08_SPEED",
+    "POSITION_SEGMENT_09_ACCELERATION_TIME",
+    "POSITION_SEGMENT_09_DECELERATION_TIME",
+    "POSITION_SEGMENT_09_PULSES",
+    "POSITION_SEGMENT_09_SPEED",
+    "POSITION_SEGMENT_10_ACCELERATION_TIME",
+    "POSITION_SEGMENT_10_DECELERATION_TIME",
+    "POSITION_SEGMENT_10_PULSES",
+    "POSITION_SEGMENT_10_SPEED",
+    "POSITION_SEGMENT_11_ACCELERATION_TIME",
+    "POSITION_SEGMENT_11_DECELERATION_TIME",
+    "POSITION_SEGMENT_11_PULSES",
+    "POSITION_SEGMENT_11_SPEED",
+    "POSITION_SEGMENT_12_ACCELERATION_TIME",
+    "POSITION_SEGMENT_12_DECELERATION_TIME",
+    "POSITION_SEGMENT_12_PULSES",
+    "POSITION_SEGMENT_12_SPEED",
+    "POSITION_SEGMENT_13_ACCELERATION_TIME",
+    "POSITION_SEGMENT_13_DECELERATION_TIME",
+    "POSITION_SEGMENT_13_PULSES",
+    "POSITION_SEGMENT_13_SPEED",
+    "POSITION_SEGMENT_14_ACCELERATION_TIME",
+    "POSITION_SEGMENT_14_DECELERATION_TIME",
+    "POSITION_SEGMENT_14_PULSES",
+    "POSITION_SEGMENT_14_SPEED",
+    "POSITION_SEGMENT_15_ACCELERATION_TIME",
+    "POSITION_SEGMENT_15_DECELERATION_TIME",
+    "POSITION_SEGMENT_15_PULSES",
+    "POSITION_SEGMENT_15_SPEED",
+    "POSITION_SEGMENT_16_ACCELERATION_TIME",
+    "POSITION_SEGMENT_16_DECELERATION_TIME",
+    "POSITION_SEGMENT_16_PULSES",
+    "POSITION_SEGMENT_16_SPEED",
     "POSITIVE_SOFT_LIMIT",
     "PV_TRIGGER_MODE",
+    "SEGMENT_START_SPEED_01_VALUE",
+    "SEGMENT_START_SPEED_02_VALUE",
+    "SEGMENT_START_SPEED_03_VALUE",
+    "SEGMENT_START_SPEED_04_VALUE",
+    "SEGMENT_START_SPEED_05_VALUE",
+    "SEGMENT_START_SPEED_06_VALUE",
+    "SEGMENT_START_SPEED_07_VALUE",
+    "SEGMENT_START_SPEED_08_VALUE",
+    "SEGMENT_START_SPEED_09_VALUE",
+    "SEGMENT_START_SPEED_10_VALUE",
+    "SEGMENT_START_SPEED_11_VALUE",
+    "SEGMENT_START_SPEED_12_VALUE",
+    "SEGMENT_START_SPEED_13_VALUE",
+    "SEGMENT_START_SPEED_14_VALUE",
+    "SEGMENT_START_SPEED_15_VALUE",
+    "SEGMENT_START_SPEED_16_VALUE",
     "SOFT_LIMIT_ENABLE",
+    "SPEED_SEGMENT_01_ACCELERATION_TIME",
+    "SPEED_SEGMENT_01_DECELERATION_TIME",
+    "SPEED_SEGMENT_01_SPEED",
+    "SPEED_SEGMENT_02_ACCELERATION_TIME",
+    "SPEED_SEGMENT_02_DECELERATION_TIME",
+    "SPEED_SEGMENT_02_SPEED",
+    "SPEED_SEGMENT_03_ACCELERATION_TIME",
+    "SPEED_SEGMENT_03_DECELERATION_TIME",
+    "SPEED_SEGMENT_03_SPEED",
+    "SPEED_SEGMENT_04_ACCELERATION_TIME",
+    "SPEED_SEGMENT_04_DECELERATION_TIME",
+    "SPEED_SEGMENT_04_SPEED",
+    "SPEED_SEGMENT_05_ACCELERATION_TIME",
+    "SPEED_SEGMENT_05_DECELERATION_TIME",
+    "SPEED_SEGMENT_05_SPEED",
+    "SPEED_SEGMENT_06_ACCELERATION_TIME",
+    "SPEED_SEGMENT_06_DECELERATION_TIME",
+    "SPEED_SEGMENT_06_SPEED",
+    "SPEED_SEGMENT_07_ACCELERATION_TIME",
+    "SPEED_SEGMENT_07_DECELERATION_TIME",
+    "SPEED_SEGMENT_07_SPEED",
+    "SPEED_SEGMENT_08_ACCELERATION_TIME",
+    "SPEED_SEGMENT_08_DECELERATION_TIME",
+    "SPEED_SEGMENT_08_SPEED",
+    "SPEED_SEGMENT_09_ACCELERATION_TIME",
+    "SPEED_SEGMENT_09_DECELERATION_TIME",
+    "SPEED_SEGMENT_09_SPEED",
+    "SPEED_SEGMENT_10_ACCELERATION_TIME",
+    "SPEED_SEGMENT_10_DECELERATION_TIME",
+    "SPEED_SEGMENT_10_SPEED",
+    "SPEED_SEGMENT_11_ACCELERATION_TIME",
+    "SPEED_SEGMENT_11_DECELERATION_TIME",
+    "SPEED_SEGMENT_11_SPEED",
+    "SPEED_SEGMENT_12_ACCELERATION_TIME",
+    "SPEED_SEGMENT_12_DECELERATION_TIME",
+    "SPEED_SEGMENT_12_SPEED",
+    "SPEED_SEGMENT_13_ACCELERATION_TIME",
+    "SPEED_SEGMENT_13_DECELERATION_TIME",
+    "SPEED_SEGMENT_13_SPEED",
+    "SPEED_SEGMENT_14_ACCELERATION_TIME",
+    "SPEED_SEGMENT_14_DECELERATION_TIME",
+    "SPEED_SEGMENT_14_SPEED",
+    "SPEED_SEGMENT_15_ACCELERATION_TIME",
+    "SPEED_SEGMENT_15_DECELERATION_TIME",
+    "SPEED_SEGMENT_15_SPEED",
+    "SPEED_SEGMENT_16_ACCELERATION_TIME",
+    "SPEED_SEGMENT_16_DECELERATION_TIME",
+    "SPEED_SEGMENT_16_SPEED",
     "SUBDIVISION",
     "WORD_ORDER"
   ],
@@ -1082,6 +1210,502 @@
         "reason": "Value11 mapping to two ESS terminals unresolved; read preserves raw, assignment rejected."
       },
       "reason": "Listed numeric enum is not sufficient for a resolved custom2 output mapping. No invented third ESS output."
+    },
+    {
+      "id": "stored_position_read",
+      "kind": "READ",
+      "records": [
+        "POSITION_SEGMENT_01_PULSES",
+        "POSITION_SEGMENT_01_SPEED",
+        "POSITION_SEGMENT_01_ACCELERATION_TIME",
+        "POSITION_SEGMENT_01_DECELERATION_TIME",
+        "POSITION_SEGMENT_02_PULSES",
+        "POSITION_SEGMENT_02_SPEED",
+        "POSITION_SEGMENT_02_ACCELERATION_TIME",
+        "POSITION_SEGMENT_02_DECELERATION_TIME",
+        "POSITION_SEGMENT_03_PULSES",
+        "POSITION_SEGMENT_03_SPEED",
+        "POSITION_SEGMENT_03_ACCELERATION_TIME",
+        "POSITION_SEGMENT_03_DECELERATION_TIME",
+        "POSITION_SEGMENT_04_PULSES",
+        "POSITION_SEGMENT_04_SPEED",
+        "POSITION_SEGMENT_04_ACCELERATION_TIME",
+        "POSITION_SEGMENT_04_DECELERATION_TIME",
+        "POSITION_SEGMENT_05_PULSES",
+        "POSITION_SEGMENT_05_SPEED",
+        "POSITION_SEGMENT_05_ACCELERATION_TIME",
+        "POSITION_SEGMENT_05_DECELERATION_TIME",
+        "POSITION_SEGMENT_06_PULSES",
+        "POSITION_SEGMENT_06_SPEED",
+        "POSITION_SEGMENT_06_ACCELERATION_TIME",
+        "POSITION_SEGMENT_06_DECELERATION_TIME",
+        "POSITION_SEGMENT_07_PULSES",
+        "POSITION_SEGMENT_07_SPEED",
+        "POSITION_SEGMENT_07_ACCELERATION_TIME",
+        "POSITION_SEGMENT_07_DECELERATION_TIME",
+        "POSITION_SEGMENT_08_PULSES",
+        "POSITION_SEGMENT_08_SPEED",
+        "POSITION_SEGMENT_08_ACCELERATION_TIME",
+        "POSITION_SEGMENT_08_DECELERATION_TIME",
+        "POSITION_SEGMENT_09_PULSES",
+        "POSITION_SEGMENT_09_SPEED",
+        "POSITION_SEGMENT_09_ACCELERATION_TIME",
+        "POSITION_SEGMENT_09_DECELERATION_TIME",
+        "POSITION_SEGMENT_10_PULSES",
+        "POSITION_SEGMENT_10_SPEED",
+        "POSITION_SEGMENT_10_ACCELERATION_TIME",
+        "POSITION_SEGMENT_10_DECELERATION_TIME",
+        "POSITION_SEGMENT_11_PULSES",
+        "POSITION_SEGMENT_11_SPEED",
+        "POSITION_SEGMENT_11_ACCELERATION_TIME",
+        "POSITION_SEGMENT_11_DECELERATION_TIME",
+        "POSITION_SEGMENT_12_PULSES",
+        "POSITION_SEGMENT_12_SPEED",
+        "POSITION_SEGMENT_12_ACCELERATION_TIME",
+        "POSITION_SEGMENT_12_DECELERATION_TIME",
+        "POSITION_SEGMENT_13_PULSES",
+        "POSITION_SEGMENT_13_SPEED",
+        "POSITION_SEGMENT_13_ACCELERATION_TIME",
+        "POSITION_SEGMENT_13_DECELERATION_TIME",
+        "POSITION_SEGMENT_14_PULSES",
+        "POSITION_SEGMENT_14_SPEED",
+        "POSITION_SEGMENT_14_ACCELERATION_TIME",
+        "POSITION_SEGMENT_14_DECELERATION_TIME",
+        "POSITION_SEGMENT_15_PULSES",
+        "POSITION_SEGMENT_15_SPEED",
+        "POSITION_SEGMENT_15_ACCELERATION_TIME",
+        "POSITION_SEGMENT_15_DECELERATION_TIME",
+        "POSITION_SEGMENT_16_PULSES",
+        "POSITION_SEGMENT_16_SPEED",
+        "POSITION_SEGMENT_16_ACCELERATION_TIME",
+        "POSITION_SEGMENT_16_DECELERATION_TIME"
+      ],
+      "api": {
+        "header": "include/MotorControlRS/profiles/ess_rs/Segments.h",
+        "symbols": [
+          "prepareSegmentRead",
+          "getSegment"
+        ]
+      },
+      "cli_commands": [
+        "profile ess_rs segment position INDEX read"
+      ],
+      "implementation": "IMPLEMENTED",
+      "cli": "REACHABLE",
+      "native": {
+        "state": "PASS",
+        "evidence": [
+          "test/segments_test.cpp",
+          "test/probe_app_test.cpp",
+          "test/segment_console_parity_test.py"
+        ],
+        "reason": "Real indexed core, application owner path and strict C++ console/Python parity; simulated transport is not physical trigger evidence."
+      },
+      "hardware": {
+        "state": "PASS",
+        "evidence": [
+          "docs/reports/ess_release_16_2026-10-04.json"
+        ],
+        "reason": "Current-image checked boundary records1 and16 read before/after on ESS23-RS20 rawmodel4EEA/version0029. Other14 indexes and external execution are NOT_RUN physically; native enumerates all16."
+      },
+      "reason": "All16 position records; checked five-word reads exclude reserved sixth word. Raw target pair/order, signed encoding and physical units remain separate."
+    },
+    {
+      "id": "stored_position_scalars_write",
+      "kind": "WRITE",
+      "records": [
+        "POSITION_SEGMENT_01_SPEED",
+        "POSITION_SEGMENT_01_ACCELERATION_TIME",
+        "POSITION_SEGMENT_01_DECELERATION_TIME",
+        "POSITION_SEGMENT_02_SPEED",
+        "POSITION_SEGMENT_02_ACCELERATION_TIME",
+        "POSITION_SEGMENT_02_DECELERATION_TIME",
+        "POSITION_SEGMENT_03_SPEED",
+        "POSITION_SEGMENT_03_ACCELERATION_TIME",
+        "POSITION_SEGMENT_03_DECELERATION_TIME",
+        "POSITION_SEGMENT_04_SPEED",
+        "POSITION_SEGMENT_04_ACCELERATION_TIME",
+        "POSITION_SEGMENT_04_DECELERATION_TIME",
+        "POSITION_SEGMENT_05_SPEED",
+        "POSITION_SEGMENT_05_ACCELERATION_TIME",
+        "POSITION_SEGMENT_05_DECELERATION_TIME",
+        "POSITION_SEGMENT_06_SPEED",
+        "POSITION_SEGMENT_06_ACCELERATION_TIME",
+        "POSITION_SEGMENT_06_DECELERATION_TIME",
+        "POSITION_SEGMENT_07_SPEED",
+        "POSITION_SEGMENT_07_ACCELERATION_TIME",
+        "POSITION_SEGMENT_07_DECELERATION_TIME",
+        "POSITION_SEGMENT_08_SPEED",
+        "POSITION_SEGMENT_08_ACCELERATION_TIME",
+        "POSITION_SEGMENT_08_DECELERATION_TIME",
+        "POSITION_SEGMENT_09_SPEED",
+        "POSITION_SEGMENT_09_ACCELERATION_TIME",
+        "POSITION_SEGMENT_09_DECELERATION_TIME",
+        "POSITION_SEGMENT_10_SPEED",
+        "POSITION_SEGMENT_10_ACCELERATION_TIME",
+        "POSITION_SEGMENT_10_DECELERATION_TIME",
+        "POSITION_SEGMENT_11_SPEED",
+        "POSITION_SEGMENT_11_ACCELERATION_TIME",
+        "POSITION_SEGMENT_11_DECELERATION_TIME",
+        "POSITION_SEGMENT_12_SPEED",
+        "POSITION_SEGMENT_12_ACCELERATION_TIME",
+        "POSITION_SEGMENT_12_DECELERATION_TIME",
+        "POSITION_SEGMENT_13_SPEED",
+        "POSITION_SEGMENT_13_ACCELERATION_TIME",
+        "POSITION_SEGMENT_13_DECELERATION_TIME",
+        "POSITION_SEGMENT_14_SPEED",
+        "POSITION_SEGMENT_14_ACCELERATION_TIME",
+        "POSITION_SEGMENT_14_DECELERATION_TIME",
+        "POSITION_SEGMENT_15_SPEED",
+        "POSITION_SEGMENT_15_ACCELERATION_TIME",
+        "POSITION_SEGMENT_15_DECELERATION_TIME",
+        "POSITION_SEGMENT_16_SPEED",
+        "POSITION_SEGMENT_16_ACCELERATION_TIME",
+        "POSITION_SEGMENT_16_DECELERATION_TIME"
+      ],
+      "api": {
+        "header": "include/MotorControlRS/profiles/ess_rs/Segments.h",
+        "symbols": [
+          "prepareSegmentSettings"
+        ]
+      },
+      "cli_commands": [
+        "profile ess_rs segment position INDEX set"
+      ],
+      "implementation": "IMPLEMENTED",
+      "cli": "REACHABLE",
+      "native": {
+        "state": "PASS",
+        "evidence": [
+          "test/segments_test.cpp",
+          "test/probe_app_test.cpp",
+          "test/segment_console_parity_test.py"
+        ],
+        "reason": "Real indexed core, application owner path and strict C++ console/Python parity; simulated transport is not physical trigger evidence."
+      },
+      "hardware": {
+        "state": "NOT_RUN",
+        "evidence": [
+          "docs/reports/ess_release_16_attempt1_2026-10-04.json",
+          "docs/reports/ess_release_16_2026-10-04.json"
+        ],
+        "reason": "All16/range/physical-engine qualification NOT_RUN. Narrow stored subset PTindex1 speed120-to121 and ramp100-to101, matching readbacks and exact original restoration PASS. ACK source stays unconfirmed/executionUNKNOWN; no motion or persistence claim."
+      },
+      "reason": "All16 speed/native ramp scalar fields; whole candidate validated before writes, one checked FC06/FC03 readback per field, exact progress and unknown execution retained. No atomicity, acceleration conversion or persistence claim."
+    },
+    {
+      "id": "stored_position_pair_write",
+      "kind": "WRITE",
+      "records": [
+        "POSITION_SEGMENT_01_PULSES",
+        "POSITION_SEGMENT_02_PULSES",
+        "POSITION_SEGMENT_03_PULSES",
+        "POSITION_SEGMENT_04_PULSES",
+        "POSITION_SEGMENT_05_PULSES",
+        "POSITION_SEGMENT_06_PULSES",
+        "POSITION_SEGMENT_07_PULSES",
+        "POSITION_SEGMENT_08_PULSES",
+        "POSITION_SEGMENT_09_PULSES",
+        "POSITION_SEGMENT_10_PULSES",
+        "POSITION_SEGMENT_11_PULSES",
+        "POSITION_SEGMENT_12_PULSES",
+        "POSITION_SEGMENT_13_PULSES",
+        "POSITION_SEGMENT_14_PULSES",
+        "POSITION_SEGMENT_15_PULSES",
+        "POSITION_SEGMENT_16_PULSES"
+      ],
+      "api": {
+        "header": "include/MotorControlRS/profiles/ess_rs/Segments.h",
+        "symbols": [
+          "prepareSegmentSettings"
+        ]
+      },
+      "cli_commands": [],
+      "implementation": "UNSUPPORTED",
+      "cli": "NOT_REACHABLE",
+      "native": {
+        "state": "PASS",
+        "evidence": [
+          "test/segments_test.cpp",
+          "test/probe_app_test.cpp",
+          "test/segment_console_parity_test.py"
+        ],
+        "reason": "Real indexed core, application owner path and strict C++ console/Python parity; simulated transport is not physical trigger evidence."
+      },
+      "hardware": {
+        "state": "NOT_RUN",
+        "evidence": [],
+        "reason": "All16 stored target-pair writes remain unavailable: no reviewed FC10 window, no split FC06 or reserved-bearing span permitted."
+      },
+      "reason": "Every stored target pair lacks a reviewed FC10 window. Complete candidate rejects before scalar TX; no split FC06, five-word subset or whole reserved-bearing record write."
+    },
+    {
+      "id": "stored_speed_read",
+      "kind": "READ",
+      "records": [
+        "SPEED_SEGMENT_01_SPEED",
+        "SPEED_SEGMENT_01_ACCELERATION_TIME",
+        "SPEED_SEGMENT_01_DECELERATION_TIME",
+        "SPEED_SEGMENT_02_SPEED",
+        "SPEED_SEGMENT_02_ACCELERATION_TIME",
+        "SPEED_SEGMENT_02_DECELERATION_TIME",
+        "SPEED_SEGMENT_03_SPEED",
+        "SPEED_SEGMENT_03_ACCELERATION_TIME",
+        "SPEED_SEGMENT_03_DECELERATION_TIME",
+        "SPEED_SEGMENT_04_SPEED",
+        "SPEED_SEGMENT_04_ACCELERATION_TIME",
+        "SPEED_SEGMENT_04_DECELERATION_TIME",
+        "SPEED_SEGMENT_05_SPEED",
+        "SPEED_SEGMENT_05_ACCELERATION_TIME",
+        "SPEED_SEGMENT_05_DECELERATION_TIME",
+        "SPEED_SEGMENT_06_SPEED",
+        "SPEED_SEGMENT_06_ACCELERATION_TIME",
+        "SPEED_SEGMENT_06_DECELERATION_TIME",
+        "SPEED_SEGMENT_07_SPEED",
+        "SPEED_SEGMENT_07_ACCELERATION_TIME",
+        "SPEED_SEGMENT_07_DECELERATION_TIME",
+        "SPEED_SEGMENT_08_SPEED",
+        "SPEED_SEGMENT_08_ACCELERATION_TIME",
+        "SPEED_SEGMENT_08_DECELERATION_TIME",
+        "SPEED_SEGMENT_09_SPEED",
+        "SPEED_SEGMENT_09_ACCELERATION_TIME",
+        "SPEED_SEGMENT_09_DECELERATION_TIME",
+        "SPEED_SEGMENT_10_SPEED",
+        "SPEED_SEGMENT_10_ACCELERATION_TIME",
+        "SPEED_SEGMENT_10_DECELERATION_TIME",
+        "SPEED_SEGMENT_11_SPEED",
+        "SPEED_SEGMENT_11_ACCELERATION_TIME",
+        "SPEED_SEGMENT_11_DECELERATION_TIME",
+        "SPEED_SEGMENT_12_SPEED",
+        "SPEED_SEGMENT_12_ACCELERATION_TIME",
+        "SPEED_SEGMENT_12_DECELERATION_TIME",
+        "SPEED_SEGMENT_13_SPEED",
+        "SPEED_SEGMENT_13_ACCELERATION_TIME",
+        "SPEED_SEGMENT_13_DECELERATION_TIME",
+        "SPEED_SEGMENT_14_SPEED",
+        "SPEED_SEGMENT_14_ACCELERATION_TIME",
+        "SPEED_SEGMENT_14_DECELERATION_TIME",
+        "SPEED_SEGMENT_15_SPEED",
+        "SPEED_SEGMENT_15_ACCELERATION_TIME",
+        "SPEED_SEGMENT_15_DECELERATION_TIME",
+        "SPEED_SEGMENT_16_SPEED",
+        "SPEED_SEGMENT_16_ACCELERATION_TIME",
+        "SPEED_SEGMENT_16_DECELERATION_TIME"
+      ],
+      "api": {
+        "header": "include/MotorControlRS/profiles/ess_rs/Segments.h",
+        "symbols": [
+          "prepareSegmentRead",
+          "getSegment"
+        ]
+      },
+      "cli_commands": [
+        "profile ess_rs segment speed INDEX read"
+      ],
+      "implementation": "IMPLEMENTED",
+      "cli": "REACHABLE",
+      "native": {
+        "state": "PASS",
+        "evidence": [
+          "test/segments_test.cpp",
+          "test/probe_app_test.cpp",
+          "test/segment_console_parity_test.py"
+        ],
+        "reason": "Real indexed core, application owner path and strict C++ console/Python parity; simulated transport is not physical trigger evidence."
+      },
+      "hardware": {
+        "state": "PASS",
+        "evidence": [
+          "docs/reports/ess_release_16_2026-10-04.json"
+        ],
+        "reason": "Current-image checked boundary records1 and16 read before/after on ESS23-RS20 rawmodel4EEA/version0029. Other14 indexes and external execution are NOT_RUN physically; native enumerates all16."
+      },
+      "reason": "All16 speed records; signed/raw unknown values preserved, not proof of engine encoding or acceleration formula."
+    },
+    {
+      "id": "stored_speed_write",
+      "kind": "WRITE",
+      "records": [
+        "SPEED_SEGMENT_01_SPEED",
+        "SPEED_SEGMENT_01_ACCELERATION_TIME",
+        "SPEED_SEGMENT_01_DECELERATION_TIME",
+        "SPEED_SEGMENT_02_SPEED",
+        "SPEED_SEGMENT_02_ACCELERATION_TIME",
+        "SPEED_SEGMENT_02_DECELERATION_TIME",
+        "SPEED_SEGMENT_03_SPEED",
+        "SPEED_SEGMENT_03_ACCELERATION_TIME",
+        "SPEED_SEGMENT_03_DECELERATION_TIME",
+        "SPEED_SEGMENT_04_SPEED",
+        "SPEED_SEGMENT_04_ACCELERATION_TIME",
+        "SPEED_SEGMENT_04_DECELERATION_TIME",
+        "SPEED_SEGMENT_05_SPEED",
+        "SPEED_SEGMENT_05_ACCELERATION_TIME",
+        "SPEED_SEGMENT_05_DECELERATION_TIME",
+        "SPEED_SEGMENT_06_SPEED",
+        "SPEED_SEGMENT_06_ACCELERATION_TIME",
+        "SPEED_SEGMENT_06_DECELERATION_TIME",
+        "SPEED_SEGMENT_07_SPEED",
+        "SPEED_SEGMENT_07_ACCELERATION_TIME",
+        "SPEED_SEGMENT_07_DECELERATION_TIME",
+        "SPEED_SEGMENT_08_SPEED",
+        "SPEED_SEGMENT_08_ACCELERATION_TIME",
+        "SPEED_SEGMENT_08_DECELERATION_TIME",
+        "SPEED_SEGMENT_09_SPEED",
+        "SPEED_SEGMENT_09_ACCELERATION_TIME",
+        "SPEED_SEGMENT_09_DECELERATION_TIME",
+        "SPEED_SEGMENT_10_SPEED",
+        "SPEED_SEGMENT_10_ACCELERATION_TIME",
+        "SPEED_SEGMENT_10_DECELERATION_TIME",
+        "SPEED_SEGMENT_11_SPEED",
+        "SPEED_SEGMENT_11_ACCELERATION_TIME",
+        "SPEED_SEGMENT_11_DECELERATION_TIME",
+        "SPEED_SEGMENT_12_SPEED",
+        "SPEED_SEGMENT_12_ACCELERATION_TIME",
+        "SPEED_SEGMENT_12_DECELERATION_TIME",
+        "SPEED_SEGMENT_13_SPEED",
+        "SPEED_SEGMENT_13_ACCELERATION_TIME",
+        "SPEED_SEGMENT_13_DECELERATION_TIME",
+        "SPEED_SEGMENT_14_SPEED",
+        "SPEED_SEGMENT_14_ACCELERATION_TIME",
+        "SPEED_SEGMENT_14_DECELERATION_TIME",
+        "SPEED_SEGMENT_15_SPEED",
+        "SPEED_SEGMENT_15_ACCELERATION_TIME",
+        "SPEED_SEGMENT_15_DECELERATION_TIME",
+        "SPEED_SEGMENT_16_SPEED",
+        "SPEED_SEGMENT_16_ACCELERATION_TIME",
+        "SPEED_SEGMENT_16_DECELERATION_TIME"
+      ],
+      "api": {
+        "header": "include/MotorControlRS/profiles/ess_rs/Segments.h",
+        "symbols": [
+          "prepareSegmentSettings"
+        ]
+      },
+      "cli_commands": [
+        "profile ess_rs segment speed INDEX set"
+      ],
+      "implementation": "IMPLEMENTED",
+      "cli": "REACHABLE",
+      "native": {
+        "state": "PASS",
+        "evidence": [
+          "test/segments_test.cpp",
+          "test/probe_app_test.cpp",
+          "test/segment_console_parity_test.py"
+        ],
+        "reason": "Real indexed core, application owner path and strict C++ console/Python parity; simulated transport is not physical trigger evidence."
+      },
+      "hardware": {
+        "state": "NOT_RUN",
+        "evidence": [
+          "docs/reports/ess_release_16_attempt1_2026-10-04.json",
+          "docs/reports/ess_release_16_2026-10-04.json"
+        ],
+        "reason": "All16/range/physical-engine qualification NOT_RUN. Narrow stored subset PVindex16 speed/ramp100-to101, matching readbacks and exact original restoration PASS. ACK source stays unconfirmed/executionUNKNOWN; no motion or persistence claim."
+      },
+      "reason": "All16 speed/native ramp scalar fields. Native nonnegative speed subset, negative encoding guarded; exact stopped and external-trigger-inhibited candidate required, no automatic replay."
+    },
+    {
+      "id": "stored_start_speed_read",
+      "kind": "READ",
+      "records": [
+        "SEGMENT_START_SPEED_01_VALUE",
+        "SEGMENT_START_SPEED_02_VALUE",
+        "SEGMENT_START_SPEED_03_VALUE",
+        "SEGMENT_START_SPEED_04_VALUE",
+        "SEGMENT_START_SPEED_05_VALUE",
+        "SEGMENT_START_SPEED_06_VALUE",
+        "SEGMENT_START_SPEED_07_VALUE",
+        "SEGMENT_START_SPEED_08_VALUE",
+        "SEGMENT_START_SPEED_09_VALUE",
+        "SEGMENT_START_SPEED_10_VALUE",
+        "SEGMENT_START_SPEED_11_VALUE",
+        "SEGMENT_START_SPEED_12_VALUE",
+        "SEGMENT_START_SPEED_13_VALUE",
+        "SEGMENT_START_SPEED_14_VALUE",
+        "SEGMENT_START_SPEED_15_VALUE",
+        "SEGMENT_START_SPEED_16_VALUE"
+      ],
+      "api": {
+        "header": "include/MotorControlRS/profiles/ess_rs/Segments.h",
+        "symbols": [
+          "prepareSegmentRead",
+          "getSegment"
+        ]
+      },
+      "cli_commands": [
+        "profile ess_rs segment start INDEX read"
+      ],
+      "implementation": "IMPLEMENTED",
+      "cli": "REACHABLE",
+      "native": {
+        "state": "PASS",
+        "evidence": [
+          "test/segments_test.cpp",
+          "test/probe_app_test.cpp",
+          "test/segment_console_parity_test.py"
+        ],
+        "reason": "Real indexed core, application owner path and strict C++ console/Python parity; simulated transport is not physical trigger evidence."
+      },
+      "hardware": {
+        "state": "PASS",
+        "evidence": [
+          "docs/reports/ess_release_16_2026-10-04.json"
+        ],
+        "reason": "Current-image checked boundary records1 and16 read before/after on ESS23-RS20 rawmodel4EEA/version0029. Other14 indexes and external execution are NOT_RUN physically; native enumerates all16."
+      },
+      "reason": "All16 shared PT/PV starting-speed fields; raw observations do not prove negative signed wire representation."
+    },
+    {
+      "id": "stored_start_speed_write",
+      "kind": "WRITE",
+      "records": [
+        "SEGMENT_START_SPEED_01_VALUE",
+        "SEGMENT_START_SPEED_02_VALUE",
+        "SEGMENT_START_SPEED_03_VALUE",
+        "SEGMENT_START_SPEED_04_VALUE",
+        "SEGMENT_START_SPEED_05_VALUE",
+        "SEGMENT_START_SPEED_06_VALUE",
+        "SEGMENT_START_SPEED_07_VALUE",
+        "SEGMENT_START_SPEED_08_VALUE",
+        "SEGMENT_START_SPEED_09_VALUE",
+        "SEGMENT_START_SPEED_10_VALUE",
+        "SEGMENT_START_SPEED_11_VALUE",
+        "SEGMENT_START_SPEED_12_VALUE",
+        "SEGMENT_START_SPEED_13_VALUE",
+        "SEGMENT_START_SPEED_14_VALUE",
+        "SEGMENT_START_SPEED_15_VALUE",
+        "SEGMENT_START_SPEED_16_VALUE"
+      ],
+      "api": {
+        "header": "include/MotorControlRS/profiles/ess_rs/Segments.h",
+        "symbols": [
+          "prepareSegmentSettings"
+        ]
+      },
+      "cli_commands": [
+        "profile ess_rs segment start INDEX set"
+      ],
+      "implementation": "IMPLEMENTED",
+      "cli": "REACHABLE",
+      "native": {
+        "state": "PASS",
+        "evidence": [
+          "test/segments_test.cpp",
+          "test/probe_app_test.cpp",
+          "test/segment_console_parity_test.py"
+        ],
+        "reason": "Real indexed core, application owner path and strict C++ console/Python parity; simulated transport is not physical trigger evidence."
+      },
+      "hardware": {
+        "state": "FAIL",
+        "evidence": [
+          "docs/reports/ess_release_16_attempt1_2026-10-04.json",
+          "docs/reports/ess_release_16_2026-10-04.json"
+        ],
+        "reason": "Only sharedstart index1 was attempted once: requested0-to1, checked source-unconfirmed FC06-shaped frame, confirmed FC03readback0; retained READBACK_MISMATCH/UNKNOWN. Delayed nonchanging reads minutes later still0. No replay/restore write. Cause unresolved pending independent response-source/device acceptance or exact firmware semantics; other15 indexes NOT_RUN."
+      },
+      "reason": "All16 shared PT/PV starting-speed fields; native nonnegative subset with negative encoding guarded. Matching readback establishes only stored setting, not active or persistent interpretation."
     }
   ],
   "coverage_notes": [
@@ -1095,6 +1719,7 @@
     "Prompt12 derives pair_write_policy for every writable pair from the same register ledger: exact reviewed FC10 windows, split-FC06 denial and unresolved interpretation/wire-form reasons. This adds no typed-write or hardware credit; see docs/ess_pair_writes.md.",
     "Prompt13 implements seven typed single-word settings and raw paired-limit reads; unavailable limit-pair writes remain UNSUPPORTED. Settings enum choices receive WRITE coverage separately from native action choices. ACK/readback never imply active or saved settings.",
     "Prompt14 accounts for all35 homing methods; executable33/34/35 receive narrow native staging/trigger coverage. External-switch methods remain unimplemented pending edge/return and prompt15 assignment/fixture evidence;18 and collision methods remain unresolved. Existing auxiliary7 is a prerequisite, never typed setter coverage. Offset write obligation is IN_PROGRESS: zero-only complete reviewed window, no nonzero encoding or pair expansion.",
-    "Prompt15 implements all18 documented input assignments and eight resolved output assignments; custom2 remains unresolved. Register readback is distinct from physical switch/load operation and unconfirmed FC06 execution. No external switch/load is required for independent serial-only modes."
+    "Prompt15 implements all18 documented input assignments and eight resolved output assignments; custom2 remains unresolved. Register readback is distinct from physical switch/load operation and unconfirmed FC06 execution. No external switch/load is required for independent serial-only modes.",
+    "Prompt16 accounts separately for all16 PT records, all16 PV records and all16 shared start-speed words; all16 PT reserved slots remain ACCOUNTED_RESERVED. Stored PT target-pair setters remain UNSUPPORTED; negative PV/start encoding remains guarded. Storage16 is distinct from maximum8 externally selected combinations on four-input ESS drives. PT5ms setup/hold is not inherited by PV. No serial segment execution command exists. Shared EXTERNAL_POSITION_MODE and PV_TRIGGER_MODE reuse existing driver_settings_read/update coverage rather than duplicate operations."
   ]
 }

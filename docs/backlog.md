@@ -1,5 +1,14 @@
 # Features implementation tasks and open questions
 
+## Prompt16 stored records
+
+- [x] All16 position/speed/shared-start reads and native scalar settings; one indexed helper per layout and existing bounded settings sequence; public/CLI/Python parity.
+- [x] Reserved slots and all16 pulse-pair write blockers; storage16 versus maximum8 input selections; no serial trigger.
+- [x] Native/package/four firmware builds and boundary COM13 reads; PT1/PV16 scalar writes/readback/restoration PASS.
+- [ ] Shared-start1 native0 to1 readback0: hardware FAIL/uncertain, no replay; source-confirmed FC06 acceptance/exact firmware semantics missing. Negative signed encodings and paired writes remain guarded.
+- [ ] External-trigger behavior NOT RUN: inputs physically unwired and stop/fixture qualification absent. See [report](reports/ess_release_16_2026-10-04.md).
+
+
 ## Prompt 15 optional I/O and external controls
 
 [Handoff/evidence](reports/ess_release_15_2026-10-04.md), [public API](ess_io.md):
