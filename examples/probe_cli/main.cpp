@@ -713,13 +713,16 @@ void advanceActions(App& a, uint64_t now) {
             else if (!a.owner.needsRecovery() && !uart.needsRecovery()) {
                 if (record.moveOperation) {
                     ESS::PreparedMove work;
-                    if (ESS::nextMove(record.move, now, work) && work.kind == ESS::ActionWork::TRANSACTION)
+                    const auto next = ESS::nextMove(record.move, now, work);
+                    if (!next && next.detail == static_cast<int32_t>(MotorControlRS::MoveError::READINESS))
+                        advanceOperation(record, actionEvent(record, ReadEventKind::DEADLINE), now);
+                    else if (next && work.kind == ESS::ActionWork::TRANSACTION)
                         admitMoveStep(a, record, work, now);
-                    continue;
+                } else {
+                    ESS::PreparedAction work;
+                    if (ESS::nextAction(record.action, now, work) && work.kind == ESS::ActionWork::TRANSACTION)
+                        admitActionStep(a, record, work, now); // Pressure defers unadmitted work, never replays a frame.
                 }
-                ESS::PreparedAction work;
-                if (ESS::nextAction(record.action, now, work) && work.kind == ESS::ActionWork::TRANSACTION)
-                    admitActionStep(a, record, work, now); // Pressure defers unadmitted work, never replays a frame.
             }
         }
         updateActionReservation(a, record);

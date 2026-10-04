@@ -383,6 +383,114 @@ class Framing(unittest.TestCase):
         self.assertFalse(console.operations)
         self.assertEqual(self.port.writes[1], b"@2 move relative 1000 steps native 60 configured 1\n")
 
+    def test_move_trigger_closure_bound_includes_staging_delivery(self):
+        def inclusive(t):
+            t["trigger_evidence"]["earliest_us"] = t["staging_evidence"]["delivered_us"]
+        console = self.session(MoveSerial(inclusive))
+        result = console.command("move-relative", address=1, move_args=self.MOVE_ARGS)
+        self.assertTrue(result["ok"])
+        self.assertTrue(console.synchronized)
+        self.assertEqual(len(self.port.writes), 3)  # Identify, move once, local release.
+
+    def test_move_cancel_same_tick_as_staging_retains_cleanup_access(self):
+        def cancelled(t):
+            delivered = t["staging_evidence"]["delivered_us"]
+            empty = copy.deepcopy(t["failure_evidence"])
+            evidence = dict(empty, step=1, event=2, delivered_us=delivered,
+                status="ILLEGAL_VALUE", detail=18)
+            t.update(ok=False, state="failed", outcome="cancelled", status="ILLEGAL_VALUE", detail=18,
+                execution="not_transmitted", completion="not_observed", uncertain=True, polls=0,
+                serviced_us=delivered, running_observed=False, observation_known=False, raw_alarm=None, raw_motion=None)
+            t["trigger_evidence"] = evidence
+            t["failure_evidence"] = copy.deepcopy(evidence)
+            t["activity_evidence"] = copy.deepcopy(empty)
+            t["last_observation"] = empty
+        console = self.session(MoveSerial(cancelled))
+        events = []; console.emit = lambda event, **data: events.append((event, data))
+        with self.assertRaisesRegex(bench.BenchError, "move rejected or failed: cancelled"):
+            bench.relative_move_campaign(console, move_args=self.MOVE_ARGS, cleanup_stop="normal", timeout_s=3, address=1)
+        self.assertTrue(console.synchronized)
+        commands = [line.decode().split()[1] for line in self.port.writes]
+        self.assertEqual(commands.count("move"), 1)
+        self.assertEqual(commands.count("stop"), 1)
+        self.assertEqual(events[-1][1]["cleanup"], "drive_reported_nonrunning")
+        self.assertTrue(events[-1][1]["move_result"]["uncertain"])
+
+    def test_move_write_readiness_deadlines_and_delayed_delivery(self):
+        def failure(step, age, delivered=None, local=False):
+            item = move_terminal(2)
+            item["prerequisites"]["maximum_age_us"] = age
+            empty = copy.deepcopy(item["failure_evidence"])
+            evidence = copy.deepcopy(item["staging_evidence" if step == 0 else "trigger_evidence"])
+            if local:
+                evidence = dict(empty, step=step, event=3, status="ILLEGAL_VALUE", detail=6)
+            if delivered is not None: evidence["delivered_us"] = delivered
+            item.update(ok=False, state="failed", outcome="deadline", status="ILLEGAL_VALUE", detail=6,
+                completion="not_observed", serviced_us=evidence["delivered_us"], polls=0,
+                running_observed=False, observation_known=False, raw_alarm=None, raw_motion=None,
+                execution="acknowledged" if step == 1 and not local else "not_transmitted",
+                setup_execution="not_transmitted" if step == 0 and local else "acknowledged",
+                staging_applied=not (step == 0 and local), uncertain=not (step == 0 and local))
+            item["staging_evidence" if step == 0 else "trigger_evidence"] = evidence
+            item["failure_evidence"] = copy.deepcopy(evidence)
+            if step == 0: item["trigger_evidence"] = copy.deepcopy(empty)
+            item["activity_evidence"] = copy.deepcopy(empty)
+            item["last_observation"] = empty
+            return item
+        # Local readiness expiry may precede the overall deadline; late closure
+        # and delayed delivery still preserve known acknowledgements independently.
+        for item in (failure(0, 250, 1150, True), failure(1, 400, 1300, True),
+                     failure(0, 250), failure(0, 300), failure(1, 500)):
+            with self.subTest(item=item):
+                bench.Console._check_move(item, 1, self.MOVE_ARGS)
+        timely = move_terminal(2)
+        timely["prerequisites"]["maximum_age_us"] = 1200  # Trigger closure equals cap2100; delivery2150.
+        bench.Console._check_move(timely, 1, self.MOVE_ARGS)
+        saturated = copy.deepcopy(timely)
+        saturated["prerequisites"]["maximum_age_us"] = 2**64 - 1
+        bench.Console._check_move(saturated, 1, self.MOVE_ARGS)
+        for malformed in (failure(0, 250, 1149, True), failure(1, 400, 1299, True)):
+            with self.assertRaises(bench.BenchError): bench.Console._check_move(malformed, 1, self.MOVE_ARGS)
+        late = copy.deepcopy(timely); late["prerequisites"]["maximum_age_us"] -= 1
+        with self.assertRaises(bench.BenchError): bench.Console._check_move(late, 1, self.MOVE_ARGS)
+        expired_stage = copy.deepcopy(timely)
+        expired_stage["staging_evidence"].update(delivered_us=2100)
+        with self.assertRaises(bench.BenchError): bench.Console._check_move(expired_stage, 1, self.MOVE_ARGS)
+        admission_at_expiry = copy.deepcopy(timely)
+        admission_at_expiry["prerequisites"]["maximum_age_us"] = 100
+        with self.assertRaises(bench.BenchError): bench.Console._check_move(admission_at_expiry, 1, self.MOVE_ARGS)
+        unsent_after_stale_stage = failure(1, 350, 1300, True)
+        with self.assertRaises(bench.BenchError): bench.Console._check_move(unsent_after_stale_stage, 1, self.MOVE_ARGS)
+
+    def test_move_campaign_interrupt_before_acceptance_is_unknown_without_replay(self):
+        def interrupt(request_id, command, arguments):
+            if command == "move": raise KeyboardInterrupt()
+            return Serial.normal(request_id, command, arguments)
+        console = self.session(interrupt)
+        events = []; console.emit = lambda event, **data: events.append((event, data))
+        with self.assertRaises(KeyboardInterrupt):
+            bench.relative_move_campaign(console, move_args=self.MOVE_ARGS, cleanup_stop="normal", timeout_s=3, address=1)
+        self.assertFalse(console.synchronized)
+        self.assertEqual(len(self.port.writes), 2)
+        self.assertEqual(events[-1][1]["cleanup"], "unknown")
+        self.assertIn("framing", events[-1][1]["cleanup_error"])
+
+    def test_move_campaign_interrupt_during_wait_is_unknown_without_replay(self):
+        console = self.session(MoveSerial(admission_only=True))
+        read = self.port.read
+        def interrupt(limit):
+            if not self.port.input and len(self.port.writes) == 2: raise KeyboardInterrupt()
+            return read(limit)
+        self.port.read = interrupt
+        events = []; console.emit = lambda event, **data: events.append((event, data))
+        with self.assertRaises(KeyboardInterrupt):
+            bench.relative_move_campaign(console, move_args=self.MOVE_ARGS, cleanup_stop="normal", timeout_s=3, address=1)
+        self.assertFalse(console.synchronized)
+        self.assertTrue(console.operations[102].accepted)
+        self.assertEqual(len(self.port.writes), 2)
+        self.assertEqual(events[-1][1]["cleanup"], "unknown")
+        self.assertIn("framing", events[-1][1]["cleanup_error"])
+
     def test_move_corrupted_staging_trigger_completion_and_provenance_fail_without_replay(self):
         changes = [lambda t: t.update(configuration_generation=4),
             lambda t: t.update(effective_native=999), lambda t: t["requested"].update(numerator=999),
@@ -402,6 +510,40 @@ class Framing(unittest.TestCase):
                 with self.assertRaises(bench.BenchError): console.command("move-relative", address=1, move_args=self.MOVE_ARGS)
                 self.assertEqual(len(self.port.writes), 2)
                 self.assertFalse(console.synchronized)
+
+    def test_move_activity_requires_fault_free_correlated_observation(self):
+        def frame(entry, alarm, motion):
+            raw = bytes((1, 3, 4, alarm >> 8, alarm & 255, motion >> 8, motion & 255))
+            entry["raw_hex"] = (raw + bench.wire_crc(raw).to_bytes(2, "little")).hex()
+        for alarm, motion in ((1, 4), (0, 12), (0, 20), (0, 36), (0, 68)):
+            item = move_terminal(2); frame(item["activity_evidence"], alarm, motion)
+            with self.subTest(alarm=alarm, motion=motion):
+                with self.assertRaises(bench.BenchError): bench.Console._check_move(item, 1, self.MOVE_ARGS)
+        future = move_terminal(2); future["activity_evidence"]["step"] = 64
+        with self.assertRaises(bench.BenchError): bench.Console._check_move(future, 1, self.MOVE_ARGS)
+        missing = move_terminal(2)
+        missing.update(ok=False, state="failed", outcome="cancelled", status="ILLEGAL_VALUE", detail=18,
+            completion="not_observed", uncertain=True, observation_known=False, raw_alarm=None, raw_motion=None, polls=1)
+        missing["last_observation"] = copy.deepcopy(missing["failure_evidence"])
+        missing["failure_evidence"].update(step=3, event=2, delivered_us=4300, status="ILLEGAL_VALUE", detail=18)
+        with self.assertRaises(bench.BenchError): bench.Console._check_move(missing, 1, self.MOVE_ARGS)
+        # A bounded operation can exhaust its single poll on the first RUNNING
+        # report. Activity and last observation then retain exactly one event.
+        same = move_terminal(2)
+        same.update(ok=False, state="failed", outcome="observation_limit", status="ILLEGAL_VALUE", detail=21,
+            completion="not_observed", uncertain=True, raw_motion=4, polls=1, serviced_us=3300)
+        same["last_observation"] = copy.deepcopy(same["activity_evidence"])
+        same["failure_evidence"] = copy.deepcopy(same["activity_evidence"])
+        bench.Console._check_move(same, 1, self.MOVE_ARGS)
+        changed = copy.deepcopy(same); changed["activity_evidence"]["earliest_us"] -= 1
+        with self.assertRaises(bench.BenchError): bench.Console._check_move(changed, 1, self.MOVE_ARGS)
+        # A local cancellation may share the latest RUNNING delivery timestamp.
+        cancelled = move_terminal(2)
+        frame(cancelled["last_observation"], 0, 4)
+        cancelled.update(ok=False, state="failed", outcome="cancelled", status="ILLEGAL_VALUE", detail=18,
+            completion="not_observed", uncertain=True, raw_motion=4)
+        cancelled["failure_evidence"].update(step=4, event=2, delivered_us=4300, status="ILLEGAL_VALUE", detail=18)
+        bench.Console._check_move(cancelled, 1, self.MOVE_ARGS)
 
     def test_move_staging_timeout_retains_uncertainty_and_never_starts_or_replays(self):
         def timeout(t):

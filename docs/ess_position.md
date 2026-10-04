@@ -14,6 +14,12 @@ calls `preparePosition`; there is no CLI conversion path. Native relative
 requests without endpoint limits need no unrelated origin, gearing or lead.
 EXACT is the default; public requests retain the existing explicit rounding and
 radian error policies. Zero effective displacement rejects without traffic.
+When endpoint preparation consumes an established native reference, its age is
+checked at the operation's supplied admission time. Its freshness must cover
+the earlier readiness/operation write deadline. A caller can refresh the
+reference or choose a smaller readiness/deadline budget; an old cached `nowUs`
+cannot authorize a stale endpoint. Unestablished optional feedback remains
+irrelevant to native displacement preparation without endpoint limits.
 
 `MovePrerequisites` binds the exact target and host configuration generation.
 The caller must supply qualified command-unit/actual-relative-basis semantics,
@@ -47,8 +53,15 @@ event and must independently qualify FC06 response source against local echo.
 | 2 onward | Bounded FC03 `0x0006/2` observations, separated by waits which hold no bus transaction |
 | Completion | Fresh post-trigger RUNNING report, then a later checked ARRIVED and not-RUNNING report without alarm/release/limit interruption |
 
-Every transaction uses one immutable absolute operation deadline. On-time final
-closure may be delivered later; a late framing gap cannot become success.
+The operation retains one immutable absolute deadline. Staging and trigger
+transactions also retain the earlier readiness cutoff (saturating observation
+time plus maximum age); queueing, UART setup and TX cannot renew it. New writes
+require time strictly before that cutoff. Qualified physical closure at the
+cutoff can be accepted when delivered later, but delayed staging delivery at or
+after it cannot authorize a trigger. An expired deferred write settles locally;
+accepted setup bytes retain uncertainty. Observation reads use the original
+operation deadline. On-time final closure may be delivered later; a late
+framing gap cannot become success.
 Repeated `nextMove` returns the same token; the application admits it once.
 Wrong target/generation/operation/step or malformed event envelopes preserve the
 context. Correlated bad frames, cancellation and transport/deadline failures
@@ -100,7 +113,10 @@ flags also remain false. There is no CLI bypass or implicit motor commissioning.
 Python `move-relative ... --cleanup-stop normal|direct` performs one attempt,
 retained inspection, explicit cleanup stop, checked final state/health, and
 local result releases. A malformed session becomes unusable and cannot replay
-the move. Cleanup evidence remains unknown when commands cannot be delivered;
+the move. An interrupted acceptance/result wait also makes the session unusable,
+including interruption before the move's accepted record arrives. Cleanup
+evidence remains unknown when commands cannot be delivered;
 reported non-running does not supply missing independent shaft observation.
-See [the prompt09 report](reports/ess_release_09_2026-10-04.md) for tests,
+See [the fresh prompt09 audit](reports/ess_release_09_audit_2026-10-04.md) and
+[implementation report](reports/ess_release_09_2026-10-04.md) for tests,
 actual image/bench evidence and outstanding physical gates.

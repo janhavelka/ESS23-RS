@@ -478,6 +478,7 @@
     "Read, write and action obligations are separate. Implementing a read never satisfies a write or action obligation.",
     "Every named enum/bit choice remains accounted for separately; read decoding never establishes typed setting/action support.",
     "Source certainty is derived from source-access and issue metadata. No recorded issue is not hardware qualification.",
-    "Native and hardware states are independent. Hardware evidence does not resolve unknown model availability or undocumented firmware interpretation."
+    "Native and hardware states are independent. Hardware evidence does not resolve unknown model availability or undocumented firmware interpretation.",
+    "Prompt09 re-audit enforces readiness through both write budgets and current-time consumed reference validation; docs/reports/ess_release_09_audit_2026-10-04.md records fresh software and read-only evidence. Relative motion/staging hardware dispositions remain NOT_RUN."
   ]
 }

@@ -1033,6 +1033,20 @@ void testMoveRoutesExactParsingAndRetainedReports() {
     assert(fake.moves == 2);
     Fake absent; Probe::Console unavailable(absent.host()); send(unavailable, "help\n");
     assert(absent.lines.back().find("\"move\"") == std::string::npos);
+    for (bool missingSnapshot : {false, true}) {
+        Fake partial; auto partialHost = partial.host(); partialHost.startMove = Fake::startMove;
+        partialHost.axis = Fake::axis;
+        if (missingSnapshot) partialHost.snapshot = nullptr;
+        else partialHost.axis = nullptr;
+        Probe::Console incomplete(partialHost); send(incomplete, "help\n");
+        assert(partial.lines.back().find("\"move\"") == std::string::npos);
+        send(incomplete, "help move\n"); partial.contains("\"result\":\"unavailable\"");
+        send(incomplete, "move relative 1 steps native 60 configured\n");
+        partial.contains("\"result\":\"unavailable\""); assert(partial.moves == 0);
+        send(incomplete, "caps\n");
+        if (missingSnapshot) partial.contains("\"result\":\"unavailable\"");
+        else partial.contains("\"motion\":false");
+    }
 }
 
 void testMaximumMoveReportFitsFixedOutput() {

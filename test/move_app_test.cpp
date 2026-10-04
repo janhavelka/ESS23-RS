@@ -348,6 +348,108 @@ void testConfigurationChangesCancelContinuations() {
     assert(view(moving).moveContext->execution == ActionExecution::ACKNOWLEDGED);
     assert(view(moving).moveContext->uncertain && hardware.writes == 3);
 }
+void testReadinessBoundsActualOwnerWrites() {
+    // Admission reserves a result, but does not authorize a stale queued write.
+    fresh(); qualify(); app->movePrerequisites.maximumAgeUs = 20000;
+    const uint32_t queued = admitMove();
+    const auto* queuedMove = view(queued).moveContext;
+    const uint64_t cap = queuedMove->prerequisites.observedUs + queuedMove->prerequisites.maximumAgeUs;
+    const uint64_t operationDeadline = queuedMove->deadlineUs;
+    advanceHardware(cap + 1000); loop(); pump();
+    assert(!view(queued).pending && hardware.writes == 0 && !axisReserved(*app, 1));
+    assert(view(queued).moveContext->outcome == ActionOutcome::DEADLINE);
+    assert(view(queued).moveContext->status.detail == static_cast<int32_t>(MoveError::READINESS));
+    assert(view(queued).moveContext->deadlineUs == operationDeadline);
+
+    fresh(); qualify(); app->movePrerequisites.maximumAgeUs = 20000;
+    const uint32_t setup = admitMove();
+    for (unsigned i = 0; i < 25000 && !app->runner.transmitEnabled(); ++i) step();
+    assert(app->runner.transmitEnabled() && hardware.writes == 0);
+    const uint64_t setupCap = view(setup).moveContext->prerequisites.observedUs + 20000;
+    advanceHardware(setupCap + 1000); loop(); pump();
+    assert(!view(setup).pending && hardware.writes == 0 && !view(setup).moveContext->uncertain);
+    assert(view(setup).moveContext->status.detail == static_cast<int32_t>(MoveError::READINESS));
+
+    // Expiry during physical TX settles the accepted frame; it never cuts TX
+    // short or turns its unknown device effects into a safe automatic replay.
+    fresh(); qualify(); app->movePrerequisites.maximumAgeUs = 8000;
+    hardware.txCharacterUs = 500;
+    const uint32_t transmitting = admitMove(); waitTx(transmitting);
+    const uint64_t physicalEnd = hardware.writeStarted + hardware.tx.size() * 500;
+    const uint64_t txCap = view(transmitting).moveContext->prerequisites.observedUs + 8000;
+    assert(physicalEnd > txCap);
+    advanceHardware(txCap + 100); loop();
+    assert(app->runner.transmitEnabled() && app->owner.needsRecovery());
+    for (unsigned i = 0; i < 5000 && app->runner.transmitEnabled(); ++i) step();
+    assert(!view(transmitting).pending && hardware.deReleasedAt >= physicalEnd);
+    assert(view(transmitting).moveContext->status.detail == static_cast<int32_t>(MoveError::READINESS));
+    assert(view(transmitting).moveContext->uncertain && hardware.writes == 1);
+    assert(view(transmitting).moveContext->setupExecution == ActionExecution::UNKNOWN);
+
+    // The capture timer closes an on-time staging response independently of
+    // owner service. Applied staging remains uncertain; no stale trigger follows.
+    fresh(); qualify(); app->movePrerequisites.maximumAgeUs = 20000;
+    const uint32_t staging = admitMove(); waitTx(staging);
+    const uint64_t stageCap = view(staging).moveContext->prerequisites.observedUs + 20000;
+    scheduleReply(hardware.writeStarted + hardware.tx.size() * 87 + 1000, acknowledgement());
+    advanceHardware(stageCap + 1000); loop(); pump();
+    const auto* settled = view(staging).moveContext;
+    assert(!view(staging).pending && settled->stagingApplied && settled->uncertain);
+    assert(settled->stagingEvidence.latestUs < stageCap && settled->stagingEvidence.deliveredUs > stageCap);
+    assert(settled->status.detail == static_cast<int32_t>(MoveError::READINESS));
+    assert(settled->execution == ActionExecution::NOT_TRANSMITTED && hardware.writes == 1);
+    const unsigned writes = hardware.writes; pump(1000); assert(hardware.writes == writes);
+
+    // A trigger physically acknowledged before its cap may be delivered later;
+    // completion observations use the immutable, longer operation deadline.
+    fresh(); qualify(); app->movePrerequisites.maximumAgeUs = 20000;
+    const uint32_t triggered = admitMove(); moveStep(triggered); waitTx(triggered);
+    const uint64_t triggerCap = view(triggered).moveContext->prerequisites.observedUs + 20000;
+    scheduleReply(hardware.writeStarted + hardware.tx.size() * 87 + 1000, acknowledgement());
+    advanceHardware(triggerCap + 1000); loop();
+    const auto* active = view(triggered).moveContext;
+    assert(view(triggered).pending && active->step == 2 && hardware.writes == 2);
+    assert(active->triggerEvidence.latestUs < triggerCap && active->triggerEvidence.deliveredUs > triggerCap);
+    assert(active->execution == ActionExecution::ACKNOWLEDGED);
+    moveStep(triggered, registers(1, {0, 4})); moveStep(triggered, registers(1, {0, 1}));
+    assert(!view(triggered).pending && view(triggered).moveContext->completion == ActionCompletion::OBSERVED);
+}
+void testCheckedStagingExceptionRetainsPartialSetupUncertainty() {
+    fresh(); qualify(); const uint32_t operation = admitMove();
+    moveStep(operation, crc({1, 0x90, 3}));
+    const auto* rejected = view(operation).moveContext;
+    assert(!view(operation).pending && rejected->outcome == ActionOutcome::REPLY_ERROR);
+    assert(rejected->stagingEvidence.status.code == Err::EXCEPTION && rejected->stagingEvidence.status.detail == 3);
+    assert(rejected->setupExecution == ActionExecution::REJECTED && !rejected->stagingApplied);
+    assert(rejected->uncertain && rejected->execution == ActionExecution::NOT_TRANSMITTED);
+    assert(axisReserved(*app, 1) && !app->owner.needsRecovery());
+    pump(1000); assert(hardware.writes == 1);
+}
+void testDeferredTriggerExpiresBeforeAdmission() {
+    fresh(); qualify(); app->movePrerequisites.maximumAgeUs = 20000;
+    const uint32_t operation = admitMove(); waitTx(operation);
+    scheduleReply(hardware.writeStarted + hardware.tx.size() * 87 + 1000, acknowledgement());
+    auto* record = findRecord(*app, operation);
+    // Settle only the real owner so the application can deliver staging while
+    // ordinary pending storage is occupied by other, read-only producers.
+    for (unsigned i = 0; i < 25000 && !app->owner.result(record->requestId); ++i) {
+        advanceHardware(hardware.time + 10); app->owner.service(uart.sample());
+    }
+    assert(app->owner.result(record->requestId));
+    uint32_t producers[4] = {};
+    for (unsigned i = 0; i < 4; ++i)
+        assert(probe(app, 20 + i, 2, producers[i]) == Probe::Action::OK);
+    advanceActions(*app, nowUs());
+    assert(view(operation).pending && view(operation).moveContext->step == 1 && !record->requestId.owner);
+    const uint64_t cap = view(operation).moveContext->prerequisites.observedUs + 20000;
+    advanceHardware(cap + 1000); advanceActions(*app, nowUs());
+    assert(!view(operation).pending && hardware.writes == 1);
+    assert(view(operation).moveContext->outcome == ActionOutcome::DEADLINE);
+    assert(view(operation).moveContext->status.detail == static_cast<int32_t>(MoveError::READINESS));
+    assert(view(operation).moveContext->stagingApplied && view(operation).moveContext->uncertain);
+    assert(view(operation).moveContext->execution == ActionExecution::NOT_TRANSMITTED);
+    assert(axisReserved(*app, 1)); // The applied staging uncertainty is retained.
+}
 } // namespace
 
 int main() {
@@ -357,5 +459,7 @@ int main() {
     testWrongStageEchoAndLostTriggerNeverReplay(); testCancellationAndStopAtSequenceBoundaries();
     testFullRetainedResultsStillReserveStop();
     testConfigurationChangesCancelContinuations();
+    testReadinessBoundsActualOwnerWrites(); testDeferredTriggerExpiresBeforeAdmission();
+    testCheckedStagingExceptionRetainsPartialSetupUncertainty();
     std::puts("Actual move application tests passed");
 }

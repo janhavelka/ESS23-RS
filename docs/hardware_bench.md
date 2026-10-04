@@ -179,3 +179,10 @@ fixed; the original campaign rerun restored owner stack headroom from36 to3636
 bytes. Load/monitor remain off, DE released, no pending/retained work or recovery
 requirement. Physical moves and dynamic stopping remain NOT RUN behind the
 documented timing/sign/basis/ramp/input qualification gates.
+
+The [fresh prompt09 audit](reports/ess_release_09_audit_2026-10-04.md) rechecked
+COM13 identity, uploaded its recorded final timer image, and passed another38
+read-only frames with identical configuration/state payloads and zero-TX action
+gates. Owner/capture gaps were139/53us; owner/worker stack headroom3604/3268
+bytes. Load and monitoring remain off, DE released, no pending/retained work or
+recovery requirement. Physical moves and dynamic stop remain NOT RUN.

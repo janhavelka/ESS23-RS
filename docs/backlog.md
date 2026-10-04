@@ -499,3 +499,11 @@ action gates and the operation coverage denominator remain unchanged.
 - [ ] Physical small positive/negative moves, independently observed shaft displacement, ramp/sign/basis/input qualification and dynamic-stop latency: NOT RUN behind the existing independent timing/echo and physical stop gates. Uncertain writes never replay.
 
 See [the contract](ess_position.md) and [prompt09 evidence](reports/ess_release_09_2026-10-04.md). The proposed standalone +/-250-native/60-RPM ceiling is a software limit, not a physically qualified envelope. Prompt10 remains separately dispatched.
+
+The [fresh prompt09 audit](reports/ess_release_09_audit_2026-10-04.md) fixes
+readiness through queue/setup/TX and deferred trigger admission, reevaluates
+consumed reference age at operation admission, preserves valid same-tick
+Python evidence, and marks interrupted transport cleanup unknown. Help and
+capability routes require the complete move callback set. Native/application,
+installed-package, firmware and read-only COM13 checks are recorded separately
+from the still unperformed physical motion and dynamic-stop qualification.

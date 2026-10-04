@@ -104,7 +104,7 @@ void testExactStageTriggerAndCommonParity() {
 }
 void testAllPreparationGatesLeaveOutputUnchanged() {
     auto c = move();
-    for (unsigned fault = 0; fault < 28; ++fault) {
+    for (unsigned fault = 0; fault < 29; ++fault) {
         auto a = axis(); auto r = request(); auto p = prerequisites(); auto o = options();
         uint32_t id = 12; uint64_t now = 100, deadline = 10000;
         switch (fault) {
@@ -136,6 +136,7 @@ void testAllPreparationGatesLeaveOutputUnchanged() {
         case 25: p.observedUs = 101; break;
         case 26: p.maximumAgeUs = 1; break;
         case 27: r.position.value.numerator = 0; break;
+        case 28: p.maximumAgeUs = now - p.observedUs; break;
         }
         const Saved<Ess::MoveContext> saved(c);
         assert(!Ess::prepareMoveRelative(c, a, nullptr, id, r, p, now, deadline, o)); saved.check(c);
@@ -309,10 +310,132 @@ void testDriveFaultAndPreviousObservationRetention() {
     assert(c.rawMotion == 4 && c.lastObservation.step == previous.step && c.runningObserved);
     assert(c.execution == ActionExecution::ACKNOWLEDGED && c.completion == ActionCompletion::NOT_OBSERVED);
 }
+void testWriteDeadlinesRetainReadinessAndOperationBudgets() {
+    auto c = move();
+    const uint64_t readinessEnd = c.prerequisites.observedUs + c.prerequisites.maximumAgeUs;
+    Ess::PreparedMove work;
+    assert(Ess::nextMove(c, readinessEnd - 1, work));
+    assert(work.length == 19 && work.deadlineUs == readinessEnd && c.deadlineUs == 10000);
+    const Saved<Ess::PreparedMove> savedWork(work);
+    const Saved<Ess::MoveContext> savedContext(c);
+    assert(!Ess::nextMove(c, readinessEnd, work)); savedWork.check(work); savedContext.check(c);
+    assert(!Ess::advanceMove(c, local(c, ReadEventKind::DEADLINE), readinessEnd - 1)); savedContext.check(c);
+    assert(Ess::advanceMove(c, local(c, ReadEventKind::DEADLINE), readinessEnd));
+    assert(c.outcome == ActionOutcome::DEADLINE && c.status.detail == static_cast<int32_t>(MoveError::READINESS));
+    assert(!c.uncertain && c.execution == ActionExecution::NOT_TRANSMITTED && c.deadlineUs == 10000);
+    noMoreWork(c);
+
+    // A timely staging reply cannot authorize a trigger once its immutable
+    // readiness has expired during delayed application delivery.
+    auto delayedStage = move(); auto bytes = reply(delayedStage);
+    assert(Ess::advanceMove(delayedStage, frame(delayedStage, bytes, readinessEnd - 20), readinessEnd + 20));
+    assert(delayedStage.stagingApplied && delayedStage.uncertain && delayedStage.step == 0);
+    assert(delayedStage.execution == ActionExecution::NOT_TRANSMITTED && delayedStage.deadlineUs == 10000);
+    assert(delayedStage.status.detail == static_cast<int32_t>(MoveError::READINESS));
+    noMoreWork(delayedStage);
+
+    auto queuedTrigger = move(); consume(queuedTrigger);
+    assert(Ess::nextMove(queuedTrigger, queuedTrigger.servicedUs, work));
+    assert(work.length == 8 && work.deadlineUs == readinessEnd);
+    auto expired = local(queuedTrigger, ReadEventKind::DEADLINE);
+    assert(Ess::advanceMove(queuedTrigger, expired, readinessEnd));
+    assert(queuedTrigger.stagingApplied && queuedTrigger.uncertain);
+    assert(queuedTrigger.execution == ActionExecution::NOT_TRANSMITTED);
+    assert(queuedTrigger.status.detail == static_cast<int32_t>(MoveError::READINESS));
+    noMoreWork(queuedTrigger);
+
+    for (bool triggering : {false, true}) {
+        for (std::size_t prefix : {std::size_t(3), std::size_t(triggering ? 8 : 19)}) {
+            auto interrupted = move(); if (triggering) consume(interrupted);
+            auto expiry = local(interrupted, ReadEventKind::DEADLINE);
+            expiry.transport.txAccepted = prefix;
+            expiry.txComplete = prefix == (triggering ? 8 : 19);
+            assert(Ess::advanceMove(interrupted, expiry, readinessEnd));
+            assert(interrupted.uncertain && interrupted.status.detail == static_cast<int32_t>(MoveError::READINESS));
+            assert((triggering ? interrupted.execution : interrupted.setupExecution) == ActionExecution::UNKNOWN);
+            assert(interrupted.deadlineUs == 10000); noMoreWork(interrupted);
+        }
+    }
+
+    // Physical trigger closure was timely; delayed delivery does not revoke it
+    // or shorten the budget for observing the autonomous finite motion.
+    auto delayedTrigger = move(); consume(delayedTrigger); bytes = reply(delayedTrigger);
+    assert(Ess::advanceMove(delayedTrigger, frame(delayedTrigger, bytes, readinessEnd - 10), readinessEnd + 200));
+    assert(delayedTrigger.execution == ActionExecution::ACKNOWLEDGED && delayedTrigger.state == ActionState::ACTIVE);
+    assert(Ess::nextMove(delayedTrigger, delayedTrigger.eligibleUs, work));
+    assert(work.function == 3 && work.deadlineUs == delayedTrigger.deadlineUs);
+    consume(delayedTrigger, 4); consume(delayedTrigger, 1);
+    assert(delayedTrigger.state == ActionState::SUCCEEDED && !delayedTrigger.uncertain);
+
+    for (bool triggerReply : {false, true}) {
+        auto late = move(); if (triggerReply) consume(late);
+        bytes = reply(late);
+        assert(Ess::advanceMove(late, frame(late, bytes, readinessEnd - 9), readinessEnd + 20));
+        assert(late.state == ActionState::FAILED && late.uncertain && late.deadlineUs == 10000);
+        assert(late.status.detail == static_cast<int32_t>(MoveError::READINESS));
+        noMoreWork(late);
+    }
+
+    // Saturating the immutable age bound must neither wrap into an old deadline
+    // nor renew the operation's earlier absolute deadline.
+    const uint64_t maximum = std::numeric_limits<uint64_t>::max();
+    auto p = prerequisites(); p.observedUs = maximum - 1000; p.maximumAgeUs = 2000;
+    Ess::MoveContext huge;
+    assert(Ess::prepareMoveRelative(huge, axis(), nullptr, 12, request(), p, maximum - 500, maximum - 1, options()));
+    assert(Ess::nextMove(huge, maximum - 500, work));
+    assert(work.deadlineUs == maximum - 1 && huge.deadlineUs == maximum - 1);
+    assert(Ess::advanceMove(huge, local(huge, ReadEventKind::DEADLINE), maximum - 1));
+    assert(huge.status.detail == static_cast<int32_t>(MoveError::DEADLINE_EXPIRED) && !huge.uncertain);
+}
+void testConsumedReferenceUsesOperationTimeAndCoversWrites() {
+    auto a = axis(); a.softLimitsKnown = true; a.softMinimum = -100; a.softMaximum = 100;
+    AxisReference reference; reference.target = a.target; reference.configurationGeneration = a.generation;
+    reference.nativeKnown = true; reference.source = ScaleSource::QUALIFIED;
+    reference.observedUs = 80; reference.nowUs = 100; reference.maximumAgeUs = 1000;
+    auto p = prerequisites(); auto c = move();
+    const Saved<AxisReference> savedReference(reference);
+    assert(Ess::prepareMoveRelative(c, a, &reference, 12, request(), p, 100, 10000));
+    assert(c.prepared.endpointKnown && c.prepared.endpointNative == 25);
+    savedReference.check(reference);
+    const Saved<Ess::MoveContext> saved(c);
+    // A cached reference clock cannot hide a stale coordinate/limit witness.
+    p.observedUs = 9990;
+    assert(!Ess::prepareMoveRelative(c, a, &reference, 12, request(), p, 10000, 20000));
+    saved.check(c); savedReference.check(reference);
+
+    // A currently fresh endpoint can still expire while writes wait. Reject its
+    // insufficient budget instead of retaining another overlapping clock field.
+    p = prerequisites(); reference.maximumAgeUs = 30;
+    const Saved<AxisReference> shortReference(reference);
+    const auto shortBudget = Ess::prepareMoveRelative(c, a, &reference, 12, request(), p, 100, 10000);
+    assert(!shortBudget && shortBudget.detail == static_cast<int32_t>(MoveError::READINESS));
+    saved.check(c); shortReference.check(reference);
+    p.maximumAgeUs = 30;
+    assert(Ess::prepareMoveRelative(c, a, &reference, 12, request(), p, 100, 10000));
+    Ess::PreparedMove work; assert(Ess::nextMove(c, 100, work));
+    assert(work.deadlineUs == 110 && c.deadlineUs == 10000);
+    p = prerequisites();
+    assert(Ess::prepareMoveRelative(c, a, &reference, 12, request(), p, 100, 110));
+    assert(Ess::nextMove(c, 100, work) && work.deadlineUs == 110);
+
+    // Reference age uses the same saturating arithmetic as readiness.
+    reference.maximumAgeUs = std::numeric_limits<uint64_t>::max();
+    assert(Ess::prepareMoveRelative(c, a, &reference, 12, request(), p, 100, 10000));
+    assert(c.prepared.endpointKnown);
+
+    // Unestablished optional feedback remains irrelevant to an unbounded native
+    // relative displacement, even with unrelated stale correlation metadata.
+    reference.nativeKnown = false; reference.target.id = 999;
+    reference.nowUs = 1; reference.observedUs = 0; reference.maximumAgeUs = 0;
+    assert(Ess::prepareMoveRelative(c, axis(), &reference, 12, request(), p, 100, 10000));
+    assert(!c.prepared.endpointKnown && c.prepared.effectiveNative == 25);
+}
 } // namespace
 int main() {
     testExactStageTriggerAndCommonParity(); testAllPreparationGatesLeaveOutputUnchanged();
     testSignWordOrderAndRange(); testAdmittedPrerequisitesAreCopied(); testCancelFailureAndDeadlineAtEveryBoundary();
     testBadRepliesAndNoAutomaticReplay(); testEnvelopeCorrelationAndCopiedEvidence();
     testFreshCompletionLimitsAndDelayedService(); testDriveFaultAndPreviousObservationRetention();
+    testWriteDeadlinesRetainReadinessAndOperationBudgets();
+    testConsumedReferenceUsesOperationTimeAndCoversWrites();
 }

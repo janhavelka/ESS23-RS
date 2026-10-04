@@ -684,8 +684,9 @@ void Console::dispatch() noexcept {
         case Command::LOAD: return host_.load != nullptr;
         case Command::CAPTURE_READ: return host_.startCaptureRead != nullptr;
         case Command::ENABLE: case Command::MOTOR_RELEASE: case Command::ALARM_CLEAR: case Command::STOP: return host_.startAction != nullptr;
-        case Command::MOVE: return host_.startMove != nullptr;
-        case Command::PROFILE: return host_.startTypedRead != nullptr || host_.startAction != nullptr || host_.startMove != nullptr;
+        case Command::MOVE: return host_.startMove && host_.snapshot && host_.axis;
+        case Command::PROFILE: return host_.startTypedRead != nullptr || host_.startAction != nullptr ||
+            (host_.startMove && host_.snapshot && host_.axis);
         case Command::READ: case Command::READ_IDENTITY: case Command::READ_CONFIG: case Command::READ_STATE: case Command::HEALTH_CHECK: return host_.startTypedRead != nullptr;
         case Command::RESULT: return host_.result != nullptr;
         case Command::CANCEL: return host_.cancel != nullptr;
@@ -732,7 +733,7 @@ void Console::dispatch() noexcept {
         std::snprintf(output_, sizeof(output_),
             "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"caps\",\"ok\":true,\"probe\":%s,\"identity\":%s,\"config\":%s,\"state\":%s,\"max_steps\":%u,\"max_reply_bytes\":%u,\"writes\":true,\"motion\":%s,\"actions_qualified\":%s,\"axis_reserved\":%s,\"actions\":[\"enable\",\"release\",\"clear_alarm\",\"stop_normal\",\"stop_direct\"],\"device_queue_guarantee\":false}",
             static_cast<unsigned long>(id), boolean(caps.probe), boolean(caps.identity), boolean(caps.config), boolean(caps.state), caps.maxSteps, caps.maxReplyBytes,
-            boolean(host_.startMove != nullptr), boolean(snapshot.actionsQualified), boolean(snapshot.axisReserved));
+            boolean(host_.startMove && host_.snapshot && host_.axis), boolean(snapshot.actionsQualified), boolean(snapshot.axisReserved));
         emit(); return;
     }
     if (entry->command == Command::RESET || (entry->command == Command::STATS && arg)) {

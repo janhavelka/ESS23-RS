@@ -22,6 +22,22 @@ constexpr uint16_t FAULTS = static_cast<uint16_t>(MotionStatusBit::ALARM) |
     static_cast<uint16_t>(MotionStatusBit::POSITIVE_SOFT_LIMIT) |
     static_cast<uint16_t>(MotionStatusBit::NEGATIVE_SOFT_LIMIT);
 std::size_t requestLength(const MoveContext& c) { return c.step == 0 ? MOVE_REQUEST_BYTES : READ_REQUEST_LEN; }
+uint64_t ageDeadline(uint64_t observed, uint64_t age) {
+    return age > std::numeric_limits<uint64_t>::max() - observed ?
+        std::numeric_limits<uint64_t>::max() : observed + age;
+}
+uint64_t readinessDeadline(const MoveContext& c) {
+    return ageDeadline(c.prerequisites.observedUs, c.prerequisites.maximumAgeUs);
+}
+uint64_t stepDeadline(const MoveContext& c) {
+    const uint64_t readiness = readinessDeadline(c);
+    return c.step < 2 && readiness < c.deadlineUs ? readiness : c.deadlineUs;
+}
+Status expiredStep(const MoveContext& c) {
+    return stepDeadline(c) < c.deadlineUs ?
+        failed(MoveError::READINESS, "move readiness expired before write completion") :
+        failed(MoveError::DEADLINE_EXPIRED, "move deadline expired");
+}
 void finish(MoveContext& c, ActionOutcome outcome, Status status) {
     c.outcome = outcome; c.status = status;
     c.state = outcome == ActionOutcome::OBSERVED ? ActionState::SUCCEEDED : ActionState::FAILED;
@@ -76,12 +92,25 @@ Status prepareMoveRelative(MoveContext& output, const AxisConfig& axis, const Ax
         return invalid(MoveError::STALE_CONFIGURATION, "move word order is unresolved");
     if (!prerequisites.readinessQualified || !prerequisites.serialInputsPermit ||
         !prerequisites.maximumAgeUs || prerequisites.observedUs > nowUs ||
-        nowUs - prerequisites.observedUs > prerequisites.maximumAgeUs ||
+        nowUs - prerequisites.observedUs >= prerequisites.maximumAgeUs ||
         prerequisites.rawAlarm || (prerequisites.rawMotion & (FAULTS | RUNNING)))
         return invalid(MoveError::READINESS, "fresh enabled stationary alarm-free serial readiness is required");
     MoveContext prepared;
+    // Position preparation consumes only an established native reference. Its
+    // cached nowUs must not substitute for this operation's admission time.
+    AxisReference currentReference;
+    if (reference && reference->nativeKnown) {
+        currentReference = *reference; currentReference.nowUs = nowUs;
+        reference = &currentReference;
+    }
     const Status arithmetic = preparePosition(request.position, axis, reference, prepared.prepared);
     if (!arithmetic) return arithmetic;
+    if (prepared.prepared.endpointKnown) {
+        const uint64_t readinessEnd = ageDeadline(prerequisites.observedUs, prerequisites.maximumAgeUs);
+        const uint64_t writeEnd = readinessEnd < deadlineUs ? readinessEnd : deadlineUs;
+        if (ageDeadline(reference->observedUs, reference->maximumAgeUs) < writeEnd)
+            return invalid(MoveError::READINESS, "native reference freshness must cover both write budgets");
+    }
     if (prepared.prepared.zeroDisplacement)
         return failed(MoveError::INVALID_REQUEST, "effective relative displacement is zero");
     const int64_t native = prepared.prepared.effectiveNative;
@@ -111,9 +140,10 @@ Status nextMove(const MoveContext& c, uint64_t nowUs, PreparedMove& output) noex
     if (nowUs < c.servicedUs) return invalid(MoveError::CLOCK_ERROR, "move clock moved backwards");
     PreparedMove next;
     next.target = c.target; next.operationId = c.operationId; next.step = c.step;
-    next.deadlineUs = c.deadlineUs; next.eligibleUs = c.eligibleUs;
+    next.deadlineUs = stepDeadline(c); next.eligibleUs = c.eligibleUs;
     if (c.state != ActionState::ACTIVE) { output = next; return Ok(); }
     if (nowUs >= c.deadlineUs) return failed(MoveError::DEADLINE_EXPIRED, "move deadline expired");
+    if (nowUs >= next.deadlineUs) return expiredStep(c);
     if (nowUs < c.eligibleUs) { next.kind = ActionWork::WAIT; output = next; return Ok(); }
     next.kind = ActionWork::TRANSACTION; next.write = c.step < 2;
     if (c.step == 0) {
@@ -149,7 +179,7 @@ Status advanceMove(MoveContext& c, const ActionEvent& supplied, uint64_t nowUs) 
             (!event.qualified && (event.earliestUs || event.latestUs)))
             return invalid(MoveError::INVALID_EVENT, "invalid move frame envelope");
     } else if ((!event.frame && event.length) || event.qualified || event.earliestUs || event.latestUs ||
-        supplied.responseConfirmed || (event.kind == ReadEventKind::DEADLINE && nowUs < c.deadlineUs))
+        supplied.responseConfirmed || (event.kind == ReadEventKind::DEADLINE && nowUs < stepDeadline(c)))
         return invalid(MoveError::INVALID_EVENT, "invalid local move event envelope");
     ActionEvidence evidence;
     evidence.step = c.step; evidence.event = event.kind; evidence.txAccepted = event.txAccepted;
@@ -171,7 +201,7 @@ Status advanceMove(MoveContext& c, const ActionEvent& supplied, uint64_t nowUs) 
     } else if (event.kind == ReadEventKind::CANCEL)
         evidence.status = failed(MoveError::CANCELLED, "move locally cancelled");
     else if (event.kind == ReadEventKind::DEADLINE)
-        evidence.status = failed(MoveError::DEADLINE_EXPIRED, "move deadline expired");
+        evidence.status = expiredStep(c);
     else evidence.status = failed(MoveError::TRANSPORT_FAILURE, "move transport failed");
     if (c.step == 0) {
         c.stagingEvidence = evidence; c.setupExecution = execution(evidence);
@@ -183,14 +213,15 @@ Status advanceMove(MoveContext& c, const ActionEvent& supplied, uint64_t nowUs) 
     else if (event.kind == ReadEventKind::TRANSPORT_FAILURE) finish(c, ActionOutcome::TRANSPORT_ERROR, evidence.status);
     else if (!event.qualified) finish(c, ActionOutcome::TIMING_UNQUALIFIED,
         failed(MoveError::TIMING_UNQUALIFIED, "move closure timing is unqualified"));
-    else if (event.latestUs > c.deadlineUs) finish(c, ActionOutcome::DEADLINE,
-        failed(MoveError::DEADLINE_EXPIRED, "move closure exceeds deadline"));
+    else if (event.latestUs > stepDeadline(c)) finish(c, ActionOutcome::DEADLINE, expiredStep(c));
     else if (!evidence.status) finish(c, ActionOutcome::REPLY_ERROR, evidence.status);
     else if (!supplied.responseConfirmed) finish(c, ActionOutcome::UNCONFIRMED_RESPONSE,
         failed(MoveError::UNCONFIRMED_RESPONSE, "frame source is not confirmed as the drive"));
     else if (c.step < 2) {
         if (nowUs >= c.deadlineUs) finish(c, ActionOutcome::DEADLINE,
             failed(MoveError::DEADLINE_EXPIRED, "no budget for the next move step"));
+        else if (c.step == 0 && nowUs >= stepDeadline(c))
+            finish(c, ActionOutcome::DEADLINE, expiredStep(c));
         else if (c.step == 0) { ++c.step; c.eligibleUs = nowUs; }
         else wait(c, nowUs);
     } else {

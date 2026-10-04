@@ -26,11 +26,12 @@ is recorded in [prompt 06](docs/reports/ess_release_06_2026-10-04.md).
 rational quantities, with frames, references, quantization and host-only configuration.
 The console exposes pure previews and [bounded enable/release, alarm-clear and
 priority stop operations](docs/ess_actions.md). Physical actions remain gated by
-independent timing/echo qualification; moving commands are not implemented.
+independent timing/echo qualification. Finite relative-move software is
+implemented; physical movement remains unqualified and gated.
 The [release roadmap](docs/roadmap.md) records the delivery order and completion gates.
 The [numbered implementation prompts](docs/prompts/ess_release/README.md)
 split the remaining work into reviewed, independently dispatched blocks. Typed non-changing read
-communication has bench evidence; external timing qualification, motion commands,
+communication has bench evidence; external timing qualification, physical motion,
 discovery orchestration and the full CLI remain future work. Other reviewed drives, including
 Leadshine iEM-RS, are design contrasts rather than implemented profiles.
 

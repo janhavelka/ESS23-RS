@@ -138,3 +138,8 @@ host API checks. Requested relative displacement and endpoint limits remain
 independent; zero radians retain exact integer references without approximation.
 
 Prompt09 [relative-position contract](ess_position.md) and [handoff](reports/ess_release_09_2026-10-04.md) implement the staging/trigger/observation chain with retained uncertainty and same-axis stop interruption. Hardware movement remains gated; independent electrical/physical evidence is not replaced by native tests.
+
+The [independent prompt09 audit](reports/ess_release_09_audit_2026-10-04.md)
+also enforces readiness during queued/deferred writes and current-time reference
+validation; Python interruption and correlation checks preserve unknown cleanup.
+Physical positive/negative moves and dynamic stop remain unqualified.

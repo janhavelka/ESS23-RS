@@ -389,10 +389,12 @@ class Console:
                 (item["effective_native"] >= 0 or prerequisites["negative_encoding_verified"]), "qualification is missing")
         require(integer(prerequisites.get("observed_us")) and integer(prerequisites.get("maximum_age_us"), 1) and
                 prerequisites["observed_us"] <= item["started_us"] and
-                item["started_us"] - prerequisites["observed_us"] <= prerequisites["maximum_age_us"] and
+                item["started_us"] - prerequisites["observed_us"] < prerequisites["maximum_age_us"] and
                 prerequisites.get("raw_alarm") == 0 and integer(prerequisites.get("raw_motion"), 0, 65535) and
                 not prerequisites["raw_motion"] & 0x7C and integer(prerequisites.get("word_order"), 0, 1) and
                 integer(prerequisites.get("start_speed"), 0, item["native_rpm"]), "readiness or configured speed evidence is inconsistent")
+        write_deadline = min(item["deadline_us"], 0xFFFFFFFFFFFFFFFF,
+                             prerequisites["observed_us"] + prerequisites["maximum_age_us"])
         expected_words = [encoded >> 16, encoded & 65535]
         if prerequisites["word_order"] == 1: expected_words.reverse()
         require(words[3:] == expected_words, "staged target word order differs from qualification")
@@ -491,12 +493,16 @@ class Console:
         require(item["staging_applied"] == (item["setup_execution"] == "acknowledged"), "staging validity differs")
         stage, trigger = evidence["staging_evidence"][0], evidence["trigger_evidence"][0]
         if not evidence["trigger_evidence"][2]:
-            require(item["staging_applied"] and stage["delivered_us"] < trigger["delivered_us"] and
-                    (not trigger["qualified"] or stage["delivered_us"] < trigger["earliest_us"]), "trigger precedes checked staging")
+            require(item["staging_applied"] and stage["delivered_us"] <= trigger["delivered_us"] and
+                    (not trigger["qualified"] or stage["delivered_us"] <= trigger["earliest_us"]), "trigger precedes checked staging")
+            require(stage["latest_us"] <= write_deadline and stage["delivered_us"] < write_deadline,
+                    "trigger follows expired staging readiness")
         if item["running_observed"]:
             activity, raw = confirmed("activity_evidence", (item["address"], 3, 4), 9)
-            require(activity["step"] >= 2 and trigger["delivered_us"] < activity["earliest_us"] and bool(int.from_bytes(raw[5:7], "big") & 4),
-                    "activity is stale or lacks RUNNING")
+            motion = int.from_bytes(raw[5:7], "big")
+            require(item["observation_known"] and 2 <= activity["step"] <= item["polls"] + 1 and
+                    trigger["delivered_us"] < activity["earliest_us"] and int.from_bytes(raw[3:5], "big") == 0 and
+                    bool(motion & 4) and not motion & 0x78, "activity is stale, faulted or lacks RUNNING")
         else:
             require(evidence["activity_evidence"][2], "unobserved activity retains a report")
         if item["observation_known"]:
@@ -505,6 +511,9 @@ class Console:
                     trigger["delivered_us"] < observed["earliest_us"] and
                     item.get("raw_alarm") == int.from_bytes(raw[3:5], "big") and item.get("raw_motion") == int.from_bytes(raw[5:7], "big"),
                     "last report differs from retained RX")
+            require(trigger["latest_us"] <= write_deadline, "observations follow a trigger after readiness expiry")
+            if item["running_observed"] and activity["step"] == observed["step"]:
+                require(activity == observed, "same activity and observation token changed retained evidence")
         else:
             require(item.get("raw_alarm") is None and item.get("raw_motion") is None and evidence["last_observation"][2], "unknown report publishes values")
         if item["ok"]:
@@ -530,9 +539,12 @@ class Console:
                             (not failure["qualified"] or previous["delivered_us"] < failure["earliest_us"]), "failure precedes prior transaction")
             if failure["event"] != 0:
                 expected = {1: "transport_error", 2: "cancelled", 3: "deadline"}[failure["event"]]
+                if failure["event"] == 3:
+                    require(item["serviced_us"] >= (write_deadline if failure["step"] < 2 else item["deadline_us"]),
+                            "local deadline precedes its transaction budget")
             elif not failure["qualified"]:
                 expected = "timing_unqualified"
-            elif failure["latest_us"] > item["deadline_us"]:
+            elif failure["latest_us"] > (write_deadline if failure["step"] < 2 else item["deadline_us"]):
                 expected = "deadline"
             elif failure["status"] != "OK":
                 expected = "reply_error"
@@ -542,7 +554,8 @@ class Console:
                 expected = "reply_error"
             else:
                 require(item["outcome"] in ("deadline", "observation_limit") and
-                        (item["outcome"] != "deadline" or item["serviced_us"] >= item["deadline_us"]) and
+                        (item["outcome"] != "deadline" or item["serviced_us"] >=
+                            (write_deadline if failure["step"] == 0 else item["deadline_us"])) and
                         (item["outcome"] != "observation_limit" or failure["step"] >= 2), "checked reply does not establish failure")
                 expected = item["outcome"]
             require(item["outcome"] == expected, "failure outcome contradicts terminal evidence")
@@ -1421,7 +1434,7 @@ class Console:
                     self.sleep(0.005)
             self._trailing()
             return handle
-        except Exception:
+        except BaseException:
             self.synchronized = False
             raise
 
@@ -1457,7 +1470,7 @@ class Console:
                 if not acknowledgement["ok"]:
                     raise BenchError("explicit result release was rejected")
             return handle.terminal
-        except Exception:
+        except BaseException:
             self.synchronized = False
             raise
 
