@@ -29,7 +29,7 @@ MAX_LINE = 4608
 MAX_INPUT = 32768
 COMMANDS = frozenset({"version", "config", "probe", "capture-read", "status", "health", "memory", "stats", "load",
                       "drv", "result", "release", "cancel", "recover", "reset", "caps",
-                      "read-identity", "read-config", "read-state", "health-check", "monitor", "axis", "prepare", "enable", "motor-release", "alarm-clear", "stop", "position-clear", "move-relative", "move-absolute", "move-angle", "velocity", "driver"})
+                      "read-identity", "read-config", "read-state", "health-check", "monitor", "axis", "prepare", "enable", "motor-release", "alarm-clear", "stop", "position-clear", "move-relative", "move-absolute", "move-angle", "velocity", "driver", "home"})
 MAX_COMMANDS = 11  # Eight ordinary operations, recovery, reserved stop and local query.
 MAX_OPERATIONS = 10  # Eight ordinary operations, one recovery and one reserved stop.
 MAX_PROBES = 8
@@ -40,8 +40,23 @@ MOVE_COMMANDS = ("move-relative", "move-absolute", "move-angle")
 ACTION_KINDS = {"enable": "enable", "motor-release": "release", "alarm-clear": "clear_alarm", "stop": "stop", "position-clear": "clear_position"}
 DRIVER_FIELDS = ("direction", "subdivision", "word-order", "soft-limit", "over-limit", "interruption", "position-mode", "positive-limit", "negative-limit")
 DRIVER_REGISTERS = (0x10, 0x11, 0x19, 0x18, 0x17, 0x51, 0x50)
+HOME_EVIDENCE_COLUMNS = ["step", "event", "raw_hex", "received_length", "tx_accepted", "tx_complete", "response_confirmed", "qualified", "execution_unknown", "earliest_us", "latest_us", "delivered_us", "transport_detail", "status", "detail", "frame_error"]
 DRIVER_PROGRESS_COLUMNS = ["field", "register", "previous", "requested", "acknowledged", "readback_known", "readback", "active_known", "active", "execution"]
 DRIVER_EVIDENCE_COLUMNS = ["step", "register", "count", "write", "event", "raw_hex", "received_length", "tx_accepted", "tx_complete", "response_confirmed", "qualified", "execution_unknown", "earliest_us", "latest_us", "delivered_us", "transport_detail", "status", "detail", "frame_error", "attempted_us"]
+
+
+def home_arguments(arguments: tuple[str, ...]) -> tuple[int, int, int, int]:
+    """Explicit native words and zero offset; unavailable methods reach API gates."""
+    if (not isinstance(arguments, tuple) or len(arguments) != 5 or arguments[4] != "zero" or
+            any(type(token) is not str for token in arguments) or
+            not re.fullmatch(r"-?[0-9]+", arguments[0]) or
+            any(not re.fullmatch(r"[0-9]+", token) for token in arguments[1:4])):
+        raise ValueError("home requires method search_native return_native ramp_native zero")
+    values = tuple(int(token) for token in arguments[:4])
+    if not (-32768 <= values[0] <= 32767 and 5 <= values[1] <= 3000 and
+            5 <= values[2] <= 300 and 30 <= values[3] <= 2000):
+        raise ValueError("home native words exceed the reviewed ranges")
+    return values
 
 
 def driver_arguments(arguments: tuple[str, ...]) -> dict:
@@ -297,6 +312,7 @@ class Command:
         self.move_args = None
         self.velocity_args = None
         self.driver_args = None
+        self.home_args = None
 
 
 class Console:
@@ -1048,6 +1064,133 @@ class Console:
                     (len(steps) == item["completed_steps"] and item["completed_steps"] < total and e["delivered_us"] >= item["deadline_us"]), "deadline lacks expired budget evidence")
 
     @staticmethod
+    def _check_home(item: dict, address: int | None, arguments: tuple[str, ...] | None) -> None:
+        """Validate retained homing traffic without treating old HOMED as completion."""
+        def require(condition, message):
+            if not condition: raise BenchError("home " + message)
+        def uint(value, limit=0xFFFFFFFFFFFFFFFF):
+            return type(value) is int and 0 <= value <= limit
+        require(item.get("home") is True and all(item.get(k) is None for k in ("read_kind", "action_kind", "move_kind")) and
+                all(item.get(k, False) is False for k in ("velocity", "driver", "capture_read", "recovery")), "kind is inconsistent")
+        require(uint(item.get("address"), 247) and item["address"] > 0 and (address is None or item["address"] == address), "address differs")
+        require(all(Console._operation_id(item.get(k)) for k in ("target", "generation", "configuration_generation")), "binding is invalid")
+        check_counts(item, ("started_us", "deadline_us", "serviced_us", "polls", "completion_observed_us"), "home")
+        require(item["started_us"] < item["deadline_us"] and item["started_us"] <= item["serviced_us"] and item["polls"] <= 64, "time/count bounds are invalid")
+        require(item.get("method") in (33, 34, 35), "unimplemented method yielded traffic")
+        require(uint(item.get("phase"), 3), "phase is invalid")
+        words = item.get("staging_words")
+        require(isinstance(words, list) and len(words) == 6 and all(uint(w, 65535) for w in words) and
+                words[0] == item["method"] and 5 <= words[1] <= 3000 and 5 <= words[2] <= 300 and
+                30 <= words[3] <= 2000 and words[4:] == [0, 0], "staging differs from reviewed zero-offset window")
+        if arguments is not None: require(tuple(words[:4]) == home_arguments(arguments), "request differs from command")
+        require(type(item.get("ok")) is bool and item.get("state") == ("succeeded" if item["ok"] else "failed") and
+                item.get("completion") == ("observed" if item["ok"] else "not_observed"), "state/completion is inconsistent")
+        require(item.get("outcome") in ({"observed"} if item["ok"] else
+                {"reply_error", "transport_error", "cancelled", "deadline", "timing_unqualified", "unconfirmed_response", "observation_limit"}), "outcome is inconsistent")
+        for flag in ("staging_applied", "uncertain", "running_observed", "homed_low_observed", "observation_known", "interrupted_by_stop"):
+            require(type(item.get(flag)) is bool, flag + " is invalid")
+        p = item.get("prerequisites")
+        require(isinstance(p, dict) and uint(p.get("observed_us")) and uint(p.get("maximum_age_us")) and p["maximum_age_us"] > 0 and
+                p["observed_us"] <= item["started_us"] < p["observed_us"] + p["maximum_age_us"] and
+                uint(p.get("raw_motion"), 65535) and p.get("auxiliary") == 7 and type(p.get("reference_semantics_qualified")) is bool,
+                "immutable prerequisites are invalid")
+        qualified = p.get("qualified_parameters")
+        require(isinstance(qualified, list) and len(qualified) == 4 and all(type(v) is int for v in qualified) and
+                qualified == words[:4], "method/rate/ramp differs from exact qualified configuration")
+        require(item.get("evidence_columns") == HOME_EVIDENCE_COLUMNS, "evidence schema is invalid")
+        evidence = {}
+        for name in ("staging_evidence", "trigger_evidence", "activity_evidence", "low_evidence", "last_observation", "completion_evidence", "zero_evidence", "failure_evidence"):
+            values = item.get(name)
+            require(isinstance(values, list) and len(values) == len(HOME_EVIDENCE_COLUMNS), "missing " + name)
+            e = dict(zip(HOME_EVIDENCE_COLUMNS, values))
+            for key, limit in (("step", 67), ("event", 3), ("received_length", 0xFFFFFFFF), ("tx_accepted", 21 if name == "staging_evidence" or e.get("step") == 0 else 8),
+                               ("frame_error", 255), ("earliest_us", 0xFFFFFFFFFFFFFFFF), ("latest_us", 0xFFFFFFFFFFFFFFFF), ("delivered_us", 0xFFFFFFFFFFFFFFFF)):
+                require(uint(e.get(key), limit), name + " invalid " + key)
+            for key in ("tx_complete", "response_confirmed", "qualified", "execution_unknown"):
+                require(type(e.get(key)) is bool, name + " invalid " + key)
+            require(all(type(e.get(k)) is int and -0x80000000 <= e[k] <= 0x7FFFFFFF for k in ("detail", "transport_detail")) and
+                    e.get("status") in ("OK", "INVALID_CONFIG", "ILLEGAL_VALUE", "UNSUPPORTED", "CRC_ERROR", "FRAME_ERROR", "EXCEPTION"), name + " invalid status")
+            raw = e.get("raw_hex")
+            require(isinstance(raw, str) and re.fullmatch(r"(?:[0-9A-Fa-f]{2}){0,9}", raw) is not None, name + " malformed raw frame")
+            raw = bytes.fromhex(raw)
+            require(len(raw) == min(e["received_length"], 9), name + " inconsistent raw length")
+            expected = 21 if e["step"] == 0 else 8
+            require(not e["tx_complete"] or e["tx_accepted"] == expected, name + " incomplete accepted TX")
+            if e["delivered_us"]:
+                require(item["started_us"] <= e["delivered_us"] <= item["serviced_us"], name + " delivery outside lifetime")
+                require(e["event"] != 0 or e["tx_complete"], name + " frame lacks physical TX completion")
+            require(e["event"] == 0 or not e["response_confirmed"], name + " local event claims response")
+            if e["qualified"]:
+                require(e["event"] == 0 and item["started_us"] <= e["earliest_us"] <= e["latest_us"] <= e["delivered_us"], name + " invalid timing")
+            else: require(e["earliest_us"] == e["latest_us"] == 0, name + " unqualified bounds")
+            if e["status"] == "OK": require(e["detail"] == e["frame_error"] == 0, name + " OK retains errors")
+            evidence[name] = (e, raw)
+        def checked(name, prefix):
+            e, raw = evidence[name]
+            return (e["event"] == 0 and e["tx_complete"] and e["response_confirmed"] and e["qualified"] and
+                    e["status"] == "OK" and e["frame_error"] == e["detail"] == 0 and len(raw) == len(prefix) + 2 and
+                    raw[:-2] == prefix and wire_crc(raw) == 0)
+        for name, field, prefix in (("staging_evidence", "setup_execution", bytes((item["address"], 16, 0, 0x31, 0, 6))),
+                                    ("trigger_evidence", "execution", bytes((item["address"], 6, 0, 0x27, 0, 16)))):
+            e, raw = evidence[name]
+            require(e["step"] == (0 if name == "staging_evidence" else 1) or not e["delivered_us"], field + " token differs")
+            execution = item.get(field)
+            require(execution in ("not_transmitted", "acknowledged", "rejected", "unknown"), field + " invalid")
+            if execution == "acknowledged": require(checked(name, prefix), field + " lacks checked echo")
+            elif execution == "not_transmitted": require(not e["tx_accepted"] and not e["execution_unknown"], field + " contradicts TX")
+            elif execution == "rejected":
+                require(e["qualified"] and e["response_confirmed"] and e["tx_complete"] and e["event"] == 0 and
+                        e["status"] == "EXCEPTION" and e["frame_error"] == 10 and len(raw) == 5 and raw[:2] == bytes((item["address"], prefix[1] | 128)) and
+                        1 <= raw[2] <= 7 and raw[2] == e["detail"] and wire_crc(raw) == 0, field + " lacks documented exception")
+            else: require(e["tx_accepted"] > 0 or e["execution_unknown"], field + " lacks uncertainty")
+            if e["qualified"] and e["status"] == "OK":
+                late = e["latest_us"] > min(item["deadline_us"], p["observed_us"] + p["maximum_age_us"])
+                require(not late or (not item["ok"] and item["outcome"] == "deadline" and item["failure_evidence"] == item[name]), "write exceeds readiness without retained deadline")
+        require(item["staging_applied"] == (item["setup_execution"] == "acknowledged"), "staging application differs")
+        stage, _ = evidence["staging_evidence"]
+        trigger, _ = evidence["trigger_evidence"]
+        if trigger["tx_accepted"] or trigger["execution_unknown"]:
+            cap = min(item["deadline_us"], p["observed_us"] + p["maximum_age_us"])
+            require(item["setup_execution"] == "acknowledged" and stage["latest_us"] <= cap and stage["delivered_us"] < cap and
+                    stage["delivered_us"] <= (trigger["earliest_us"] if trigger["qualified"] else trigger["delivered_us"]),
+                    "trigger precedes checked in-budget staging")
+        require(item["uncertain"] == (not item["ok"] and any(evidence[n][0]["tx_accepted"] or evidence[n][0]["execution_unknown"] for n in ("staging_evidence", "trigger_evidence"))), "uncertainty differs")
+        require(uint(item.get("raw_alarm"), 65535) and uint(item.get("raw_motion"), 65535) and
+                isinstance(item.get("raw_position_words"), list) and len(item["raw_position_words"]) == 2 and all(uint(w, 65535) for w in item["raw_position_words"]), "raw outputs invalid")
+        if item["ok"]:
+            require(item["setup_execution"] == item["execution"] == "acknowledged" and item["homed_low_observed"] and item["observation_known"], "completion lacks fresh transition")
+            comp, raw = evidence["completion_evidence"]
+            require(len(raw) == 9 and checked("completion_evidence", raw[:-2]) and raw[:3] == bytes((item["address"], 3, 4)) and
+                    raw[3:5] == b"\0\0" and int.from_bytes(raw[5:7], "big") & 0x7F == 3 and
+                    evidence["trigger_evidence"][0]["delivered_us"] < comp["earliest_us"] and comp["latest_us"] <= item["deadline_us"], "completion lacks stopped homed FC03")
+            require(comp["step"] == item["polls"] + 1 and comp["step"] >= 2 and item["phase"] == 3 and
+                    item["raw_alarm"] == 0 and item["raw_motion"] == int.from_bytes(raw[5:7], "big") and
+                    item["last_observation"] == item["completion_evidence"] and
+                    evidence["zero_evidence"][0]["step"] == comp["step"] + 1, "completion/zero tokens or decoded outputs differ")
+            require(checked("zero_evidence", bytes((item["address"], 3, 4, 0, 0, 0, 0))) and item["raw_position_words"] == [0, 0] and
+                    comp["delivered_us"] < evidence["zero_evidence"][0]["earliest_us"] and
+                    item["started_us"] <= item["completion_observed_us"] <= comp["earliest_us"] and
+                    evidence["zero_evidence"][0]["delivered_us"] == item["serviced_us"] and evidence["zero_evidence"][0]["latest_us"] <= item["deadline_us"], "zero/reference evidence is inconsistent")
+            if item["method"] != 35 or p["raw_motion"] & 2:
+                low, raw = evidence["low_evidence"]
+                require(len(raw) == 9 and checked("low_evidence", raw[:-2]) and raw[:3] == bytes((item["address"], 3, 4)) and
+                        raw[3:5] == b"\0\0" and not int.from_bytes(raw[5:7], "big") & (0x7E if item["method"] == 35 else 0x7A) and
+                        2 <= low["step"] < comp["step"] and evidence["trigger_evidence"][0]["delivered_us"] < low["earliest_us"] and
+                        low["delivered_us"] < comp["earliest_us"], "completion lacks new homed-low evidence")
+            if item["method"] != 35:
+                activity, raw = evidence["activity_evidence"]
+                require(item["running_observed"] and len(raw) == 9 and checked("activity_evidence", raw[:-2]) and raw[:3] == bytes((item["address"], 3, 4)) and
+                        raw[3:5] == b"\0\0" and not int.from_bytes(raw[5:7], "big") & 0x78 and int.from_bytes(raw[5:7], "big") & 4 and
+                        2 <= activity["step"] < comp["step"] and evidence["trigger_evidence"][0]["delivered_us"] < activity["earliest_us"] and
+                        activity["delivered_us"] < comp["earliest_us"], "index search lacks new running evidence")
+            else:
+                require(not item["running_observed"] and not evidence["activity_evidence"][0]["delivered_us"], "current-position origin claims motion")
+            require(not evidence["failure_evidence"][0]["delivered_us"] and item["status"] == "OK" and item["detail"] == 0, "success retains failure")
+        else:
+            failure, _ = evidence["failure_evidence"]
+            require(failure["delivered_us"] == item["serviced_us"] and failure["delivered_us"] > 0, "failure lacks terminal evidence")
+
+    @staticmethod
     def _check_action(item: dict, command: str, address: int | None, policy: str | None) -> None:
         """Separate a confirmed write acknowledgement from a later drive report."""
         def require(condition, message):
@@ -1682,7 +1825,7 @@ class Console:
         if self.clock() >= handle.deadline:
             raise BenchError("command response deadline expired; command was not replayed")
         self.emit("reply", response=item)
-        asynchronous = handle.command in (*READ_COMMANDS, *ACTION_COMMANDS, "recover", *MOVE_COMMANDS, "velocity", "driver")
+        asynchronous = handle.command in (*READ_COMMANDS, *ACTION_COMMANDS, "recover", *MOVE_COMMANDS, "velocity", "driver", "home")
         if asynchronous:
             if item.get("type") == "reply" and not handle.accepted:
                 if not item["ok"]:
@@ -1690,7 +1833,7 @@ class Console:
                     return
                 if item.get("result") != "accepted":
                     raise BenchError(f"{handle.command} acceptance is not explicit")
-                if handle.command in (*READ_COMMANDS, *ACTION_COMMANDS, *MOVE_COMMANDS, "velocity", "driver"):
+                if handle.command in (*READ_COMMANDS, *ACTION_COMMANDS, *MOVE_COMMANDS, "velocity", "driver", "home"):
                     address = item.get("address")
                     if (type(address) is not int or not 1 <= address <= 247
                             or (handle.address is not None and address != handle.address)):
@@ -1714,7 +1857,7 @@ class Console:
                 return
             expected_type = {"probe": "probe", "capture-read": "capture_read", "recover": "recovery",
                              "read-identity": "read", "read-config": "read", "read-state": "read",
-                             **dict.fromkeys(ACTION_COMMANDS, "action"), **dict.fromkeys(MOVE_COMMANDS, "move"), "velocity": "velocity", "driver": "driver"}[handle.command]
+                             **dict.fromkeys(ACTION_COMMANDS, "action"), **dict.fromkeys(MOVE_COMMANDS, "move"), "velocity": "velocity", "driver": "driver", "home": "home"}[handle.command]
             if item.get("type") != expected_type or not handle.accepted:
                 raise BenchError(f"{handle.command} response sequence is invalid")
             if (not self._operation_id(item.get("operation_id"))
@@ -1731,6 +1874,8 @@ class Console:
                 self._check_action(item, handle.command, handle.address, handle.stop_policy)
             elif handle.command == "velocity":
                 self._check_velocity(item, handle.address, handle.velocity_args)
+            elif handle.command == "home":
+                self._check_home(item, handle.address, handle.home_args)
             elif handle.command == "driver":
                 self._check_driver(item, handle.address, handle.driver_args)
             elif handle.command in MOVE_COMMANDS:
@@ -1758,6 +1903,10 @@ class Console:
                     move_kind = item.get("move_kind")
                     velocity = item.get("velocity", False)
                     driver = item.get("driver", False)
+                    home = item.get("home", False)
+                    if (type(home) is not bool or (home and (driver or velocity or move_kind is not None or action_kind is not None or recovery or capture_read or read_kind is not None)) or
+                            (original is not None and home != (original.command == "home"))):
+                        raise BenchError("result home kind does not match retained operation")
                     if (type(driver) is not bool or (driver and (velocity or move_kind is not None or action_kind is not None or recovery or capture_read or read_kind is not None)) or
                             (original is not None and driver != (original.command == "driver"))):
                         raise BenchError("result driver kind does not match retained operation")
@@ -1788,6 +1937,8 @@ class Console:
                             raise BenchError("pending result lacks a valid lifecycle")
                         if original is not None and original.terminal is not None:
                             raise BenchError("completed retained operation regressed to pending")
+                    elif home:
+                        self._check_home(item, original.address if original else None, original.home_args if original else None)
                     elif driver:
                         self._check_driver(item, original.address if original else None, original.driver_args if original else None)
                     elif velocity:
@@ -1849,7 +2000,7 @@ class Console:
               operation_id: int | None = None, monitor: tuple[int, int] | bool | None = None,
               host_args: tuple[str, ...] | None = None, stop_policy: str | None = None,
               move_args: tuple[str, ...] | None = None, velocity_args: tuple[str, ...] | None = None,
-              driver_args: tuple[str, ...] | None = None) -> Command:
+              driver_args: tuple[str, ...] | None = None, home_args: tuple[str, ...] | None = None) -> Command:
         """Send once and collect admission/local reply; bus completion can stay pending.
 
         Up to eleven handles (eight ordinary operations, recovery, stop and a local query) may be
@@ -1880,6 +2031,10 @@ class Console:
             driver_arguments(driver_args)
         elif driver_args is not None:
             raise ValueError("driver arguments require driver command")
+        if command == "home":
+            home_arguments(home_args)
+        elif home_args is not None:
+            raise ValueError("home arguments require home command")
         health_check = command == "health-check"
         if health_check:
             command = "read-state"  # The wire alias returns canonical read-state records.
@@ -1889,7 +2044,7 @@ class Console:
                  type(monitor[0]) is not int or type(monitor[1]) is not int or
                  not 100 <= monitor[0] <= 60000 or not 1 <= monitor[1] <= 1000)):
                 raise ValueError("monitor requires off or interval 100..60000/count 1..1000")
-        if address is not None and (command not in (*READ_COMMANDS, *ACTION_COMMANDS, *MOVE_COMMANDS, "velocity", "driver") or type(address) is not int
+        if address is not None and (command not in (*READ_COMMANDS, *ACTION_COMMANDS, *MOVE_COMMANDS, "velocity", "driver", "home") or type(address) is not int
                                     or not 1 <= address <= 247):
             raise ValueError("an ESS probe address must be an integer within 1..247")
         if load is not None:
@@ -1928,6 +2083,7 @@ class Console:
             handle.move_args = move_args
             handle.velocity_args = velocity_args
             handle.driver_args = driver_args
+            handle.home_args = home_args
             self.pending[request_id] = handle
             suffix = "" if address is None else f" {address}"
             if load is not None:
@@ -1944,6 +2100,8 @@ class Console:
                 suffix = " " + " ".join(move_args) + suffix
             if velocity_args is not None:
                 suffix = " " + " ".join(velocity_args) + suffix
+            if home_args is not None:
+                suffix = " " + " ".join(home_args) + suffix
             if driver_args is not None:
                 suffix = " " + " ".join(driver_args) + suffix
             wire_command = "health check" if health_check else "read " + TYPED_READS[command] if command in TYPED_READS else command
@@ -2019,10 +2177,10 @@ class Console:
                 operation_id: int | None = None, monitor: tuple[int, int] | bool | None = None,
                 host_args: tuple[str, ...] | None = None, stop_policy: str | None = None,
                 move_args: tuple[str, ...] | None = None, velocity_args: tuple[str, ...] | None = None,
-                driver_args: tuple[str, ...] | None = None) -> dict:
+                driver_args: tuple[str, ...] | None = None, home_args: tuple[str, ...] | None = None) -> dict:
         """Send once, wait for its terminal, then explicitly release admitted results."""
         handle = self.begin(command, timeout_s=timeout_s, address=address, load=load,
-                            operation_id=operation_id, monitor=monitor, host_args=host_args, stop_policy=stop_policy, move_args=move_args, velocity_args=velocity_args, driver_args=driver_args)
+                            operation_id=operation_id, monitor=monitor, host_args=host_args, stop_policy=stop_policy, move_args=move_args, velocity_args=velocity_args, driver_args=driver_args, home_args=home_args)
         return self.wait(handle, release=True)
 
     def identify(self, *, timeout_s: float = 3.0) -> dict:
@@ -2231,14 +2389,14 @@ def driver_read_campaign(console: Console, *, timeout_s: float, address: int) ->
 
 def move_campaign(console: Console, *, move_args: tuple[str, ...] | None, cleanup_stop: str,
                   timeout_s: float, address: int, command: str = "move-relative",
-                  velocity_args: tuple[str, ...] | None = None) -> None:
+                  velocity_args: tuple[str, ...] | None = None, home_args: tuple[str, ...] | None = None) -> None:
     """One finite motion attempt, explicit stop, final reports and local release.
 
     Cleanup never replays the move or converts an uncertain outcome to success.
     Broken framing prevents further commands and leaves cleanup explicitly unknown.
     Drive status is not an independent physical shaft observation.
     """
-    label = "velocity" if command == "velocity" else "move"
+    label = "home" if command == "home" else "velocity" if command == "velocity" else "move"
     if cleanup_stop not in ("normal", "direct"):
         raise ValueError(f"finite {label} requires an explicit cleanup stop policy")
     positive(timeout_s, f"{label} timeout")
@@ -2248,7 +2406,7 @@ def move_campaign(console: Console, *, move_args: tuple[str, ...] | None, cleanu
     cleanup = "not_required"
     failure = None
     try:
-        handle = console.begin(command, move_args=move_args, velocity_args=velocity_args, address=address, timeout_s=timeout_s)
+        handle = console.begin(command, move_args=move_args, velocity_args=velocity_args, home_args=home_args, address=address, timeout_s=timeout_s)
         if handle.accepted:
             cleanup = "unknown"
         terminal = console.wait(handle)
@@ -2290,7 +2448,8 @@ def move_campaign(console: Console, *, move_args: tuple[str, ...] | None, cleanu
         if terminal is None and handle is not None:
             terminal = handle.terminal  # It may have arrived interleaved with cleanup.
         console.emit("summary", mode=command,
-                     **({"velocities_attempted": 1, "velocity_result": terminal} if command == "velocity" else
+                     **({"homes_attempted": 1, "home_result": terminal} if command == "home" else
+                        {"velocities_attempted": 1, "velocity_result": terminal} if command == "velocity" else
                         {"moves_attempted": 1, "move_result": terminal}),
                      retained_inspection=inspected, cleanup_policy=cleanup_stop, cleanup=cleanup,
                      stop_result=stopped, final_state=final_state, final_health=final_health,
@@ -2423,6 +2582,13 @@ def arguments(argv: list[str] | None) -> argparse.Namespace:
         move.add_argument("--approximation-error", help="explicit positive native error allowance for radians")
         if name == "move-relative": move.add_argument("--basis", choices=("actual", "commanded", "queued"))
         move.add_argument("--cleanup-stop", required=True, choices=("normal", "direct"))
+    home = sub.add_parser("home", help="one current-position reference attempt with explicit stop cleanup")
+    home.add_argument("method", choices=("35",))
+    home.add_argument("search_native")
+    home.add_argument("return_native")
+    home.add_argument("ramp_native")
+    home.add_argument("offset", choices=("zero",))
+    home.add_argument("--cleanup-stop", required=True, choices=("normal", "direct"))
     velocity = sub.add_parser("velocity", help="one finite signed velocity with explicit stop cleanup; never replayed")
     sub.add_parser("driver-read", help="one checked four-window drive-settings read with retained inspection; no writes")
     velocity.add_argument("value", help="exact integer/decimal/fraction velocity")
@@ -2481,6 +2647,11 @@ def arguments(argv: list[str] | None) -> argparse.Namespace:
         result.move_args = tuple(tokens)
         try: move_arguments(result.mode[5:], result.move_args)
         except ValueError as exc: parser.error(str(exc))
+    result.home_args = None
+    if result.mode == "home":
+        result.home_args = (result.method, result.search_native, result.return_native, result.ramp_native, result.offset)
+        try: home_arguments(result.home_args)
+        except ValueError as exc: parser.error(str(exc))
     result.velocity_args = None
     if result.mode == "velocity":
         tokens = [result.value, result.unit, result.frame, str(result.duration_ms), result.ramp, result.stop]
@@ -2522,6 +2693,9 @@ def main(argv: list[str] | None = None) -> int:
                                              stop_policy=getattr(args, "stop_policy", None))
                     if not result["ok"]:
                         raise BenchError("action rejected or failed: " + str(result.get("result", result.get("outcome"))))
+                elif args.mode == "home":
+                    move_campaign(console, command="home", move_args=None, home_args=args.home_args,
+                                  cleanup_stop=args.cleanup_stop, timeout_s=args.timeout, address=args.address)
                 elif args.mode == "driver-read":
                     driver_read_campaign(console, timeout_s=args.timeout, address=args.address)
                 elif args.mode == "velocity":

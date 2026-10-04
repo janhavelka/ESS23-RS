@@ -289,6 +289,40 @@ class MoveSerial:
         return Serial.normal(request_id, command, args)
 
 
+def home_terminal(request_id):
+    empty = [0, 0, "", 0, 0, False, False, False, False, 0, 0, 0, 0, "OK", 0, 0]
+    def frame(step, prefix, at):
+        raw = bytes(prefix); raw += bench.wire_crc(raw).to_bytes(2, "little")
+        return [step, 0, raw.hex(), len(raw), 21 if step == 0 else 8, True, True, True, False,
+                at, at + 10, at + 20, 1, "OK", 0, 0]
+    staging = frame(0, (1,16,0,0x31,0,6), 1100)
+    trigger = frame(1, (1,6,0,0x27,0,16), 1200)
+    completion = frame(2, (1,3,4,0,0,0,3), 1300)
+    zero = frame(3, (1,3,4,0,0,0,0), 1400)
+    return reply(request_id, "home", type="home", command_id=request_id, operation_id=request_id+100,
+        home=True, read_kind=None, action_kind=None, move_kind=None, capture_read=False, recovery=False,
+        state="succeeded", outcome="observed", status="OK", detail=0, setup_execution="acknowledged",
+        execution="acknowledged", completion="observed", target=1, address=1, generation=9,
+        configuration_generation=3, started_us=1000, deadline_us=1000000, serviced_us=1420, polls=1,
+        phase=3, method=35, staging_words=[35,60,30,100,0,0], staging_applied=True, uncertain=False,
+        running_observed=False, homed_low_observed=True, observation_known=True, raw_alarm=0, raw_motion=3,
+        raw_position_words=[0,0], interrupted_by_stop=False, completion_observed_us=1250,
+        prerequisites=dict(observed_us=1000,maximum_age_us=100000,raw_motion=1,auxiliary=7,reference_semantics_qualified=True,qualified_parameters=[35,60,30,100]),
+        evidence_columns=bench.HOME_EVIDENCE_COLUMNS, staging_evidence=staging, trigger_evidence=trigger,
+        activity_evidence=list(empty), low_evidence=list(empty), last_observation=completion,
+        completion_evidence=completion, zero_evidence=zero, failure_evidence=list(empty))
+
+
+class HomeSerial(MoveSerial):
+    def __call__(self, request_id, command, args):
+        if command == "home":
+            terminal = home_terminal(request_id)
+            if self.mutate: self.mutate(terminal)
+            self.retained[request_id+100] = terminal
+            return encoded(reply(request_id, "home", result="accepted", operation_id=request_id+100, address=1)) + encoded(terminal)
+        return super().__call__(request_id, command, args)
+
+
 class Clock:
     def __init__(self):
         self.now = 0.0
@@ -412,7 +446,53 @@ class Serial:
 
 
 class Framing(unittest.TestCase):
+    HOME_ARGS = ("35", "60", "30", "100", "zero")
+
+    def test_home_exact_native_arguments_never_send_on_rejection(self):
+        console = self.session()
+        for tokens in (("3.5", *self.HOME_ARGS[1:]), ("35", "4", "30", "100", "zero"),
+                       ("35", "60", "301", "100", "zero"), ("35", "60", "30", "29", "zero"),
+                       (*self.HOME_ARGS[:4], "1"), (*self.HOME_ARGS, "extra")):
+            with self.assertRaises(ValueError): console.begin("home", home_args=tokens)
+        self.assertEqual(len(self.port.writes), 1)
+        parsed = bench.arguments(["--port", "FAKE", "--log", "unused", "home", *self.HOME_ARGS, "--cleanup-stop", "normal"])
+        self.assertEqual(parsed.home_args, self.HOME_ARGS)
+        with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            bench.arguments(["--port", "FAKE", "--log", "unused", "home", "33", *self.HOME_ARGS[1:], "--cleanup-stop", "normal"])
+
+    def test_home_qualification_gate_is_one_attempt_with_no_cleanup_write(self):
+        def handler(i, command, args):
+            if command == "home":
+                self.assertEqual(tuple(args[:-1]), self.HOME_ARGS)
+                return encoded(reply(i, command, ok=False, result="timing_unqualified"))
+            return Serial.normal(i, command, args)
+        console = self.session(handler)
+        with self.assertRaises(bench.BenchError):
+            bench.move_campaign(console, command="home", move_args=None, home_args=self.HOME_ARGS,
+                                cleanup_stop="normal", timeout_s=3, address=1)
+        self.assertEqual([line.decode().split()[1] for line in self.port.writes], ["version", "home"])
+        self.assertEqual(self.events[-1]["homes_attempted"], 1)
+        self.assertEqual(self.events[-1]["cleanup"], "not_required")
+
     MOVE_ARGS = ("1000", "steps", "native", "60", "configured")
+    def test_home_success_inspection_release_and_bounded_stop_cleanup(self):
+        console = self.session(HomeSerial(), fragment=19)
+        bench.move_campaign(console, command="home", move_args=None, home_args=self.HOME_ARGS,
+                            cleanup_stop="normal", timeout_s=3, address=1)
+        commands = [line.decode().split()[1] for line in self.port.writes]
+        self.assertEqual(commands.count("home"), 1); self.assertEqual(commands.count("stop"), 1)
+        self.assertNotIn("recover", commands); self.assertFalse(console.operations)
+        self.assertEqual(self.events[-1]["cleanup"], "drive_reported_nonrunning")
+        self.assertEqual(self.events[-1]["physical_observation"], "not_supplied")
+
+    def test_home_malformed_completion_keeps_unknown_cleanup_without_replay(self):
+        console = self.session(HomeSerial(lambda r: r.update(homed_low_observed=False)))
+        with self.assertRaises(bench.BenchError):
+            bench.move_campaign(console, command="home", move_args=None, home_args=self.HOME_ARGS,
+                                cleanup_stop="normal", timeout_s=3, address=1)
+        self.assertEqual([line.decode().split()[1] for line in self.port.writes], ["version", "home"])
+        self.assertFalse(console.synchronized); self.assertEqual(self.events[-1]["cleanup"], "unknown")
+
     def test_driver_exact_grammar_rejects_without_port_traffic(self):
         console = self.session()
         for args in (None, (), ("set",), ("set", "direction", "1", "direction", "0"),

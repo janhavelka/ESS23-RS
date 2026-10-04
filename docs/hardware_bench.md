@@ -1,5 +1,7 @@
 # Motor bench and testing authorization
 
+Prompt14 [homing delivery/evidence](reports/ess_release_14_2026-10-04.md) passes38 read-only frames and7 zero-TX home gates on its reviewed timer image. All35 method dispositions are queryable; software33/34/35 are implemented. Raw configuration/state unchanged, owner empty and DE released. Physical homing/reference/return remains NOT RUN behind explicit qualification gates.
+
 Prompt13 [fresh audit image/evidence](reports/ess_release_13_audit_2026-10-04.md)
 passes 38 read-only frames and six zero-TX setter gates after source/cache fixes.
 Load/monitor off, DE released, owner empty, no capture/transport errors. Physical

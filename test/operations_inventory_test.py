@@ -21,7 +21,7 @@ class Coverage(unittest.TestCase):
         home = records["HOMING_OFFSET"]
         self.assertEqual(home["pair_write_policy"]["reviewed_windows"],
                          [dict(start="0x0031", count=6, pages=[20])])
-        self.assertEqual(home["obligations"]["write"], "NOT_IMPLEMENTED")
+        self.assertEqual(home["obligations"]["write"], "IN_PROGRESS")
         for row in pairs:
             policy = row["pair_write_policy"]
             self.assertTrue(policy["reason"])
@@ -44,11 +44,11 @@ class Coverage(unittest.TestCase):
         self.assertEqual((summary["records"], summary["reserved"], summary["unresolved_access"], summary["named_choices"]),
                          (221, 16, 2, 135))
         self.assertEqual(sum(count for state, count in summary["read"].items() if state in operations.IMPLEMENTATION), 201)
-        self.assertEqual(summary["write"]["NOT_IMPLEMENTED"], 175)
+        self.assertEqual(summary["write"]["NOT_IMPLEMENTED"], 170)
         self.assertEqual(summary["write"]["UNSUPPORTED"], 2)
         self.assertEqual(summary["action"]["IN_PROGRESS"], 2)
         linked = {record for group in INVENTORY["operations"] for record in group["records"]}
-        self.assertEqual(len(linked), 38)
+        self.assertEqual(len(linked), 43)
         self.assertEqual(len(result["records"]), len({record["id"] for record in result["records"]}))
         self.assertTrue(all(choice["default_disposition"] == operations.DEFAULT for choice in result["named_choices"]))
 
@@ -62,12 +62,24 @@ class Coverage(unittest.TestCase):
             "MotionCommandBit.START_SPEED", "DefaultDirection.NORMAL", "DefaultDirection.REVERSED",
             "WordOrder.HIGH_WORD_FIRST", "WordOrder.LOW_WORD_FIRST", "SoftLimitEnable.LIMITS_OFF",
             "SoftLimitEnable.AFTER_HOMING", "OverLimitStop.FREE_PARKING", "OverLimitStop.EMERGENCY_STOP",
-            "PvTriggerMode.LEVEL", "PvTriggerMode.RISING_EDGE", "PositionMode.RELATIVE", "PositionMode.ABSOLUTE"})
-        self.assertEqual(result["summary"]["choice_implementation"], {"NOT_IMPLEMENTED": 114, "IMPLEMENTED": 21})
+            "PvTriggerMode.LEVEL", "PvTriggerMode.RISING_EDGE", "PositionMode.RELATIVE", "PositionMode.ABSOLUTE", "HomingMethod.METHOD_33", "HomingMethod.METHOD_34",
+            "HomingMethod.METHOD_35", "MotionCommandBit.START_HOMING"})
+        self.assertEqual(result["summary"]["choice_implementation"], {"NOT_IMPLEMENTED": 110, "IMPLEMENTED": 25})
         for record in result["records"]:
             if record["id"] in ("AUXILIARY_COMMAND", "MOTION_COMMAND"):
                 self.assertEqual(record["obligations"]["write"], "IN_PROGRESS")
                 self.assertEqual(record["obligations"]["action"], "IN_PROGRESS")
+
+    def test_home_subset_never_claims_auxiliary_or_other_methods(self):
+        result = operations.check(INVENTORY, LEDGER)
+        choices = {row["id"]: row["disposition"] for row in result["named_choices"]}
+        for choice, disposition in choices.items():
+            if choice.startswith("HomingAuxiliary.") or (choice.startswith("HomingMethod.") and
+                    choice not in {"HomingMethod.METHOD_33", "HomingMethod.METHOD_34", "HomingMethod.METHOD_35"}):
+                self.assertEqual(disposition, operations.DEFAULT)
+        offset = next(row for row in result["records"] if row["id"] == "HOMING_OFFSET")
+        self.assertEqual(offset["obligations"]["write"], "IN_PROGRESS")
+        self.assertIn("WORD_ORDER_UNRESOLVED", offset["issues"])
 
     def test_action_choices_must_match_ledger_record(self):
         def operation(value, name):

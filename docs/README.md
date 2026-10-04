@@ -1,5 +1,7 @@
 # MotorControl-RS documentation
 
+Prompt14 implements [bounded homing](ess_homing.md) and the [complete method/prerequisite table](ess_homing_methods.md). Methods33/34/35 have software paths; external-switch trajectories, collision conflicts, nonzero offsets and physical reference/return qualification remain open. See the [handoff](reports/ess_release_14_2026-10-04.md).
+
 ## Architecture baseline
 
 Prompt13 implements [typed driver settings](ess_driver_settings.md), shared

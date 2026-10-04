@@ -122,6 +122,15 @@ struct Fake {
         if (self.actionResult == Probe::Action::OK) operation = self.nextOperation++;
         return self.actionResult;
     }
+    unsigned homes = 0;
+    Ess::HomeRequest homeRequest;
+    static Probe::Action startHome(void* context, uint32_t commandId, uint8_t address,
+                                  const Ess::HomeRequest& request, uint32_t& operation) {
+        Fake& self = *static_cast<Fake*>(context); ++self.homes;
+        self.homeRequest = request; self.id = commandId; self.address = address;
+        if (self.actionResult == Probe::Action::OK) operation = self.nextOperation++;
+        return self.actionResult;
+    }
     static Probe::Action monitor(void* context, const Probe::MonitorSettings* request, Probe::MonitorSnapshot& out) {
         Fake& self = *static_cast<Fake*>(context); ++self.monitors;
         if (request) { ++self.monitorChanges; self.monitorData.settings = *request; self.monitorData.remaining = request->count; }
@@ -1461,6 +1470,109 @@ void driverFixtures() {
     emit("unconfirmed_readback", c);
 }
 
+
+void testHomeRoutesAndDescriptors() {
+    Fake f; f.data.address = 1; f.axisConfig.generation = 3;
+    auto h = f.host(false, true); h.startHome = Fake::startHome; h.axis = Fake::axis;
+    Probe::Console c(h);
+    send(c, "@1 home methods\n");
+    f.contains("\"method\":35,\"support\":\"implemented\"");
+    f.contains("\"method\":-1,\"support\":\"unresolved\"");
+    assert(!f.homes && !f.probes && f.lines.back().size() < Probe::OUTPUT_CAPACITY);
+    send(c, "@2 home 35 60 30 100 zero\n");
+    assert(f.homes == 1 && f.homeRequest.method == Ess::HomingMethod::METHOD_35 && f.homeRequest.configurationGeneration == 3);
+    send(c, "@3 profile ess_rs home 33 5 300 2000 zero 2\n");
+    assert(f.homes == 2 && f.address == 2 && f.homeRequest.searchSpeed == 5 && f.homeRequest.returnSpeed == 300 && f.homeRequest.rampTime == 2000);
+    for (const char* line : {"home 35 4 30 100 zero", "home 35 60 301 100 zero", "home 35 60 30 29 zero", "home 35 60 30 100 0", "home 35 60 30 100 zero 0", "home 3.5 60 30 100 zero", "home 35 60 30 100 zero extra extra"}) {
+        send(c, std::string(line) + "\n"); f.contains("\"ok\":false"); assert(f.homes == 2);
+    }
+    f.blocked = true; send(c, "@100 status\n"); send(c, "@101 home 35 60 30 100 zero\n");
+    assert(f.homes == 2 && c.inputDropped());
+}
+
+void homeFixtures() {
+    using namespace MotorControlRS;
+    AxisConfig axis; axis.target.id = axis.target.address = 1; axis.target.generation = 9; axis.generation = 3;
+    auto prepare = [&](int method, bool old) {
+        Ess::HomeRequest r; r.method = static_cast<Ess::HomingMethod>(method); r.configurationGeneration = 3;
+        Ess::HomePrerequisites p; p.target = axis.target; p.configurationGeneration = 3;
+        p.qualifiedMethod = static_cast<Ess::HomingMethod>(method);
+        p.qualifiedSearchSpeed = 60; p.qualifiedReturnSpeed = 30; p.qualifiedRampTime = 100;
+        p.methodQualified = p.nativeRatesQualified = p.nativeRampQualified = p.zeroOffsetQualified = p.auxiliaryQualified = true;
+        p.inputsQualified = p.indexQualified = p.readinessQualified = p.referenceSemanticsQualified = true;
+        p.rawMotion = old ? 3 : 1; p.observedUs = 100; p.maximumAgeUs = 20000;
+        Ess::HomeContext c; ActionOptions options; options.pollIntervalUs = 10; options.maxPolls = 3;
+        assert(Ess::prepareHome(c, axis, 101, r, p, 100, 10000, options)); return c;
+    };
+    auto consume = [](Ess::HomeContext& c, uint16_t motion, int failure) {
+        Ess::PreparedHome w; assert(Ess::nextHome(c, c.eligibleUs, w));
+        uint8_t raw[9] = {}; std::size_t length = 0;
+        if (w.function == 16) { std::memcpy(raw, w.bytes, 6); length = 6; }
+        else if (w.function == 6) { std::memcpy(raw, w.bytes, 6); length = 6; }
+        else { raw[0] = 1; raw[1] = 3; raw[2] = 4; raw[5] = static_cast<uint8_t>(motion >> 8); raw[6] = static_cast<uint8_t>(motion); length = 7; }
+        if (failure == 5) { raw[1] = 0x90; raw[2] = 3; length = 3; }
+        const uint16_t crc = Ess::calcCrc16(raw, length); raw[length++] = static_cast<uint8_t>(crc); raw[length++] = static_cast<uint8_t>(crc >> 8);
+        ActionEvent e; e.transport.target = c.target; e.transport.operationId = c.operationId; e.transport.step = c.step;
+        uint64_t now = c.eligibleUs + 20;
+        if (failure == 1 || failure == 2 || failure == 3) {
+            e.transport.kind = failure == 1 ? ReadEventKind::TRANSPORT_FAILURE : failure == 2 ? ReadEventKind::CANCEL : ReadEventKind::DEADLINE;
+            e.transport.txAccepted = failure == 2 ? 0 : w.length; e.txComplete = failure != 2;
+            if (failure == 3) now = w.deadlineUs;
+        } else {
+            e.transport.frame = raw; e.transport.length = length; e.transport.txAccepted = w.length;
+            e.txComplete = e.responseConfirmed = e.transport.qualified = true;
+            e.transport.earliestUs = c.eligibleUs + 1; e.transport.latestUs = c.eligibleUs + 10;
+            if (failure == 4) e.responseConfirmed = false;
+            if (failure == 6) { now = w.deadlineUs + 20; e.transport.earliestUs = w.deadlineUs + 1; e.transport.latestUs = w.deadlineUs + 10; }
+        }
+        assert(Ess::advanceHome(c, e, now));
+    };
+    auto emit = [](const char* name, const Ess::HomeContext& context) {
+        Fake f; f.nextOperation = context.operationId; f.data.address = 1; f.axisConfig.generation = 3;
+        auto h = f.host(false, true); h.axis = Fake::axis; h.startHome = Fake::startHome;
+        Probe::Console console(h); send(console, "@77 home 35 60 30 100 zero\n"); f.lines.clear();
+        assert(console.reportHome(77, context.operationId, context)); assert(f.lines.size() == 1);
+        std::printf("{\"case\":\"%s\",\"record\":%s}\n", name, f.lines[0].c_str());
+    };
+    auto c = prepare(35, false); consume(c, 0, 0); consume(c, 0, 0); consume(c, 3, 0); consume(c, 0, 0); emit("current_origin", c);
+    c = prepare(33, true); consume(c, 0, 0); consume(c, 0, 0); consume(c, 4, 0); consume(c, 3, 0); consume(c, 0, 0); emit("index_origin", c);
+    c = prepare(35, true); consume(c, 0, 0); consume(c, 0, 0); consume(c, 3, 0); consume(c, 3, 0); consume(c, 3, 0); emit("stale_homed", c);
+    for (int failure = 1; failure <= 6; ++failure) {
+        c = prepare(35, false); consume(c, 0, 0); consume(c, 0, failure);
+        emit(failure == 1 ? "lost_trigger_ack" : failure == 2 ? "cancelled" : failure == 3 ? "deadline" : failure == 4 ? "unconfirmed_trigger" : failure == 5 ? "exception" : "late_trigger_echo", c);
+    }
+}
+
+void testMaximumHomeOutputAndRetention() {
+    Fake f; f.data.address = 1; f.nextOperation = UINT32_MAX;
+    auto h = f.host(false, true); h.startHome = Fake::startHome; h.axis = Fake::axis;
+    Probe::Console console(h); send(console, "@77 home 35 60 30 100 zero\n");
+    Ess::HomeContext c; c.operationId = UINT32_MAX;
+    c.state = MotorControlRS::ActionState::FAILED;
+    c.outcome = MotorControlRS::ActionOutcome::TRANSPORT_ERROR;
+    c.target.id = c.target.generation = c.request.configurationGeneration = UINT32_MAX; c.target.address = 247;
+    c.startedUs = c.deadlineUs = c.servicedUs = c.completionObservedUs = UINT64_MAX;
+    c.prerequisites.observedUs = c.prerequisites.maximumAgeUs = UINT64_MAX;
+    c.prerequisites.qualifiedMethod = Ess::HomingMethod::METHOD_35;
+    c.prerequisites.qualifiedSearchSpeed = 60; c.prerequisites.qualifiedReturnSpeed = 30; c.prerequisites.qualifiedRampTime = 100;
+    c.words[0] = 35; c.words[1] = 60; c.words[2] = 30; c.words[3] = 100;
+    c.rawAlarm = c.rawMotion = c.rawPositionWords[0] = c.rawPositionWords[1] = UINT16_MAX;
+    Ess::ActionEvidence* evidence[] = {&c.stagingEvidence,&c.triggerEvidence,&c.activityEvidence,&c.lowEvidence,&c.lastObservation,&c.completionEvidence,&c.zeroEvidence,&c.failureEvidence};
+    for (auto* e : evidence) {
+        e->step = UINT8_MAX; e->length = 9; e->receivedLength = e->txAccepted = UINT32_MAX;
+        std::memset(e->raw, 255, 9); e->earliestUs = e->latestUs = e->deliveredUs = UINT64_MAX;
+        e->transportDetail = INT32_MIN; e->status = {MotorControlRS::Err::INVALID_CONFIG,INT32_MIN,"invalid"};
+    }
+    f.blocked = true; assert(console.reportHome(77, c.operationId, c));
+    assert(console.outputPending() && !console.reportHome(77,c.operationId,c));
+    f.blocked = false; assert(console.serviceOutput());
+    f.contains("\"low_evidence\":["); assert(f.lines.back().size() < Probe::OUTPUT_CAPACITY);
+    f.view.commandId = 77; f.view.operationId = c.operationId; f.view.homeContext = &c;
+    send(console, "@78 result 4294967295\n"); f.contains("\"home\":true");
+    f.view.pending = true; send(console, "@79 result 4294967295\n");
+    f.contains("\"result\":\"pending\""); f.contains("\"home\":true");
+}
+
 int main(int argc, char** argv) {
     if (argc == 2 && std::strcmp(argv[1], "--velocity-fixtures") == 0) {
         velocityFixtures(); return 0;
@@ -1468,6 +1580,9 @@ int main(int argc, char** argv) {
     if (argc == 2 && std::strcmp(argv[1], "--driver-fixtures") == 0) {
         driverFixtures(); return 0;
     }
+    if (argc == 2 && std::strcmp(argv[1], "--home-fixtures") == 0) { homeFixtures(); return 0; }
+    testHomeRoutesAndDescriptors();
+    testMaximumHomeOutputAndRetention();
     testFramingAndIds();
     testInvalidInputHasNoEffects();
     testOverflowAndControlDiscardWholeLine();

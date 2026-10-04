@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MIT
+#include <MotorControlRS/profiles/ess_rs/Homing.h>
 // This target sees only the installed package's exported include directories.
 #include <MotorControlRS/ReadOperation.h>
 #include <MotorControlRS/Axis.h>
@@ -118,5 +119,19 @@ int main() {
     evidence = ActionEvent(); evidence.transport.target = target; evidence.transport.operationId = 11;
     evidence.transport.kind = ReadEventKind::CANCEL;
     if (!advanceDriver(driver, evidence, 2200) || driver.outcome != DriverOutcome::CANCELLED) return 34;
+    HomeContext home;
+    HomeRequest homeRequest; homeRequest.configurationGeneration = axis.generation;
+    HomePrerequisites homePrerequisites; homePrerequisites.target = target;
+    homePrerequisites.configurationGeneration = axis.generation;
+    homePrerequisites.qualifiedMethod = homeRequest.method;
+    homePrerequisites.qualifiedSearchSpeed = homeRequest.searchSpeed;
+    homePrerequisites.qualifiedReturnSpeed = homeRequest.returnSpeed;
+    homePrerequisites.qualifiedRampTime = homeRequest.rampTime;
+    homePrerequisites.methodQualified = homePrerequisites.nativeRatesQualified = homePrerequisites.nativeRampQualified = true;
+    homePrerequisites.zeroOffsetQualified = homePrerequisites.auxiliaryQualified = homePrerequisites.inputsQualified = true;
+    homePrerequisites.readinessQualified = true; homePrerequisites.observedUs = 2300; homePrerequisites.maximumAgeUs = 10000;
+    if (!MotorControlRS::prepareHome(home, axis, 12, homeRequest, homePrerequisites, 2400, 100000)) return 35;
+    PreparedHome homeWork;
+    if (!nextHome(home, 2400, homeWork) || homeWork.length != 21 || homeWork.reg != 0x31) return 36;
     return 0;
 }

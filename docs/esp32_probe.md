@@ -1,5 +1,7 @@
 # ESP32-S3 read-only probe bench
 
+Prompt14 adds [homing API/console routes](ess_homing.md) and `home methods`. Real execution remains behind method/native/auxiliary/reference and electrical-source qualifications; the current-image checks are [read-only and zero-TX evidence](reports/ess_release_14_2026-10-04.md).
+
 Prompt11 adds [finite serial velocity](ess_velocity.md) and a bounded Python
 velocity scenario; production action/ramp/sign gates remain closed. See the
 [current handoff](reports/ess_release_11_2026-10-04.md) for read-only regression

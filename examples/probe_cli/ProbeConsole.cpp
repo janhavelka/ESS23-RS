@@ -10,7 +10,7 @@
 namespace MotorControlRSExample { namespace Probe {
 namespace {
 
-enum class Command : uint8_t { HELP, VERSION, CONFIG, STATUS, HEALTH, STATS, PROBE, CAPTURE_READ, RECOVER, RESET, MEMORY, LOAD, DRV, RESULT, CANCEL, RELEASE, READ, PROFILE, CAPS, READ_IDENTITY, READ_CONFIG, READ_STATE, HEALTH_CHECK, MONITOR, AXIS, PREPARE, ENABLE, MOTOR_RELEASE, ALARM_CLEAR, STOP, MOVE, POSITION_CLEAR, VELOCITY, DRIVER };
+enum class Command : uint8_t { HELP, VERSION, CONFIG, STATUS, HEALTH, STATS, PROBE, CAPTURE_READ, RECOVER, RESET, MEMORY, LOAD, DRV, RESULT, CANCEL, RELEASE, READ, PROFILE, CAPS, READ_IDENTITY, READ_CONFIG, READ_STATE, HEALTH_CHECK, MONITOR, AXIS, PREPARE, ENABLE, MOTOR_RELEASE, ALARM_CLEAR, STOP, MOVE, POSITION_CLEAR, VELOCITY, DRIVER, HOME };
 struct Entry { const char* name; Command command; const char* syntax; const char* effect; bool bus; };
 const Entry COMMANDS[] = {
     {"help", Command::HELP, "help [command]", "show_callable_commands", false},
@@ -27,6 +27,7 @@ const Entry COMMANDS[] = {
     {"read", Command::READ, "read identity|config|state [address]", "checked_nonchanging_read", true},
     {"profile", Command::PROFILE, "profile ess_rs identity|config|state|enable|release|clear-alarm|clear-position|normal-stop|emergency-stop [address] | profile ess_rs move-relative|move-absolute|move-angle ... | profile ess_rs velocity ... | profile ess_rs driver read|set ... | profile ess_rs caps", "public_profile_operations", true},
     {"driver", Command::DRIVER, "profile ess_rs driver read [address] | profile ess_rs driver set field integer [field integer ...] [address]", "typed_drive_settings_with_checked_readback", true},
+    {"home", Command::HOME, "home methods | home method search_native return_native ramp_native zero [address] | profile ess_rs home ...", "qualified_homing_with_fresh_completion_and_zero_evidence", true},
     {"enable", Command::ENABLE, "enable [address]", "request_enable_then_observe_flags", true},
     {"motor-release", Command::MOTOR_RELEASE, "motor-release [address]", "request_release_then_observe_flags", true},
     {"alarm-clear", Command::ALARM_CLEAR, "alarm-clear [address]", "request_clear_resettable_alarm_then_observe_flags", true},
@@ -404,6 +405,17 @@ bool actionEvidence(char* output, std::size_t capacity, std::size_t& used, const
         static_cast<unsigned long long>(evidence.earliestUs), static_cast<unsigned long long>(evidence.latestUs), static_cast<unsigned long long>(evidence.deliveredUs),
         static_cast<long>(evidence.transportDetail), Core::errToString(evidence.status.code), static_cast<long>(evidence.status.detail), static_cast<unsigned>(evidence.frameError));
 }
+// Homing retains eight observations. One fixed column schema keeps every
+// provenance field within the existing line bound, including 64-bit extremes.
+bool homeEvidence(char* output, std::size_t capacity, std::size_t& used, const Ess::ActionEvidence& e) {
+    char raw[Ess::ACTION_MAX_REPLY_BYTES * 2 + 1]; hex(e.raw, e.length, raw, sizeof(raw));
+    return append(output, capacity, used,
+        "[%u,%u,\"%s\",%u,%u,%s,%s,%s,%s,%llu,%llu,%llu,%ld,\"%s\",%ld,%u]",
+        e.step, static_cast<unsigned>(e.event), raw, static_cast<unsigned>(e.receivedLength), static_cast<unsigned>(e.txAccepted),
+        boolean(e.txComplete), boolean(e.responseConfirmed), boolean(e.qualified), boolean(e.executionUnknown),
+        static_cast<unsigned long long>(e.earliestUs), static_cast<unsigned long long>(e.latestUs), static_cast<unsigned long long>(e.deliveredUs),
+        static_cast<long>(e.transportDetail), Core::errToString(e.status.code), static_cast<long>(e.status.detail), static_cast<unsigned>(e.frameError));
+}
 const char* actionName(Action value) {
     switch (value) {
     case Action::OK: return "accepted";
@@ -553,6 +565,64 @@ void Console::dispatch() noexcept {
         error(id, capability, "unsupported"); return;
     }
     if (!entry) { error(id, "unknown", "unknown_command"); return; }
+    const bool nativeHome = entry->command == Command::PROFILE && count > first + 2 &&
+        std::strcmp(tokens[first + 1], "ess_rs") == 0 && std::strcmp(tokens[first + 2], "home") == 0;
+    if (entry->command == Command::HOME || nativeHome) {
+        if (outputPending()) { ++inputDropped_; return; }
+        const std::size_t args = first + (nativeHome ? 3 : 1);
+        if (count == args + 1 && std::strcmp(tokens[args], "methods") == 0) {
+            std::size_t used = 0;
+            bool fits = append(output_, sizeof(output_), used,
+                "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"home\",\"ok\":true,\"methods\":[", static_cast<unsigned long>(id));
+            for (uint8_t i = 0; fits && i < Ess::HOME_METHOD_COUNT; ++i) {
+                const auto* method = Ess::homeMethodAt(i);
+                fits = method && append(output_, sizeof(output_), used,
+                    "%s{\"method\":%d,\"support\":\"%s\",\"inputs\":%u,\"index\":%s,\"moves\":%s,\"reason\":%u}",
+                    i ? "," : "", static_cast<int>(method->method),
+                    method->support == Ess::HomeSupport::IMPLEMENTED ? "implemented" : method->support == Ess::HomeSupport::UNIMPLEMENTED ? "unimplemented" : "unresolved",
+                    method->requiredInputs, boolean(method->requiresIndex), boolean(method->moves),
+                    method->support == Ess::HomeSupport::UNIMPLEMENTED ? 0U : static_cast<int>(method->method) < 0 ? 1U :
+                    static_cast<int>(method->method) == 18 ? 2U : static_cast<unsigned>(method->method) - 30U);
+            }
+            fits = fits && append(output_, sizeof(output_), used, "],\"reasons\":{\"0\":\"switch_edges_and_return_pending\",\"1\":\"collision_encoding_and_parameter_conflicts\",\"2\":\"limit_prose_diagram_conflict\",\"3\":\"negative_internal_index_search\",\"4\":\"positive_internal_index_search\",\"5\":\"current_position_origin\"},\"physical_qualified\":false,\"offset\":\"zero_only\",\"auxiliary\":7}");
+            if (!fits) { error(id, "home", "output_full"); return; }
+            emit(); return;
+        }
+        if (!host_.startHome || !host_.snapshot || !host_.axis) { error(id, "home", "unavailable"); return; }
+        if ((count != args + 5 && count != args + 6) || std::strcmp(tokens[args + 4], "zero")) {
+            error(id, "home", "invalid_arguments"); return;
+        }
+        Core::Rational method;
+        const char* digit = tokens[args]; if (*digit == '-') ++digit;
+        bool integer = *digit != '\0';
+        for (const char* p = digit; *p; ++p) integer = integer && *p >= '0' && *p <= '9';
+        uint32_t search = 0, returning = 0, ramp = 0, address = 0;
+        if (!integer || !Core::parseExactNumber(tokens[args], method) || method.denominator != 1 ||
+            method.numerator < -32768 || method.numerator > 32767 ||
+            !number(tokens[args + 1], search) || search < 5 || search > 3000 ||
+            !number(tokens[args + 2], returning) || returning < 5 || returning > 300 ||
+            !number(tokens[args + 3], ramp) || ramp < 30 || ramp > 2000) {
+            error(id, "home", "invalid_arguments"); return;
+        }
+        if (count == args + 6) {
+            if (!number(tokens[args + 5], address) || address < 1 || address > 247) { error(id, "home", "invalid_address"); return; }
+        } else { Snapshot snapshot; host_.snapshot(host_.context, snapshot); address = snapshot.address; }
+        if (address < 1 || address > 247) { error(id, "home", "invalid_address"); return; }
+        AxisCommand query; AxisView axis;
+        query.kind = AxisCommandKind::QUERY;
+        if (!host_.axis(host_.context, query, axis)) { error(id, "home", "unavailable"); return; }
+        Ess::HomeRequest request;
+        request.method = static_cast<Ess::HomingMethod>(method.numerator);
+        request.searchSpeed = static_cast<uint16_t>(search); request.returnSpeed = static_cast<uint16_t>(returning);
+        request.rampTime = static_cast<uint16_t>(ramp); request.configurationGeneration = axis.configuration.generation;
+        bool available = false;
+        for (std::size_t i = 0; i < OUTSTANDING_CAPACITY - 1; ++i) available = available || !outstanding_[i].commandId;
+        uint32_t operationId = 0;
+        const Action result = available ? host_.startHome(host_.context, id, static_cast<uint8_t>(address), request, operationId) : Action::BUSY;
+        if (result == Action::OK) track(id, operationId);
+        action(id, "home", result, static_cast<uint8_t>(address), result == Action::OK ? operationId : 0);
+        return;
+    }
     const bool nativeDriver = entry->command == Command::PROFILE && count > first + 2 &&
         std::strcmp(tokens[first + 1], "ess_rs") == 0 && std::strcmp(tokens[first + 2], "driver") == 0;
     if (entry->command == Command::DRIVER || nativeDriver) {
@@ -866,8 +936,9 @@ void Console::dispatch() noexcept {
         case Command::MOVE: return host_.startMove && host_.snapshot && host_.axis;
         case Command::VELOCITY: return host_.startVelocity && host_.snapshot && host_.axis;
         case Command::DRIVER: return host_.startDriver && host_.snapshot;
+        case Command::HOME: return host_.startHome && host_.snapshot && host_.axis;
         case Command::PROFILE: return ((host_.startTypedRead || host_.startAction) && host_.snapshot) ||
-            ((host_.startMove || host_.startVelocity) && host_.snapshot && host_.axis) || (host_.startDriver && host_.snapshot);
+            ((host_.startMove || host_.startVelocity || host_.startHome) && host_.snapshot && host_.axis) || (host_.startDriver && host_.snapshot);
         case Command::READ: case Command::READ_IDENTITY: case Command::READ_CONFIG: case Command::READ_STATE: case Command::HEALTH_CHECK: return host_.startTypedRead != nullptr;
         case Command::RESULT: return host_.result != nullptr;
         case Command::CANCEL: return host_.cancel != nullptr;
@@ -912,9 +983,9 @@ void Console::dispatch() noexcept {
         const auto caps = Ess::readCapabilities();
         Snapshot snapshot; host_.snapshot(host_.context, snapshot);
         std::snprintf(output_, sizeof(output_),
-            "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"caps\",\"ok\":true,\"probe\":%s,\"identity\":%s,\"config\":%s,\"state\":%s,\"max_steps\":%u,\"max_reply_bytes\":%u,\"writes\":true,\"motion\":%s,\"actions_qualified\":%s,\"axis_reserved\":%s,\"actions\":[\"enable\",\"release\",\"clear_alarm\",\"clear_position\",\"stop_normal\",\"stop_direct\"],\"device_queue_guarantee\":false,\"velocity\":%s,\"configured_ramp_policy\":true,\"acceleration_mapping\":false,\"velocity_unsupported\":[\"jerk\",\"blending\",\"live_updates\",\"torque\",\"current\",\"external_jog\"],\"driver_settings\":%s,\"limit_pair_writes\":false}",
+            "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"caps\",\"ok\":true,\"probe\":%s,\"identity\":%s,\"config\":%s,\"state\":%s,\"max_steps\":%u,\"max_reply_bytes\":%u,\"writes\":true,\"motion\":%s,\"actions_qualified\":%s,\"axis_reserved\":%s,\"actions\":[\"enable\",\"release\",\"clear_alarm\",\"clear_position\",\"stop_normal\",\"stop_direct\"],\"device_queue_guarantee\":false,\"velocity\":%s,\"configured_ramp_policy\":true,\"acceleration_mapping\":false,\"velocity_unsupported\":[\"jerk\",\"blending\",\"live_updates\",\"torque\",\"current\",\"external_jog\"],\"driver_settings\":%s,\"limit_pair_writes\":false,\"home\":%s,\"home_methods\":[33,34,35],\"home_physical_qualified\":false}",
             static_cast<unsigned long>(id), boolean(caps.probe), boolean(caps.identity), boolean(caps.config), boolean(caps.state), caps.maxSteps, caps.maxReplyBytes,
-            boolean(host_.startMove && host_.snapshot && host_.axis), boolean(snapshot.actionsQualified), boolean(snapshot.axisReserved), boolean(host_.startVelocity && host_.snapshot && host_.axis), boolean(host_.startDriver && host_.snapshot));
+            boolean(host_.startMove && host_.snapshot && host_.axis), boolean(snapshot.actionsQualified), boolean(snapshot.axisReserved), boolean(host_.startVelocity && host_.snapshot && host_.axis), boolean(host_.startDriver && host_.snapshot), boolean(host_.startHome && host_.snapshot && host_.axis));
         emit(); return;
     }
     if (entry->command == Command::RESET || (entry->command == Command::STATS && arg)) {
@@ -937,14 +1008,15 @@ void Console::dispatch() noexcept {
         if (!host_.result(host_.context, operationId, view)) { error(id, entry->name, "unavailable"); return; }
         if (view.pending) {
             std::snprintf(output_, sizeof(output_),
-                "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"result\",\"command_id\":%lu,\"operation_id\":%lu,\"ok\":true,\"result\":\"pending\",\"recovery\":%s,\"capture_read\":%s,\"read_kind\":%s,\"action_kind\":%s,\"stop_policy\":%s,\"move_kind\":%s,\"velocity\":%s,\"driver\":%s}",
+                "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"result\",\"command_id\":%lu,\"operation_id\":%lu,\"ok\":true,\"result\":\"pending\",\"recovery\":%s,\"capture_read\":%s,\"read_kind\":%s,\"action_kind\":%s,\"stop_policy\":%s,\"move_kind\":%s,\"velocity\":%s,\"driver\":%s,\"home\":%s}",
                 static_cast<unsigned long>(id), static_cast<unsigned long>(view.commandId),
                 static_cast<unsigned long>(view.operationId), boolean(view.recovery), boolean(view.captureRead),
                 !view.typedRead ? "null" : view.typedRead->kind == Ess::ReadKind::IDENTITY ? "\"identity\"" : view.typedRead->kind == Ess::ReadKind::CONFIG ? "\"config\"" : "\"state\"",
                 !view.actionContext ? "null" : view.actionContext->request.kind == Core::ActionKind::ENABLE ? "\"enable\"" : view.actionContext->request.kind == Core::ActionKind::RELEASE ? "\"release\"" : view.actionContext->request.kind == Core::ActionKind::CLEAR_ALARM ? "\"clear_alarm\"" : view.actionContext->request.kind == Core::ActionKind::CLEAR_POSITION ? "\"clear_position\"" : "\"stop\"",
-                view.actionContext ? stopPolicy(view.actionContext->request) : "null", view.moveContext ? (view.moveContext->request.position.wrapped ? "\"angle\"" : view.moveContext->request.position.relative ? "\"relative\"" : "\"absolute\"") : "null", boolean(view.velocityContext != nullptr), boolean(view.driverContext != nullptr));
+                view.actionContext ? stopPolicy(view.actionContext->request) : "null", view.moveContext ? (view.moveContext->request.position.wrapped ? "\"angle\"" : view.moveContext->request.position.relative ? "\"relative\"" : "\"absolute\"") : "null", boolean(view.velocityContext != nullptr), boolean(view.driverContext != nullptr), boolean(view.homeContext != nullptr));
             emit();
-        } else if (view.driverContext) formatDriver(id, view.commandId, view.operationId, *view.driverContext, true);
+        } else if (view.homeContext) formatHome(id, view.commandId, view.operationId, *view.homeContext, true, view.interruptedByStop);
+        else if (view.driverContext) formatDriver(id, view.commandId, view.operationId, *view.driverContext, true);
         else if (view.velocityContext) formatVelocity(id, view.commandId, view.operationId, *view.velocityContext, true, view.interruptedByStop);
         else if (view.moveContext) formatMove(id, view.commandId, view.operationId, *view.moveContext, true, view.interruptedByStop);
         else if (view.actionContext) formatAction(id, view.commandId, view.operationId, *view.actionContext, true, view.interruptedByStop);
@@ -1278,6 +1350,46 @@ bool Console::reportRead(uint32_t id, uint32_t operationId, const Ess::ReadConte
         return formatRead(id, id, operationId, context, false);
     }
     return false;
+}
+
+bool Console::reportHome(uint32_t id, uint32_t operationId, const Ess::HomeContext& context,
+                         bool interruptedByStop) noexcept {
+    if (outputPending() || context.operationId != operationId ||
+        (context.state != Core::ActionState::SUCCEEDED && context.state != Core::ActionState::FAILED)) return false;
+    for (auto& item : outstanding_) if (item.commandId == id && item.operationId == operationId && !item.transferred) {
+        if (!formatHome(id, id, operationId, context, false, interruptedByStop)) return false;
+        if (item.operationId == operationId) item.transferred = true;
+        return true;
+    }
+    return false;
+}
+
+bool Console::formatHome(uint32_t id, uint32_t commandId, uint32_t operationId,
+                         const Ess::HomeContext& c, bool inspection, bool interruptedByStop) noexcept {
+    std::size_t used = 0;
+    const bool ok = c.state == Core::ActionState::SUCCEEDED && c.completion == Core::ActionCompletion::OBSERVED;
+    bool fits = append(output_, sizeof(output_), used,
+        "{\"type\":\"%s\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"%s\",\"command_id\":%lu,\"operation_id\":%lu,\"home\":true,\"read_kind\":null,\"action_kind\":null,\"move_kind\":null,\"capture_read\":false,\"recovery\":false,\"ok\":%s,\"state\":\"%s\",\"outcome\":\"%s\",\"status\":\"%s\",\"detail\":%ld,\"setup_execution\":\"%s\",\"execution\":\"%s\",\"completion\":\"%s\",\"target\":%lu,\"address\":%u,\"generation\":%lu,\"configuration_generation\":%lu,\"started_us\":%llu,\"deadline_us\":%llu,\"serviced_us\":%llu,\"polls\":%u,\"phase\":%u,\"method\":%d,\"staging_words\":[%u,%u,%u,%u,%u,%u],\"staging_applied\":%s,\"uncertain\":%s,\"running_observed\":%s,\"homed_low_observed\":%s,\"observation_known\":%s,\"raw_alarm\":%u,\"raw_motion\":%u,\"raw_position_words\":[%u,%u],\"interrupted_by_stop\":%s,\"prerequisites\":{\"observed_us\":%llu,\"maximum_age_us\":%llu,\"raw_motion\":%u,\"auxiliary\":%u,\"reference_semantics_qualified\":%s,\"qualified_parameters\":[%d,%u,%u,%u]},\"completion_observed_us\":%llu,\"evidence_columns\":[\"step\",\"event\",\"raw_hex\",\"received_length\",\"tx_accepted\",\"tx_complete\",\"response_confirmed\",\"qualified\",\"execution_unknown\",\"earliest_us\",\"latest_us\",\"delivered_us\",\"transport_detail\",\"status\",\"detail\",\"frame_error\"],\"staging_evidence\":",
+        inspection ? "reply" : "home", static_cast<unsigned long>(id), inspection ? "result" : "home",
+        static_cast<unsigned long>(commandId), static_cast<unsigned long>(operationId), boolean(ok),
+        c.state == Core::ActionState::SUCCEEDED ? "succeeded" : "failed", motorOutcome(c.outcome), Core::errToString(c.status.code), static_cast<long>(c.status.detail),
+        executionName(c.setupExecution), executionName(c.execution), c.completion == Core::ActionCompletion::OBSERVED ? "observed" : "not_observed",
+        static_cast<unsigned long>(c.target.id), c.target.address, static_cast<unsigned long>(c.target.generation), static_cast<unsigned long>(c.request.configurationGeneration),
+        static_cast<unsigned long long>(c.startedUs), static_cast<unsigned long long>(c.deadlineUs), static_cast<unsigned long long>(c.servicedUs), c.polls, static_cast<unsigned>(c.phase), static_cast<int>(c.request.method),
+        c.words[0], c.words[1], c.words[2], c.words[3], c.words[4], c.words[5], boolean(c.stagingApplied), boolean(c.uncertain), boolean(c.runningObserved), boolean(c.homedLowObserved), boolean(c.observationKnown),
+        c.rawAlarm, c.rawMotion, c.rawPositionWords[0], c.rawPositionWords[1], boolean(interruptedByStop),
+        static_cast<unsigned long long>(c.prerequisites.observedUs), static_cast<unsigned long long>(c.prerequisites.maximumAgeUs), c.prerequisites.rawMotion, static_cast<unsigned>(c.prerequisites.auxiliary), boolean(c.prerequisites.referenceSemanticsQualified), static_cast<int>(c.prerequisites.qualifiedMethod),
+        c.prerequisites.qualifiedSearchSpeed, c.prerequisites.qualifiedReturnSpeed, c.prerequisites.qualifiedRampTime, static_cast<unsigned long long>(c.completionObservedUs)) &&
+        homeEvidence(output_, sizeof(output_), used, c.stagingEvidence) && append(output_, sizeof(output_), used, ",\"trigger_evidence\":") &&
+        homeEvidence(output_, sizeof(output_), used, c.triggerEvidence) && append(output_, sizeof(output_), used, ",\"activity_evidence\":") &&
+        homeEvidence(output_, sizeof(output_), used, c.activityEvidence) && append(output_, sizeof(output_), used, ",\"low_evidence\":") &&
+        homeEvidence(output_, sizeof(output_), used, c.lowEvidence) && append(output_, sizeof(output_), used, ",\"last_observation\":") &&
+        homeEvidence(output_, sizeof(output_), used, c.lastObservation) && append(output_, sizeof(output_), used, ",\"completion_evidence\":") &&
+        homeEvidence(output_, sizeof(output_), used, c.completionEvidence) && append(output_, sizeof(output_), used, ",\"zero_evidence\":") &&
+        homeEvidence(output_, sizeof(output_), used, c.zeroEvidence) && append(output_, sizeof(output_), used, ",\"failure_evidence\":") &&
+        homeEvidence(output_, sizeof(output_), used, c.failureEvidence) && append(output_, sizeof(output_), used, "}");
+    if (!fits) return false;
+    emit(inspection ? 0 : operationId); return true;
 }
 
 bool Console::reportMove(uint32_t id, uint32_t operationId, const Ess::MoveContext& context,

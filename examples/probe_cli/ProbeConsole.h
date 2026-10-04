@@ -10,6 +10,7 @@
 #include "MotorControlRS/profiles/ess_rs/Position.h"
 #include "MotorControlRS/profiles/ess_rs/Velocity.h"
 #include "MotorControlRS/profiles/ess_rs/DriverSettings.h"
+#include "MotorControlRS/profiles/ess_rs/Homing.h"
 
 namespace MotorControlRSExample { namespace Probe {
 
@@ -148,6 +149,7 @@ struct ResultView {
     const MotorControlRS::ESS_RS::MoveContext* moveContext = nullptr; ///< Borrowed only during formatting.
     const MotorControlRS::ESS_RS::VelocityContext* velocityContext = nullptr;
     const MotorControlRS::ESS_RS::DriverContext* driverContext = nullptr;
+    const MotorControlRS::ESS_RS::HomeContext* homeContext = nullptr;
     bool interruptedByStop = false;
     ProbeResult probe;
     Rtu::RecoveryResult recoveryResult;
@@ -195,6 +197,9 @@ struct Host {
     Action (*startDriver)(void*, uint32_t commandId, uint8_t address,
                          MotorControlRS::ESS_RS::DriverKind,
                          const MotorControlRS::ESS_RS::DriverRequest&, uint32_t& operationId) = nullptr;
+    /** Finite homing through the public profile API; native words are copied. */
+    Action (*startHome)(void*, uint32_t commandId, uint8_t address,
+                       const MotorControlRS::ESS_RS::HomeRequest&, uint32_t& operationId) = nullptr;
     Action (*recover)(void*, uint32_t commandId, uint32_t& operationId) = nullptr;
     void (*resetStats)(void*) = nullptr;
     Action (*load)(void*, const LoadSettings* requested, LoadSnapshot&) = nullptr;
@@ -243,6 +248,8 @@ public:
     bool reportVelocity(uint32_t id, uint32_t operationId, const MotorControlRS::ESS_RS::VelocityContext&,
                         bool interruptedByStop = false) noexcept;
     bool reportDriver(uint32_t id, uint32_t operationId, const MotorControlRS::ESS_RS::DriverContext&) noexcept;
+    bool reportHome(uint32_t id, uint32_t operationId, const MotorControlRS::ESS_RS::HomeContext&,
+                    bool interruptedByStop = false) noexcept;
 
 private:
     void dispatch() noexcept;
@@ -266,6 +273,8 @@ private:
                         const MotorControlRS::ESS_RS::VelocityContext&, bool inspection, bool interruptedByStop) noexcept;
     bool formatDriver(uint32_t id, uint32_t commandId, uint32_t operationId,
                       const MotorControlRS::ESS_RS::DriverContext&, bool inspection) noexcept;
+    bool formatHome(uint32_t id, uint32_t commandId, uint32_t operationId,
+                    const MotorControlRS::ESS_RS::HomeContext&, bool inspection, bool interruptedByStop) noexcept;
 
     Host host_;
     char line_[LINE_CAPACITY] = {};

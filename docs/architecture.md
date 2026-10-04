@@ -1,5 +1,7 @@
 # MotorControl-RS architecture
 
+Prompt14 adds [bounded homing](ess_homing.md) through the same application owner, checked codecs and stop reservation. Methods33/34/35 require qualified method/native/active-auxiliary prerequisites. Fresh evidence may establish only a qualified native reference; host origin remains separate.
+
 Prompt13 adds [bounded typed driver settings](ess_driver_settings.md), checked
 write/readback progress and same-axis effects through the existing application
 owner. No additional bus queue or I/O enters the reusable core. Unsupported

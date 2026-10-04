@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "register_ledger": "docs/reference/ess_rs_registers.json",
-  "scope": "Typed ESS reads, bounded actions/motion and stopped-state driver settings; ledger-linked obligations with independent native and hardware evidence.",
+  "scope": "Typed ESS reads, bounded actions/motion/homing and stopped-state driver settings; ledger-linked obligations with independent native and hardware evidence.",
   "default_disposition": {
     "implementation": "NOT_IMPLEMENTED",
     "cli": "NOT_REACHABLE",
@@ -23,10 +23,10 @@
     "AUXILIARY_COMMAND",
     "DEFAULT_DIRECTION",
     "DRIVER_MODEL",
+    "EXTERNAL_POSITION_MODE",
     "MOTION_COMMAND",
     "NEGATIVE_SOFT_LIMIT",
     "OVER_LIMIT_STOP",
-    "EXTERNAL_POSITION_MODE",
     "POSITIVE_SOFT_LIMIT",
     "PV_TRIGGER_MODE",
     "SOFT_LIMIT_ENABLE",
@@ -787,6 +787,134 @@
         "reason": "Physical settings writes/restore and soft-limit movement remain gated by source/timing/reference evidence."
       },
       "reason": "Typed candidate fields reject before all traffic: no reviewed FC10 pair window or resolved signed/native unit policy. CLI syntax reports unsupported and grants no setter reachability credit."
+    },
+    {
+      "id": "home_parameters",
+      "kind": "WRITE",
+      "records": [
+        "HOMING_METHOD",
+        "HOMING_SPEED",
+        "HOMING_QUERY_SPEED",
+        "HOMING_RAMP_TIME"
+      ],
+      "api": {
+        "header": "include/MotorControlRS/profiles/ess_rs/Homing.h",
+        "symbols": [
+          "prepareHome",
+          "nextHome",
+          "advanceHome",
+          "getHomeReference"
+        ]
+      },
+      "cli_commands": [
+        "home",
+        "profile ess_rs home"
+      ],
+      "implementation": "IMPLEMENTED",
+      "cli": "REACHABLE",
+      "native": {
+        "state": "PASS",
+        "evidence": [
+          "test/homing_test.cpp",
+          "test/home_app_test.cpp",
+          "test/probe_console_test.cpp",
+          "test/bench_probe_test.py",
+          "test/installed_consumer/main.cpp"
+        ]
+      },
+      "hardware": {
+        "state": "NOT_RUN",
+        "evidence": [
+          "docs/reports/ess_release_14_2026-10-04.md"
+        ],
+        "reason": "Physical homing/reference/return need independent electrical/source timing, active auxiliary7, native rate/ramp/zero semantics and method/index/mechanics qualification. No switch fixture or I/O reassignment is provided."
+      },
+      "reason": "Qualified native-word staging supports only internal-index33/34 and current-position35. No RPM/acceleration formula or switched method is inferred. Whole candidate validates before exact reviewed FC10 window; active auxiliary is read-only prerequisite.",
+      "choices": [
+        "HomingMethod.METHOD_33",
+        "HomingMethod.METHOD_34",
+        "HomingMethod.METHOD_35"
+      ]
+    },
+    {
+      "id": "home_zero_offset",
+      "kind": "WRITE",
+      "records": [
+        "HOMING_OFFSET"
+      ],
+      "api": {
+        "header": "include/MotorControlRS/profiles/ess_rs/Homing.h",
+        "symbols": [
+          "prepareHome",
+          "nextHome",
+          "advanceHome",
+          "getHomeReference"
+        ]
+      },
+      "cli_commands": [],
+      "implementation": "IN_PROGRESS",
+      "cli": "NOT_REACHABLE",
+      "native": {
+        "state": "PASS",
+        "evidence": [
+          "test/homing_test.cpp",
+          "test/home_app_test.cpp",
+          "test/probe_console_test.cpp",
+          "test/bench_probe_test.py",
+          "test/installed_consumer/main.cpp"
+        ]
+      },
+      "hardware": {
+        "state": "NOT_RUN",
+        "evidence": [
+          "docs/reports/ess_release_14_2026-10-04.md"
+        ],
+        "reason": "Physical homing/reference/return need independent electrical/source timing, active auxiliary7, native rate/ramp/zero semantics and method/index/mechanics qualification. No switch fixture or I/O reassignment is provided."
+      },
+      "reason": "Only zero pair in exact reviewed0x0031/6 staging is implemented; nonzero offset signedness/order/scale remain unresolved. No standalone/split/pair setter is exposed."
+    },
+    {
+      "id": "home_start",
+      "kind": "ACTION",
+      "records": [
+        "MOTION_COMMAND"
+      ],
+      "api": {
+        "header": "include/MotorControlRS/profiles/ess_rs/Homing.h",
+        "symbols": [
+          "prepareHome",
+          "nextHome",
+          "advanceHome",
+          "getHomeReference"
+        ]
+      },
+      "cli_commands": [
+        "home",
+        "profile ess_rs home"
+      ],
+      "implementation": "IMPLEMENTED",
+      "cli": "REACHABLE",
+      "native": {
+        "state": "PASS",
+        "evidence": [
+          "test/homing_test.cpp",
+          "test/home_app_test.cpp",
+          "test/probe_console_test.cpp",
+          "test/bench_probe_test.py",
+          "test/installed_consumer/main.cpp"
+        ]
+      },
+      "hardware": {
+        "state": "NOT_RUN",
+        "evidence": [
+          "docs/reports/ess_release_14_2026-10-04.md"
+        ],
+        "reason": "Physical homing/reference/return need independent electrical/source timing, active auxiliary7, native rate/ramp/zero semantics and method/index/mechanics qualification. No switch fixture or I/O reassignment is provided."
+      },
+      "reason": "Explicit start after checked staging, new homed transitions and stopped/arrival plus zero read. Cancellation/timeout cannot prove reference; stop uses existing urgent path.",
+      "choices": [
+        "MotionCommandBit.START_HOMING"
+      ]
     }
   ],
   "coverage_notes": [
@@ -798,6 +926,7 @@
     "Prompt09 re-audit enforces readiness through both write budgets and current-time consumed reference validation; docs/reports/ess_release_09_audit_2026-10-04.md records fresh software and read-only evidence. Relative motion/staging hardware dispositions remain NOT_RUN.",
     "Prompt10 implements absolute/wrapped finite positioning and explicit zero-only device clear through the same owner and public preparation/operation APIs. Motion/clear physical qualification remains NOT_RUN; host arithmetic/read-only checks never replace independent shaft or linear travel evidence.",
     "Prompt12 derives pair_write_policy for every writable pair from the same register ledger: exact reviewed FC10 windows, split-FC06 denial and unresolved interpretation/wire-form reasons. This adds no typed-write or hardware credit; see docs/ess_pair_writes.md.",
-    "Prompt13 implements seven typed single-word settings and raw paired-limit reads; unavailable limit-pair writes remain UNSUPPORTED. Settings enum choices receive WRITE coverage separately from native action choices. ACK/readback never imply active or saved settings."
+    "Prompt13 implements seven typed single-word settings and raw paired-limit reads; unavailable limit-pair writes remain UNSUPPORTED. Settings enum choices receive WRITE coverage separately from native action choices. ACK/readback never imply active or saved settings.",
+    "Prompt14 accounts for all35 homing methods; executable33/34/35 receive narrow native staging/trigger coverage. External-switch methods remain unimplemented pending edge/return and prompt15 assignment/fixture evidence;18 and collision methods remain unresolved. Existing auxiliary7 is a prerequisite, never typed setter coverage. Offset write obligation is IN_PROGRESS: zero-only complete reviewed window, no nonzero encoding or pair expansion."
   ]
 }

@@ -1,5 +1,7 @@
 # MotorControl-RS standalone CLI contract
 
+Prompt14 adds `home methods` and `home METHOD SEARCH_NATIVE RETURN_NATIVE RAMP_NATIVE zero [address]`, plus `profile ess_rs home ...`, through [the installed homing API](ess_homing.md). Methods33/34/35 are implemented; all35 method dispositions and reasons are queryable. Production timing/method gates remain closed; parameters are native words, not inferred RPM or acceleration.
+
 Implemented driver routes: `profile ess_rs driver read [address]` and
 `profile ess_rs driver set FIELD INTEGER [FIELD INTEGER ...] [address]` use the
 same public [driver preparation](ess_driver_settings.md). Groups validate before

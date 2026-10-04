@@ -1,5 +1,7 @@
 # MotorControl-RS
 
+[Bounded ESS homing](docs/ess_homing.md) implements internal-index methods33/34 and current-position35 with checked staging, fresh completion transitions and zero/reference evidence. All35 documented methods have explicit prerequisites and dispositions; physical homing remains gated.
+
 A framework-independent serial motion library, starting with STEPPERONLINE
 ESS23-RS10/RS20. The package is `MotorControl-RS`; the C++ namespace, include
 directory and CMake package/target are `MotorControlRS`. The recommended GitHub

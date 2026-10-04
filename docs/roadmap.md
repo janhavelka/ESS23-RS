@@ -7,7 +7,7 @@ future version numbers are not commitments.
 
 The [ESS release prompt set](prompts/ess_release/README.md) turns these stages
 into 30 ordered implementation blocks with tests, independent audits and
-evidence handoffs. Prompts 01–13 have implementation and available verification
+evidence handoffs. Prompts 01-14 have implementation and available verification
 dispositions. [Prompt12](reports/ess_release_12_2026-10-04.md) consolidates the
 four reviewed FC10 windows into generated policy and records all paired-write
 proof gaps. Its [fresh audit](reports/ess_release_12_audit_2026-10-04.md) fixes
@@ -15,7 +15,7 @@ generator address consistency and repeats native/build/read-only checks.
 No new physical write qualification is implied. [Prompt13](reports/ess_release_13_2026-10-04.md)
 implements typed single-word settings and raw limit reads; its
 [fresh audit](reports/ess_release_13_audit_2026-10-04.md) corrects response-source
-settlement and axis prerequisite caches. Prompt 14 is next when dispatched.
+settlement and axis prerequisite caches. Prompt14 adds bounded methods33/34/35; prompt15 is next when separately dispatched.
 [Prompt10](reports/ess_release_10_2026-10-04.md) adds absolute/wrapped
 coordinates and device zero-clear while physical comparisons remain gated.
 Its [fresh audit](reports/ess_release_10_audit_2026-10-04.md) fixes host-reference
@@ -80,7 +80,7 @@ this session; integrating there is a separate delivery step.
 | 3. Small bus-owner reference | Bounded request queue, retained results, fairness, deadlines and priority for a pending stop after settling in-flight TX | Multiple simulated clients, full queue, cancellation and starvation tests; read-only hardware regression under load | Prompts 01–03 implemented/native/build PASS; actual owner console and read-only loaded/interleaved timer bench PASS; no physical stop or electrical qualification |
 | 4. Typed ESS observations | Identity, firmware/configuration, alarms, readiness and position/velocity observations | Original-manual review; exact model readback; validity/freshness independent of communication health | Prompts 05–06 implement typed reads and separate health; bench SKU is user-confirmed ESS23-RS20; wire-code/firmware interpretation, feedback source/sign/units and motion qualification remain unresolved |
 | 5. First controlled motion | Explicit enable/release, small relative move and documented stop | Verified units and limits, acknowledgement vs completion, interrupted/lost replies, stop while another operation is active; bench measurements | Exact preparation in 07 and bounded action/stop software in 08 pass; physical actions remain gated, first move belongs to 09 |
-| 6. Complete common motion API | Absolute/relative position, step/angle/travel modes, velocity, acceleration, homing and fault clear where supported | Same public API in firmware and CLI; unsupported operations fail before TX; origin/rounding/path policy tested | 07–11 implement exact preparation, origins, finite relative/absolute/wrapped positioning, zero clear and finite serial velocity/shared stop; acceleration mapping/homing and physical qualification remain open |
+| 6. Complete common motion API | Absolute/relative position, step/angle/travel modes, velocity, acceleration, homing and fault clear where supported | Same public API in firmware and CLI; unsupported operations fail before TX; origin/rounding/path policy tested | 07–11 implement exact preparation, origins, finite relative/absolute/wrapped positioning, zero clear and finite serial velocity/shared stop; bounded homing33/34/35 implemented in14; acceleration mapping, external-switch methods and physical qualification remain open |
 | 7. ESS native coverage and discovery | Typed documented ESS extensions; bounded non-changing discovery | Coverage matrix for every documented command/field; uncertain firmware behavior marked explicitly; read side effects reviewed | Ledger/codecs and typed identity/config reads exist; complete operation inventory derives remaining obligations; broader helpers/discovery pending |
 | 8. Platform and release qualification | Arduino and native ESP-IDF examples, package/install checks, maintenance documentation | Clean consumer builds; repeatable hardware suite, extended soak, resource budgets, documented exact supported models and limitations | CMake/IDF core consumption exists; native IDF application and release evidence pending |
 
@@ -180,4 +180,6 @@ Prompt13 implements [typed driver settings](ess_driver_settings.md), checked
 ACK/readback/partial progress and shared settings-effect invalidation. Native,
 installed package, firmware and read-only COM13 checks pass; actual settings
 changes/restoration and software-limit movement remain NOT RUN. Pair setters
-stay guarded. Prompt14 is next only when separately dispatched.
+stay guarded. Prompt14 now implements the bounded33/34/35 subset; prompt15 remains separately dispatched.
+
+Prompt14 [homing delivery](reports/ess_release_14_2026-10-04.md) reuses checked staging/trigger and priority stop with fresh transition/zero proof, explicit35-method coverage and conservative reference age. Native/package/firmware and current-image read-only/gate checks are separate from physical homing qualification, which remains NOT RUN. External input methods await15 and actual fixtures; collision and nonzero offset semantics remain unresolved.

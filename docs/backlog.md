@@ -1,5 +1,14 @@
 # Features implementation tasks and open questions
 
+## Prompt 14 homing and reference
+
+[Handoff](reports/ess_release_14_2026-10-04.md), [API](ess_homing.md) and [35-method table](ess_homing_methods.md):
+- [x] Typed internal-index33/34 and current-position35 staging/trigger/observation/zero sequences, installed API and common/profile console routes.
+- [x] Fresh low-to-high homed evidence, bounded status polls, stop preemption, copied provenance and reference-generation exhaustion guards.
+- [ ] Physical homing/zero/return qualification: timing/echo, method mechanics, native rate/ramp, active auxiliary7 and native-coordinate correspondence remain missing.
+- [ ] External-switch methods: prompt15 must revisit actual wiring, existing assignments/polarity, initial levels, branch-specific edges and return observations; no setter or switched trajectory is claimed here.
+- [ ] Method18 conflicting limit diagram, collision negative encoding/parameter conflicts, nonzero offset order/sign/scale remain unresolved.
+
 ## Prompt 13 driver settings and software limits
 
 [Handoff](reports/ess_release_13_2026-10-04.md): typed reads and seven stopped-state
@@ -8,7 +17,7 @@ configuration effects are implemented/native tested. Current-image read-only
 COM13/gates pass. Physical writes/restoration remain NOT RUN behind timing/FC06/
 input qualification. Positive/negative pair writes remain explicitly unsupported;
 soft-limit movement needs qualified encoding, homing/reference and fixture
-evidence. Homing and optional input changes remain with 14/15.
+evidence. External-switch homing evidence and optional input changes remain with15 and fixture qualification.
 
 [Fresh audit](reports/ess_release_13_audit_2026-10-04.md) fixes unconfirmed
 readback settlement, shared driver/configuration baseline ordering, secondary
