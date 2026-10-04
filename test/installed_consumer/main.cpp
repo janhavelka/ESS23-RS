@@ -97,6 +97,12 @@ int main() {
         moving.prepared.effectiveNative != 1000) return 25;
     if (!MotorControlRS::prepareSetDevicePosition(action, target, 10, 0, true, 2000, 100000) ||
         !nextAction(action, 2000, work) || work.reg != 0x2D || work.value != 49) return 26;
-    if (!invalidateAxisReference(axis, reference) || axis.originKnown || reference.nativeKnown) return 27;
+    reference.idle = true; reference.nowUs = 2000;
+    AxisConfig candidate = axis;
+    candidate.units.settings.velocity = VelocityUnit(PositionUnit::TURNS, TimeUnit::MINUTE);
+    if (!configureAxis(axis, candidate, reference, &reference) || !reference.nativeKnown ||
+        reference.configurationGeneration != axis.generation || reference.observedUs != 1900 ||
+        reference.maximumAgeUs != 1000) return 27;
+    if (!invalidateAxisReference(axis, reference) || axis.originKnown || reference.nativeKnown) return 28;
     return 0;
 }

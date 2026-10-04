@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Preserve reference age across host preference changes and invalidate origins
+  on external movement during stop or other axis reservations. Retain clear
+  uncertainty through failed observations, result release and recovery.
+
 - Add exact wrapped paths and shared finite absolute/angle motion preparation,
   copied reference provenance, zero-only ESS device position clear and coordinate
   confidence invalidation. Expose common/native console and Python routes;

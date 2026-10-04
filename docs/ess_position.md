@@ -126,6 +126,13 @@ changes no motor counter and requires idle stationary native reference evidence.
 The current board cannot establish that reference from unsigned raw feedback
 or an old zero readback.
 
+Host preference and limit edits preserve unchanged coordinate interpretation
+through `configureAxis`'s optional retained-reference output, including its
+original observation time and age limit. Actual interpretation changes clear
+that reference. A same-axis reservation does not hide observed external motion:
+only an active move with accepted trigger bytes suppresses its own movement
+invalidation until terminal settlement.
+
 CLI grammar is:
 
 ```text

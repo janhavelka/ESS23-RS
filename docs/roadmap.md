@@ -10,6 +10,9 @@ into 30 ordered implementation blocks with tests, independent audits and
 evidence handoffs. Prompts 01–10 have implementation and available verification
 dispositions. [Prompt10](reports/ess_release_10_2026-10-04.md) adds absolute/wrapped
 coordinates and device zero-clear while physical comparisons remain gated.
+Its [fresh audit](reports/ess_release_10_audit_2026-10-04.md) fixes host-reference
+retention and external-motion invalidation, with independent reviews and another
+38 read-only frames on the corrected image. Physical motion/clear remains NOT RUN.
 The [relative-position handoff](reports/ess_release_09_2026-10-04.md) supplies finite staging/trigger/completion APIs while physical moves remain gated. The [action/stop handoff](reports/ess_release_08_2026-10-04.md)
 has native reservations, uncertainty and priority stop, plus read-only COM13 and
 zero-TX gate evidence. Physical actions and motion require independent timing/echo

@@ -1,5 +1,5 @@
 /** @file Actions.h
- * @brief Finite ESS enable, release, alarm clear and stop sequences. No I/O.
+ * @brief Finite ESS enable, release, alarm/position clear and stop sequences. No I/O.
  * SPDX-License-Identifier: MIT
  */
 #pragma once
@@ -26,7 +26,8 @@ struct ActionEvidence {
     FrameError frameError = FrameError::NONE;
 };
 /** Caller-owned state; treat fields as read-only between calls. One command is
- * followed by bounded non-consuming 0x0006/2 observations. No command replay or
+ * followed by bounded non-consuming observations: 0x000A/2 for position clear,
+ * otherwise 0x0006/2. No command replay or
  * parameter staging occurs. step=0 is the write; positive tokens identify each
  * distinct observation, including waits before admission. */
 struct ActionContext {

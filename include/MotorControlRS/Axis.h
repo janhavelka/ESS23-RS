@@ -115,9 +115,12 @@ Status rationalToDouble(const Rational& value, double& output);
 Status validateAxisConfig(const AxisConfig& config);
 /** Validate a supplied stationary/idle witness and atomically advance generation.
  * Interpretation changes invalidate origins/soft limits. Preferences remain
- * independent. No drive request, write or motion occurs. */
+ * independent. Optional retainedReference preserves the witness and its original
+ * observation age under the new generation when interpretation is unchanged;
+ * otherwise it receives an empty reference. It may alias evidence. Configuration
+ * and retainedReference stay unchanged on error. No drive traffic occurs. */
 Status configureAxis(AxisConfig& current, const AxisConfig& candidate,
-                     const AxisReference& evidence);
+                     const AxisReference& evidence, AxisReference* retainedReference = nullptr);
 /** Set host zero only from established stationary native-reference evidence.
  * Advances generation and invalidates soft limits; changes no drive counter. */
 Status setAxisOrigin(AxisConfig& config, int64_t originNative,

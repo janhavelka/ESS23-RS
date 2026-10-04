@@ -31,6 +31,8 @@ Prompt10 adds shared absolute/wrapped-angle preparation and execution, zero-only
 device clear, host-origin/reference invalidation and all spatial-unit CLI routes.
 The [handoff](reports/ess_release_10_2026-10-04.md) records native/package/build and
 read-only COM13 evidence separately from unperformed physical comparisons.
+The [fresh audit](reports/ess_release_10_audit_2026-10-04.md) corrects reference
+retention and external-motion invalidation and repeats required verification.
 
 Implemented blocks include exact target preparation, typed non-changing reads, pure unit conversion, an ESS register catalogue,
 checked wire codecs with a minimal probe and standalone build foundations.

@@ -434,7 +434,8 @@ Status validateAxisConfig(const AxisConfig& c) {
         return fail(AxisError::INVALID_ARGUMENT,"invalid axis interpretation/limits",Err::INVALID_CONFIG);
     return Ok();
 }
-Status configureAxis(AxisConfig& current, const AxisConfig& candidate, const AxisReference& e) {
+Status configureAxis(AxisConfig& current, const AxisConfig& candidate, const AxisReference& e,
+                     AxisReference* retainedReference) {
     Status s = validateAxisConfig(current); if (!s) return s;
     s = validateAxisConfig(candidate); if (!s) return s;
     s = evidence(current,e,true,false); if (!s) return s;
@@ -447,13 +448,21 @@ Status configureAxis(AxisConfig& current, const AxisConfig& candidate, const Axi
         s = evidence(current,e,true,true); if (!s) return s;
     }
     AxisConfig next = candidate;
-    if (!sameInterpretation(current.units,candidate.units)) {
+    const bool interpretationUnchanged = sameInterpretation(current.units,candidate.units);
+    if (!interpretationUnchanged) {
         next.originKnown = false; next.originSource = ScaleSource::UNKNOWN;
         next.encoderOriginKnown = false; next.encoderOriginSource = ScaleSource::UNKNOWN;
         next.softLimitsKnown = false;
     }
     s = increment(next); if (!s) return s;
-    current = next; return Ok();
+    AxisReference reference;
+    if (interpretationUnchanged) {
+        reference = e;
+        reference.configurationGeneration = next.generation;
+    }
+    current = next;
+    if (retainedReference) *retainedReference = reference;
+    return Ok();
 }
 Status setAxisOrigin(AxisConfig& c, int64_t origin, const AxisReference& e) {
     Status s = validateAxisConfig(c); if (!s) return s;

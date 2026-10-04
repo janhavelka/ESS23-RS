@@ -168,6 +168,26 @@ static void testHostConfiguration() {
     c.originKnown = true; c.originSource = ScaleSource::QUALIFIED; c.originNative = 11;
     assert(!validateAxisConfig(c));
 }
+static void testRetainedConfigurationReference() {
+    AxisConfig c = config(); c.originKnown = true; c.originSource = ScaleSource::QUALIFIED;
+    AxisReference ref = reference(c,17);
+    const uint64_t observed = ref.observedUs, age = ref.maximumAgeUs, now = ref.nowUs;
+    AxisConfig candidate = c; candidate.units.settings.velocity = VelocityUnit(PositionUnit::TURNS,TimeUnit::MINUTE);
+    AxisReference retained = ref; retained.nativePosition = 71;
+    ref.stationary = false;
+    assert(!configureAxis(c,candidate,ref,&retained));
+    assert(c.generation == 1 && retained.nativePosition == 71 && retained.configurationGeneration == 1);
+    ref.stationary = true;
+    assert(configureAxis(c,candidate,ref,&ref)); // Safe input/output alias.
+    assert(c.originKnown && ref.nativeKnown && ref.nativePosition == 17);
+    assert(ref.configurationGeneration == c.generation && ref.observedUs == observed && ref.maximumAgeUs == age && ref.nowUs == now);
+    candidate = c;
+    assert(configureAxis(c,candidate,ref,&ref)); // Idempotent mapping declaration.
+    assert(c.originKnown && ref.nativeKnown && ref.configurationGeneration == c.generation && ref.observedUs == observed);
+    candidate = c; candidate.units.commandPolarity = -candidate.units.commandPolarity;
+    assert(configureAxis(c,candidate,ref,&ref));
+    assert(!c.originKnown && !ref.nativeKnown && !ref.stationary && !ref.idle && ref.configurationGeneration == 0);
+}
 static void testRelativeRequestedRange() {
     AxisConfig c = config(); c.nativeMinimum = -2; c.nativeMaximum = 2;
     PreparedTarget out; out.effectiveNative = 71;
@@ -416,6 +436,7 @@ static void testWrappedIntegerOracle() {
 }
 int main() {
     testNative(); testRounding(); testFactorsAndOrigins(); testEncodersAndLimits(); testHostConfiguration();
+    testRetainedConfigurationReference();
     testRelativeRequestedRange(); testZeroRadiansAndCancellation(); testRadiansAndParsing();
     testWrappedCoordinates(); testWrappedRadiansAndInvalidation();
     testWrappedIntegerOracle();

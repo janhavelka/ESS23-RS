@@ -109,6 +109,13 @@ completion and record changes to the setup for the next session.
 
 ## Current status
 
+- [Prompt10 fresh audit](reports/ess_release_10_audit_2026-10-04.md): corrected
+  timer image, 38 read-only frames/358 RX bytes with zero transport/capture errors,
+  unchanged drive settings/state and zero-TX motion/clear gates. Owner/capture
+  maximum gaps158/56us, owner/worker stack headroom3572/3268 bytes. Load and
+  monitoring off, DE released, owner/results empty, no recovery requirement.
+  Physical motion, clear and equivalent-unit shaft comparisons remain NOT RUN.
+
 - [Prompt07 fresh audit](reports/ess_release_07_audit_2026-10-04.md): corrected timer
   image rejects malformed fractions before host effects and prepares zero radians
   exactly. Repeated 23 FC03 frames/209 RX bytes pass with zero transport errors

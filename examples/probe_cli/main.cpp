@@ -175,6 +175,14 @@ void invalidateAxis(App& a) {
 bool coordinateKnowledge(const App& a) {
     return a.axis.originKnown || a.axis.encoderOriginKnown || a.axis.softLimitsKnown || a.coordinateReference.nativeKnown;
 }
+bool triggeredMove(const App& a, uint8_t address) {
+    for (const auto& record : a.records) {
+        if (!record.moveOperation || record.address != address || terminal(a, record)) continue;
+        if (record.move.triggerEvidence.txAccepted ||
+            (record.move.step == 1 && record.requestId.owner && a.owner.txAccepted(record.requestId))) return true;
+    }
+    return false;
+}
 void serviceCoordinates(App& a, uint64_t now) {
     if (!coordinateKnowledge(a)) return;
     const auto& reference = a.coordinateReference;
@@ -184,7 +192,7 @@ void serviceCoordinates(App& a, uint64_t now) {
     }
     const auto& motion = a.stateCache.blocks[static_cast<uint8_t>(ESS::StateBlock::MOTION)];
     if (Probe::fresh(motion, a.axis.target, now, 5000000) &&
-        (motion.value.released || (motion.value.running && !axisReserved(a, a.axis.target.address))))
+        (motion.value.released || (motion.value.running && !triggeredMove(a, a.axis.target.address))))
         invalidateAxis(a);
 }
 MotorControlRS::AxisReference axisReference(const App& a) {
@@ -255,9 +263,8 @@ MotorControlRS::Status axisCommand(void* context, const Probe::AxisCommand& comm
     }
     if (scale) *scale = command.clear ? UnitScale() :
         UnitScale(static_cast<uint32_t>(command.value.numerator), static_cast<uint32_t>(command.value.denominator), ScaleSource::ASSUMED);
-    const Status status = configureAxis(a.axis, candidate, evidence);
+    const Status status = configureAxis(a.axis, candidate, evidence, &a.coordinateReference);
     if (status) {
-        a.coordinateReference.nativeKnown = false;
         view.configuration = a.axis;
     }
     return status;
@@ -683,7 +690,7 @@ void advanceReads(App& a, uint64_t sampled) {
                 if (block == static_cast<uint8_t>(ESS::StateBlock::FEEDBACK) && hadPosition && current.valid && current.value.pairKnown &&
                     current.observedLatestUs > previousSuccess && current.value.rawPosition != previousPosition &&
                     Probe::sameTarget(current.value.target, a.axis.target) && coordinateKnowledge(a) &&
-                    !axisReserved(a, a.axis.target.address)) invalidateAxis(a);
+                    !triggeredMove(a, a.axis.target.address)) invalidateAxis(a);
             }
             if (record.read.state != ReadState::ACTIVE) continue;
             a.owner.release(record.requestId); record.requestId = Rtu::RequestId();

@@ -48,6 +48,15 @@ Position, velocity and acceleration preferences remain independent `UnitSettings
 
 `invalidateAxisReference(config, reference)` handles caller-established loss, release, device clear or interpretation changes without traffic. It clears command/encoder origins, derived soft limits and supplied native/stationary/idle confidence while preserving scales and unit preferences. It advances generation normally. At `UINT32_MAX` or an already disabled generation zero, it returns `GENERATION_EXHAUSTED` and still clears confidence; it never wraps or revives a disabled axis. The application rejects dependent prepared work and retains historical observations/results under their original generations. ESS clear is a separate explicit zero-only device action, not a host-origin change or an arbitrary counter write.
 
+`configureAxis(current, candidate, evidence, &retainedReference)` optionally
+publishes the reference under the new generation when coordinate interpretation
+is unchanged. Preferences, limit edits and idempotent declarations preserve its
+original observation time, age limit and provenance; they do not refresh it.
+Interpretation changes clear the reference along with origins and derived
+limits. The output may alias `evidence`; failed calls leave both outputs
+unchanged. The console uses this same decision, so changing a rate preference
+cannot disable later reference-expiry invalidation.
+
 The existing console exposes synchronous, correlated host replies without reserving bus operation IDs:
 
 ```text

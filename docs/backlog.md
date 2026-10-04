@@ -510,6 +510,12 @@ from the still unperformed physical motion and dynamic-stop qualification.
 
 ## Prompt10 absolute coordinates and explicit clear disposition
 
+- [x] [Fresh audit](reports/ess_release_10_audit_2026-10-04.md): preserve reference
+  age across interpretation-preserving host edits; invalidate externally changed
+  position/running evidence during stop and other non-move reservations. Clear
+  ACK plus corrupt readback retains conflict through release/recovery without
+  replay. Native/package/build and corrected-image read-only COM13 checks PASS.
+
 - [x] Shared exact absolute/wrapped preparation with motor/load frames, preserved
   multi-turn targets, positive/negative/shortest paths, explicit half-turn ties,
   same-angle stay, requested/rounded limits and zero-displacement rejection.
