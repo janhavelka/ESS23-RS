@@ -85,13 +85,16 @@ struct App {
     MotorControlRS::Status codec;
     ESS::IdentityObservation identity;
     ESS::ConfigObservation configuration;
+    MotorControlRS::AxisConfig axis;
     uint32_t bindingGeneration = 1;
     MotorControlRS::ReadTarget communicationTarget;
     uint64_t communicationEarliestUs = 0, communicationLatestUs = 0;
     bool communicationKnown = false;
     MotorControlRS::ESS_RS::FrameError frameError = MotorControlRS::ESS_RS::FrameError::NONE;
     App() : runner(uart.port(), storage(tx, rx, trace), timing()),
-        owner(runner, busStorage(pending, results, producers)), console(host(this)) {}
+        owner(runner, busStorage(pending, results, producers)), console(host(this)) {
+        axis.target.id = axis.target.address = 1; axis.target.generation = bindingGeneration;
+    }
 };
 App* app = nullptr;
 bool emit(void* context, const char* text, std::size_t size) {
@@ -123,6 +126,76 @@ bool reading(const App& a) {
     for (const auto& record : a.records)
         if (record.operationId && record.typedRead && record.read.state == ReadState::ACTIVE) return true;
     return false;
+}
+// Raw observations keep their original transport generation. Only derived host
+// coordinates are invalidated; exhaustion disables preparation instead of wrap.
+void invalidateAxis(App& a) {
+    if (a.axis.generation)
+        a.axis.generation = a.axis.generation == UINT32_MAX ? 0 : a.axis.generation + 1;
+    a.axis.originKnown = a.axis.encoderOriginKnown = a.axis.softLimitsKnown = false;
+    a.axis.originSource = a.axis.encoderOriginSource = MotorControlRS::ScaleSource::UNKNOWN;
+    a.axis.target.generation = a.bindingGeneration;
+}
+MotorControlRS::AxisReference axisReference(const App& a) {
+    using namespace MotorControlRS;
+    AxisReference evidence;
+    evidence.target = a.axis.target; evidence.configurationGeneration = a.axis.generation;
+    evidence.nowUs = nowUs(); evidence.maximumAgeUs = 5000000;
+    evidence.idle = !a.owner.active() && !a.owner.pending() && !a.owner.recovering() &&
+        !a.owner.needsRecovery() && !uart.needsRecovery() && !reading(a) && !a.monitorState.settings.enabled;
+    const auto& motion = a.stateCache.blocks[static_cast<uint8_t>(ESS::StateBlock::MOTION)];
+    if (Probe::fresh(motion, a.axis.target, evidence.nowUs, evidence.maximumAgeUs)) {
+        evidence.observedUs = motion.observedEarliestUs;
+        evidence.source = ScaleSource::READBACK;
+        evidence.stationary = !motion.value.running && !motion.value.alarmFlag && motion.value.rawAlarm == 0;
+    }
+    // ESS pair signedness and its exact command relation remain unresolved.
+    // A zero raw position is insufficient evidence for nativeKnown or an origin.
+    return evidence;
+}
+MotorControlRS::Status axisCommand(void* context, const Probe::AxisCommand& command, Probe::AxisView& view) {
+    using namespace MotorControlRS;
+    App& a = *static_cast<App*>(context);
+    if (command.kind == Probe::AxisCommandKind::QUERY) { view.configuration = a.axis; return Ok(); }
+    const AxisReference evidence = axisReference(a);
+    if (command.kind == Probe::AxisCommandKind::PREPARE) {
+        PositionRequest request = command.position; request.configurationGeneration = a.axis.generation;
+        const Status status = preparePosition(request, a.axis, evidence.nativeKnown ? &evidence : nullptr, view.prepared);
+        if (status) view.configuration = a.axis;
+        return status;
+    }
+    if (command.kind == Probe::AxisCommandKind::ORIGIN) {
+        const Status status = setAxisOrigin(a.axis, command.value.numerator, evidence);
+        if (status) view.configuration = a.axis;
+        return status;
+    }
+    AxisConfig candidate = a.axis;
+    UnitScale* scale = nullptr;
+    switch (command.field) {
+    case Probe::AxisField::COMMAND_SCALE: scale = &candidate.units.commandStepsPerMotorTurn; break;
+    case Probe::AxisField::GEAR: scale = &candidate.units.motorTurnsPerLoadTurn; break;
+    case Probe::AxisField::FULL_STEP_SCALE: scale = &candidate.units.fullStepsPerMotorTurn; break;
+    case Probe::AxisField::LEAD: scale = &candidate.units.millimetresPerLoadTurn; break;
+    case Probe::AxisField::ENCODER_SCALE: scale = &candidate.units.encoder.countsPerUnit; break;
+    case Probe::AxisField::ENCODER_ID: candidate.units.encoder.sourceId = static_cast<uint32_t>(command.value.numerator); break;
+    case Probe::AxisField::ENCODER_BASIS: candidate.units.encoder.basis = command.encoderBasis; break;
+    case Probe::AxisField::ENCODER_POLARITY: candidate.units.encoder.polarity = static_cast<int8_t>(command.value.numerator); break;
+    case Probe::AxisField::POLARITY: candidate.units.commandPolarity = static_cast<int8_t>(command.value.numerator); break;
+    case Probe::AxisField::POSITION_UNIT: candidate.units.settings.position = command.positionUnit; break;
+    case Probe::AxisField::VELOCITY_UNIT: candidate.units.settings.velocity = command.velocityUnit; break;
+    case Probe::AxisField::ACCELERATION_UNIT: candidate.units.settings.acceleration = command.accelerationUnit; break;
+    case Probe::AxisField::NATIVE_LIMITS:
+        candidate.nativeMinimum = command.value.numerator; candidate.nativeMaximum = command.secondValue.numerator; break;
+    case Probe::AxisField::SOFT_LIMITS:
+        candidate.softLimitsKnown = !command.clear;
+        candidate.softMinimum = command.value.numerator; candidate.softMaximum = command.secondValue.numerator; break;
+    case Probe::AxisField::RELATIVE_BASES: candidate.supportedRelativeBases = static_cast<uint8_t>(command.value.numerator); break;
+    }
+    if (scale) *scale = command.clear ? UnitScale() :
+        UnitScale(static_cast<uint32_t>(command.value.numerator), static_cast<uint32_t>(command.value.denominator), ScaleSource::ASSUMED);
+    const Status status = configureAxis(a.axis, candidate, evidence);
+    if (status) view.configuration = a.axis;
+    return status;
 }
 void snapshot(void* context, Probe::Snapshot& s) {
     App& a = *static_cast<App*>(context);
@@ -361,6 +434,7 @@ Probe::Action recover(void* context, uint32_t commandId, uint32_t& operationId) 
     const uint64_t now = uart.sample(); uint64_t id = 0;
     if (a.owner.recover(now, now + 2000000, id) != Rtu::RecoveryAdmission::ACCEPTED) return Probe::Action::FAILED;
     ++a.bindingGeneration;
+    invalidateAxis(a);
     a.monitorState.settings.enabled = false; a.monitorState.remaining = 0;
     for (auto& record : a.records) if (record.operationId && record.typedRead &&
         record.read.state == ReadState::ACTIVE && !record.requestId.owner)
@@ -498,6 +572,7 @@ Probe::Host host(App* a) {
     h.startProbe = probe; h.startCaptureRead = captureRead; h.recover = recover; h.resetStats = reset;
     h.startTypedRead = typedRead;
     h.monitor = monitor;
+    h.axis = axisCommand;
     h.result = lookup; h.cancel = cancel; h.release = release;
 #if MOTORCONTROLRS_LOAD_FIXTURE
     h.load = load;
@@ -522,8 +597,17 @@ void deliver(App& a) {
                 record.observed = true;
                 if (record.read.kind == ESS::ReadKind::IDENTITY && record.operationId > a.identity.operationId)
                     ESS::getIdentity(record.read, a.identity);
-                if (record.read.kind == ESS::ReadKind::CONFIG && record.operationId > a.configuration.operationId)
-                    ESS::getConfig(record.read, a.configuration);
+                if (record.read.kind == ESS::ReadKind::CONFIG && record.operationId > a.configuration.operationId) {
+                    const ESS::RawConfig old = a.configuration.raw;
+                    const bool same = a.configuration.operationId && Probe::sameTarget(a.configuration.target, record.read.target);
+                    if (ESS::getConfig(record.read, a.configuration)) {
+                        const auto& updated = a.configuration.raw;
+                        if (same &&
+                            (old.direction != updated.direction || old.subdivision != updated.subdivision ||
+                             old.wordOrder != updated.wordOrder || old.algorithm != updated.algorithm ||
+                             old.encoderResolution != updated.encoderResolution)) invalidateAxis(a);
+                    }
+                }
             }
             if (!a.console.reportRead(record.commandId, record.operationId, record.read)) continue;
             record.delivered = true; record.deliveredUs = nowUs(); continue;

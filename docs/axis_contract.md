@@ -2,9 +2,10 @@
 
 This is the accepted design for the common axis layer of `MotorControlRS`.
 It defines the intended callable library behavior for applications and consoles.
-`Units.h` currently implements pure displacement, velocity and acceleration
-conversion with independent unit preferences; origins, target quantization,
-motion limits and operation preparation below remain future work. See
+`Units.h` implements displacement, velocity and acceleration conversion with
+independent preferences. Prompt 07 adds [exact host target preparation](axis_preparation.md),
+origins, reference evidence, quantization and native soft limits through `Axis.h`.
+Motion execution, wrapped-angle resolution and profile ramp mapping remain future work. See
 [encoder and units evidence](reference/06_encoder_units.md) for the initial API.
 The [architecture](architecture.md) defines the three layers and ownership,
 the [profile contract](profile_contract.md) defines complete family access,

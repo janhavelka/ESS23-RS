@@ -706,6 +706,71 @@ void completeState(uint32_t operation, uint16_t alarm = 0, uint16_t motion = 0) 
     readStep(operation, 1, registerReply({0x8005, 0x4002}));
     readStep(operation, 2, registerReply({0x1234, 0xABCD, 0xFFFF})); pump(100);
 }
+void testHostAxisPreparationUsesPublicApiWithoutTraffic() {
+    using namespace MotorControlRS;
+    fresh(); timerCapture(); command("@1 axis config\n"); contains("\"motion_command\":false");
+    assert(app->axis.generation == 1 && app->axis.units.commandStepsPerMotorTurn.source == ScaleSource::UNKNOWN);
+    command("@2 prepare absolute -9223372036854775808 steps native\n");
+    contains("\"effective_native\":-9223372036854775808"); contains("\"displacement_known\":false");
+    command("@3 axis config set command 1000\n"); contains("\"ok\":false");
+    assert(app->axis.generation == 1 && hardware.writes == 0);
+    command("@4 read state\n"); completeState(view(0).operationId);
+    command("@5 axis config set relative-bases 1\n"); contains("\"ok\":true");
+    command("@6 prepare relative 9007199254740993 steps native actual\n");
+    contains("\"effective_native\":9007199254740993"); contains("\"exact_arithmetic\":true");
+    command("@7 axis config set command 1000\n"); contains("\"ok\":true");
+    command("@8 axis config set gear 5/2\n"); contains("\"ok\":true");
+    PositionRequest request; request.configurationGeneration = app->axis.generation;
+    request.value = Rational(90); request.unit = PositionUnit::DEGREES; request.frame = CoordinateFrame::LOAD;
+    PreparedTarget expected; assert(preparePosition(request, app->axis, nullptr, expected));
+    command("@9 prepare relative 90 deg load actual\n");
+    const std::string effective = "\"effective_native\":" + std::to_string(expected.effectiveNative);
+    contains(effective.c_str()); assert(expected.effectiveNative == 625);
+    command("@10 prepare relative 1/2 steps native actual nearest 1/2\n");
+    contains("\"effective_native\":0"); contains("\"zero_displacement\":true");
+    const auto generation = app->axis.generation;
+    command("@11 axis config set position-unit deg\n");
+    command("@12 axis config set velocity-unit rpm\n");
+    command("@13 axis config set acceleration-unit rad/s2\n");
+    assert(app->axis.generation == generation + 3);
+    assert(app->axis.units.settings.position == PositionUnit::DEGREES);
+    assert(app->axis.units.settings.velocity.position == PositionUnit::TURNS && app->axis.units.settings.velocity.time == TimeUnit::MINUTE);
+    assert(app->axis.units.settings.acceleration.position == PositionUnit::RADIANS);
+    command("@14 axis origin 0\n"); contains("\"ok\":false");
+    assert(!app->axis.originKnown && hardware.writes == 3);
+    command("@15 prepare absolute 1 deg load\n"); contains("\"ok\":false");
+    command("@16 axis config set acceleration-unit rpm/s2\n"); contains("\"ok\":false");
+    assert(app->axis.generation == generation + 3 && hardware.writes == 3);
+}
+void testAxisConfigurationRequiresFreshIdleEvidenceAndInvalidatesPreparation() {
+    using namespace MotorControlRS;
+    fresh(); timerCapture(); command("@1 read state\n"); completeState(view(0).operationId);
+    command("@2 axis config set relative-bases 1\n"); assert(app->axis.generation == 2);
+    PositionRequest prior; prior.configurationGeneration = app->axis.generation; prior.value = Rational(3);
+    const uint32_t probe = admit(3); startTx(3);
+    command("@4 axis config set command 1000\n"); contains("\"ok\":false"); assert(app->axis.generation == 2);
+    reply(probe, 3);
+    command("@5 axis config set command 1000\n"); contains("\"ok\":true");
+    PreparedTarget retained; retained.effectiveNative = 123;
+    assert(!preparePosition(prior, app->axis, nullptr, retained) && retained.effectiveNative == 123);
+    const auto generation = app->axis.generation;
+    advanceHardware(hardware.time + 5000001);
+    command("@6 status\n"); command("@7 axis config set gear 1\n"); contains("\"ok\":false");
+    assert(app->axis.generation == generation && hardware.writes == 4);
+    // Failed/raw history survives, but transport recovery invalidates host targets.
+    uint32_t operation = 0; assert(recover(app, 8, operation) == Probe::Action::OK);
+    assert(app->axis.generation == generation + 1 && app->axis.target.generation == app->bindingGeneration);
+    assert(app->stateCache.blocks[0].valid && app->stateCache.blocks[0].value.target.generation == 1);
+    // Exhaustion stays invalid across later recovery/configuration invalidations;
+    // an old generation-one preparation must never become usable again.
+    app->axis.generation = UINT32_MAX;
+    invalidateAxis(*app); assert(app->axis.generation == 0);
+    invalidateAxis(*app); assert(app->axis.generation == 0);
+    prior.configurationGeneration = 1;
+    assert(!preparePosition(prior, app->axis, nullptr, retained) && retained.effectiveNative == 123);
+    command("@9 prepare relative 3 steps native actual\n"); contains("\"ok\":false");
+    assert(app->axis.generation == 0 && hardware.writes == 4);
+}
 void testStateReadUnknownBitsAndPassiveQueries() {
     fresh(); timerCapture(); command("@1 read state\n"); const uint32_t operation = view(0).operationId;
     readStep(operation, 0, registerReply({4, 0x8010}));
@@ -957,6 +1022,8 @@ int main() {
     testStateCacheRetainsValuesAcrossFailureAndGenerationChange();
     testStateCacheLateDeliveryCannotRejuvenateObservation();
     testStateReadUnknownBitsAndPassiveQueries(); testStatePartialRefreshPreservesPreviousBlocks();
+    testHostAxisPreparationUsesPublicApiWithoutTraffic();
+    testAxisConfigurationRequiresFreshIdleEvidenceAndInvalidatesPreparation();
     testStateDelayedServiceAndStaleConfigurationStayExplicit(); testMonitorDisabledFiniteAndOwnResultRelease();
     testNewConfigurationSeparatesHistoricalFeedbackInterpretation();
     testMonitorCancellationSettlesTransmission(); testMonitorYieldsToUrgentOwnerAdmission();

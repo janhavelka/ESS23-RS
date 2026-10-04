@@ -242,6 +242,68 @@ class Serial:
 
 
 class Framing(unittest.TestCase):
+    def test_host_preparation_preserves_integer_precision_and_correlation(self):
+        value = 9007199254740993
+        def handler(request_id, command, args):
+            if command == "prepare":
+                return encoded(reply(request_id, command, code="OK", detail=0, bus_traffic=False,
+                    motion_command=False, wire_motion="unimplemented", configuration_generation=2,
+                    target=1, address=1, binding_generation=1,
+                    requested=dict(numerator=value, denominator=1, unit="steps", frame=0, relative=True, basis=0, rounding=0),
+                    requested_native=dict(integral=value, numerator=0, denominator=1, negative=False),
+                    requested_native_approximate=None, effective_native=value, endpoint_known=False, endpoint_native=0,
+                    displacement_known=True, displacement_native=value, zero_displacement=False,
+                    rounding_error=0, approximation_error_bound=0, exact_arithmetic=True))
+            return Serial.normal(request_id, command, args)
+        console = self.session(handler)
+        result = console.command("prepare", host_args=("relative", str(value), "steps", "native", "actual"))
+        self.assertEqual(result["effective_native"], value)
+        self.assertEqual(self.port.writes[-1], b"@2 prepare relative 9007199254740993 steps native actual\n")
+        self.assertFalse(console.operations)
+        result["bus_traffic"] = True
+        with self.assertRaises(bench.BenchError):
+            bench.Console._check_axis(result, True)
+        result["bus_traffic"] = False
+        result["requested_native"]["denominator"] = False
+        with self.assertRaises(bench.BenchError):
+            bench.Console._check_axis(result, True)
+
+    def test_host_arguments_are_bounded_before_transmission(self):
+        console = self.session()
+        for arguments in (None, (), ["config"], ("config\nrecover",), ("config set",), ("\u00e9",),
+                          ("x",) * 9, ("x" * 128,)):
+            with self.subTest(arguments=arguments), self.assertRaises(ValueError):
+                console.command("axis", host_args=arguments)
+        with self.assertRaises(ValueError):
+            console.command("probe", host_args=("config",))
+        self.assertEqual(self.port.writes, [b"@1 version\n"])
+
+    def test_host_axis_rejection_remains_local(self):
+        def handler(request_id, command, args):
+            if command == "axis":
+                return encoded(reply(request_id, command, ok=False, code="INVALID_CONFIG", detail=7,
+                    bus_traffic=False, motion_command=False))
+            return Serial.normal(request_id, command, args)
+        console = self.session(handler)
+        self.assertFalse(console.command("axis", host_args=("origin", "0"))["ok"])
+        self.assertTrue(console.synchronized)
+        self.assertFalse(console.operations)
+
+    def test_exhausted_host_generation_is_queryable_but_never_prepared(self):
+        def handler(request_id, command, args):
+            if command == "axis":
+                return encoded(reply(request_id, command, code="OK", detail=0, bus_traffic=False,
+                    motion_command=False, wire_motion="unimplemented", configuration_generation=0,
+                    target=1, address=1, binding_generation=1,
+                    operator_scales=[dict(numerator=0, denominator=1, source=0) for _ in range(5)]))
+            return Serial.normal(request_id, command, args)
+        console = self.session(handler)
+        result = console.command("axis", host_args=("config",))
+        self.assertEqual(result["configuration_generation"], 0)
+        self.assertTrue(console.synchronized)
+        with self.assertRaisesRegex(bench.BenchError, "configuration generation"):
+            bench.Console._check_axis(result, True)
+
     def session(self, handler=None, fragment=256, identify=True):
         self.clock = Clock()
         self.port = Serial(handler, fragment)

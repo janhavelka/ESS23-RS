@@ -29,6 +29,10 @@ struct Fake {
     unsigned resultQueries = 0, cancellations = 0, releases = 0;
     Probe::ResultView view;
     bool resultAvailable = true;
+    unsigned axisCalls = 0;
+    Probe::AxisCommand axisRequest;
+    MotorControlRS::AxisConfig axisConfig;
+    MotorControlRS::Status axisStatus;
     Probe::Action cancelAction = Probe::Action::OK, releaseAction = Probe::Action::OK;
     uint8_t address = 0;
     std::vector<std::string> lines;
@@ -94,6 +98,15 @@ struct Fake {
     static Probe::Action release(void* context, uint32_t operation) {
         Fake& self = *static_cast<Fake*>(context); ++self.releases; self.id = operation;
         return self.releaseAction;
+    }
+    static MotorControlRS::Status axis(void* context, const Probe::AxisCommand& request, Probe::AxisView& out) {
+        Fake& self = *static_cast<Fake*>(context);
+        ++self.axisCalls; self.axisRequest = request;
+        out.configuration = self.axisConfig;
+        if (!self.axisStatus) return self.axisStatus;
+        if (request.kind != Probe::AxisCommandKind::PREPARE) return MotorControlRS::Ok();
+        auto position = request.position; position.configurationGeneration = self.axisConfig.generation;
+        return MotorControlRS::preparePosition(position, self.axisConfig, nullptr, out.prepared);
     }
     Probe::Host host(bool withLoad = false, bool withOwner = false) {
         Probe::Host result;
@@ -724,6 +737,100 @@ void testStateRoutesCacheAndPolling() {
     send(unsupported, "monitor off\n"); absent.contains("unavailable");
 }
 
+void testExactHostPreparationAndParsing() {
+    namespace Core = MotorControlRS;
+    Fake fake;
+    fake.axisConfig.target.id = fake.axisConfig.target.address = 1;
+    fake.axisConfig.target.generation = 1;
+    fake.axisConfig.supportedRelativeBases = 7;
+    auto host = fake.host(); host.axis = Fake::axis;
+    Probe::Console console(host);
+    send(console, "axis config\n"); fake.contains("\"motion_command\":false"); fake.contains("\"origin_known\":false");
+    send(console, "@4294967295 prepare relative -9223372036854775808 steps native actual\n");
+    fake.contains("\"ok\":true"); fake.contains("\"effective_native\":-9223372036854775808");
+    fake.contains("\"id\":4294967295"); fake.contains("\"bus_traffic\":false");
+    Core::PositionRequest direct; direct.configurationGeneration = fake.axisConfig.generation;
+    direct.value = Core::Rational(INT64_MIN);
+    Core::PreparedTarget expected;
+    assert(Core::preparePosition(direct, fake.axisConfig, nullptr, expected));
+    assert(expected.effectiveNative == fake.axisRequest.position.value.numerator);
+    send(console, "prepare absolute 9223372036854775807 steps native\n");
+    fake.contains("\"effective_native\":9223372036854775807");
+    send(console, "prepare relative -5/2 steps native commanded nearest 1\n");
+    fake.contains("\"effective_native\":-2"); fake.contains("\"rounding_error\":0.5");
+    direct.value = Core::Rational(-5, 2); direct.basis = Core::RelativeBasis::COMMANDED;
+    direct.rounding = Core::Rounding::NEAREST; direct.maximumQuantizationError = 1;
+    assert(Core::preparePosition(direct, fake.axisConfig, nullptr, expected));
+    assert(expected.effectiveNative == -2 && expected.roundingError == 0.5);
+    // The longest admitted full-width rational includes explicit correlation and options.
+    send(console, "@4294967295 prepare relative -9223372036854775808/18446744073709551615 steps native queued nearest 1\n");
+    fake.contains("\"ok\":true"); assert(fake.axisRequest.position.value.denominator == UINT64_MAX);
+    send(console, "prepare relative 0.001 steps native actual zero 1\n");
+    fake.contains("\"zero_displacement\":true");
+    send(console, "prepare relative 1.5 steps native actual\n"); fake.contains("\"ok\":false");
+    fake.axisConfig.units.commandStepsPerMotorTurn = Core::UnitScale(1000, 1, Core::ScaleSource::ASSUMED);
+    send(console, "prepare relative 1 rad motor actual nearest 1 0.0001\n");
+    fake.contains("\"ok\":true"); fake.contains("\"requested_native\":null");
+    fake.contains("\"requested_native_approximate\":159."); fake.contains("\"exact_arithmetic\":false");
+    send(console, "prepare relative -5/2 steps native actual nearest 9223372036854775807/18446744073709551615\n");
+    fake.contains("\"ok\":false"); // An allowance just below 0.5 cannot round upward to admit the tie.
+    send(console, "axis config set command 1000/2\n");
+    assert(fake.axisRequest.field == Probe::AxisField::COMMAND_SCALE && fake.axisRequest.value.numerator == 500 && fake.axisRequest.value.denominator == 1);
+    send(console, "axis config set lead none\n"); assert(fake.axisRequest.clear);
+    send(console, "axis config set relative-bases 7\n"); assert(fake.axisRequest.field == Probe::AxisField::RELATIVE_BASES);
+    send(console, "axis config set native-limits -9223372036854775808 9223372036854775807\n");
+    assert(fake.axisRequest.value.numerator == INT64_MIN && fake.axisRequest.secondValue.numerator == INT64_MAX);
+    send(console, "axis config set soft-limits none\n"); assert(fake.axisRequest.clear);
+    send(console, "axis config set position-unit deg\n"); assert(fake.axisRequest.positionUnit == Core::PositionUnit::DEGREES);
+    send(console, "axis config set velocity-unit rpm\n"); assert(fake.axisRequest.velocityUnit.time == Core::TimeUnit::MINUTE);
+    for (const char* unit : {"steps/s2", "deg/s2", "rad/s2", "rpm/s"}) {
+        send(console, std::string("axis config set acceleration-unit ") + unit + "\n");
+        assert(fake.axisRequest.field == Probe::AxisField::ACCELERATION_UNIT);
+    }
+    assert(fake.axisRequest.accelerationUnit.velocityTime == Core::TimeUnit::MINUTE && fake.axisRequest.accelerationUnit.accelerationTime == Core::TimeUnit::SECOND);
+    send(console, "axis origin -9223372036854775808\n");
+    assert(fake.axisRequest.kind == Probe::AxisCommandKind::ORIGIN && fake.axisRequest.value.numerator == INT64_MIN);
+    fake.axisStatus = Core::Status(Core::Err::UNSUPPORTED, 12345, "do not serialize untrusted text\"");
+    send(console, "axis origin 0\n"); fake.contains("\"code\":\"UNSUPPORTED\""); fake.contains("\"detail\":12345");
+    assert(fake.lines.back().find("untrusted") == std::string::npos);
+    fake.untouched(); assert(fake.snapshots == 0);
+}
+
+void testHostArgumentsAndBackpressure() {
+    Fake fake; auto host = fake.host(); host.axis = Fake::axis;
+    Probe::Console console(host);
+    const char* invalid[] = {
+        "axis", "axis origin 1/2", "axis config set bad 1", "axis config set command 0",
+        "axis config set gear 4294967296", "axis config set lead -1", "axis config set command 1/4294967296",
+        "axis config set polarity 0", "axis config set encoder-id -1", "axis config set relative-bases 8",
+        "axis config set acceleration-unit rpm/s2", "axis config set native-limits 2 1",
+        "axis config set soft-limits 1", "axis config set position-unit native", "axis config set encoder-basis none",
+        "prepare relative 1 steps native", "prepare relative 1 steps native unknown", "prepare absolute 1 steps other",
+        "prepare absolute nan steps native", "prepare absolute inf steps native", "prepare absolute 1e3 steps native",
+        "prepare absolute 1/0 steps native", "prepare absolute 0x10 steps native", "prepare absolute 1junk steps native",
+        "prepare absolute 9223372036854775808 steps native", "prepare absolute 1 steps native nearest -1",
+        "prepare absolute 1 steps native nearest 1 0.001", "prepare absolute 1 rad load nearest 1 0",
+        "prepare absolute 1 rad load nearest 1 1e-3"
+    };
+    for (const char* text : invalid) {
+        send(console, std::string(text) + "\n"); fake.contains("\"ok\":false");
+        assert(fake.axisCalls == 0); fake.untouched();
+    }
+    send(console, "help axis\n"); fake.contains("configure_host_coordinates_only");
+    send(console, "help prepare\n"); fake.contains("preview_public_target_arithmetic_without_motion");
+    send(console, "prepare relative 1 rad motor actual nearest 1 0.0001\n");
+    assert(fake.axisCalls == 1 && fake.axisRequest.position.approximate);
+    assert(fake.axisRequest.position.maximumApproximationError <= 0.0001 &&
+        fake.axisRequest.position.maximumApproximationError >= 0.0001 * (1 - 1e-12));
+    fake.blocked = true; send(console, "axis config\n"); assert(console.outputPending());
+    const auto calls = fake.axisCalls;
+    send(console, "axis config set polarity -1\nprepare relative 1 steps native actual\n");
+    assert(fake.axisCalls == calls && console.inputDropped() == 2);
+    Fake absent; Probe::Console unavailable(absent.host());
+    send(unavailable, "help\n"); assert(absent.lines.back().find("\"axis\"") == std::string::npos && absent.lines.back().find("\"prepare\"") == std::string::npos);
+    send(unavailable, "axis config\n"); absent.contains("unavailable");
+}
+
 } // namespace
 
 int main() {
@@ -746,4 +853,6 @@ int main() {
     testTypedRoutesAndValidation();
     testTypedTerminalInspectionAndBound();
     testStateRoutesCacheAndPolling();
+    testExactHostPreparationAndParsing();
+    testHostArgumentsAndBackpressure();
 }

@@ -3,12 +3,13 @@
 
 #include "../common/RtuBusOwner.h"
 #include "StateCache.h"
+#include "AxisConsole.h"
 #include "MotorControlRS/profiles/ess_rs/Codec.h"
 #include "MotorControlRS/profiles/ess_rs/Reads.h"
 
 namespace MotorControlRSExample { namespace Probe {
 
-constexpr std::size_t LINE_CAPACITY = 96;
+constexpr std::size_t LINE_CAPACITY = 128;
 constexpr std::size_t OUTPUT_CAPACITY = 4096;
 constexpr std::size_t OUTSTANDING_CAPACITY = 9;
 constexpr std::size_t PROBE_TX_CAPACITY = 8;
@@ -179,6 +180,10 @@ struct Host {
     bool (*result)(void*, uint32_t operationId, ResultView&) = nullptr; ///< Zero selects latest.
     Action (*cancel)(void*, uint32_t operationId) = nullptr; ///< Local only; zero selects latest.
     Action (*release)(void*, uint32_t operationId) = nullptr; ///< Explicit terminal retention release.
+    /** Optional synchronous host configuration/target preview. The callback
+     * validates application evidence and invokes the public Axis API. It never
+     * transmits, retains request pointers or changes drive settings. */
+    MotorControlRS::Status (*axis)(void*, const AxisCommand&, AxisView&) = nullptr;
 };
 
 /** Fixed-capacity read-only ESS console; no allocation, clocks or platform I/O.

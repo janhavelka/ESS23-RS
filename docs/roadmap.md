@@ -7,8 +7,8 @@ future version numbers are not commitments.
 
 The [ESS release prompt set](prompts/ess_release/README.md) turns these stages
 into 30 ordered implementation blocks with tests, independent audits and
-evidence handoffs. Prompts 01–06 have implementation and available verification
-dispositions; prompt 07 is next. Independent electrical timing remains open.
+evidence handoffs. Prompts 01–07 have implementation and available verification
+dispositions; prompt 08 is next. Independent electrical timing remains open.
 The [fresh prompt 02 audit](reports/ess_release_02_audit_2026-10-03.md) corrects
 cancellation cutoff precedence and recovery evidence continuity; hardware owner
 integration now has [prompt 03 evidence](reports/ess_release_03_2026-10-03.md).
@@ -58,9 +58,9 @@ this session; integrating there is a separate delivery step.
 | 1. Protocol foundation | Units, complete ESS register ledger, checked FC03/06/10 codecs and non-changing model probe | Native validation, generated-ledger checks, explicit unresolved fields and access limits | Implemented; checked model reads on the bench |
 | 2. Observable transport | Runner, independent capture, read-only CLI, load and failure tools | Delayed servicing/overflow/late-reply tests; measured load, memory and timing; no automatic replay | Implemented in 0.6.0; measured ESP32-S3 bench load envelope; electrical timing qualification remains open |
 | 3. Small bus-owner reference | Bounded request queue, retained results, fairness, deadlines and priority for a pending stop after settling in-flight TX | Multiple simulated clients, full queue, cancellation and starvation tests; read-only hardware regression under load | Prompts 01–03 implemented/native/build PASS; actual owner console and read-only loaded/interleaved timer bench PASS; no physical stop or electrical qualification |
-| 4. Typed ESS observations | Identity, firmware/configuration, alarms, readiness and position/velocity observations | Original-manual review; exact model readback; validity/freshness independent of communication health | Prompt 05 implements typed identity/configuration reads; state/feedback belongs to 06; exact model/firmware and motion qualification remain unresolved |
-| 5. First controlled motion | Explicit enable/release, small relative move and documented stop | Verified units and limits, acknowledgement vs completion, interrupted/lost replies, stop while another operation is active; bench measurements | Not implemented |
-| 6. Complete common motion API | Absolute/relative position, step/angle/travel modes, velocity, acceleration, homing and fault clear where supported | Same public API in firmware and CLI; unsupported operations fail before TX; origin/rounding/path policy tested | Contracts and conversions exist; sequences pending |
+| 4. Typed ESS observations | Identity, firmware/configuration, alarms, readiness and position/velocity observations | Original-manual review; exact model readback; validity/freshness independent of communication health | Prompts 05–06 implement typed reads and separate health; exact model/firmware, feedback source/sign/units and motion qualification remain unresolved |
+| 5. First controlled motion | Explicit enable/release, small relative move and documented stop | Verified units and limits, acknowledgement vs completion, interrupted/lost replies, stop while another operation is active; bench measurements | Exact host target preparation implemented in 07; drive actions, motion and stop pending 08–09 |
+| 6. Complete common motion API | Absolute/relative position, step/angle/travel modes, velocity, acceleration, homing and fault clear where supported | Same public API in firmware and CLI; unsupported operations fail before TX; origin/rounding/path policy tested | Exact preparation, host configuration and origin APIs implemented in 07; wrapped paths, profile sequences and physical reference qualification pending |
 | 7. ESS native coverage and discovery | Typed documented ESS extensions; bounded non-changing discovery | Coverage matrix for every documented command/field; uncertain firmware behavior marked explicitly; read side effects reviewed | Ledger/codecs and typed identity/config reads exist; complete operation inventory derives remaining obligations; broader helpers/discovery pending |
 | 8. Platform and release qualification | Arduino and native ESP-IDF examples, package/install checks, maintenance documentation | Clean consumer builds; repeatable hardware suite, extended soak, resource budgets, documented exact supported models and limitations | CMake/IDF core consumption exists; native IDF application and release evidence pending |
 
@@ -107,13 +107,18 @@ a hardware claim.
 Prompt 04 is disposed in [the capture review](reports/ess_release_04_2026-10-04.md):
 retain 20-us capture at measured 20–21% core cost, enforce starvation failure,
 and extend checked read-only evidence to the fixed 37-byte reply. Independent
-electrical timing remains NOT RUN; cache-off capture is unsupported. The next
-concrete deliverable is prompt 05's typed identity/configuration work when
-dispatched. Independent 05–07 work may proceed; dependent physical actions
-retain their timing, settings, units and stop prerequisites.
+electrical timing remains NOT RUN; cache-off capture is unsupported. Independent
+05–07 read-only/pure work is now implemented; dependent physical actions retain
+their timing, settings, units and stop prerequisites.
 Its [fresh audit](reports/ess_release_04_audit_2026-10-04.md) closes a host
 diagnostic-validation gap; the unchanged image passes repeated read-only tests.
 
 Prompt06 delivers [typed state, separate health and finite polling](reports/ess_release_06_2026-10-04.md). Stationary state reads pass; algorithm3, position source, signed encoding/physical units, motion completion and electrical timing remain unresolved.
 
 The [fresh06 audit](reports/ess_release_06_audit_2026-10-04.md) verifies current code and fixes feedback configuration confidence and strict cached-state validation. No moving operation or settings write was added.
+
+[Prompt07](reports/ess_release_07_2026-10-04.md) delivers exact target preparation,
+reference/limit checks and host-only configuration through the installed API
+and console. Software and read-only COM13 checks pass; native origin evidence
+is unresolved on this drive, and no motion, drive setting or travel qualification
+is implied. Prompt08 is the next separately dispatched action/stop block.

@@ -16,7 +16,10 @@ Prompt 06 adds typed state blocks, per-block conservative ages, separate health
 and finite polling. The [fresh audit](reports/ess_release_06_audit_2026-10-04.md)
 checks current interpretation confidence and strict host validation.
 
-Implemented blocks include typed non-changing reads, pure unit conversion, an ESS register catalogue,
+Prompt 07 implements [exact host coordinate preparation](axis_preparation.md),
+configuration/reference validation and pure console previews.
+
+Implemented blocks include exact target preparation, typed non-changing reads, pure unit conversion, an ESS register catalogue,
 checked wire codecs with a minimal probe and standalone build foundations.
 The standalone RTU runner and ESP32-S3 adapter have native fake tests. The read-only
 probe CLI has bench evidence; external timing qualification, typed setting/action

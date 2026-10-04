@@ -77,6 +77,11 @@ completion and record changes to the setup for the next session.
 
 ## Current status
 
+- [Prompt07](reports/ess_release_07_2026-10-04.md): current timer image verifies pure
+  host preparation/configuration and 23 FC03 frames/209 RX bytes, zero transport
+  errors and unchanged drive configuration. Explicit operator scales remain
+  assumptions; origin/soft-limit establishment rejects unresolved native feedback.
+  Monitoring/load off, DE released, owner empty, no recovery needed.
 - [Prompt06 fresh audit](reports/ess_release_06_audit_2026-10-04.md): updated timer image,50 checked FC03 frames/470 RX bytes with zero errors. State/health, superseded configuration confidence, finite polling, loaded state and model regressions pass. Raw state/configuration unchanged; monitoring/load off, DE released, owner empty, no recovery needed.
 
 - [Prompt06](reports/ess_release_06_2026-10-04.md): new timer image, stationary state/health, finite polling, loaded/delayed state and existing probe checks passed. Raw alarm0/motion1/IO0/position0/speed0; algorithm3 keeps position source unresolved. All traffic FC03; configuration readback unchanged. Workload/monitor disabled, DE released and no retained/pending work or recovery requirement at cleanup.

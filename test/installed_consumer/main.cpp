@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 // This target sees only the installed package's exported include directories.
 #include <MotorControlRS/ReadOperation.h>
+#include <MotorControlRS/Axis.h>
 #include <MotorControlRS/profiles/ess_rs/Reads.h>
 
 int main() {
@@ -38,5 +39,13 @@ int main() {
     StateObservation state;
     if (!getStateBlock(operation, 0, state) || !state.released || state.enabled || !state.alarmKnown) return 12;
     if (getStateBlock(operation, 2, state) || state.block != StateBlock::MOTION) return 13;
+    AxisConfig axis; axis.target = target; axis.supportedRelativeBases = 1;
+    PositionRequest position; position.configurationGeneration = axis.generation;
+    position.value = Rational(INT64_C(9007199254740993));
+    PreparedTarget prepared;
+    if (!preparePosition(position, axis, nullptr, prepared) ||
+        prepared.effectiveNative != position.value.numerator || !prepared.exactArithmetic) return 14;
+    Rational number;
+    if (!parseExactNumber("-0.125", number) || number.numerator != -1 || number.denominator != 8) return 15;
     return 0;
 }

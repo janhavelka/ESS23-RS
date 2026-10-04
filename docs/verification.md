@@ -1,5 +1,14 @@
 # Software verification
 
+## Prompt07 exact target preparation
+
+[Preparation verification](reports/ess_release_07_2026-10-04.md) passes 20 native
+suites, 107 Python cases, the installed C++11 consumer and all four firmware
+builds. Independent integer oracles pass 13,776 rounding/origin and 3,600
+large-rational allowance cases in both extended and binary64 arithmetic modes.
+COM13 host API checks and 23 checked read-only frames pass with no device settings
+change. Origin/source/physical travel and motor execution remain unqualified.
+
 ## Fresh prompt06 audit
 
 [Fresh independent review](reports/ess_release_06_audit_2026-10-04.md) corrects

@@ -28,7 +28,7 @@ MAX_LINE = 4096
 MAX_INPUT = 32768
 COMMANDS = frozenset({"version", "config", "probe", "capture-read", "status", "health", "memory", "stats", "load",
                       "drv", "result", "release", "cancel", "recover", "reset", "caps",
-                      "read-identity", "read-config", "read-state", "health-check", "monitor"})
+                      "read-identity", "read-config", "read-state", "health-check", "monitor", "axis", "prepare"})
 MAX_COMMANDS = 10  # Eight probes, one recovery and one interleaved local report.
 MAX_OPERATIONS = 9  # Firmware retains eight ordinary results plus one recovery.
 MAX_PROBES = 8
@@ -678,6 +678,71 @@ class Console:
                 or (item["ok"] and item["finished_us"] >= item["deadline_us"])):
             raise BenchError("recovery terminal deadlines are inconsistent")
 
+    @staticmethod
+    def _check_axis(item: dict, preparation: bool) -> None:
+        """Validate host preparation evidence without implementing conversion."""
+        def require(condition, message):
+            if not condition:
+                raise BenchError("host axis " + message)
+
+        def integer(value, low, high):
+            return type(value) is int and low <= value <= high
+
+        require(item.get("bus_traffic") is False and item.get("motion_command") is False,
+                "reply claims a device action")
+        require(item.get("code") in ("OK", "INVALID_CONFIG", "ILLEGAL_VALUE", "UNSUPPORTED")
+                and type(item.get("detail")) is int and item["ok"] == (item["code"] == "OK"),
+                "validation outcome is inconsistent")
+        if not item["ok"]:
+            return
+        require(item.get("wire_motion") == "unimplemented", "reply claims implemented wire motion")
+        require(integer(item.get("configuration_generation"), 1 if preparation else 0, 0xFFFFFFFF),
+                "configuration generation is invalid")
+        for name in ("target", "binding_generation"):
+            require(integer(item.get(name), 1, 0xFFFFFFFF), "generation or target is invalid")
+        require(integer(item.get("address"), 1, 247), "selected ESS address is invalid")
+        if not preparation:
+            scales = item.get("operator_scales")
+            require(isinstance(scales, list) and len(scales) == 5, "scale inventory is incomplete")
+            for scale in scales:
+                require(isinstance(scale, dict) and integer(scale.get("numerator"), 0, 0xFFFFFFFF)
+                        and integer(scale.get("denominator"), 1, 0xFFFFFFFF)
+                        and integer(scale.get("source"), 0, 4), "scale provenance is invalid")
+                require((scale["numerator"] == 0 and scale["denominator"] == 1) if scale["source"] == 0
+                        else scale["numerator"] > 0, "known/unknown scale is contradictory")
+            return
+        requested = item.get("requested")
+        require(isinstance(requested, dict) and integer(requested.get("numerator"), -2**63, 2**63 - 1)
+                and integer(requested.get("denominator"), 1, 2**64 - 1)
+                and requested.get("unit") in ("steps", "fullsteps", "counts", "turn", "deg", "rad", "mm")
+                and integer(requested.get("frame"), 0, 2) and integer(requested.get("basis"), 0, 2)
+                and integer(requested.get("rounding"), 0, 4) and type(requested.get("relative")) is bool,
+                "exact request is incomplete")
+        for name in ("effective_native", "endpoint_native", "displacement_native"):
+            require(integer(item.get(name), -2**63, 2**63 - 1), "native integer is invalid")
+        for name in ("endpoint_known", "displacement_known", "zero_displacement", "exact_arithmetic"):
+            require(type(item.get(name)) is bool, "validity is missing")
+        require(item["zero_displacement"] == (item["displacement_known"] and item["displacement_native"] == 0),
+                "zero displacement is inconsistent")
+        require(not requested["relative"] or (item["displacement_known"]
+                and item["displacement_native"] == item["effective_native"]), "relative displacement changed")
+        require(requested["relative"] or (item["endpoint_known"]
+                and item["endpoint_native"] == item["effective_native"]), "absolute endpoint changed")
+        for name in ("rounding_error", "approximation_error_bound"):
+            require(type(item.get(name)) in (int, float) and math.isfinite(item[name]), "error provenance is invalid")
+        require(item["approximation_error_bound"] >= 0, "negative approximation bound")
+        native = item.get("requested_native")
+        if item["exact_arithmetic"]:
+            require(isinstance(native, dict) and integer(native.get("integral"), -2**63, 2**63 - 1)
+                    and integer(native.get("denominator"), 1, 2**64 - 1)
+                    and integer(native.get("numerator"), 0, native["denominator"] - 1)
+                    and type(native.get("negative")) is bool and item.get("requested_native_approximate") is None
+                    and item["approximation_error_bound"] == 0, "exact native provenance is invalid")
+        else:
+            value = item.get("requested_native_approximate")
+            require(native is None and requested["unit"] == "rad" and type(value) in (int, float)
+                    and math.isfinite(value), "approximate native provenance is invalid")
+
     def _complete(self, handle: Command, item: dict) -> None:
         if self.clock() >= handle.deadline:
             raise BenchError("command response deadline expired; command was not replayed")
@@ -689,6 +754,8 @@ class Console:
             check_counts(item, MEMORY_FIELDS, "memory")
         if handle.command in ("status", "health") and item["ok"]:
             self._check_cached_state(item)
+        if handle.command in ("axis", "prepare") and (item["ok"] or "code" in item):
+            self._check_axis(item, handle.command == "prepare")
         if handle.command == "monitor" and item["ok"]:
             if type(item.get("enabled")) is not bool:
                 raise BenchError("monitor enabled state is invalid")
@@ -850,7 +917,8 @@ class Console:
 
     def begin(self, command: str, *, timeout_s: float = 3.0,
               address: int | None = None, load: tuple[int, int, int] | None = None,
-              operation_id: int | None = None, monitor: tuple[int, int] | bool | None = None) -> Command:
+              operation_id: int | None = None, monitor: tuple[int, int] | bool | None = None,
+              host_args: tuple[str, ...] | None = None) -> Command:
         """Send once and collect admission/local reply; bus completion can stay pending.
 
         Up to ten handles (eight probes, one recovery and one local query) may be
@@ -860,6 +928,13 @@ class Console:
         positive(timeout_s, "command timeout")
         if command not in COMMANDS:
             raise ValueError("command is not in the read-only/host-control harness inventory")
+        if host_args is not None:
+            if (command not in ("axis", "prepare") or not isinstance(host_args, tuple) or
+                    not 1 <= len(host_args) <= 8 or any(type(token) is not str or not token or
+                    any(ord(char) < 33 or ord(char) > 126 for char in token) for token in host_args)):
+                raise ValueError("host preparation requires bounded ASCII tokens without whitespace")
+        elif command in ("axis", "prepare"):
+            raise ValueError("axis/prepare require explicit host-only arguments")
         health_check = command == "health-check"
         if health_check:
             command = "read-state"  # The wire alias returns canonical read-state records.
@@ -887,6 +962,8 @@ class Console:
             raise BenchError("outstanding command limit reached; wait for a retained handle")
         if self.next_id > 0xFFFFFFFF:
             raise BenchError("request IDs exhausted; start a new inspected session")
+        if host_args is not None and len(f"@{self.next_id} {command} {' '.join(host_args)}") >= 128:
+            raise ValueError("host command exceeds the console line bound")
         request_id = self.next_id
         self.next_id += 1
         started = self.clock()
@@ -904,6 +981,8 @@ class Console:
                 suffix = f" {operation_id}"
             if monitor is not None:
                 suffix = " off" if monitor is False else f" {monitor[0]} {monitor[1]}"
+            if host_args is not None:
+                suffix = " " + " ".join(host_args)
             wire_command = "health check" if health_check else "read " + TYPED_READS[command] if command in TYPED_READS else command
             payload = f"@{request_id} {wire_command}{suffix}\n".encode("ascii")
             self.emit("send", id=request_id, command=command, address=address,
@@ -960,10 +1039,11 @@ class Console:
 
     def command(self, command: str, *, timeout_s: float = 3.0,
                 address: int | None = None, load: tuple[int, int, int] | None = None,
-                operation_id: int | None = None, monitor: tuple[int, int] | bool | None = None) -> dict:
+                operation_id: int | None = None, monitor: tuple[int, int] | bool | None = None,
+                host_args: tuple[str, ...] | None = None) -> dict:
         """Send once, wait for its terminal, then explicitly release admitted results."""
         handle = self.begin(command, timeout_s=timeout_s, address=address, load=load,
-                            operation_id=operation_id, monitor=monitor)
+                            operation_id=operation_id, monitor=monitor, host_args=host_args)
         return self.wait(handle, release=True)
 
     def identify(self, *, timeout_s: float = 3.0) -> dict:

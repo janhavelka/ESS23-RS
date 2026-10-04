@@ -10,7 +10,7 @@
 namespace MotorControlRSExample { namespace Probe {
 namespace {
 
-enum class Command : uint8_t { HELP, VERSION, CONFIG, STATUS, HEALTH, STATS, PROBE, CAPTURE_READ, RECOVER, RESET, MEMORY, LOAD, DRV, RESULT, CANCEL, RELEASE, READ, PROFILE, CAPS, READ_IDENTITY, READ_CONFIG, READ_STATE, HEALTH_CHECK, MONITOR };
+enum class Command : uint8_t { HELP, VERSION, CONFIG, STATUS, HEALTH, STATS, PROBE, CAPTURE_READ, RECOVER, RESET, MEMORY, LOAD, DRV, RESULT, CANCEL, RELEASE, READ, PROFILE, CAPS, READ_IDENTITY, READ_CONFIG, READ_STATE, HEALTH_CHECK, MONITOR, AXIS, PREPARE };
 struct Entry { const char* name; Command command; const char* syntax; const char* effect; bool bus; };
 const Entry COMMANDS[] = {
     {"help", Command::HELP, "help [command]", "show_callable_commands", false},
@@ -28,6 +28,8 @@ const Entry COMMANDS[] = {
     {"profile", Command::PROFILE, "profile ess_rs identity|config|state [address] | profile ess_rs caps", "checked_profile_reads_and_capabilities", true},
     {"monitor", Command::MONITOR, "monitor [off | interval_ms count]", "finite_nonconsuming_state_polling", false},
     {"caps", Command::CAPS, "caps", "show_public_read_capabilities", false},
+    {"axis", Command::AXIS, "axis config [set field value [maximum]] | axis origin exact_native", "configure_host_coordinates_only", false},
+    {"prepare", Command::PREPARE, "prepare absolute|relative value unit frame [basis] [round [max_error [radian_error]]]", "preview_public_target_arithmetic_without_motion", false},
     {"recover", Command::RECOVER, "recover", "recover_host_transport_only", false},
     {"reset", Command::RESET, "reset", "clear_host_counters_only", false},
     {"memory", Command::MEMORY, "memory", "show_cached_memory", false},
@@ -94,6 +96,161 @@ bool stateValue(char* output, std::size_t capacity, std::size_t& used, const Ess
             static_cast<unsigned>(v.positionSignedResolution), static_cast<unsigned>(v.positionScaleResolution), static_cast<unsigned>(v.speedSignedResolution), static_cast<unsigned>(v.speedUnitResolution));
     }
     return false;
+}
+
+namespace Core = MotorControlRS;
+Core::Status axisArgument() {
+    return Core::Status(Core::Err::INVALID_CONFIG, static_cast<int32_t>(Core::AxisError::INVALID_ARGUMENT), "invalid axis arguments");
+}
+const char* unitName(Core::PositionUnit unit) {
+    const char* names[] = {"steps", "fullsteps", "counts", "turn", "deg", "rad", "mm"};
+    const auto index = static_cast<unsigned>(unit);
+    return index < 7 ? names[index] : "unknown";
+}
+bool positionUnit(const char* text, Core::PositionUnit& output) {
+    for (unsigned i = 0; i < 7; ++i) {
+        const auto value = static_cast<Core::PositionUnit>(i);
+        if (std::strcmp(text, unitName(value)) == 0) { output = value; return true; }
+    }
+    return false;
+}
+bool rateUnit(const char* text, Core::VelocityUnit& output) {
+    if (std::strcmp(text, "rpm") == 0) { output = Core::VelocityUnit(Core::PositionUnit::TURNS, Core::TimeUnit::MINUTE); return true; }
+    for (unsigned i = 0; i < 7; ++i) {
+        char name[20]; std::snprintf(name, sizeof(name), "%s/s", unitName(static_cast<Core::PositionUnit>(i)));
+        if (std::strcmp(text, name) == 0) { output = Core::VelocityUnit(static_cast<Core::PositionUnit>(i)); return true; }
+    }
+    return false;
+}
+bool accelerationUnit(const char* text, Core::AccelerationUnit& output) {
+    if (std::strcmp(text, "rpm/s") == 0) { output = Core::AccelerationUnit(Core::PositionUnit::TURNS, Core::TimeUnit::MINUTE, Core::TimeUnit::SECOND); return true; }
+    for (unsigned i = 0; i < 7; ++i) {
+        char name[20]; std::snprintf(name, sizeof(name), "%s/s2", unitName(static_cast<Core::PositionUnit>(i)));
+        if (std::strcmp(text, name) == 0) { output = Core::AccelerationUnit(static_cast<Core::PositionUnit>(i)); return true; }
+    }
+    return false;
+}
+bool coordinateFrame(const char* text, Core::CoordinateFrame& output) {
+    if (std::strcmp(text, "native") == 0) output = Core::CoordinateFrame::NATIVE;
+    else if (std::strcmp(text, "motor") == 0) output = Core::CoordinateFrame::MOTOR;
+    else if (std::strcmp(text, "load") == 0) output = Core::CoordinateFrame::LOAD;
+    else return false;
+    return true;
+}
+bool relativeBasis(const char* text, Core::RelativeBasis& output) {
+    if (std::strcmp(text, "actual") == 0) output = Core::RelativeBasis::ACTUAL;
+    else if (std::strcmp(text, "commanded") == 0) output = Core::RelativeBasis::COMMANDED;
+    else if (std::strcmp(text, "queued") == 0) output = Core::RelativeBasis::QUEUED;
+    else return false;
+    return true;
+}
+bool rounding(const char* text, Core::Rounding& output) {
+    if (std::strcmp(text, "exact") == 0) output = Core::Rounding::EXACT;
+    else if (std::strcmp(text, "nearest") == 0) output = Core::Rounding::NEAREST;
+    else if (std::strcmp(text, "zero") == 0) output = Core::Rounding::TOWARD_ZERO;
+    else if (std::strcmp(text, "floor") == 0) output = Core::Rounding::FLOOR;
+    else if (std::strcmp(text, "ceil") == 0) output = Core::Rounding::CEIL;
+    else return false;
+    return true;
+}
+Core::Status allowance(const char* text, double& output) {
+    Core::Rational value;
+    auto status = Core::parseExactNumber(text, value);
+    if (!status) return status;
+    if (value.numerator < 0) return axisArgument();
+    return Core::rationalToDouble(value, output);
+}
+Core::Status axisRequest(char* const* tokens, std::size_t count, bool prepare, AxisCommand& output) {
+    if (prepare) {
+        if (count < 4 || count > 8) return axisArgument();
+        output.kind = AxisCommandKind::PREPARE;
+        auto& p = output.position;
+        if (std::strcmp(tokens[0], "relative") == 0) p.relative = true;
+        else if (std::strcmp(tokens[0], "absolute") == 0) p.relative = false;
+        else return axisArgument();
+        auto status = Core::parseExactNumber(tokens[1], p.value);
+        if (!status) return status;
+        if (!positionUnit(tokens[2], p.unit) || !coordinateFrame(tokens[3], p.frame)) return axisArgument();
+        std::size_t next = 4;
+        if (p.relative) {
+            if (next >= count || !relativeBasis(tokens[next++], p.basis)) return axisArgument();
+        }
+        if (next < count && !rounding(tokens[next++], p.rounding)) return axisArgument();
+        if (next < count) { status = allowance(tokens[next++], p.maximumQuantizationError); if (!status) return status; }
+        if (next < count) {
+            status = allowance(tokens[next++], p.maximumApproximationError); if (!status) return status;
+            if (p.unit != Core::PositionUnit::RADIANS || p.maximumApproximationError <= 0) return axisArgument();
+            p.approximate = true;
+        }
+        return next == count ? Core::Ok() : axisArgument();
+    }
+    if (count == 1 && std::strcmp(tokens[0], "config") == 0) return Core::Ok();
+    if (count == 2 && std::strcmp(tokens[0], "origin") == 0) {
+        output.kind = AxisCommandKind::ORIGIN;
+        const auto status = Core::parseExactNumber(tokens[1], output.value);
+        return status && output.value.denominator != 1 ? axisArgument() : status;
+    }
+    if (count < 4 || count > 5 || std::strcmp(tokens[0], "config") != 0 || std::strcmp(tokens[1], "set") != 0) return axisArgument();
+    const char* names[] = {"command", "gear", "fullsteps", "lead", "encoder-scale", "encoder-id", "encoder-basis", "encoder-polarity", "polarity", "position-unit", "velocity-unit", "acceleration-unit", "native-limits", "soft-limits", "relative-bases"};
+    unsigned field = 0;
+    for (; field < 15 && std::strcmp(tokens[2], names[field]) != 0; ++field) {}
+    if (field == 15) return axisArgument();
+    output.kind = AxisCommandKind::CONFIGURE;
+    output.field = static_cast<AxisField>(field);
+    const bool limits = output.field == AxisField::NATIVE_LIMITS || output.field == AxisField::SOFT_LIMITS;
+    const bool scale = field <= static_cast<unsigned>(AxisField::ENCODER_SCALE);
+    if (std::strcmp(tokens[3], "none") == 0 && (scale || output.field == AxisField::SOFT_LIMITS) && count == 4) {
+        output.clear = true; return Core::Ok();
+    }
+    if (count != (limits ? 5U : 4U)) return axisArgument();
+    switch (output.field) {
+    case AxisField::POSITION_UNIT: return positionUnit(tokens[3], output.positionUnit) ? Core::Ok() : axisArgument();
+    case AxisField::VELOCITY_UNIT: return rateUnit(tokens[3], output.velocityUnit) ? Core::Ok() : axisArgument();
+    case AxisField::ACCELERATION_UNIT: return accelerationUnit(tokens[3], output.accelerationUnit) ? Core::Ok() : axisArgument();
+    case AxisField::ENCODER_BASIS:
+        if (std::strcmp(tokens[3], "motor") == 0) output.encoderBasis = Core::EncoderBasis::MOTOR_TURN;
+        else if (std::strcmp(tokens[3], "load") == 0) output.encoderBasis = Core::EncoderBasis::LOAD_TURN;
+        else if (std::strcmp(tokens[3], "linear") == 0) output.encoderBasis = Core::EncoderBasis::MILLIMETRE;
+        else return axisArgument();
+        return Core::Ok();
+    default: break;
+    }
+    auto status = Core::parseExactNumber(tokens[3], output.value);
+    if (!status) return status;
+    if (scale) {
+        if (output.value.numerator <= 0 || static_cast<uint64_t>(output.value.numerator) > UINT32_MAX || output.value.denominator > UINT32_MAX) return axisArgument();
+    } else if (output.value.denominator != 1) return axisArgument();
+    if (limits) {
+        status = Core::parseExactNumber(tokens[4], output.secondValue);
+        if (!status) return status;
+        if (output.secondValue.denominator != 1 || output.value.numerator > output.secondValue.numerator) return axisArgument();
+    }
+    if ((output.field == AxisField::POLARITY || output.field == AxisField::ENCODER_POLARITY) && output.value.numerator != -1 && output.value.numerator != 1) return axisArgument();
+    if (output.field == AxisField::ENCODER_ID && (output.value.numerator < 0 || static_cast<uint64_t>(output.value.numerator) > UINT32_MAX)) return axisArgument();
+    if (output.field == AxisField::RELATIVE_BASES && (output.value.numerator < 0 || output.value.numerator > 7)) return axisArgument();
+    return Core::Ok();
+}
+
+bool axisView(char* output, std::size_t capacity, std::size_t& used, const AxisView& view, bool prepare) {
+    const auto& c = view.configuration;
+    if (!append(output, capacity, used, ",\"bus_traffic\":false,\"motion_command\":false,\"wire_motion\":\"unimplemented\",\"configuration_generation\":%lu,\"target\":%lu,\"address\":%u,\"binding_generation\":%lu",
+        static_cast<unsigned long>(c.generation), static_cast<unsigned long>(c.target.id), c.target.address, static_cast<unsigned long>(c.target.generation))) return false;
+    if (prepare) {
+        const auto& p = view.prepared;
+        if (!append(output, capacity, used, ",\"requested\":{\"numerator\":%lld,\"denominator\":%llu,\"unit\":\"%s\",\"frame\":%u,\"relative\":%s,\"basis\":%u,\"rounding\":%u},\"requested_native\":",
+            static_cast<long long>(p.requested.value.numerator), static_cast<unsigned long long>(p.requested.value.denominator), unitName(p.requested.unit), static_cast<unsigned>(p.requested.frame), p.requested.relative ? "true" : "false", static_cast<unsigned>(p.requested.basis), static_cast<unsigned>(p.requested.rounding))) return false;
+        if (p.exactArithmetic) {
+            if (!append(output, capacity, used, "{\"integral\":%lld,\"numerator\":%llu,\"denominator\":%llu,\"negative\":%s},\"requested_native_approximate\":null",
+                static_cast<long long>(p.requestedNative.integral), static_cast<unsigned long long>(p.requestedNative.numerator), static_cast<unsigned long long>(p.requestedNative.denominator), p.requestedNative.negative ? "true" : "false")) return false;
+        } else if (!append(output, capacity, used, "null,\"requested_native_approximate\":%.17g", p.approximateRequestedNative)) return false;
+        return append(output, capacity, used, ",\"effective_native\":%lld,\"endpoint_known\":%s,\"endpoint_native\":%lld,\"displacement_known\":%s,\"displacement_native\":%lld,\"zero_displacement\":%s,\"rounding_error\":%.17g,\"approximation_error_bound\":%.17g,\"exact_arithmetic\":%s}",
+            static_cast<long long>(p.effectiveNative), p.endpointKnown ? "true" : "false", static_cast<long long>(p.endpointNative), p.displacementKnown ? "true" : "false", static_cast<long long>(p.displacementNative), p.zeroDisplacement ? "true" : "false", p.roundingError, p.approximationErrorBound, p.exactArithmetic ? "true" : "false");
+    }
+    if (!append(output, capacity, used, ",\"operator_scales\":[")) return false;
+    const Core::UnitScale scales[] = {c.units.commandStepsPerMotorTurn, c.units.motorTurnsPerLoadTurn, c.units.fullStepsPerMotorTurn, c.units.millimetresPerLoadTurn, c.units.encoder.countsPerUnit};
+    for (unsigned i = 0; i < 5; ++i) if (!append(output, capacity, used, "%s{\"numerator\":%lu,\"denominator\":%lu,\"source\":%u}", i ? "," : "", static_cast<unsigned long>(scales[i].numerator), static_cast<unsigned long>(scales[i].denominator), static_cast<unsigned>(scales[i].source))) return false;
+    return append(output, capacity, used, "],\"encoder_id\":%lu,\"encoder_basis\":%u,\"encoder_polarity\":%d,\"polarity\":%d,\"position_unit\":\"%s\",\"velocity_unit\":{\"position\":\"%s\",\"time\":%u},\"acceleration_unit\":{\"position\":\"%s\",\"velocity_time\":%u,\"acceleration_time\":%u},\"relative_bases\":%u,\"native_limits\":[%lld,%lld],\"soft_limits_known\":%s,\"soft_limits\":[%lld,%lld],\"origin_known\":%s,\"origin_native\":%lld,\"origin_source\":%u,\"encoder_origin_known\":%s,\"encoder_origin_native\":%lld,\"encoder_origin_source\":%u}",
+        static_cast<unsigned long>(c.units.encoder.sourceId), static_cast<unsigned>(c.units.encoder.basis), c.units.encoder.polarity, c.units.commandPolarity, unitName(c.units.settings.position), unitName(c.units.settings.velocity.position), static_cast<unsigned>(c.units.settings.velocity.time), unitName(c.units.settings.acceleration.position), static_cast<unsigned>(c.units.settings.acceleration.velocityTime), static_cast<unsigned>(c.units.settings.acceleration.accelerationTime), c.supportedRelativeBases, static_cast<long long>(c.nativeMinimum), static_cast<long long>(c.nativeMaximum), c.softLimitsKnown ? "true" : "false", static_cast<long long>(c.softMinimum), static_cast<long long>(c.softMaximum), c.originKnown ? "true" : "false", static_cast<long long>(c.originNative), static_cast<unsigned>(c.originSource), c.encoderOriginKnown ? "true" : "false", static_cast<long long>(c.encoderOriginNative), static_cast<unsigned>(c.encoderOriginSource));
 }
 
 bool stateCache(char* output, std::size_t capacity, std::size_t& used, const Snapshot& snapshot) {
@@ -268,7 +425,7 @@ void Console::feed(char value) noexcept {
 }
 
 void Console::dispatch() noexcept {
-    char* tokens[6] = {}; // Optional @id, profile/kind routing and bounded arguments.
+    char* tokens[10] = {}; // Full-width rationals, correlation and bounded preview options.
     std::size_t count = 0;
     char* next = line_;
     while (*next) {
@@ -296,6 +453,22 @@ void Console::dispatch() noexcept {
     // byte. Every other command is explicitly discarded before host effects.
     const bool monitorOff = entry->command == Command::MONITOR && count == first + 2 && std::strcmp(tokens[first + 1], "off") == 0;
     if (outputPending_ && entry->command != Command::CANCEL && !monitorOff) { ++inputDropped_; return; }
+    if (entry->command == Command::AXIS || entry->command == Command::PREPARE) {
+        if (!host_.axis) { error(id, entry->name, "unavailable"); return; }
+        AxisCommand request;
+        auto status = axisRequest(tokens + first + 1, count - first - 1, entry->command == Command::PREPARE, request);
+        AxisView view;
+        if (status) status = host_.axis(host_.context, request, view);
+        const int prefix = std::snprintf(output_, sizeof(output_),
+            "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"%s\",\"ok\":%s,\"code\":\"%s\",\"detail\":%ld",
+            static_cast<unsigned long>(id), entry->name, status ? "true" : "false", Core::errToString(status.code), static_cast<long>(status.detail));
+        if (prefix < 0 || static_cast<std::size_t>(prefix) >= sizeof(output_)) { error(id, entry->name, "output_full"); return; }
+        std::size_t used = static_cast<std::size_t>(prefix);
+        if (status) {
+            if (!axisView(output_, sizeof(output_), used, view, request.kind == AxisCommandKind::PREPARE)) { error(id, entry->name, "output_full"); return; }
+        } else if (!append(output_, sizeof(output_), used, ",\"bus_traffic\":false,\"motion_command\":false}")) { error(id, entry->name, "output_full"); return; }
+        emit(); return;
+    }
     // The asynchronous terminal event uses the canonical probe name too.
     if (entry->command == Command::PROBE) entry = find("probe");
     if (entry->command == Command::HEALTH && count > first + 1) {
@@ -373,6 +546,7 @@ void Console::dispatch() noexcept {
     }
     const auto callable = [this](Command c) {
         switch (c) {
+        case Command::AXIS: case Command::PREPARE: return host_.axis != nullptr;
         case Command::MONITOR: return host_.monitor != nullptr;
         case Command::LOAD: return host_.load != nullptr;
         case Command::CAPTURE_READ: return host_.startCaptureRead != nullptr;

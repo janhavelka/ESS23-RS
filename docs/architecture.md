@@ -25,7 +25,8 @@ Implemented blocks supply pure units, an ESS register catalogue and checked
 wire codecs with a minimal model-register probe. An example-owned RTU runner
 is implemented and tested with a native fake adapter; see [runner.md](runner.md).
 The [ESP32-S3 polling adapter and probe CLI](esp32_probe.md) now have native and bench
-evidence, with external timing qualification still open. Motion preparation,
+evidence, with external timing qualification still open. Exact host coordinate preparation
+is implemented in [Axis.h](axis_preparation.md); drive motion sequencing,
 discovery orchestration, the full CLI and FieldCore adapters remain contracts
 for later blocks. See the root
 README for current callable APIs and build commands. Recorded probes and typed identity/configuration/state reads have response evidence; no motion or electrical qualification is implied.

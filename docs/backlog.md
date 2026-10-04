@@ -74,8 +74,10 @@ measurements and the production CPU budget remain open.
 [Prompt 04](reports/ess_release_04_2026-10-04.md) retains the measured 20-us
 capture, enforces timer starvation failure and extends available read-only
 bench evidence to fixed 37-byte replies. Cache-off capture is explicitly
-unsupported. [Prompt 05](reports/ess_release_05_2026-10-04.md) implements typed identity/configuration reads and ledger-linked coverage. Prompt 06 is next when dispatched; independent read-only progress
-is not blocked by missing analyzer evidence.
+unsupported. Prompts 05–06 implement typed identity/configuration/state reads
+and separate health. [Prompt 07](reports/ess_release_07_2026-10-04.md) implements
+exact host target preparation. Prompt 08 is next when separately dispatched;
+physical actions retain their units, stop and timing prerequisites.
 The [release roadmap](roadmap.md) defines the delivery order and release gates.
 
 Release prompt 01 is implemented: [BusOwner](bus_owner.md) provides FIFO
@@ -153,8 +155,12 @@ FieldCore remains read-only; typed identity/state and motion/stop retain their g
 - [x] Record 1.8° / 200 full-step geometry, default 1000-line / 4000-count
   encoder evidence, scaled-feedback distinction and unknown encoder part.
 - [x] Check conversion errors without mutating outputs; preserve exact native
-  integers through separate range/narrowing helpers. Full target preparation,
-  origins, rounding and motion-limit reports below still need implementation.
+  integers through separate range/narrowing helpers and exact rational target
+  preparation, explicit rounding, checked origins and endpoint limits in 07.
+- [x] Implement pure motor/load/native target preparation, identified encoder
+  and configured travel mappings, precision provenance, generation checks and
+  evidence-gated host configuration/origin APIs. Drive execution and wrapped
+  angle path policy remain separate work.
 
 - [ ] Implement capability/configuration inspection and exact native value
   preservation, with structured unsupported/unresolved/unimplemented reasons.
@@ -164,7 +170,7 @@ FieldCore remains read-only; typed identity/state and motion/stop retain their g
   and wrapped orientations with direction and half-turn tie policy.
 - [ ] Prepare and execute configured linear-travel moves, initially mm, using
   the existing velocity/acceleration conversions and rational scale/gear/lead.
-- [ ] Implement conversion provenance, precision/rounding reports, overflow,
+- [x] Implement conversion provenance, precision/rounding reports, overflow,
   effective-target/path limits and reference/configuration generations.
 - [ ] Implement velocity/jog, explicit ramps and profile keepalive deadlines;
   optional torque/current modes only where the profile supports them.
@@ -399,7 +405,7 @@ passed on the unchanged image.
 - [x] Same public preparation/event/decoder APIs through common/profile console routes and strict Python correlation, retention and release.
 - [x] Complete ledger-linked operation inventory with separate source/model/read/write/action/API/CLI/native/hardware dispositions; generated descriptors remain unchanged.
 - [ ] Resolve model `0x4EEA`/firmware/DIP mapping, subdivision physical interpretation and physical encoder evidence. Readback alone does not resolve these.
-- [ ] Prompt 06 state/input-level evidence; retain specific input-dependent homing, limit, enable/stop and trigger prerequisites without requiring external I/O for independent serial-only operations.
+- [x] Prompt 06 state/input-level evidence; retain specific input-dependent homing, limit, enable/stop and trigger prerequisites without requiring external I/O for independent serial-only operations.
 - [ ] Typed I/O changes remain for 15; no configuration writes, save or motion were added in 05.
 
 See [the typed read API](ess_reads.md) and [current report](reports/ess_release_05_2026-10-04.md) for exact readback and independent hardware disposition.
@@ -420,6 +426,28 @@ See [the typed read API](ess_reads.md) and [current report](reports/ess_release_
 
 Logical input levels0 do not establish external wiring or limit/stop effects.
 Identity success and clear alarms do not prove readiness or settle an uncertain
-operation. Prompt07 remains separately dispatched work.
+operation. Prompt07 adds host arithmetic without promoting that evidence into
+physical coordinate, standstill or motion qualification.
 
 The [fresh06 audit](reports/ess_release_06_audit_2026-10-04.md) separates historical feedback interpretation from raw freshness after new configuration readback and rejects contradictory/missing cached JSON fields. Native, package/build and50-frame read-only COM13 checks pass. Qualification limits above are unchanged.
+
+## Prompt07 disposition
+
+- [x] Installed `Axis.h` configuration/reference/request/result APIs; exact
+  rational preparation shares factor selection with existing units conversions.
+- [x] Native integer extremes, origin overflow, all rounding modes/ties, limits,
+  source-dependent encoder/travel conversions, bounded radians and stale evidence
+  tested; independent integer oracles verify rounding and binary64 allowances.
+- [x] Existing console exposes strict host `axis`/`prepare` routes through the
+  same public API, independent unit preferences and no bus traffic.
+- [x] Native/package/four firmware builds and 23-frame read-only COM13 campaign
+  pass; drive configuration unchanged. See [report](reports/ess_release_07_2026-10-04.md)
+  and [preparation contract](axis_preparation.md).
+- [ ] Resolve ESS source/sign/command mapping before using feedback to establish
+  a native origin or physical endpoint. Operator scales remain assumptions.
+- [ ] Qualify machine travel, encoder, physical limits, motion and stop with
+  suitable fixtures and reviewed profile semantics; free shaft is insufficient.
+
+The operation ledger gets no read/write/action credit for host arithmetic.
+Reduced exact intermediates use bounded uint64 storage and reject overflow;
+there is no implicit approximate fallback. Prompt08 is not executed here.

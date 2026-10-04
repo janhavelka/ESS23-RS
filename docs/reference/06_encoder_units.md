@@ -156,10 +156,10 @@ compiler mode where `long double` has binary64 precision.
 
 Keep raw native signed 64-bit positions as integers. Do not pass them through
 the engineering `double` API to narrow them; use `validateNativePosition` and
-`narrowNativePosition`. Conversion of engineering quantities into rounded
-integer motion targets, exact rational quantity input, origins, reference
-frames, limits and wrapped-angle path selection remain later axis work. This
-module does not claim to implement those planned axis operations.
+`narrowNativePosition`. Prompt 07 adds [exact rational/native target preparation](../axis_preparation.md),
+origins, frames, quantization and native limits using the same factor planner.
+Wrapped-angle path selection and drive motion remain later work. The displacement
+conversion functions themselves still have no origin or motion side effects.
 
 Every fallible conversion/narrowing preserves its output on error. Validation
 returns the shared `Status` with a structured `UnitError` in `detail`. All

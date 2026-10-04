@@ -1,5 +1,9 @@
 # MotorControl-RS standalone CLI contract
 
+
+Prompt 07 adds [host axis configuration and pure target previews](axis_preparation.md)
+through the same installed public API; these commands generate no motor traffic.
+
 Prompts 05–06 implement bounded [typed identity/configuration/state reads](ess_reads.md), common/profile routes, passive per-block status/health and finite opt-in observation polling. The [linked inventory](reference/ess_rs_operations.json) keeps native/hardware evidence and read/write/action obligations separate. Model/firmware compatibility, units, readiness and motion remain unqualified; these reads perform no writes.
 
 This defines the planned standalone console for the general `MotorControlRS`

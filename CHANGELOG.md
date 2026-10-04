@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Add exact host target preparation, native/rational input, frame-aware scaling,
+  origin/reference validation, quantization and limits. Reuse the units factor
+  planner; host-only console configuration and previews perform no motor writes.
+
 - Remove product-specific naming from the standalone RS485 reference and
   release prompts. Rename example environments to `bench_s3_*` and keep
   FieldCore guidance limited to a future RS485 motor integration.
