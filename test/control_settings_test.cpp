@@ -213,6 +213,46 @@ void deadlineEvidence() {
     assert(E::advanceDriver(c,expired,9000)&&c.outcome==E::DriverOutcome::DEADLINE&&!c.uncertain);
     assert(c.progress[1].readbackKnown&&c.effects==bit(1)&&c.progress[7].execution==ActionExecution::NOT_TRANSMITTED&&c.deadlineUs==9000);
 }
+void previousSettingsBudget() {
+    auto r=request(6); r.fields|=bit(7);
+    auto p=prerequisites(r); p.maxAgeUs=1000;
+    p.previous.provenance[0].attemptedUs=50;
+    E::DriverContext c;
+    assert(E::prepareControlSettings(c,target(),12,r,p,200,9000));
+    auto w=work(c); assert(w.deadlineUs==1050&&c.deadlineUs==9000);
+    ack(c); supply(c,reply({w.value}));
+    assert(c.step==2&&c.effects==bit(6)&&!c.uncertain);
+    E::PreparedDriver untouched; untouched.reg=123;
+    Saved<E::PreparedDriver> savedWork(untouched); Saved<E::DriverContext> savedContext(c);
+    assert(!E::nextDriver(c,1050,untouched)); savedWork.check(untouched); savedContext.check(c);
+    assert(E::advanceDriver(c,local(c,ReadEventKind::DEADLINE),1050));
+    assert(c.outcome==E::DriverOutcome::DEADLINE&&c.effects==bit(6)&&!c.uncertain);
+    assert(c.progress[6].readbackKnown&&c.progress[7].execution==ActionExecution::NOT_TRANSMITTED);
+
+    assert(E::prepareControlSettings(c,target(),12,r,p,200,9000));
+    w=work(c); const auto bytes=std::vector<uint8_t>(w.bytes,w.bytes+w.length);
+    const auto expired=frame(c,bytes,1050);
+    assert(E::advanceDriver(c,expired,1052)&&c.outcome==E::DriverOutcome::DEADLINE);
+    assert(c.effects==bit(6)&&c.uncertain&&!c.progress[6].acknowledged);
+}
+void previousSettingsEnvelope() {
+    const auto r=request();
+    for (uint8_t step=0;step<2;++step) for (uint8_t fault=0;fault<6;++fault) {
+        auto p=prerequisites(r); auto& evidence=p.previous.provenance[step];
+        switch (fault) {
+        case 0: evidence.event=ReadEventKind::CANCEL; break;
+        case 1: ++evidence.step; break;
+        case 2: evidence.txAccepted=0; break;
+        case 3: evidence.txComplete=false; break;
+        case 4: evidence.executionUnknown=true; break;
+        case 5: ++evidence.receivedLength; break;
+        }
+        E::DriverContext c; c.operationId=999; Saved<E::DriverContext> retained(c);
+        const auto status=E::prepareControlSettings(c,target(),12,r,p,200,9000);
+        assert(!status&&status.detail==static_cast<int32_t>(E::DriverError::STALE_SETTINGS));
+        retained.check(c);
+    }
+}
 void lifecycle() {
     auto r=request(1);r.fields|=bit(7);r.encoderResolution=8000;
     auto c=update(r);ack(c);supply(c,reply({8000}));assert(c.progress[1].readbackKnown&&!c.uncertain);
@@ -234,4 +274,4 @@ void lifecycle() {
     assert(E::prepareControlSettings(c,target(),12,request(),p,200,9000));assert(work(c).deadlineUs==210); // Older identity eligibility bounds write budget.
 }
 }
-int main(){readAndPreservation();rangesAndWholeCandidate();identityEffectsAndBounds();fullCapacity();deadlineEvidence();lifecycle();}
+int main(){readAndPreservation();rangesAndWholeCandidate();identityEffectsAndBounds();fullCapacity();deadlineEvidence();previousSettingsBudget();previousSettingsEnvelope();lifecycle();}

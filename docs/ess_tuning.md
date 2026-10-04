@@ -97,7 +97,9 @@ same group, target and configuration generation. Existing `controlIdentity`,
 `qualifiedFirmwareCode` carry independent exact-model evidence. Selected tuning
 effects use `tuningEffectsQualifiedFields`, the exact copied `qualifiedTuning`
 candidate and fresh `tuningEarliestUs`/`tuningLatestUs` bounds. Stationary,
-identity and effects bounds cap each write's deadline without renewal. Native
+identity, every previous-settings window and effects bounds cap each write's
+deadline without renewal. `driverWriteDeadline` supplies this same budget to
+application diagnostics. Native
 reads require no speculative physical gain formula; qualification flags default
 to unavailable for writes.
 
@@ -125,8 +127,11 @@ external setting change uses the same invalidation boundary.
 
 The application retains one bounded baseline for each of the four actual tuning
 groups. Reading another group cannot erase the comparison needed to detect a
-later arrival/deviation change. A partial or failed refresh leaves that group's
-previous complete observation intact.
+later arrival/deviation change. A partial or failed refresh retains the previous
+raw observation. If a checked completed window already proves a setting changed,
+the application invalidates its baseline and dependent readiness/reference
+assumptions even when a later window fails. An unchanged checked prefix preserves
+the prior validity; neither case rewrites historical results.
 
 External terminals remain optional. A tuning change with external effects needs
 evidence about its affected inputs; unrelated serial control does not acquire a
@@ -158,7 +163,7 @@ The transport keeps command correlation distinct from retained operation IDs,
 supports interleaved accepted/terminal records and never splits or retries an
 oversized or failed write automatically.
 
-The native Console/Python parity check exercises 58 actual terminal records,
+The native Console/Python parity check exercises 66 actual terminal records,
 every one of the twenty named fields and a complete eight-field LA update with
 sixteen transaction steps. Its largest terminal is 2,840 ASCII bytes within
 the existing 8,192-byte output bound. The fixture wrapper is test evidence,
@@ -166,7 +171,7 @@ not an additional console wire record.
 
 ## Available physical qualification
 
-The [current-image COM13 evidence](reports/ess_release_18_2026-10-04.json)
+The [implementation-image COM13 evidence](reports/ess_release_18_2026-10-04.json)
 records checked reads of all twenty fields before and after a finite
 `INPUT_FILTER` stored-code experiment. Native groups returned:
 
@@ -209,3 +214,8 @@ borrowed RX observation, measurement payload and immediate active cancellation
 are not replacements for this profile's retained checked frame evidence, honest
 partial settings progress and physical TX settlement. No FieldCore, UART, MCU,
 console or scheduler type enters the installed profile API.
+
+The [fresh 17/18 audit](reports/ess_release_17_18_audit_2026-10-04.md) repeats
+all twenty native reads and input-filter stored restoration on the final image.
+Sixty-six actual core/formatter fixtures exercise Python classification, including
+previous-settings expiry, delayed echoes and forged codec/transport evidence.

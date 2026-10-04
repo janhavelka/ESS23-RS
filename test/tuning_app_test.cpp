@@ -142,6 +142,8 @@ void failuresAndRecovery() {
 void failedRefreshPreservesBaseline() {
     fresh(); const auto old = read(ESS::DriverGroup::FILTERS, {2, 5, 4000, 5, 10, 512});
     const auto cached = tuningCache(*app, ESS::DriverGroup::FILTERS);
+    app->axis.originKnown = true; app->movePrerequisites.readinessQualified = true;
+    const auto generation = app->axis.generation;
     ESS::DriverRequest request; request.group = ESS::DriverGroup::FILTERS;
     uint32_t id = 0;
     assert(host(app).startDriver(app, 9, 1, ESS::DriverKind::READ, request, id) == Probe::Action::OK);
@@ -149,8 +151,12 @@ void failedRefreshPreservesBaseline() {
     auto malformed = words({10, 512}); malformed.back() ^= 1;
     reply(id, malformed);
     assert(!view(id).pending && view(id).driverContext->outcome != ESS::DriverOutcome::SUCCESS);
-    assert(tuningCache(*app, ESS::DriverGroup::FILTERS).operationId == cached.operationId &&
-           tuningCache(*app, ESS::DriverGroup::FILTERS).raw[3] == 5);
+    assert(!tuningCache(*app, ESS::DriverGroup::FILTERS).operationId &&
+           tuningCache(*app, ESS::DriverGroup::FILTERS).raw[3] == cached.raw[3]);
+    assert(app->axis.generation > generation && !app->axis.originKnown && !app->movePrerequisites.readinessQualified);
+    const auto invalidated = app->axis.generation;
+    for (unsigned i = 0; i < 10; ++i) step();
+    assert(app->axis.generation == invalidated); // Repeated service does not repeat invalidation.
     assert(view(old).driverContext->outcome == ESS::DriverOutcome::SUCCESS);
 }
 } // namespace

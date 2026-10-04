@@ -1,5 +1,11 @@
 # Roadmap to a supported ESS release
 
+The [fresh prompts 17/18 audit](reports/ess_release_17_18_audit_2026-10-04.md) fixes
+settings freshness, copied provenance, partial-refresh invalidation and strict
+console evidence validation. All 45 native suites, installed consumption and
+four firmware builds pass. The final COM13 image passes 104 frames and restores
+input filter `2?3?2` and lock delay `200?201?200`; physical effects remain unqualified.
+
 Updated 2026-10-04. This is the delivery order and the definition of done.
 The [backlog](backlog.md) holds individual features, register questions and
 verification tasks. Update both when evidence changes the plan; dates and

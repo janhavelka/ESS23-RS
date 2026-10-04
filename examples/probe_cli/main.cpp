@@ -1246,6 +1246,34 @@ void updateActionReservation(App& a, App::Record& record) {
         const bool segment = segmentGroup(record.driver.group);
         const bool tuning = ESS::isTuningGroup(record.driver.group);
         auto& cache = tuning ? tuningCache(a, record.driver.group) : segment ? a.segmentSettings : record.driver.group == ESS::DriverGroup::IO ? a.ioSettings : record.driver.group == ESS::DriverGroup::CONTROL_SETTINGS ? a.controlSettings : a.driverSettings;
+        // A failed grouped refresh cannot publish a new snapshot, but an earlier
+        // checked window can already prove that the old prerequisites changed.
+        if ((tuning || record.driver.group == ESS::DriverGroup::CONTROL_SETTINGS) &&
+            record.driver.kind == ESS::DriverKind::READ && record.driver.state == ReadState::FAILED &&
+            !record.effectsInvalidated && record.address == a.axis.target.address &&
+            record.configurationGeneration == a.axis.generation && record.driver.target.generation == a.bindingGeneration &&
+            cache.operationId && cache.group == record.driver.group && Probe::sameTarget(cache.target, record.driver.target) &&
+            record.operationId > cache.operationId && record.operationId > a.configuration.operationId) {
+            uint32_t changed = 0;
+            for (uint8_t step = 0; step < record.driver.completedSteps; ++step) {
+                const auto& evidence = record.driver.observations[step];
+                uint16_t words[4] = {}; std::size_t count = 0;
+                if (!ESS::parseRegisters(evidence.raw, evidence.length, record.address,
+                                        evidence.count, words, 4, count)) continue;
+                for (uint8_t slot = 0; slot < (tuning ? ESS::tuningFieldCount(record.driver.group) : 8); ++slot) {
+                    ESS::TuningParameterInfo info;
+                    const uint16_t reg = tuning ?
+                        (ESS::tuningParameterInfo(ESS::tuningParameter(record.driver.group, slot), info) ? info.reg : 0) :
+                        static_cast<uint16_t>(ESS::Registers::CONTROL_ALGORITHM + slot);
+                    if (reg >= evidence.reg && static_cast<std::size_t>(reg - evidence.reg) < count && cache.raw[slot] != words[reg - evidence.reg])
+                        changed |= static_cast<uint32_t>(ESS::driverFieldAt(slot, record.driver.group));
+                }
+            }
+            if (changed) {
+                record.effectsInvalidated = true;
+                invalidateDriverAssumptions(a, record.address, changed, nowUs(), &record, record.driver.group);
+            }
+        }
         if (record.driver.kind == ESS::DriverKind::READ && record.address == a.axis.target.address &&
             record.configurationGeneration == a.axis.generation && record.driver.target.generation == a.bindingGeneration &&
             record.operationId > cache.operationId && record.operationId > a.configuration.operationId &&

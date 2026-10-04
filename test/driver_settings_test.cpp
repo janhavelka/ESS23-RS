@@ -252,11 +252,11 @@ void testFaultsCancellationAndExpiry() {
     auto partialLate = update(3, 300); ack(partialLate); e = frame(partialLate, bytes.data(), bytes.size(), 298);
     assert(Ess::advanceDriver(partialLate, e, 9000) && partialLate.outcome == Ess::DriverOutcome::DEADLINE);
     assert(!partialLate.uncertain && partialLate.effects == 1 && work(partialLate).kind == Ess::ActionWork::DONE);
-    auto p = prerequisites(); p.maxAgeUs = 200; Ess::DriverContext capped;
+    auto p = prerequisites(); p.maxAgeUs = 200; p.stationaryEarliestUs = 95; Ess::DriverContext capped;
     assert(Ess::prepareDriverSettings(capped, target(), 3, request(), p, 200, 9000));
-    assert(work(capped).deadlineUs == 310 && capped.deadlineUs == 9000);
-    Ess::PreparedDriver pending; assert(!Ess::nextDriver(capped, 310, pending));
-    assert(Ess::advanceDriver(capped, local(capped, ReadEventKind::DEADLINE), 310));
+    assert(work(capped).deadlineUs == 295 && capped.deadlineUs == 9000);
+    Ess::PreparedDriver pending; assert(!Ess::nextDriver(capped, 295, pending));
+    assert(Ess::advanceDriver(capped, local(capped, ReadEventKind::DEADLINE), 295));
     assert(capped.outcome == Ess::DriverOutcome::DEADLINE && !capped.effects);
     assert(Ess::prepareDriverSettings(capped, target(), 3, request(), p, 200, 9000));
     e = local(capped, ReadEventKind::DEADLINE); e.transport.txAccepted = 8; e.txComplete = true;

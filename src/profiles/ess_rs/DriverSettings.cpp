@@ -156,6 +156,11 @@ uint64_t stationaryDeadline(const DriverContext& c) {
     const uint64_t until = p.maxAgeUs > maximum - p.stationaryEarliestUs ? maximum :
         p.stationaryEarliestUs + p.maxAgeUs;
     uint64_t deadline = until < c.deadlineUs ? until : c.deadlineUs;
+    for (uint8_t i = 0; i < readSteps(c.group); ++i) {
+        const uint64_t attempted = p.previous.provenance[i].attemptedUs;
+        const uint64_t settingsUntil = p.maxAgeUs > maximum - attempted ? maximum : attempted + p.maxAgeUs;
+        if (settingsUntil < deadline) deadline = settingsUntil;
+    }
     if (c.group == DriverGroup::IO) {
         const uint64_t ioUntil = p.maxAgeUs > maximum - p.ioEarliestUs ? maximum : p.ioEarliestUs + p.maxAgeUs;
         if (ioUntil < deadline) deadline = ioUntil;
@@ -197,7 +202,10 @@ Status decode(const DriverEvidence* evidence, const ReadTarget& target, DriverGr
     for (uint8_t i = 0; i < steps; ++i) {
         uint16_t reg = 0, count = 0; readWindow(group, i, reg, count, record);
         std::size_t decoded = 0;
-        if (evidence[i].write || evidence[i].reg != reg || evidence[i].count != count ||
+        if (evidence[i].event != ReadEventKind::FRAME || evidence[i].step != i ||
+            evidence[i].write || evidence[i].reg != reg || evidence[i].count != count ||
+            evidence[i].txAccepted != READ_REQUEST_LEN || !evidence[i].txComplete ||
+            evidence[i].executionUnknown || evidence[i].receivedLength != evidence[i].length ||
             !evidence[i].qualified || !evidence[i].responseConfirmed || !evidence[i].status)
             return invalid(DriverError::NOT_COMPLETE, "driver read provenance is incomplete");
         const Status status = parseRegisters(evidence[i].raw, evidence[i].length,
@@ -521,6 +529,10 @@ Status prepareDriverSettings(DriverContext& output, const ReadTarget& target, ui
             output.order[output.fieldCount++] = i;
     return Ok();
 }
+uint64_t driverWriteDeadline(const DriverContext& c) noexcept {
+    return c.kind == DriverKind::UPDATE ? stationaryDeadline(c) : c.deadlineUs;
+}
+
 Status nextDriver(const DriverContext& c, uint64_t nowUs, PreparedDriver& output) noexcept {
     if (c.state == ReadState::EMPTY) return invalid(DriverError::INVALID_STATE, "driver operation is empty");
     if (nowUs < c.servicedUs) return invalid(DriverError::CLOCK_ERROR, "driver-settings clock moved backwards");
@@ -535,7 +547,7 @@ Status nextDriver(const DriverContext& c, uint64_t nowUs, PreparedDriver& output
         next.reg = progress.reg; next.value = progress.requested; next.count = 1;
         next.write = (c.step % 2) == 0;
         if (next.write) {
-            next.deadlineUs = stationaryDeadline(c);
+            next.deadlineUs = driverWriteDeadline(c);
             if (nowUs >= next.deadlineUs)
                 return failure(DriverError::STATIONARY_REQUIRED, "stopped-state evidence expired before settings write");
         }
@@ -554,7 +566,7 @@ Status advanceDriver(DriverContext& c, const ActionEvent& supplied, uint64_t now
         return invalid(DriverError::WRONG_CORRELATION, "driver event correlation mismatch");
     if (nowUs < c.servicedUs) return invalid(DriverError::CLOCK_ERROR, "driver-settings clock moved backwards");
     const bool currentWrite = c.kind == DriverKind::UPDATE && (c.step % 2) == 0;
-    const uint64_t transactionDeadline = currentWrite ? stationaryDeadline(c) : c.deadlineUs;
+    const uint64_t transactionDeadline = currentWrite ? driverWriteDeadline(c) : c.deadlineUs;
     if (event.kind > ReadEventKind::DEADLINE || event.txAccepted > READ_REQUEST_LEN ||
         (supplied.txComplete && event.txAccepted != READ_REQUEST_LEN))
         return invalid(DriverError::INVALID_EVENT, "invalid driver transport envelope");

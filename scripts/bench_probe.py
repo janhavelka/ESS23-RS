@@ -221,6 +221,30 @@ def wire_crc(data: bytes) -> int:
     return crc
 
 
+def _reply_status(raw: bytes, received: int, address: int, function: int,
+                  normal_length: int, echo: tuple[int, int] | None = None) -> tuple[str, int, int]:
+    """Check retained reply bytes in the public codec's bounded validation order."""
+    if received < 5 or received > normal_length:
+        error = 2
+    elif raw[0] != address:
+        error = 3
+    elif raw[1] not in (function, function | 0x80):
+        error = 4
+    elif received != (5 if raw[1] == (function | 0x80) else normal_length):
+        error = 2
+    elif function == 3 and raw[1] == function and raw[2] != normal_length - 5:
+        error = 5
+    elif wire_crc(raw) != 0:
+        error = 6
+    elif raw[1] == (function | 0x80):
+        return "EXCEPTION", raw[2], 10
+    elif echo is not None and (int.from_bytes(raw[2:4], "big"), int.from_bytes(raw[4:6], "big")) != echo:
+        error = 7
+    else:
+        return "OK", 0, 0
+    return ("CRC_ERROR" if error == 6 else "FRAME_ERROR"), error, error
+
+
 class Evidence:
     """Stream evidence to an exclusive new file; do not retain a growing list."""
 
@@ -1086,17 +1110,20 @@ class Console:
                     selected = [fields[8]] + [p for p in selected if p["field"] != 8]
                 require(index // 2 < len(selected) and e["register"] == selected[index // 2]["register"] and e["count"] == 1 and
                         e["write"] == (index % 2 == 0), "update sequence differs")
-            if e["event"] == 0 and e["status"] == "OK":
-                require(e["tx_complete"] and e["detail"] == e["frame_error"] == 0 and wire_crc(raw) == 0 and raw[0] == item["address"], "checked frame differs")
+            if e["event"] == 0:
+                require(e["tx_complete"] and e["tx_accepted"] == 8, "frame lacks completed request")
+                echo = None
                 if e["write"]:
                     p = next(p for p in fields.values() if p["register"] == e["register"])
-                    require(len(raw) == 8 and raw[1] == 6 and int.from_bytes(raw[2:4], "big") == e["register"] and
-                            int.from_bytes(raw[4:6], "big") == p["requested"], "write echo differs")
-                else:
-                    require(len(raw) == 5 + 2 * e["count"] and raw[1:3] == bytes((3, 2 * e["count"])), "read payload differs")
-            if e["status"] == "EXCEPTION":
-                require(e["event"] == 0 and len(raw) == 5 and raw[:2] == bytes((item["address"], 0x86 if e["write"] else 0x83)) and
-                        wire_crc(raw) == 0 and e["detail"] == raw[2], "exception differs")
+                    echo = (e["register"], p["requested"])
+                expected = _reply_status(raw, e["received_length"], item["address"],
+                                         6 if e["write"] else 3, 8 if e["write"] else 5 + 2 * e["count"], echo)
+                require((e["status"], e["detail"], e["frame_error"]) == expected,
+                        "codec evidence differs from retained reply")
+            else:
+                require((e["status"], e["detail"], e["frame_error"]) ==
+                        ("ILLEGAL_VALUE", {1: 14, 2: 15, 3: 13}[e["event"]], 0),
+                        "local event codec evidence differs")
             steps.append((e, raw))
         effects = 0
         uncertain = False
@@ -1137,6 +1164,8 @@ class Console:
                     all(e["qualified"] and (e["response_confirmed"] or (stored and echo_policy and e["write"])) and e["status"] == "OK" and e["latest_us"] <= item["deadline_us"] for e, raw in steps), "success lacks complete checked evidence")
             require(all(p["readback_known"] and p["requested"] == p["readback"] and ((p["acknowledged"] and p["execution"] == "acknowledged") or (stored and echo_policy and not p["acknowledged"] and p["execution"] == "unknown")) for p in fields.values()), "success lacks matching readback")
         if item["driver_kind"] == "read" and item["ok"]:
+            require(all(not e["execution_unknown"] for e, raw in steps),
+                    "successful read retains execution uncertainty")
             v = item.get("observation")
             require(isinstance(v, dict), "complete read observation is missing")
             words = [[int.from_bytes(raw[i:i+2], "big") for i in range(3, len(raw) - 2, 2)] for e, raw in steps]
@@ -1179,6 +1208,29 @@ class Console:
                     require(v.get("positive_bits") == pair(words[2][:2]) and v.get("negative_bits") == pair(words[2][2:]), "paired bits differ")
                 else: require(v.get("positive_bits") == v.get("negative_bits") == 0, "unknown word order was decoded")
         else: require(item.get("observation") is None, "partial update publishes a whole observation")
+        if not item["ok"]:
+            require(bool(steps), "failure lacks terminal evidence")
+            e, raw = steps[-1]
+            deadline = item["stationary_valid_until_us"] if e["write"] else item["deadline_us"]
+            if e["event"] != 0:
+                expected_outcome = {1: "transport_error", 2: "cancelled", 3: "deadline"}[e["event"]]
+            elif not e["qualified"]:
+                expected_outcome = "timing_unqualified"
+            elif e["latest_us"] > deadline:
+                expected_outcome = "deadline"
+            elif e["status"] != "OK":
+                expected_outcome = "reply_error"
+            elif not e["response_confirmed"] and not (stored and echo_policy and e["write"]):
+                expected_outcome = "unconfirmed_response"
+            elif item["driver_kind"] == "update" and not e["write"] and any(
+                    p["register"] == e["register"] and p["requested"] != int.from_bytes(raw[3:5], "big")
+                    for p in fields.values()):
+                expected_outcome = "readback_mismatch"
+            else:
+                require(item["completed_steps"] < total and e["delivered_us"] >= item["deadline_us"],
+                        "checked frame does not establish failure")
+                expected_outcome = "deadline"
+            require(item["outcome"] == expected_outcome, "failure priority contradicts terminal evidence")
         if item["outcome"] == "readback_mismatch":
             require(item["status"] == "ILLEGAL_VALUE" and item["detail"] == 18 and steps and not steps[-1][0]["write"] and
                     any(p["readback_known"] and p["readback"] != p["requested"] for p in fields.values()), "mismatch lacks readback disagreement")
@@ -1623,25 +1675,9 @@ class Console:
                     "retained request does not match reviewed FC03 window")
             require(len(rx) == min(step["received_length"], 37), "captured prefix length is inconsistent")
             if step["event"] == 0:
-                received = step["received_length"]
-                if received < 5 or received > 5 + 2 * count:
-                    error = 2  # Exact response-length contract, before header access.
-                elif rx[0] != item["address"]:
-                    error = 3
-                elif rx[1] not in (3, 0x83):
-                    error = 4
-                elif received != (5 if rx[1] == 0x83 else 5 + 2 * count):
-                    error = 2
-                elif rx[1] == 3 and rx[2] != 2 * count:
-                    error = 5
-                elif wire_crc(rx) != 0:
-                    error = 6
-                else:
-                    error = 10 if rx[1] == 0x83 else 0
-                expected_status = {0: "OK", 6: "CRC_ERROR", 10: "EXCEPTION"}.get(error, "FRAME_ERROR")
-                expected_detail = rx[2] if error == 10 else error
-                require(step["frame_error"] == error and step["status"] == expected_status
-                        and step["detail"] == expected_detail, "codec evidence differs from retained RX")
+                expected = _reply_status(rx, step["received_length"], item["address"], 3, 5 + 2 * count)
+                require((step["status"], step["detail"], step["frame_error"]) == expected,
+                        "codec evidence differs from retained RX")
             else:
                 require(not step["qualified"] and step["status"] == "ILLEGAL_VALUE", "control event evidence is inconsistent")
             if index < complete:

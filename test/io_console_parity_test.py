@@ -28,7 +28,7 @@ for line in output.splitlines():
                  lambda r: r["evidence"][0].__setitem__(0, 1),
                  lambda r: r["evidence"][0].__setitem__(5, "00")]
     if name == "io_evidence_deadline":
-        assert record["stationary_valid_until_us"] == 305
+        assert record["stationary_valid_until_us"] == 295
         mutations.append(lambda r: r.update(stationary_valid_until_us=310))
     if record["ok"]:
         mutations.append(lambda r: r["evidence"][-1].__setitem__(9, False))

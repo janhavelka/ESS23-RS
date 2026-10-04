@@ -227,6 +227,9 @@ Status prepareDriverRead(DriverContext&, const ReadTarget&, uint32_t operationId
 Status prepareDriverSettings(DriverContext&, const ReadTarget&, uint32_t operationId,
                              const DriverRequest&, const DriverPrerequisites&,
                              uint64_t nowUs, uint64_t deadlineUs) noexcept;
+/** Immutable write budget capped by all retained prerequisite observations.
+ * READ returns the operation deadline. This also supplies application diagnostics. */
+uint64_t driverWriteDeadline(const DriverContext&) noexcept;
 /** Repeated calls yield the same token; admission/axis reservation are owned by
  * the application. Absolute deadline and readiness bounds are never renewed. */
 Status nextDriver(const DriverContext&, uint64_t nowUs, PreparedDriver&) noexcept;

@@ -207,11 +207,11 @@ void testEchoReadbackAndFaults() {
     c = update(); auto e = local(c, ReadEventKind::CANCEL); assert(E::advanceDriver(c, e, 201)); assert(!c.uncertain && !c.effects);
     c = update(); e = local(c, ReadEventKind::CANCEL); e.transport.txAccepted = 3; e.transport.executionUnknown = true;
     assert(E::advanceDriver(c, e, 201) && c.uncertain && c.effects == mask(8));
-    c = update(); auto p = c.prerequisites; p.maxAgeUs = 200; p.ioEarliestUs = 105;
-    assert(E::prepareDriverSettings(c, target(), 12, request(), p, 200, 9000)); assert(work(c).deadlineUs == 305);
+    c = update(); auto p = c.prerequisites; p.maxAgeUs = 200; p.ioEarliestUs = 95;
+    assert(E::prepareDriverSettings(c, target(), 12, request(), p, 200, 9000)); assert(work(c).deadlineUs == 295);
     E::PreparedDriver untouched; untouched.reg = 99; const Saved<E::PreparedDriver> saved(untouched);
-    assert(!E::nextDriver(c, 305, untouched)); saved.check(untouched);
-    e = local(c, ReadEventKind::DEADLINE); assert(E::advanceDriver(c, e, 305) && !c.effects && c.deadlineUs == 9000);
+    assert(!E::nextDriver(c, 295, untouched)); saved.check(untouched);
+    e = local(c, ReadEventKind::DEADLINE); assert(E::advanceDriver(c, e, 295) && !c.effects && c.deadlineUs == 9000);
 }
 } // namespace
 int main() {

@@ -203,9 +203,35 @@ void recoveryWithActiveWriteAndFullResults() {
     for (unsigned i = 0; i < 100; ++i) step();
     assert(hardware.writes == writes && view(update).driverContext->uncertain && !axisReserved(*app,1));
 }
+void failedRefreshInvalidatesChangedScale() {
+    for (bool changed : {false, true}) {
+        fresh(); const auto original = readControl();
+        app->axis.units.encoder.countsPerUnit = UnitScale(4000, 1, ScaleSource::QUALIFIED);
+        app->axis.units.encoder.sourceId = 1;
+        app->axis.originKnown = true; app->movePrerequisites.readinessQualified = true;
+        const auto generation = app->axis.generation;
+        uint32_t id = 0; ESS::DriverRequest request; request.group = ESS::DriverGroup::CONTROL_SETTINGS;
+        assert(host(app).startDriver(app, 90, 1, ESS::DriverKind::READ, request, id) == Probe::Action::OK);
+        reply(id, words({3, static_cast<uint16_t>(changed ? 8000 : 4000), 2200, 100}));
+        auto malformed = words({50, 100, 50, 1000}); malformed.back() ^= 1;
+        reply(id, malformed);
+        assert(!view(id).pending && view(id).driverContext->state == ReadState::FAILED);
+        assert(app->controlSettings.raw[1] == 4000); // Failed refresh cannot publish a partial snapshot.
+        if (changed) {
+            assert(!app->controlSettings.operationId && app->axis.generation > generation);
+            assert(!app->axis.units.encoder.countsPerUnit.numerator && !app->axis.originKnown && !app->movePrerequisites.readinessQualified);
+        } else {
+            assert(app->controlSettings.operationId == original && app->axis.generation == generation);
+            assert(app->axis.originKnown && app->movePrerequisites.readinessQualified);
+        }
+        const auto after = app->axis.generation;
+        for (unsigned i = 0; i < 10; ++i) step();
+        assert(app->axis.generation == after && view(original).driverContext->outcome == ESS::DriverOutcome::SUCCESS);
+    }
+}
 } // namespace
 int main() {
     safeDelayAndGuards(); modelAndStaleness(); changedScaleAndHistoricalContext(); uncertaintyAndCancel(); independentCachesAndPressure();
-    recoveryWithActiveWriteAndFullResults();
+    recoveryWithActiveWriteAndFullResults(); failedRefreshInvalidatesChangedScale();
     if (app) { app->~App(); std::free(app); app = nullptr; }
 }

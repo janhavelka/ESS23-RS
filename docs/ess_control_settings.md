@@ -149,11 +149,11 @@ these select documented codes 1 and 2 through the same typed preparation.
 
 Native source, range, model, stopped-state, stale-context, partial-application and
 uncertainty tests pass through the real core and application SDK paths. The
-twenty-one actual core/formatter fixtures include full sixteen-step output and
+twenty-three actual core/formatter fixtures include full sixteen-step output and
 cancellation at every boundary; the largest current fixture is 2980/8192 bytes.
 These are software evidence, independently of physical behavior.
 
-The [current COM13 evidence](reports/ess_release_17_2026-10-04.json) reads all
+The [implementation COM13 evidence](reports/ess_release_17_2026-10-04.json) reads all
 eight fields as `[3,4000,5600,100,40,100,40,200]`. The stopped lock-delay update
 200-to201 ms and explicit restoration to200 ms both have confirmed separate
 readbacks. Every FC06 frame keeps acknowledgement false, response source
@@ -182,3 +182,12 @@ rejection requires qualified frame closure within the retained write budget;
 late checked bytes stay raw evidence with unknown execution. An on-time closure
 delivered later keeps its original classification. The Python checker follows
 the same rule.
+
+The [fresh 17/18 audit](reports/ess_release_17_18_audit_2026-10-04.md) caps writes
+by every copied previous-settings window as well as stationary, identity and
+effects evidence. `driverWriteDeadline` supplies the same immutable budget to
+the CLI. Baselines require the complete checked transport envelope. A failed
+grouped refresh retains prior raw values but invalidates dependent assumptions
+when its checked prefix already proves a changed setting. Historical results
+retain their original context. The final image repeats all eight reads and
+lock-delay stored restoration with zero transport/capture errors.

@@ -154,6 +154,7 @@ int main() {
         !nextDriver(driver, 2800, setting) || setting.reg != 0x112 || setting.count != 4) return 44;
     TuningObservation tuning;
     if (getTuning(driver, tuning)) return 45;
+    if (driverWriteDeadline(driver) != 100000) return 47;
     DriverRequest tuningCandidate;
     if (!prepareTuningValue(tuningCandidate, laStageParameter(2, LaStageField::NODE), 65535) ||
         tuningCandidate.group != DriverGroup::LA || tuningCandidate.fields != 32 || tuningCandidate.tuningValues[5] != 65535) return 46;

@@ -1,5 +1,11 @@
 # MotorControl-RS documentation
 
+The [fresh prompts 17/18 audit](reports/ess_release_17_18_audit_2026-10-04.md) fixes
+settings freshness, copied provenance, partial-refresh invalidation and strict
+console evidence validation. All 45 native suites, installed consumption and
+four firmware builds pass. The final COM13 image passes 104 frames and restores
+input filter `2?3?2` and lock delay `200?201?200`; physical effects remain unqualified.
+
 Prompt18 adds [typed tuning settings](ess_tuning.md) and shared API/CLI/Python
 routes. All twenty native reads and input-filter stored restoration pass on
 COM13; gain, arrival and collision effects remain unqualified in

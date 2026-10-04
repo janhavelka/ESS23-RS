@@ -1769,17 +1769,19 @@
           "test/control_settings_test.cpp",
           "test/control_app_test.cpp",
           "test/control_console_parity_test.py",
-          "docs/reports/ess_release_16_17_audit_2026-10-04.md"
+          "docs/reports/ess_release_16_17_audit_2026-10-04.md",
+          "docs/reports/ess_release_17_18_audit_2026-10-04.md"
         ],
-        "reason": "Real core and SDK application tests, exact CLI grammar and21 actual core/formatter Python fixtures; full8field/16step capacity, cancel boundaries, current/model dependencies and immutable partial/uncertain results. Fresh audit adds closure-budget ACK/exception classification, full-result-pressure CLI recovery and strict Python evidence regressions."
+        "reason": "Real core and SDK application tests, exact CLI grammar and23 actual core/formatter Python fixtures; full8field/16step capacity, cancel boundaries, current/model dependencies and immutable partial/uncertain results. Fresh audit adds closure-budget ACK/exception classification, full-result-pressure CLI recovery and strict Python evidence regressions. Fresh 17/18 audit validates every prior-settings freshness cap, copied transport envelopes, changed checked-prefix invalidation and actual core/formatter/Python parser-failure priority."
       },
       "hardware": {
         "state": "PASS",
         "evidence": [
           "docs/reports/ess_release_17_2026-10-04.json",
-          "docs/reports/ess_release_16_17_audit_2026-10-04.json"
+          "docs/reports/ess_release_16_17_audit_2026-10-04.json",
+          "docs/reports/ess_release_17_18_audit_2026-10-04.json"
         ],
-        "reason": "Fresh497776-byte audit timer image on COM13 reads all8 native fields and repeats exact raw baseline after explicit lock-delay restoration; original497760-byte prompt17 evidence remains historical. Algorithm3 remains unknown; counts4000 and effective-current code5600 are retained. Readback is not active mode/current/encoder accuracy qualification."
+        "reason": "Fresh497776-byte audit timer image on COM13 reads all8 native fields and repeats exact raw baseline after explicit lock-delay restoration; original497760-byte prompt17 evidence remains historical. Algorithm3 remains unknown; counts4000 and effective-current code5600 are retained. Readback is not active mode/current/encoder accuracy qualification. Final audit image repeats this register path in104 frames with zero transport/capture errors; originals restored. Physical effects remain unqualified."
       },
       "reason": "Two checked four-word reads preserve all native/unknown values."
     },
@@ -1812,9 +1814,10 @@
           "test/control_settings_test.cpp",
           "test/control_app_test.cpp",
           "test/control_console_parity_test.py",
-          "docs/reports/ess_release_16_17_audit_2026-10-04.md"
+          "docs/reports/ess_release_16_17_audit_2026-10-04.md",
+          "docs/reports/ess_release_17_18_audit_2026-10-04.md"
         ],
-        "reason": "Real core and SDK application tests, exact CLI grammar and21 actual core/formatter Python fixtures; full8field/16step capacity, cancel boundaries, current/model dependencies and immutable partial/uncertain results. Fresh audit adds closure-budget ACK/exception classification, full-result-pressure CLI recovery and strict Python evidence regressions."
+        "reason": "Real core and SDK application tests, exact CLI grammar and23 actual core/formatter Python fixtures; full8field/16step capacity, cancel boundaries, current/model dependencies and immutable partial/uncertain results. Fresh audit adds closure-budget ACK/exception classification, full-result-pressure CLI recovery and strict Python evidence regressions. Fresh 17/18 audit validates every prior-settings freshness cap, copied transport envelopes, changed checked-prefix invalidation and actual core/formatter/Python parser-failure priority."
       },
       "hardware": {
         "state": "NOT_RUN",
@@ -1852,17 +1855,19 @@
           "test/control_settings_test.cpp",
           "test/control_app_test.cpp",
           "test/control_console_parity_test.py",
-          "docs/reports/ess_release_16_17_audit_2026-10-04.md"
+          "docs/reports/ess_release_16_17_audit_2026-10-04.md",
+          "docs/reports/ess_release_17_18_audit_2026-10-04.md"
         ],
-        "reason": "Real core and SDK application tests, exact CLI grammar and21 actual core/formatter Python fixtures; full8field/16step capacity, cancel boundaries, current/model dependencies and immutable partial/uncertain results. Fresh audit adds closure-budget ACK/exception classification, full-result-pressure CLI recovery and strict Python evidence regressions."
+        "reason": "Real core and SDK application tests, exact CLI grammar and23 actual core/formatter Python fixtures; full8field/16step capacity, cancel boundaries, current/model dependencies and immutable partial/uncertain results. Fresh audit adds closure-budget ACK/exception classification, full-result-pressure CLI recovery and strict Python evidence regressions. Fresh 17/18 audit validates every prior-settings freshness cap, copied transport envelopes, changed checked-prefix invalidation and actual core/formatter/Python parser-failure priority."
       },
       "hardware": {
         "state": "PASS",
         "evidence": [
           "docs/reports/ess_release_17_2026-10-04.json",
-          "docs/reports/ess_release_16_17_audit_2026-10-04.json"
+          "docs/reports/ess_release_16_17_audit_2026-10-04.json",
+          "docs/reports/ess_release_17_18_audit_2026-10-04.json"
         ],
-        "reason": "Only stopped-state stored-value path: native200ms-to201ms then explicit restoration200ms, confirmed separate FC03 readbacks. Every FC06 source/ACK remains unconfirmed/executionUNKNOWN; no active lock timing, torque or persistence effect qualification."
+        "reason": "Only stopped-state stored-value path: native200ms-to201ms then explicit restoration200ms, confirmed separate FC03 readbacks. Every FC06 source/ACK remains unconfirmed/executionUNKNOWN; no active lock timing, torque or persistence effect qualification. Final audit image repeats this register path in104 frames with zero transport/capture errors; originals restored. Physical effects remain unqualified."
       },
       "reason": "Explicit bounded millisecond setting uses the same whole-candidate validation and FC06/FC03 sequence. Model identity and stopped effects are independently qualified; current denominator is unrelated. Stored settlement is distinct from physical lock behavior."
     },
@@ -1896,16 +1901,18 @@
           "test/tuning_app_test.cpp",
           "test/probe_console_test.cpp",
           "test/tuning_console_parity_test.py",
-          "test/installed_consumer/main.cpp"
+          "test/installed_consumer/main.cpp",
+          "docs/reports/ess_release_17_18_audit_2026-10-04.md"
         ],
-        "reason": "Current integrated verification passes: exact native ranges/group masks/selectors, complete bounded reads/updates, partial uncertainty/cancellation, actual application cross-group cache invalidation and failed-refresh preservation, all20 CLI fields and58 actual Console/Python terminal fixtures; installed header consumer compiles."
+        "reason": "Current integrated verification passes: exact native ranges/group masks/selectors, complete bounded reads/updates, partial uncertainty/cancellation, actual application cross-group cache invalidation and failed-refresh preservation, all20 CLI fields and66 actual Console/Python terminal fixtures; installed header consumer compiles. Fresh 17/18 audit validates every prior-settings freshness cap, copied transport envelopes, changed checked-prefix invalidation and actual core/formatter/Python parser-failure priority."
       },
       "hardware": {
         "state": "PASS",
         "evidence": [
-          "docs/reports/ess_release_18_2026-10-04.json"
+          "docs/reports/ess_release_18_2026-10-04.json",
+          "docs/reports/ess_release_17_18_audit_2026-10-04.json"
         ],
-        "reason": "COM13 current-image typed reads before and after finite stored-filter restoration retain all20 raw fields. Read-path evidence only; unknown physical scaling, active behavior and model applicability are not qualified."
+        "reason": "COM13 current-image typed reads before and after finite stored-filter restoration retain all20 raw fields. Read-path evidence only; unknown physical scaling, active behavior and model applicability are not qualified. Final audit image repeats this register path in104 frames with zero transport/capture errors; originals restored. Physical effects remain unqualified."
       },
       "reason": "Reviewed single-word native values and checked bounded read windows; unknown physical units and conflicting collision mappings remain explicit."
     },
@@ -1938,9 +1945,10 @@
           "test/tuning_app_test.cpp",
           "test/probe_console_test.cpp",
           "test/tuning_console_parity_test.py",
-          "test/installed_consumer/main.cpp"
+          "test/installed_consumer/main.cpp",
+          "docs/reports/ess_release_17_18_audit_2026-10-04.md"
         ],
-        "reason": "Current integrated verification passes: exact native ranges/group masks/selectors, complete bounded reads/updates, partial uncertainty/cancellation, actual application cross-group cache invalidation and failed-refresh preservation, all20 CLI fields and58 actual Console/Python terminal fixtures; installed header consumer compiles."
+        "reason": "Current integrated verification passes: exact native ranges/group masks/selectors, complete bounded reads/updates, partial uncertainty/cancellation, actual application cross-group cache invalidation and failed-refresh preservation, all20 CLI fields and66 actual Console/Python terminal fixtures; installed header consumer compiles. Fresh 17/18 audit validates every prior-settings freshness cap, copied transport envelopes, changed checked-prefix invalidation and actual core/formatter/Python parser-failure priority."
       },
       "hardware": {
         "state": "NOT_RUN",
@@ -1977,16 +1985,18 @@
           "test/tuning_app_test.cpp",
           "test/probe_console_test.cpp",
           "test/tuning_console_parity_test.py",
-          "test/installed_consumer/main.cpp"
+          "test/installed_consumer/main.cpp",
+          "docs/reports/ess_release_17_18_audit_2026-10-04.md"
         ],
-        "reason": "Current integrated verification passes: exact native ranges/group masks/selectors, complete bounded reads/updates, partial uncertainty/cancellation, actual application cross-group cache invalidation and failed-refresh preservation, all20 CLI fields and58 actual Console/Python terminal fixtures; installed header consumer compiles."
+        "reason": "Current integrated verification passes: exact native ranges/group masks/selectors, complete bounded reads/updates, partial uncertainty/cancellation, actual application cross-group cache invalidation and failed-refresh preservation, all20 CLI fields and66 actual Console/Python terminal fixtures; installed header consumer compiles. Fresh 17/18 audit validates every prior-settings freshness cap, copied transport envelopes, changed checked-prefix invalidation and actual core/formatter/Python parser-failure priority."
       },
       "hardware": {
         "state": "PASS",
         "evidence": [
-          "docs/reports/ess_release_18_2026-10-04.json"
+          "docs/reports/ess_release_18_2026-10-04.json",
+          "docs/reports/ess_release_17_18_audit_2026-10-04.json"
         ],
-        "reason": "COM13 current-image typed reads before and after finite stored-filter restoration retain all20 raw fields. Read-path evidence only; unknown physical scaling, active behavior and model applicability are not qualified."
+        "reason": "COM13 current-image typed reads before and after finite stored-filter restoration retain all20 raw fields. Read-path evidence only; unknown physical scaling, active behavior and model applicability are not qualified. Final audit image repeats this register path in104 frames with zero transport/capture errors; originals restored. Physical effects remain unqualified."
       },
       "reason": "Reviewed single-word native values and checked bounded read windows; unknown physical units and conflicting collision mappings remain explicit."
     },
@@ -2018,9 +2028,10 @@
           "test/tuning_app_test.cpp",
           "test/probe_console_test.cpp",
           "test/tuning_console_parity_test.py",
-          "test/installed_consumer/main.cpp"
+          "test/installed_consumer/main.cpp",
+          "docs/reports/ess_release_17_18_audit_2026-10-04.md"
         ],
-        "reason": "Current integrated verification passes: exact native ranges/group masks/selectors, complete bounded reads/updates, partial uncertainty/cancellation, actual application cross-group cache invalidation and failed-refresh preservation, all20 CLI fields and58 actual Console/Python terminal fixtures; installed header consumer compiles."
+        "reason": "Current integrated verification passes: exact native ranges/group masks/selectors, complete bounded reads/updates, partial uncertainty/cancellation, actual application cross-group cache invalidation and failed-refresh preservation, all20 CLI fields and66 actual Console/Python terminal fixtures; installed header consumer compiles. Fresh 17/18 audit validates every prior-settings freshness cap, copied transport envelopes, changed checked-prefix invalidation and actual core/formatter/Python parser-failure priority."
       },
       "hardware": {
         "state": "NOT_RUN",
@@ -2061,16 +2072,18 @@
           "test/tuning_app_test.cpp",
           "test/probe_console_test.cpp",
           "test/tuning_console_parity_test.py",
-          "test/installed_consumer/main.cpp"
+          "test/installed_consumer/main.cpp",
+          "docs/reports/ess_release_17_18_audit_2026-10-04.md"
         ],
-        "reason": "Current integrated verification passes: exact native ranges/group masks/selectors, complete bounded reads/updates, partial uncertainty/cancellation, actual application cross-group cache invalidation and failed-refresh preservation, all20 CLI fields and58 actual Console/Python terminal fixtures; installed header consumer compiles."
+        "reason": "Current integrated verification passes: exact native ranges/group masks/selectors, complete bounded reads/updates, partial uncertainty/cancellation, actual application cross-group cache invalidation and failed-refresh preservation, all20 CLI fields and66 actual Console/Python terminal fixtures; installed header consumer compiles. Fresh 17/18 audit validates every prior-settings freshness cap, copied transport envelopes, changed checked-prefix invalidation and actual core/formatter/Python parser-failure priority."
       },
       "hardware": {
         "state": "PASS",
         "evidence": [
-          "docs/reports/ess_release_18_2026-10-04.json"
+          "docs/reports/ess_release_18_2026-10-04.json",
+          "docs/reports/ess_release_17_18_audit_2026-10-04.json"
         ],
-        "reason": "COM13 current-image typed reads before and after finite stored-filter restoration retain all20 raw fields. Read-path evidence only; unknown physical scaling, active behavior and model applicability are not qualified."
+        "reason": "COM13 current-image typed reads before and after finite stored-filter restoration retain all20 raw fields. Read-path evidence only; unknown physical scaling, active behavior and model applicability are not qualified. Final audit image repeats this register path in104 frames with zero transport/capture errors; originals restored. Physical effects remain unqualified."
       },
       "reason": "Reviewed single-word native values and checked bounded read windows; unknown physical units and conflicting collision mappings remain explicit."
     },
@@ -2106,9 +2119,10 @@
           "test/tuning_app_test.cpp",
           "test/probe_console_test.cpp",
           "test/tuning_console_parity_test.py",
-          "test/installed_consumer/main.cpp"
+          "test/installed_consumer/main.cpp",
+          "docs/reports/ess_release_17_18_audit_2026-10-04.md"
         ],
-        "reason": "Current integrated verification passes: exact native ranges/group masks/selectors, complete bounded reads/updates, partial uncertainty/cancellation, actual application cross-group cache invalidation and failed-refresh preservation, all20 CLI fields and58 actual Console/Python terminal fixtures; installed header consumer compiles."
+        "reason": "Current integrated verification passes: exact native ranges/group masks/selectors, complete bounded reads/updates, partial uncertainty/cancellation, actual application cross-group cache invalidation and failed-refresh preservation, all20 CLI fields and66 actual Console/Python terminal fixtures; installed header consumer compiles. Fresh 17/18 audit validates every prior-settings freshness cap, copied transport envelopes, changed checked-prefix invalidation and actual core/formatter/Python parser-failure priority."
       },
       "hardware": {
         "state": "NOT_RUN",
@@ -2143,16 +2157,18 @@
           "test/tuning_app_test.cpp",
           "test/probe_console_test.cpp",
           "test/tuning_console_parity_test.py",
-          "test/installed_consumer/main.cpp"
+          "test/installed_consumer/main.cpp",
+          "docs/reports/ess_release_17_18_audit_2026-10-04.md"
         ],
-        "reason": "Current integrated verification passes: exact native ranges/group masks/selectors, complete bounded reads/updates, partial uncertainty/cancellation, actual application cross-group cache invalidation and failed-refresh preservation, all20 CLI fields and58 actual Console/Python terminal fixtures; installed header consumer compiles."
+        "reason": "Current integrated verification passes: exact native ranges/group masks/selectors, complete bounded reads/updates, partial uncertainty/cancellation, actual application cross-group cache invalidation and failed-refresh preservation, all20 CLI fields and66 actual Console/Python terminal fixtures; installed header consumer compiles. Fresh 17/18 audit validates every prior-settings freshness cap, copied transport envelopes, changed checked-prefix invalidation and actual core/formatter/Python parser-failure priority."
       },
       "hardware": {
         "state": "PASS",
         "evidence": [
-          "docs/reports/ess_release_18_2026-10-04.json"
+          "docs/reports/ess_release_18_2026-10-04.json",
+          "docs/reports/ess_release_17_18_audit_2026-10-04.json"
         ],
-        "reason": "COM13 current-image typed reads before and after finite stored-filter restoration retain all20 raw fields. Read-path evidence only; unknown physical scaling, active behavior and model applicability are not qualified. Later collision words repeatedly return0/0, outside documented ranges, with known_fields0; raw evidence stays explicit and does not qualify collision operation."
+        "reason": "COM13 current-image typed reads before and after finite stored-filter restoration retain all20 raw fields. Read-path evidence only; unknown physical scaling, active behavior and model applicability are not qualified. Later collision words repeatedly return0/0, outside documented ranges, with known_fields0; raw evidence stays explicit and does not qualify collision operation. Final audit image repeats this register path in104 frames with zero transport/capture errors; originals restored. Physical effects remain unqualified."
       },
       "reason": "Reviewed single-word native values and checked bounded read windows; unknown physical units and conflicting collision mappings remain explicit."
     },
@@ -2182,9 +2198,10 @@
           "test/tuning_app_test.cpp",
           "test/probe_console_test.cpp",
           "test/tuning_console_parity_test.py",
-          "test/installed_consumer/main.cpp"
+          "test/installed_consumer/main.cpp",
+          "docs/reports/ess_release_17_18_audit_2026-10-04.md"
         ],
-        "reason": "Current integrated verification passes: exact native ranges/group masks/selectors, complete bounded reads/updates, partial uncertainty/cancellation, actual application cross-group cache invalidation and failed-refresh preservation, all20 CLI fields and58 actual Console/Python terminal fixtures; installed header consumer compiles."
+        "reason": "Current integrated verification passes: exact native ranges/group masks/selectors, complete bounded reads/updates, partial uncertainty/cancellation, actual application cross-group cache invalidation and failed-refresh preservation, all20 CLI fields and66 actual Console/Python terminal fixtures; installed header consumer compiles. Fresh 17/18 audit validates every prior-settings freshness cap, copied transport envelopes, changed checked-prefix invalidation and actual core/formatter/Python parser-failure priority."
       },
       "hardware": {
         "state": "NOT_RUN",
@@ -2218,16 +2235,18 @@
           "test/tuning_app_test.cpp",
           "test/probe_console_test.cpp",
           "test/tuning_console_parity_test.py",
-          "test/installed_consumer/main.cpp"
+          "test/installed_consumer/main.cpp",
+          "docs/reports/ess_release_17_18_audit_2026-10-04.md"
         ],
-        "reason": "Current integrated verification passes: exact native ranges/group masks/selectors, complete bounded reads/updates, partial uncertainty/cancellation, actual application cross-group cache invalidation and failed-refresh preservation, all20 CLI fields and58 actual Console/Python terminal fixtures; installed header consumer compiles."
+        "reason": "Current integrated verification passes: exact native ranges/group masks/selectors, complete bounded reads/updates, partial uncertainty/cancellation, actual application cross-group cache invalidation and failed-refresh preservation, all20 CLI fields and66 actual Console/Python terminal fixtures; installed header consumer compiles. Fresh 17/18 audit validates every prior-settings freshness cap, copied transport envelopes, changed checked-prefix invalidation and actual core/formatter/Python parser-failure priority."
       },
       "hardware": {
         "state": "PASS",
         "evidence": [
-          "docs/reports/ess_release_18_2026-10-04.json"
+          "docs/reports/ess_release_18_2026-10-04.json",
+          "docs/reports/ess_release_17_18_audit_2026-10-04.json"
         ],
-        "reason": "Finite stopped/passive known-unconnected ESS23-RS20 experiment2?3?2 passes exact stored readback and restoration. Source-unconfirmed FC06 keeps acknowledgedfalse/executionunknown; separate confirmed FC03 settles stored codes. Physical filter delay, external-input operation and persistence remain NOT_RUN."
+        "reason": "Finite stopped/passive known-unconnected ESS23-RS20 experiment2?3?2 passes exact stored readback and restoration. Source-unconfirmed FC06 keeps acknowledgedfalse/executionunknown; separate confirmed FC03 settles stored codes. Physical filter delay, external-input operation and persistence remain NOT_RUN. Final audit image repeats this register path in104 frames with zero transport/capture errors; originals restored. Physical effects remain unqualified."
       },
       "reason": "Same filters-group candidate and checked sequence; this separate evidence disposition cannot qualify other filter fields or physical filter timing."
     }

@@ -1371,24 +1371,7 @@ bool Console::formatDriver(uint32_t id, uint32_t commandId, uint32_t operationId
     const bool control = c.group == Ess::DriverGroup::CONTROL_SETTINGS;
     const bool tuning = Ess::isTuningGroup(c.group);
     const char* command = tuning ? "tuning" : control ? "control" : segment ? "segment" : io ? "io" : "driver";
-    uint64_t stationaryUntil = c.deadlineUs;
-    if (c.kind == Ess::DriverKind::UPDATE) {
-        const auto& p = c.prerequisites;
-        const uint64_t maximum = std::numeric_limits<uint64_t>::max();
-        const uint64_t until = p.maxAgeUs > maximum - p.stationaryEarliestUs ? maximum : p.stationaryEarliestUs + p.maxAgeUs;
-        if (until < stationaryUntil) stationaryUntil = until;
-        if (io || segment) {
-            const uint64_t ioUntil = p.maxAgeUs > maximum - (segment ? p.triggerEarliestUs : p.ioEarliestUs) ? maximum : (segment ? p.triggerEarliestUs : p.ioEarliestUs) + p.maxAgeUs;
-            if (ioUntil < stationaryUntil) stationaryUntil = ioUntil;
-        }
-        if (control || tuning) {
-            const uint64_t effectsAt = tuning ? p.tuningEarliestUs : p.controlEarliestUs;
-            const uint64_t controlUntil = p.maxAgeUs > maximum - effectsAt ? maximum : effectsAt + p.maxAgeUs;
-            const uint64_t identityUntil = p.maxAgeUs > maximum - p.controlIdentity.provenance.attemptedUs ? maximum : p.controlIdentity.provenance.attemptedUs + p.maxAgeUs;
-            if (controlUntil < stationaryUntil) stationaryUntil = controlUntil;
-            if (identityUntil < stationaryUntil) stationaryUntil = identityUntil;
-        }
-    }
+    const uint64_t stationaryUntil = Ess::driverWriteDeadline(c);
     if (!append(output_, sizeof(output_), used,
         "{\"type\":\"%s\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"%s\",\"command_id\":%lu,\"operation_id\":%lu,\"driver\":true,\"driver_kind\":\"%s\",\"ok\":%s,\"state\":\"%s\",\"outcome\":\"%s\",\"status\":\"%s\",\"detail\":%ld,\"target\":%lu,\"address\":%u,\"generation\":%lu,\"configuration_generation\":%lu,\"started_us\":%llu,\"deadline_us\":%llu,\"stationary_valid_until_us\":%llu,\"serviced_us\":%llu,\"completed_steps\":%u,\"fields\":%u,\"effects\":%u,\"uncertain\":%s,\"atomic\":false,\"active_settings_known\":false,\"progress_columns\":[\"field\",\"register\",\"previous\",\"requested\",\"acknowledged\",\"readback_known\",\"readback\",\"active_known\",\"active\",\"execution\"],\"progress\":[",
         inspection ? "reply" : command, static_cast<unsigned long>(id), inspection ? "result" : command,

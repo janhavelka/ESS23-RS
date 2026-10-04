@@ -1,7 +1,13 @@
 # ESP32-S3 read-only probe bench
 
+The [fresh prompts 17/18 audit](reports/ess_release_17_18_audit_2026-10-04.md) fixes
+settings freshness, copied provenance, partial-refresh invalidation and strict
+console evidence validation. All 45 native suites, installed consumption and
+four firmware builds pass. The final COM13 image passes 104 frames and restores
+input filter `2?3?2` and lock delay `200?201?200`; physical effects remain unqualified.
+
 Prompt18 adds [typed tuning](ess_tuning.md) and a bounded Python `tuning GROUP
-read|set` route. [Current-image evidence](reports/ess_release_18_2026-10-04.md)
+read|set` route. [Implementation-image evidence](reports/ess_release_18_2026-10-04.md)
 records twenty native reads and input-filter stored restoration. Physical tuning
 effects and general standalone write qualification remain explicit gates.
 
@@ -10,7 +16,7 @@ corrected closure-certainty/help image, all48 indexed reads and exact lock-delay
 stored restoration in114frames. Physical effects and unresolved source semantics
 remain separate from those checked register paths.
 
-Prompt17 adds [control settings](ess_control_settings.md) and the Python `control read|set` scenario. [Current-image evidence](reports/ess_release_17_2026-10-04.md) records66frames, all-field readback and delay200-to201-to200 restoration; mode/encoder/current effects and electrical FC06 source remain unqualified.
+Prompt17 adds [control settings](ess_control_settings.md) and the Python `control read|set` scenario. [Implementation-image evidence](reports/ess_release_17_2026-10-04.md) records66frames, all-field readback and delay200-to201-to200 restoration; mode/encoder/current effects and electrical FC06 source remain unqualified.
 
 
 Prompt14 adds [homing API/console routes](ess_homing.md) and `home methods`. Real execution remains behind method/native/auxiliary/reference and electrical-source qualifications; the current-image checks are [read-only and zero-TX evidence](reports/ess_release_14_2026-10-04.md).

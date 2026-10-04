@@ -212,8 +212,51 @@ void lostTransportAndEffectsBudget() {
     assert(E::advanceDriver(c,late,1053)&&c.outcome==E::DriverOutcome::DEADLINE);
     assert(c.deadlineUs==9000&&c.uncertain&&!c.progress[0].acknowledged&&c.effects==1);
 }
+void previousSettingsBudget() {
+    const auto r=request(E::DriverGroup::FILTERS,3);
+    auto p=prerequisites(r); p.maxAgeUs=1000;
+    p.previous.provenance[1].attemptedUs=50;
+    E::DriverContext c;
+    assert(E::prepareTuningSettings(c,target(),12,r,p,200,9000));
+    auto w=work(c); assert(w.deadlineUs==1050&&c.deadlineUs==9000);
+    supply(c,std::vector<uint8_t>(w.bytes,w.bytes+w.length)); supply(c,reply({w.value}));
+    assert(c.step==2&&c.effects==1&&!c.uncertain);
+    E::PreparedDriver untouched; untouched.reg=123;
+    Saved<E::PreparedDriver> savedWork(untouched); Saved<E::DriverContext> savedContext(c);
+    assert(!E::nextDriver(c,1050,untouched)); savedWork.check(untouched); savedContext.check(c);
+    assert(E::advanceDriver(c,local(c,ReadEventKind::DEADLINE),1050));
+    assert(c.outcome==E::DriverOutcome::DEADLINE&&c.effects==1&&!c.uncertain);
+    assert(c.progress[0].readbackKnown&&c.progress[1].execution==ActionExecution::NOT_TRANSMITTED);
+
+    assert(E::prepareTuningSettings(c,target(),12,r,p,200,9000));
+    w=work(c); const auto bytes=std::vector<uint8_t>(w.bytes,w.bytes+w.length);
+    const auto expired=frame(c,bytes,1050);
+    assert(E::advanceDriver(c,expired,1052)&&c.outcome==E::DriverOutcome::DEADLINE);
+    assert(c.effects==1&&c.uncertain&&!c.progress[0].acknowledged);
+}
+void previousSettingsEnvelope() {
+    for (auto group:GROUPS) {
+        const auto r=request(group);
+        const uint8_t steps=E::tuningFieldCount(group)>4?2:1;
+        for (uint8_t step=0;step<steps;++step) for (uint8_t fault=0;fault<6;++fault) {
+            auto p=prerequisites(r); auto& evidence=p.previous.provenance[step];
+            switch (fault) {
+            case 0: evidence.event=ReadEventKind::CANCEL; break;
+            case 1: ++evidence.step; break;
+            case 2: evidence.txAccepted=0; break;
+            case 3: evidence.txComplete=false; break;
+            case 4: evidence.executionUnknown=true; break;
+            case 5: ++evidence.receivedLength; break;
+            }
+            E::DriverContext c; c.operationId=999; Saved<E::DriverContext> retained(c);
+            const auto status=E::prepareTuningSettings(c,target(),12,r,p,200,9000);
+            assert(!status&&status.detail==static_cast<int32_t>(E::DriverError::STALE_SETTINGS));
+            retained.check(c);
+        }
+    }
+}
 } // namespace
 int main() {
     metadataAndAllNativeRanges(); readsAndUnknownValues(); wholeCandidateQualifications(); fullSequencesAndPartialFailures();
-    lostTransportAndEffectsBudget();
+    lostTransportAndEffectsBudget(); previousSettingsBudget(); previousSettingsEnvelope();
 }

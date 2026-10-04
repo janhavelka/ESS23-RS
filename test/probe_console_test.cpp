@@ -1481,12 +1481,12 @@ void driverFixtures(bool io = false) {
         emit("unconfirmed_settled", c);
         c = prepare(); auto candidate = c.request; auto prerequisites = c.prerequisites;
         prerequisites.maxAgeUs = 200; prerequisites.stationaryEarliestUs = prerequisites.stationaryLatestUs = 110;
-        prerequisites.ioEarliestUs = prerequisites.ioLatestUs = 105;
+        prerequisites.ioEarliestUs = prerequisites.ioLatestUs = 95;
         assert(Ess::prepareDriverSettings(c, target, 101, candidate, prerequisites, 200, 10000));
-        Ess::PreparedDriver work; assert(Ess::nextDriver(c, 200, work) && work.deadlineUs == 305);
+        Ess::PreparedDriver work; assert(Ess::nextDriver(c, 200, work) && work.deadlineUs == 295);
         ActionEvent expiry; expiry.transport.target = target; expiry.transport.operationId = 101;
         expiry.transport.step = 0; expiry.transport.kind = ReadEventKind::DEADLINE;
-        assert(Ess::advanceDriver(c, expiry, 305)); emit("io_evidence_deadline", c);
+        assert(Ess::advanceDriver(c, expiry, 295)); emit("io_evidence_deadline", c);
     }
     // Actual core/formatter outcomes for an ambiguous settings response and
     // an ambiguous readback after a confirmed acknowledgement.
@@ -1629,6 +1629,39 @@ void testMaximumHomeOutputAndRetention() {
     f.contains("\"result\":\"pending\""); f.contains("\"home\":true");
 }
 
+// Complete valid candidates keep their original snapshot. Only its oldest
+// observation bounds these terminal cases, before identity/stopped evidence.
+void expirePreviousDriverSettings(Ess::DriverContext& c, bool lateEcho) {
+    using namespace MotorControlRS;
+    Ess::PreparedDriver work;
+    assert(Ess::nextDriver(c, c.servicedUs, work));
+    assert(work.write && work.deadlineUs == 250 && c.deadlineUs == 10000);
+    ActionEvent event;
+    event.transport.target = c.target; event.transport.operationId = c.operationId;
+    event.transport.step = c.step; event.transport.kind = ReadEventKind::DEADLINE;
+    if (lateEcho) {
+        event.transport.kind = ReadEventKind::FRAME;
+        event.transport.frame = work.bytes; event.transport.length = work.length;
+        event.transport.txAccepted = work.length;
+        event.transport.qualified = event.txComplete = event.responseConfirmed = true;
+        event.transport.earliestUs = 250; event.transport.latestUs = 251;
+    }
+    assert(Ess::advanceDriver(c, event, lateEcho ? 252 : 250));
+    assert(c.state == ReadState::FAILED && c.outcome == Ess::DriverOutcome::DEADLINE && !c.completedSteps);
+    assert(c.uncertain == lateEcho);
+    uint32_t expectedEffects = 0;
+    for (const auto& progress : c.progress) {
+        if (!progress.selected) continue;
+        assert(!progress.acknowledged && !progress.readbackKnown);
+        if (progress.reg == work.reg && lateEcho) {
+            assert(progress.execution == ActionExecution::UNKNOWN);
+            expectedEffects = static_cast<uint32_t>(progress.field);
+        } else assert(progress.execution == ActionExecution::NOT_TRANSMITTED);
+    }
+    assert(c.effects == expectedEffects);
+    assert(c.prerequisites.previous.provenance[0].attemptedUs == 50);
+}
+
 void tuningFixtures() {
     using namespace MotorControlRS;
     ReadTarget target;target.id=target.address=1;target.generation=9;
@@ -1701,6 +1734,13 @@ void tuningFixtures() {
             consume(c,g,1);emit("cancelled_boundary",g,c);
         }
         assert(Ess::prepareTuningSettings(c,target,101,request,p,200,10000));consume(c,g,0);consume(c,g,2);emit("readback_disagreement",g,c);
+        auto oldest = p;
+        oldest.previous.provenance[0].attemptedUs = 50; oldest.maxAgeUs = 200;
+        for (bool lateEcho : {false, true}) {
+            assert(Ess::prepareTuningSettings(c,target,101,request,oldest,200,10000));
+            expirePreviousDriverSettings(c, lateEcho);
+            emit(lateEcho ? "previous_settings_late_echo" : "previous_settings_deadline",g,c);
+        }
     }
 }
 void testTuningRoutes() {
@@ -1791,6 +1831,13 @@ void controlFixtures() {
         consume(c,1);emit("cancelled_boundary",c);
     }
     assert(Ess::prepareDriverSettings(c,target,101,r,p,200,10000));consume(c,0);consume(c,2);emit("readback_disagreement",c);
+    auto oldest = p;
+    oldest.previous.provenance[0].attemptedUs = 50; oldest.maxAgeUs = 200;
+    for (bool lateEcho : {false, true}) {
+        assert(Ess::prepareDriverSettings(c,target,101,r,oldest,200,10000));
+        expirePreviousDriverSettings(c, lateEcho);
+        emit(lateEcho ? "previous_settings_late_echo" : "previous_settings_deadline",c);
+    }
 }
 void testControlRoutes() {
     {
