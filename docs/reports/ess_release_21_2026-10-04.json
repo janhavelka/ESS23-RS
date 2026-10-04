@@ -1,0 +1,269 @@
+{
+  "prompt": 21,
+  "date": "2026-10-04",
+  "baseline_commit": "b06a0da",
+  "final_commit": "commit containing this report",
+  "fieldcore_reference_head": "60023936c2caf166eaf43f82254c1d9540b8522f",
+  "firmware": {
+    "environment": "bench_s3_load_timer",
+    "bytes": 559136,
+    "sha256": "630cc56056c4e343ee603a6e12bb31cfdc6af819bd63f4d9326d9e8a6209b9a6",
+    "pins": {
+      "tx": 47,
+      "rx": 48,
+      "de": 21
+    },
+    "usb": [
+      {
+        "device": "COM13",
+        "vid": 12346,
+        "pid": 4097,
+        "serial": "3C:0F:02:CD:6B:98"
+      }
+    ],
+    "host": {
+      "type": "reply",
+      "profile": "ess_rs",
+      "id": 10,
+      "command": "host",
+      "ok": true,
+      "result": "done",
+      "original": {
+        "baud": 115200,
+        "format": "8N1"
+      },
+      "requested": {
+        "baud": 115200,
+        "format": "8N1"
+      },
+      "active": {
+        "baud": 115200,
+        "format": "8N1"
+      },
+      "active_known": true,
+      "blocked": false,
+      "configuring": false,
+      "serial_generation": 1,
+      "actual_baud": 115211,
+      "failure": "none",
+      "device_settings_changed": false,
+      "supported_bauds": [
+        9600,
+        19200,
+        38400,
+        115200
+      ],
+      "supported_formats": [
+        "8N1",
+        "8N2",
+        "8E1",
+        "8O1"
+      ],
+      "timing": {
+        "character_min_us": 85,
+        "character_max_us": 89,
+        "stop_guard_us": 11,
+        "capture_period_us": 20,
+        "gap15_us": 750,
+        "gap35_us": 1750,
+        "reply_gap_us": 304,
+        "response_timeout_us": 200000,
+        "request_timeout_us": 500000,
+        "recovery_guard_us": 500000,
+        "tx_timeout_us": 20000
+      }
+    }
+  },
+  "native": {
+    "ctest_suites": 59,
+    "state": "PASS",
+    "persistence_python": 22,
+    "bench_python": 203,
+    "communication_python": 23,
+    "generator_cases": 18,
+    "inventory_cases": 21,
+    "installed_consumer": "PASS",
+    "firmware_environments": [
+      "bench_s3_units",
+      "bench_s3_probe",
+      "bench_s3_load_poll",
+      "bench_s3_load_timer"
+    ]
+  },
+  "hardware": {
+    "state": "PASS",
+    "scope": "read-only snapshots/gates/regression",
+    "nonvolatile_writes": 0,
+    "motor_restarts": 0,
+    "save": "NOT_RUN",
+    "factory_restore": "NOT_RUN",
+    "restart_survival": "NOT_RUN",
+    "saved_address_activation": "NOT_RUN",
+    "reason": "No actual motor restart and complete backup/recommissioning procedure",
+    "stats": {
+      "type": "reply",
+      "profile": "ess_rs",
+      "id": 14,
+      "command": "stats",
+      "ok": true,
+      "started": 48,
+      "frames": 48,
+      "failed": 0,
+      "timeouts": 0,
+      "cancelled": 0,
+      "rx_bytes": 492,
+      "discarded": 0,
+      "echo_bytes": 0,
+      "trace_overwritten": 844,
+      "max_poll_gap_us": 56,
+      "capture_faults": 0,
+      "rx_errors": 0,
+      "sample_gap_exceeded": false
+    },
+    "load": {
+      "type": "reply",
+      "profile": "ess_rs",
+      "id": 11,
+      "command": "load",
+      "ok": true,
+      "result": "done",
+      "ready": true,
+      "capture_mode": "timer",
+      "workload_us": 0,
+      "owner_delay_us": 0,
+      "console_bytes": 0,
+      "elapsed_us": 168421012,
+      "work_us": 138581,
+      "work_iterations": 16842,
+      "console_lines": 0,
+      "console_dropped": 0,
+      "capture_us": 34336470,
+      "capture_samples": 8593557,
+      "timer_callbacks": 8421026,
+      "sample_gap_limit_us": 85,
+      "sample_gap_exceeded": false,
+      "capture_high_water": 9,
+      "owner_gap_max_us": 1060,
+      "capture_gap_max_us": 56,
+      "work_stack_free_bytes": 3268,
+      "cpu_valid": true,
+      "cpu0_busy_pct": 0,
+      "cpu1_busy_pct": 7
+    },
+    "memory": {
+      "type": "reply",
+      "profile": "ess_rs",
+      "id": 15,
+      "command": "memory",
+      "ok": true,
+      "valid": true,
+      "internal_free": 336640,
+      "internal_min": 331480,
+      "internal_largest": 278516,
+      "psram_free": 8181292,
+      "psram_min": 8181292,
+      "psram_largest": 8126452,
+      "stack_free_bytes": 2772
+    },
+    "owner": {
+      "type": "reply",
+      "profile": "ess_rs",
+      "id": 13,
+      "command": "drv",
+      "ok": true,
+      "phase": "DONE",
+      "busy": false,
+      "transmit_enabled": false,
+      "recovery_required": false,
+      "pending": 0,
+      "retained": 0,
+      "reserved": 0,
+      "pending_capacity": 4,
+      "result_capacity": 8,
+      "outstanding_capacity": 10,
+      "operation_id": 20,
+      "output_queued": 0,
+      "output_blocked": 0,
+      "output_short_writes": 0,
+      "input_bytes": 1882,
+      "input_lines": 114,
+      "input_dropped": 0,
+      "recovery_guard_until_us": 168900009,
+      "request_deadline_us": 0,
+      "capture_mode": "timer",
+      "read_budget": 64,
+      "model_address": 1,
+      "model_operation_id": 17,
+      "observed_earliest_us": 110061658,
+      "observed_latest_us": 110061691,
+      "delivered_us": 110062021
+    },
+    "probe_latency_us": {
+      "min": 5495,
+      "max": 5682,
+      "mean": 5542.5
+    },
+    "identity": [
+      20202,
+      41,
+      1,
+      0
+    ],
+    "config": [
+      0,
+      1000,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      2,
+      3,
+      0,
+      3,
+      4000
+    ],
+    "raw_state_frames": [
+      "010304000000013BF3",
+      "01030400000000FA33",
+      "0103060000000000002175"
+    ],
+    "motion_parameters": [
+      30,
+      100,
+      100,
+      60,
+      0,
+      5000
+    ]
+  },
+  "limits": {
+    "nonvolatile_invocations_per_boot": 2,
+    "verification_attempts_per_invocation": 2,
+    "reads_per_capture": 9,
+    "capture_deadline_us": 3000000,
+    "configuration_backup_words": 15,
+    "configuration_backup_complete": false,
+    "retained_persistence_results": 1,
+    "console_output_capacity": 8192
+  },
+  "mcu_sizes": {
+    "context": 2896,
+    "prerequisites": 1240,
+    "verification": 1248,
+    "field": 16,
+    "read_context": 696,
+    "work": 64,
+    "principal_application_state": 11608
+  },
+  "independent_reviews": [
+    "persistence semantics/core",
+    "configuration/recovery actual application",
+    "cross-author console/Python and root integration"
+  ],
+  "ending": "Host1152008N1, stopped, settings unchanged, DEreleased, owner empty, load/monitor/debug off, no persistence invocation",
+  "evidence_archive": "ess_release_21_2026-10-04_evidence.zip"
+}

@@ -15,7 +15,7 @@
 namespace MotorControlRSExample { namespace Probe {
 namespace {
 
-enum class Command : uint8_t { HELP, VERSION, CONFIG, STATUS, HEALTH, STATS, PROBE, CAPTURE_READ, RECOVER, RESET, MEMORY, LOAD, DRV, RESULT, CANCEL, RELEASE, READ, PROFILE, CAPS, READ_IDENTITY, READ_CONFIG, READ_STATE, HEALTH_CHECK, MONITOR, AXIS, PREPARE, ENABLE, MOTOR_RELEASE, ALARM_CLEAR, STOP, MOVE, POSITION_CLEAR, VELOCITY, DRIVER, IO, HOME, SEGMENT, CONTROL, TUNING, HOST, COMMUNICATION, MOTION_PROFILE, DEBUG };
+enum class Command : uint8_t { HELP, VERSION, CONFIG, STATUS, HEALTH, STATS, PROBE, CAPTURE_READ, RECOVER, RESET, MEMORY, LOAD, DRV, RESULT, CANCEL, RELEASE, READ, PROFILE, CAPS, READ_IDENTITY, READ_CONFIG, READ_STATE, HEALTH_CHECK, MONITOR, AXIS, PREPARE, ENABLE, MOTOR_RELEASE, ALARM_CLEAR, STOP, MOVE, POSITION_CLEAR, VELOCITY, DRIVER, IO, HOME, SEGMENT, CONTROL, TUNING, HOST, COMMUNICATION, PERSISTENCE, MOTION_PROFILE, DEBUG };
 struct Entry { const char* name; Command command; const char* syntax; const char* effect; bool bus; };
 const Entry COMMANDS[] = {
     {"debug", Command::DEBUG, "debug [off|raw|decoded]", "observe_regular_operations_and_cached_diagnostics", false},
@@ -27,6 +27,7 @@ const Entry COMMANDS[] = {
     {"settings", Command::CONFIG, "settings", "show_host_settings", false},
     {"host", Command::HOST, "host [baud RATE | fmt 8N1|8N2|8E1|8O1 | set RATE FORMAT | restore | caps]", "settled_host_serial_only_no_motor_settings", false},
     {"communication", Command::COMMUNICATION, "profile ess_rs communication [inspect | plan|begin address|baud|format VALUE [address] | host before|requested | confirm before|requested | finish]", "explicit_communication_session_no_save_restart_or_replay", true},
+    {"persistence", Command::PERSISTENCE, "profile ess_rs persistence [inspect | snapshot | plan|begin save|factory-restore | verify | host before | finish]", "one_explicit_save_or_factory_restore_no_retry_or_inferred_durability", true},
     {"status", Command::STATUS, "status", "show_cached_observations", false},
     {"health", Command::HEALTH, "health [check [address]]", "show_cached_health_or_explicitly_read_state", false},
     {"stats", Command::STATS, "stats [reset]", "show_or_clear_host_counters", false},
@@ -34,7 +35,7 @@ const Entry COMMANDS[] = {
     {"ping", Command::PROBE, "ping [address]", "read_model_word_only", true},
     {"capture-read", Command::CAPTURE_READ, "capture-read [address]", "read_0x0130_16_words_for_capture_qualification", true},
     {"read", Command::READ, "read identity|config|state [address]", "checked_nonchanging_read", true},
-    {"profile", Command::PROFILE, "profile ess_rs identity|config|state|enable|release|clear-alarm|clear-position|normal-stop|emergency-stop [address] | profile ess_rs move-relative|move-absolute|move-angle ... | profile ess_rs velocity ... | profile ess_rs driver read|set ... | profile ess_rs io read|set ... | profile ess_rs segment ... | profile ess_rs control read|set ... | profile ess_rs tuning GROUP read|set ... | profile ess_rs caps", "public_profile_operations", true},
+    {"profile", Command::PROFILE, "profile ess_rs identity|config|state|enable|release|clear-alarm|clear-position|normal-stop|emergency-stop [address] | profile ess_rs move-relative|move-absolute|move-angle ... | profile ess_rs velocity ... | profile ess_rs driver read|set ... | profile ess_rs io read|set ... | profile ess_rs segment ... | profile ess_rs control read|set ... | profile ess_rs tuning GROUP read|set ... | profile ess_rs communication ... | profile ess_rs persistence ... | profile ess_rs caps", "public_profile_operations", true},
     {"driver", Command::DRIVER, "profile ess_rs driver read [address] | profile ess_rs driver set field integer [field integer ...] [address]", "typed_drive_settings_with_checked_readback", true},
     {"io", Command::IO, "profile ess_rs io read [address] | profile ess_rs io set input-polarity|x0|x1|x2|x3|output-polarity|y0|y1|custom value [field value ...] [address]; none assigns function 0", "explicit_typed_terminal_settings_and_readback", true},
     {"segment", Command::SEGMENT, "profile ess_rs segment position|speed|start INDEX read [address] | profile ess_rs segment position|speed|start INDEX set FIELD INTEGER [FIELD INTEGER ...] [address]", "indexed_stored_records_only_external_execution", true},
@@ -699,6 +700,57 @@ bool communicationContext(char* output, std::size_t capacity, std::size_t& used,
         if ((i && !append(output,capacity,used,",")) || !communicationEvidence(output,capacity,used,c->confirmationEvidence[i])) return false;
     return append(output,capacity,used,"]}");
 }
+const char* persistenceKind(Ess::PersistenceKind kind) {
+    return kind == Ess::PersistenceKind::SAVE ? "save" : "factory-restore";
+}
+// These snapshots are explicitly partial. Compact arrays retain the raw values
+// and observation budgets without duplicating the descriptive register ledger.
+bool persistenceSnapshot(char* output, std::size_t capacity, std::size_t& used,
+                         const Ess::ConfigObservation& c, const Ess::IdentityObservation& i,
+                         const Ess::StateObservation& s, const Core::ActiveSerialTuple& serial,
+                         uint32_t generation) {
+    const auto& r=c.raw;
+    if (!append(output,capacity,used,"{\"endpoint\":") || !communicationEndpoint(output,capacity,used,c.target,serial) ||
+        !append(output,capacity,used," ,\"configuration_generation\":%lu,\"operation_ids\":[%lu,%lu,%lu],\"config_words\":[%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u],\"identity_words\":[%u,%u,%u,%u],\"motion_words\":[%u,%u],\"provenance\":[",
+            static_cast<unsigned long>(generation),static_cast<unsigned long>(c.operationId),static_cast<unsigned long>(i.operationId),static_cast<unsigned long>(s.operationId),
+            r.direction,r.subdivision,r.customNode,r.baud,r.format,r.overLimitStop,r.softLimitEnable,r.wordOrder,r.inputPolarity,
+            r.inputFunctions[0],r.inputFunctions[1],r.inputFunctions[2],r.inputFunctions[3],r.algorithm,r.encoderResolution,
+            i.rawModel,i.rawVersion,i.rawActiveNode,i.rawDip,s.rawAlarm,s.rawMotion)) return false;
+    for (uint8_t index=0; index<7; ++index) {
+        const auto& p=index<5?c.provenance[index]:index==5?i.provenance:s.provenance;
+        char raw[Ess::READ_MAX_REPLY_BYTES*2+1];hex(p.raw,p.length,raw,sizeof(raw));
+        if ((index && !append(output,capacity,used,",")) ||
+            !append(output,capacity,used,"[%u,%u,\"%s\",%llu,%llu,%llu,%llu]",p.first,p.count,raw,
+                static_cast<unsigned long long>(p.attemptedUs),static_cast<unsigned long long>(p.earliestUs),
+                static_cast<unsigned long long>(p.latestUs),static_cast<unsigned long long>(p.deliveredUs))) return false;
+    }
+    return append(output,capacity,used,"]}");
+}
+bool persistenceContext(char* output, std::size_t capacity, std::size_t& used, const Ess::PersistenceContext* c) {
+    if (!c) return append(output,capacity,used,"null");
+    if (!append(output,capacity,used,
+        "{\"operation_id\":%lu,\"kind\":\"%s\",\"state\":%u,\"outcome\":%u,\"execution\":%u,\"persistence\":%u,\"status\":\"%s\",\"detail\":%ld,\"register\":%u,\"value\":%u,\"effects\":%s,\"uncertain\":%s,\"snapshot_complete\":%s,\"verification_known\":%s,\"live_readback_known\":%s,\"restart_required_for_proof\":%s,\"manual_intervention_required\":%s,\"communication_changed\":%s,\"configuration_invalidated\":%s,\"matching_fields\":%u,\"verified_fields\":%u,\"verification_count\":%u,\"started_us\":%llu,\"deadline_us\":%llu,\"backup_source\":%lu,\"complete_backup\":%s,\"before\":",
+        static_cast<unsigned long>(c->operationId),persistenceKind(c->kind),static_cast<unsigned>(c->state),static_cast<unsigned>(c->outcome),
+        static_cast<unsigned>(c->execution),static_cast<unsigned>(c->persistence),Core::errToString(c->status.code),static_cast<long>(c->status.detail),c->reg,c->value,
+        boolean(c->effects),boolean(c->uncertain),boolean(c->configurationSnapshotComplete),boolean(c->verificationKnown),boolean(c->liveReadbackKnown),
+        boolean(c->restartRequiredForProof),boolean(c->manualInterventionRequired),boolean(c->communicationChanged),boolean(c->configurationInvalidated),
+        c->matchingFields,c->verifiedFields,c->verificationCount,static_cast<unsigned long long>(c->startedUs),static_cast<unsigned long long>(c->deadlineUs),
+        static_cast<unsigned long>(c->before.backupSourceId),boolean(c->before.completeBackupQualified)) ||
+        !persistenceSnapshot(output,capacity,used,c->before.beforeConfig,c->before.beforeIdentity,c->before.stationary,c->before.beforeSerial,c->before.configurationGeneration) ||
+        !append(output,capacity,used,",\"write_evidence\":") || !actionEvidence(output,capacity,used,c->writeEvidence) ||
+        !append(output,capacity,used,",\"verification\":")) return false;
+    if (c->verificationKnown) {
+        if (!persistenceSnapshot(output,capacity,used,c->verification.config,c->verification.identity,c->verification.stationary,c->verification.serial,c->verification.configurationGeneration)) return false;
+    } else if (!append(output,capacity,used,"null")) return false;
+    if (!append(output,capacity,used,",\"restart_observed\":%s,\"restart_us\":%llu,\"restart_source\":%lu,\"fields\":[",
+        boolean(c->verification.restartObserved),static_cast<unsigned long long>(c->verification.restartUs),static_cast<unsigned long>(c->verification.restartSourceId))) return false;
+    for(uint8_t index=0;index<Ess::PERSISTENCE_FIELD_COUNT;++index) {
+        const auto& f=c->fields[index];
+        if ((index && !append(output,capacity,used,",")) || !append(output,capacity,used,"[%u,%u,%u,\"%s\",%s,%s]",
+            f.reg,f.before,f.readback,f.sourceAccess?f.sourceAccess:"unresolved",boolean(f.readbackKnown),boolean(f.survivedRestart))) return false;
+    }
+    return append(output,capacity,used,"]}");
+}
 bool Console::appendReportSerial(std::size_t& used) noexcept {
     if (!used || output_[used - 1] != '}') return false;
     --used;
@@ -835,6 +887,45 @@ void Console::dispatch() noexcept {
             hostState(output_, sizeof(output_), used, state);
         if (!fits) { error(id, "host", "output_full"); return; }
         emit(); return;
+    }
+    const bool nativePersistence = entry->command == Command::PROFILE && count > first + 2 &&
+        !std::strcmp(tokens[first+1],"ess_rs") && !std::strcmp(tokens[first+2],"persistence");
+    if (entry->command == Command::PERSISTENCE || nativePersistence) {
+        if (outputPending()) { ++inputDropped_; return; }
+        if (!host_.persistence) { error(id,"persistence","unavailable"); return; }
+        const std::size_t args=first+(nativePersistence?3:1);
+        PersistenceCommand request; bool inspect=false,plan=false;
+        if(count==args || (count==args+1 && !std::strcmp(tokens[args],"inspect"))) inspect=true;
+        else if(count==args+1 && !std::strcmp(tokens[args],"snapshot")) request.kind=PersistenceCommandKind::SNAPSHOT;
+        else if(count==args+1 && !std::strcmp(tokens[args],"verify")) request.kind=PersistenceCommandKind::VERIFY;
+        else if(count==args+1 && !std::strcmp(tokens[args],"finish")) request.kind=PersistenceCommandKind::FINISH;
+        else if(count==args+2 && !std::strcmp(tokens[args],"host") && !std::strcmp(tokens[args+1],"before")) request.kind=PersistenceCommandKind::SELECT_BEFORE;
+        else if(count==args+2 && (!std::strcmp(tokens[args],"plan") || !std::strcmp(tokens[args],"begin"))) {
+            plan=!std::strcmp(tokens[args],"plan");request.kind=plan?PersistenceCommandKind::PREVIEW:PersistenceCommandKind::BEGIN;
+            if(!std::strcmp(tokens[args+1],"save")) request.request=Ess::PersistenceKind::SAVE;
+            else if(!std::strcmp(tokens[args+1],"factory-restore")) request.request=Ess::PersistenceKind::FACTORY_RESTORE;
+            else { error(id,"persistence","invalid_kind");return; }
+        } else { error(id,"persistence","invalid_arguments");return; }
+        PersistenceView view;const Action result=host_.persistence(host_.context,inspect?nullptr:&request,view);
+        std::size_t used=0;
+        bool fits=append(output_,sizeof(output_),used,
+            "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"persistence\",\"ok\":%s,\"result\":\"%s\",\"action\":%d,\"pending\":%s,\"owned\":%s,\"route_ready\":%s,\"snapshot_known\":%s,\"snapshot_failed\":%s,\"verification_attempts\":%u,\"parent_session\":%s,\"finished\":%s,\"invocations\":%u,\"invocation_limit\":2,\"restart_performed\":false,\"write_replayed\":false,\"plan\":",
+            static_cast<unsigned long>(id),boolean(result==Action::OK),result==Action::OK?"done":actionName(result),inspect?-1:static_cast<int>(request.kind),
+            boolean(view.pending),boolean(view.owned),boolean(view.routeReady),boolean(view.snapshotKnown),boolean(view.snapshotFailed),view.verificationAttempts,boolean(view.parentSession),boolean(view.finished),view.invocations);
+        if (!inspect && (plan || request.kind==PersistenceCommandKind::BEGIN)) {
+            fits=fits && append(output_,sizeof(output_),used,
+                "{\"kind\":\"%s\",\"register\":45,\"value\":%u,\"writes\":1,\"scope\":\"all_parameters\",\"stopped_required\":true,\"completion\":\"unresolved\",\"durability\":\"unverified\",\"restart\":\"required_for_proof\",\"backup\":\"partial_standard_config\"}",
+                persistenceKind(request.request),request.request==Ess::PersistenceKind::SAVE?66:65);
+        } else fits=fits && append(output_,sizeof(output_),used,"null");
+        fits=fits && append(output_,sizeof(output_),used,",\"baseline\":");
+        if(view.baseline) fits=fits && persistenceSnapshot(output_,sizeof(output_),used,view.baseline->beforeConfig,view.baseline->beforeIdentity,view.baseline->stationary,view.baseline->beforeSerial,view.baseline->configurationGeneration);
+        else fits=fits && append(output_,sizeof(output_),used,"null");
+        fits=fits && append(output_,sizeof(output_),used,",\"context\":") && persistenceContext(output_,sizeof(output_),used,view.context) &&
+            append(output_,sizeof(output_),used,",\"host\":{\"active\":") && hostTuple(output_,sizeof(output_),used,view.host.active) &&
+            append(output_,sizeof(output_),used,",\"active_known\":%s,\"blocked\":%s,\"serial_generation\":%lu,\"actual_baud\":%lu,\"failure\":\"%s\"}}",
+                boolean(view.host.activeKnown),boolean(view.host.blocked),static_cast<unsigned long>(view.host.generation),static_cast<unsigned long>(view.host.actualBaud),hostFailure(view.host.failure));
+        if(!fits) {error(id,"persistence","output_full");return;}
+        emit();return;
     }
     const bool nativeCommunication = entry->command == Command::PROFILE && count > first + 2 &&
         !std::strcmp(tokens[first+1],"ess_rs") && !std::strcmp(tokens[first+2],"communication");
@@ -1338,6 +1429,7 @@ void Console::dispatch() noexcept {
         case Command::DEBUG: return host_.debug && host_.snapshot;
         case Command::MOTION_PROFILE: return host_.motionProfile != nullptr;
         case Command::COMMUNICATION: return host_.communication != nullptr;
+        case Command::PERSISTENCE: return host_.persistence != nullptr;
         case Command::CAPTURE_READ: return host_.startCaptureRead != nullptr;
         case Command::ENABLE: case Command::MOTOR_RELEASE: case Command::ALARM_CLEAR: case Command::STOP: case Command::POSITION_CLEAR: return host_.startAction && host_.snapshot;
         case Command::MOVE: return host_.startMove && host_.snapshot && host_.axis;
@@ -1345,7 +1437,7 @@ void Console::dispatch() noexcept {
         case Command::TUNING: case Command::CONTROL: case Command::SEGMENT: case Command::IO: case Command::DRIVER: return host_.startDriver && host_.snapshot;
         case Command::HOME: return host_.startHome && host_.snapshot && host_.axis;
         case Command::PROFILE: return ((host_.startTypedRead || host_.startAction) && host_.snapshot) ||
-            ((host_.startMove || host_.startVelocity || host_.startHome) && host_.snapshot && host_.axis) || (host_.startDriver && host_.snapshot);
+            ((host_.startMove || host_.startVelocity || host_.startHome) && host_.snapshot && host_.axis) || (host_.startDriver && host_.snapshot) || host_.communication || host_.persistence;
         case Command::READ: case Command::READ_IDENTITY: case Command::READ_CONFIG: case Command::READ_STATE: case Command::HEALTH_CHECK: return host_.startTypedRead != nullptr;
         case Command::RESULT: return host_.result != nullptr;
         case Command::CANCEL: return host_.cancel != nullptr;
@@ -1390,9 +1482,9 @@ void Console::dispatch() noexcept {
         const auto caps = Ess::readCapabilities();
         Snapshot snapshot; host_.snapshot(host_.context, snapshot);
         std::snprintf(output_, sizeof(output_),
-            "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"caps\",\"ok\":true,\"probe\":%s,\"identity\":%s,\"config\":%s,\"state\":%s,\"max_steps\":%u,\"max_reply_bytes\":%u,\"writes\":true,\"motion\":%s,\"write_response_confirmed\":%s,\"axis_reserved\":%s,\"actions\":[\"enable\",\"release\",\"clear_alarm\",\"clear_position\",\"stop_normal\",\"stop_direct\"],\"device_queue_guarantee\":false,\"velocity\":%s,\"configured_ramp_policy\":true,\"acceleration_mapping\":false,\"velocity_unsupported\":[\"jerk\",\"blending\",\"live_updates\",\"torque\",\"current\",\"external_jog\"],\"driver_settings\":%s,\"limit_pair_writes\":false,\"home\":%s,\"home_methods\":[33,34,35],\"home_physical_qualified\":false,\"io_settings\":%s,\"input_terminals\":4,\"output_terminals\":2,\"no_function\":0,\"input_function_codes\":[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17],\"output_function_codes\":[0,1,2,3,4,5,9,10],\"output_function_11\":\"unresolved\",\"input_mask\":15,\"output_mask\":3,\"external_enable_precedence\":\"unknown\",\"electrical_output_state_known\":false,\"segment_storage\":16,\"maximum_input_selections\":8,\"segment_execution\":\"external_input\",\"segment_pulse_writes\":false,\"negative_segment_speed_encoding\":\"unresolved\",\"control_settings\":%s,\"control_algorithm_codes\":[1,2],\"configured_encoder_is_identification\":false,\"current_percent_base\":\"unresolved\",\"effective_current_limit_from_peak\":false,\"tuning\":%s,\"tuning_groups\":[\"filters\",\"current-loop\",\"la\",\"collision\"],\"tuning_physical_scaling_known\":false,\"collision_003b_003c_access\":\"unresolved\"}",
+            "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"caps\",\"ok\":true,\"probe\":%s,\"identity\":%s,\"config\":%s,\"state\":%s,\"max_steps\":%u,\"max_reply_bytes\":%u,\"writes\":true,\"motion\":%s,\"write_response_confirmed\":%s,\"axis_reserved\":%s,\"actions\":[\"enable\",\"release\",\"clear_alarm\",\"clear_position\",\"stop_normal\",\"stop_direct\"],\"device_queue_guarantee\":false,\"velocity\":%s,\"configured_ramp_policy\":true,\"acceleration_mapping\":false,\"velocity_unsupported\":[\"jerk\",\"blending\",\"live_updates\",\"torque\",\"current\",\"external_jog\"],\"driver_settings\":%s,\"limit_pair_writes\":false,\"home\":%s,\"home_methods\":[33,34,35],\"home_physical_qualified\":false,\"io_settings\":%s,\"input_terminals\":4,\"output_terminals\":2,\"no_function\":0,\"input_function_codes\":[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17],\"output_function_codes\":[0,1,2,3,4,5,9,10],\"output_function_11\":\"unresolved\",\"input_mask\":15,\"output_mask\":3,\"external_enable_precedence\":\"unknown\",\"electrical_output_state_known\":false,\"segment_storage\":16,\"maximum_input_selections\":8,\"segment_execution\":\"external_input\",\"segment_pulse_writes\":false,\"negative_segment_speed_encoding\":\"unresolved\",\"control_settings\":%s,\"control_algorithm_codes\":[1,2],\"configured_encoder_is_identification\":false,\"current_percent_base\":\"unresolved\",\"effective_current_limit_from_peak\":false,\"tuning\":%s,\"tuning_groups\":[\"filters\",\"current-loop\",\"la\",\"collision\"],\"tuning_physical_scaling_known\":false,\"collision_003b_003c_access\":\"unresolved\",\"persistence\":%s,\"persistence_operations\":[\"save\",\"factory_restore\"],\"persistence_verified_all\":false,\"persistence_invocation_limit\":2}",
             static_cast<unsigned long>(id), boolean(caps.probe), boolean(caps.identity), boolean(caps.config), boolean(caps.state), caps.maxSteps, caps.maxReplyBytes,
-            boolean(host_.startMove && host_.snapshot && host_.axis), boolean(snapshot.writeResponseConfirmed), boolean(snapshot.axisReserved), boolean(host_.startVelocity && host_.snapshot && host_.axis), boolean(host_.startDriver && host_.snapshot), boolean(host_.startHome && host_.snapshot && host_.axis), boolean(host_.startDriver && host_.snapshot), boolean(host_.startDriver && host_.snapshot), boolean(host_.startDriver && host_.snapshot));
+            boolean(host_.startMove && host_.snapshot && host_.axis), boolean(snapshot.writeResponseConfirmed), boolean(snapshot.axisReserved), boolean(host_.startVelocity && host_.snapshot && host_.axis), boolean(host_.startDriver && host_.snapshot), boolean(host_.startHome && host_.snapshot && host_.axis), boolean(host_.startDriver && host_.snapshot), boolean(host_.startDriver && host_.snapshot), boolean(host_.startDriver && host_.snapshot), boolean(host_.persistence != nullptr));
         emit(); return;
     }
     if (entry->command == Command::RESET || (entry->command == Command::STATS && arg)) {

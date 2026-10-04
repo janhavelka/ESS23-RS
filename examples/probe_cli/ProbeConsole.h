@@ -14,6 +14,7 @@
 #include "MotorControlRS/profiles/ess_rs/DriverSettings.h"
 #include "MotorControlRS/profiles/ess_rs/Homing.h"
 #include "MotorControlRS/profiles/ess_rs/Communication.h"
+#include "MotorControlRS/profiles/ess_rs/Persistence.h"
 
 namespace MotorControlRSExample { namespace Probe {
 
@@ -119,6 +120,26 @@ struct CommunicationCommand {
 struct CommunicationView {
     const MotorControlRS::ESS_RS::CommunicationContext* context = nullptr;
     bool pending = false, owned = false, routeReady = false;
+    HostSnapshot host;
+};
+
+enum class PersistenceCommandKind : uint8_t { PREVIEW, BEGIN, VERIFY, FINISH, SNAPSHOT, SELECT_BEFORE };
+/** One explicit persistence session action; null input inspects cached evidence. */
+struct PersistenceCommand {
+    PersistenceCommandKind kind = PersistenceCommandKind::PREVIEW;
+    MotorControlRS::ESS_RS::PersistenceKind request = MotorControlRS::ESS_RS::PersistenceKind::SAVE;
+};
+/** Borrowed context is valid through synchronous formatting. Verification is
+ * register/state evidence, never a claim that nonvolatile saving completed. */
+struct PersistenceView {
+    const MotorControlRS::ESS_RS::PersistenceContext* context = nullptr;
+    const MotorControlRS::ESS_RS::PersistencePrerequisites* baseline = nullptr;
+    bool pending = false, owned = false, routeReady = false;
+    bool snapshotKnown = false;
+    bool parentSession = false, finished = false;
+    uint8_t invocations = 0; ///< At most two explicit nonvolatile write admissions per boot.
+    bool snapshotFailed = false;
+    uint8_t verificationAttempts = 0; ///< Successful or failed explicit read sequences, maximum two.
     HostSnapshot host;
 };
 
@@ -273,6 +294,7 @@ struct Host {
      * command, retry or automatic recovery. Request is consumed during the call. */
     Action (*hostSerial)(void*, const HostRequest* requested, HostSnapshot&) = nullptr;
     Action (*communication)(void*, const CommunicationCommand*, CommunicationView&) = nullptr;
+    Action (*persistence)(void*, const PersistenceCommand*, PersistenceView&) = nullptr;
     Action (*debug)(void*, const DebugMode* requested, DebugSnapshot&) = nullptr;
     Action (*motionProfile)(void*, MotionProfileCommand, MotionProfileView&) = nullptr;
     bool (*result)(void*, uint32_t operationId, ResultView&) = nullptr; ///< Zero selects latest.

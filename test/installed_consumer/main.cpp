@@ -13,8 +13,12 @@
 #include <MotorControlRS/profiles/ess_rs/ControlSettings.h>
 #include <MotorControlRS/profiles/ess_rs/Tuning.h>
 #include <MotorControlRS/profiles/ess_rs/Communication.h>
+#include <MotorControlRS/profiles/ess_rs/Persistence.h>
 
 int main() {
+    MotorControlRS::ESS_RS::PersistenceContext persistence;
+    MotorControlRS::ESS_RS::PersistencePrerequisites backup;
+    if (MotorControlRS::ESS_RS::prepareSave(persistence, MotorControlRS::ReadTarget(), 1, backup, 100, 200)) return 99;
     using namespace MotorControlRS;
     using namespace MotorControlRS::ESS_RS;
     ReadTarget target; target.id = 1; target.address = 1; target.generation = 2;

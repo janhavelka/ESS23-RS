@@ -1,5 +1,10 @@
 # MotorControl-RS documentation
 
+Prompt21 adds [typed save/factory restore](ess_persistence.md), exclusive
+commissioning ownership, before-values and separate ACK/live-readback/restart
+evidence. [Verification](reports/ess_release_21_2026-10-04.md) records software
+and read-only COM13 checks; physical persistence remains NOT RUN.
+
 [Debugging normal operations](traffic.md) groups passive traffic, checked
 translation, software timing and retained outcomes around the production path.
 Use `debug off|raw|decoded`; the former console `sniff` spelling is replaced.

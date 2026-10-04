@@ -74,6 +74,7 @@ class Coverage(unittest.TestCase):
         implemented = {choice["id"] for choice in result["named_choices"]
                        if choice["disposition"]["implementation"] == "IMPLEMENTED"}
         self.assertEqual(implemented, {"AuxiliaryCommand.ENABLE", "AuxiliaryCommand.RELEASE",
+            "AuxiliaryCommand.SAVE_PARAMETERS", "AuxiliaryCommand.RESTORE_FACTORY",
             "AuxiliaryCommand.CLEAR_ALARM", "AuxiliaryCommand.CLEAR_POSITION", "MotionCommandBit.STOP",
             "MotionCommandBit.EMERGENCY_STOP", "MotionCommandBit.START_POSITION", "MotionCommandBit.ABSOLUTE_POSITION",
             "MotionCommandBit.START_SPEED", "DefaultDirection.NORMAL", "DefaultDirection.REVERSED",
@@ -82,7 +83,7 @@ class Coverage(unittest.TestCase):
             "PvTriggerMode.LEVEL", "PvTriggerMode.RISING_EDGE", "PositionMode.RELATIVE", "PositionMode.ABSOLUTE", "HomingMethod.METHOD_33", "HomingMethod.METHOD_34",
             "HomingMethod.METHOD_35", "MotionCommandBit.START_HOMING",
             "ControlAlgorithm.OPEN_LOOP", "ControlAlgorithm.ALGORITHM_1"} | {e["name"] + "." + v["name"] for e in LEDGER["enums"] if e["name"] in ("InputFunction", "OutputFunction", "InputBit", "OutputBit", "BaudRateCode", "SerialFormatCode") for v in e["values"] if not (e["name"] == "OutputFunction" and v["value"] == 11)})
-        self.assertEqual(result["summary"]["choice_implementation"], {"NOT_IMPLEMENTED": 67, "IMPLEMENTED": 67, "UNSUPPORTED": 1})
+        self.assertEqual(result["summary"]["choice_implementation"], {"NOT_IMPLEMENTED": 65, "IMPLEMENTED": 69, "UNSUPPORTED": 1})
         for record in result["records"]:
             if record["id"] in ("AUXILIARY_COMMAND", "MOTION_COMMAND"):
                 self.assertEqual(record["obligations"]["write"], "IN_PROGRESS")

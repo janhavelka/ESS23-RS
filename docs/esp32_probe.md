@@ -1,5 +1,11 @@
 # ESP32-S3 read-only probe bench
 
+Prompt21 adds [explicit save/factory restore](ess_persistence.md) and bounded
+read-only persistence snapshots through the existing commissioning owner.
+[Final-image checks](reports/ess_release_21_2026-10-04.md) pass with unchanged
+settings and no writes/restart. Actual durability and factory restoration remain
+unqualified without a motor-restart and recommissioning procedure.
+
 The ordinary firmware exposes [actions and motion checks](functional_bench.md)
 and [runtime debug observation](traffic.md) with `debug off|raw|decoded`. No separate functional image or
 analyzer admission flag exists. The user owns the declared wiring; firmware

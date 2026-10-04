@@ -1,5 +1,22 @@
 # Features implementation tasks and open questions
 
+## Explicit save, factory restore and persistence evidence (prompt21)
+
+- [x] Typed one-write preparations with fresh checked stopped-state and retained
+  identity/configuration/host context; live readback and restart survival remain
+  distinct from acknowledgement and unknown execution. Per-field RW/RW-S
+  notation comes from the ledger; the fifteen-word backup is explicitly partial.
+- [x] Existing commissioning-token reuse for pending custom-address save,
+  current-candidate confirmation, standalone exclusivity, invalidation of host
+  scales/origins/prepared work and explicit host repair without replay.
+- [x] Strict API/CLI/Python routes, two nonvolatile attempts per boot and two
+  verification captures including failures; native/package/four firmware builds
+  and read-only COM13 snapshot/gates/regression PASS.
+- [ ] Physical save/factory restore, actual restart survival and communication
+  activation NOT RUN: complete backup and motor restart/recommissioning procedure
+  remain unavailable. No save-complete timing guarantee or all-field durability
+  is inferred. [API](ess_persistence.md), [evidence](reports/ess_release_21_2026-10-04.md).
+
 ## Debugging the production path
 
 - [x] One runtime `debug off|raw|decoded` interface, cohesive fixed observer state and ordinary owner/capture/memory snapshot.

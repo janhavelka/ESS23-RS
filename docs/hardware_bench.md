@@ -1,5 +1,12 @@
 # Motor bench and testing authorization
 
+[Prompt21 evidence](reports/ess_release_21_2026-10-04.md): typed persistence
+plans, zero-TX save/restore gates, exclusive nine-read snapshot, strict Python
+checks and ten probes pass on the final image. Forty-eight frames, zero faults;
+settings and stopped state unchanged, no nonvolatile write or restart. The motor
+restart/backup/recommissioning procedure remains unavailable; physical save and
+factory restoration are NOT RUN.
+
 [Latest debug-refactor evidence](reports/debug_refactor_2026-10-04.md): the normal
 timer image passed short finite forward/return moves, both moving stops,
 release/enable, exact profile restoration and loaded long-frame reads. Final303

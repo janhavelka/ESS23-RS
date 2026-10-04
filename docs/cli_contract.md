@@ -1,5 +1,14 @@
 # MotorControl-RS standalone CLI contract
 
+Prompt21 implements `profile ess_rs persistence inspect|snapshot|plan|begin|verify|host before|finish`
+through the public [persistence API](ess_persistence.md). Save and factory restore
+are explicit stopped-state actions. One retained invocation, two nonvolatile
+attempts per boot, and two verification read sequences per invocation are
+bounded; failed reads consume the verification budget. Inspect/plan are passive,
+and ACK/live readback/restart survival are separate. The existing commissioning
+token excludes other producers and is retained through uncertain outcomes.
+No reset/recover/probe/stress path writes persistence.
+
 Prompt20 implements `profile ess_rs communication inspect|plan|begin|host|confirm|finish`
 through the public communication preparation. Candidate selection is explicit;
 ordinary producers remain excluded until the session settles. The finite Python

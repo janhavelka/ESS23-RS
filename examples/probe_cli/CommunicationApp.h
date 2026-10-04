@@ -92,6 +92,7 @@ Probe::Action communication(void* context, const Probe::CommunicationCommand* co
     const uint64_t now = uart.sample();
     if (!platformReady) return Probe::Action::UNAVAILABLE;
     if (command->kind == Kind::PREVIEW) return Probe::Action::OK; // Console shows source effects and current fixture prerequisites.
+    if (a.persistenceRequest.owner || a.persistenceCapture) return Probe::Action::BUSY;
     if (command->kind == Kind::BEGIN) {
         if (a.owner.commissioningOwned() || a.serial.blocked || !a.serial.activeKnown ||
             a.owner.active() || a.owner.pending() || reading(a) || acting(a) ||
@@ -109,11 +110,14 @@ Probe::Action communication(void* context, const Probe::CommunicationCommand* co
         if (!prepared) return Probe::Action::INVALID;
         if (!a.owner.beginCommissioning(now, a.commissioningLease)) return Probe::Action::BUSY;
         a.commissioning = a.commissioningPrepared; ++a.nextOperationId;
+        a.persistenceParentSession = true;
+        a.persistenceBaselineKnown = false;
         a.commissioningInvalidated = false; a.commissioningConfirmedGeneration = 0;
         a.commissioningResponseQualified = writeResponseConfirmed;
         const auto admitted = submitCommunication(a, now); communicationView(a, out); return admitted;
     }
     if (!a.owner.commissioningOwned()) return Probe::Action::INVALID;
+    if (!a.persistenceParentSession || !a.commissioning.operationId) return Probe::Action::INVALID;
     if (a.commissioningRequest.owner) return Probe::Action::BUSY;
     if (command->kind == Kind::SELECT_BEFORE || command->kind == Kind::SELECT_REQUESTED) {
         Probe::HostRequest request;
@@ -140,6 +144,8 @@ Probe::Action communication(void* context, const Probe::CommunicationCommand* co
         const auto admitted = submitCommunication(a, now); communicationView(a, out); return admitted;
     }
     if (command->kind != Kind::FINISH) return Probe::Action::INVALID;
+    if (a.persistenceParentSession && a.persistence.operationId && !a.persistenceFinished)
+        return Probe::Action::RECOVERY_REQUIRED;
     const auto& session = a.commissioning;
     const bool noWrite = session.execution == MotorControlRS::ActionExecution::NOT_TRANSMITTED && !session.effects;
     if (!a.serial.activeKnown || a.serial.blocked || a.owner.needsRecovery() || uart.needsRecovery() ||
@@ -149,6 +155,8 @@ Probe::Action communication(void* context, const Probe::CommunicationCommand* co
     if (a.bindingGeneration == UINT32_MAX) return Probe::Action::IDS_EXHAUSTED;
     if (!a.owner.endCommissioning(a.commissioningLease, now)) return Probe::Action::BUSY;
     a.commissioningLease = 0;
+    a.persistenceParentSession = false;
+    a.persistenceBaselineKnown = false;
     if (!noWrite) {
         const uint8_t selected = session.observedActiveTarget.address;
         ++a.bindingGeneration;

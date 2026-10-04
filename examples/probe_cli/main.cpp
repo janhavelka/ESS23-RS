@@ -73,6 +73,19 @@ struct App {
     uint64_t commissioningLease = 0;
     uint32_t commissioningConfirmedGeneration = 0, commissioningRequestBinding = 0;
     bool commissioningInvalidated = false, commissioningResponseQualified = false;
+    ESS::PersistenceContext persistence, persistencePrepared;
+    ESS::PersistencePrerequisites persistencePrerequisites, persistenceBaseline;
+    ESS::PersistenceVerification persistenceVerification;
+    ESS::ReadContext persistenceReads[3];
+    Rtu::RequestId persistenceRequest, persistenceReadRequest;
+    MotorControlRS::ReadTarget persistenceReadTarget;
+    uint64_t persistenceReadDeadline = 0;
+    uint32_t persistenceReadOperation = 0, persistenceSnapshotSerialGeneration = 0,
+        persistenceSnapshotBinding = 0, persistenceConfirmedGeneration = 0;
+    uint8_t persistenceReadIndex = 0, persistenceInvocations = 0, persistenceVerificationAttempts = 0;
+    bool persistenceCapture = false, persistenceAfter = false, persistenceBaselineKnown = false,
+        persistenceSnapshotFailed = false, persistenceInvalidated = false,
+        persistenceParentSession = false, persistenceFinished = false;
     Rtu::Runner runner;
     Rtu::BusOwner owner;
     Probe::Console console;
@@ -170,6 +183,7 @@ struct App {
             }
         }
         axis.target.id = axis.target.address = 1; axis.target.generation = bindingGeneration;
+        persistencePrerequisites.maxAgeUs = 5000000;
         axis.supportedRelativeBases = 1;
         // Application bench declaration: only power/RS485, no terminal wiring.
         for (auto& wiring : inputWiring) wiring = MotorControlRS::InputWiring::UNCONNECTED;
@@ -1538,6 +1552,8 @@ Probe::Action recover(void* context, uint32_t commandId, uint32_t& operationId) 
     const uint64_t now = uart.sample(); uint64_t id = 0;
     if (a.owner.recover(now, now + 2000000, id) != Rtu::RecoveryAdmission::ACCEPTED) return Probe::Action::FAILED;
     a.commissioningConfirmedGeneration = 0; // Recovery requires a new explicit candidate observation.
+    a.persistenceConfirmedGeneration = 0;
+    a.persistenceBaselineKnown = false;
     ++a.bindingGeneration;
     invalidateAxis(a);
     a.monitorState.settings.enabled = false; a.monitorState.remaining = 0;
@@ -1751,6 +1767,8 @@ Probe::Action hostSerialImpl(void* context, const Probe::HostRequest* requested,
     a.serial.configuring = true;
     a.serial.requested = tuple;
     ++a.serial.generation;
+    a.persistenceConfirmedGeneration = 0;
+    a.persistenceBaselineKnown = false;
     invalidateSerialConfidence(a, nowUs());
     // A first attempt may have refused captured stale RX before touching UART
     // setup. Explicit repair owns its discard; ordinary recovery cannot reopen
@@ -1777,6 +1795,7 @@ Probe::Action hostSerial(void* context, const Probe::HostRequest* requested, Pro
     return hostSerialImpl(context, requested, out, false);
 }
 #include "CommunicationApp.h"
+#include "PersistenceApp.h"
 
 #include "DebugApp.h"
 Probe::Host host(App* a) {
@@ -1785,7 +1804,7 @@ Probe::Host host(App* a) {
     h.startTypedRead = typedRead;
     h.startAction = startAction; h.startMove = startMove; h.startVelocity = startVelocity; h.startDriver = startDriver; h.startHome = startHome;
     h.monitor = monitor; h.motionProfile = motionProfileCommand; h.debug = debugCommand;
-    h.axis = axisCommand; h.hostSerial = hostSerial; h.communication = communication;
+    h.axis = axisCommand; h.hostSerial = hostSerial; h.communication = communication; h.persistence = persistence;
     h.result = lookup; h.cancel = cancel; h.release = release;
 #if MOTORCONTROLRS_LOAD_FIXTURE
     h.load = load;
@@ -1952,6 +1971,7 @@ void loop() {
     }
     serviceMotionProfile(a, nowUs());
     serviceCommissioning(a, nowUs());
+    servicePersistence(a, nowUs());
     advanceReads(a, nowUs());
     advanceActions(a, nowUs());
     serviceCoordinates(a, nowUs());

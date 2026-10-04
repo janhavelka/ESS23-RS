@@ -119,6 +119,11 @@ therefore rejects begin before TX. Native tests inject simulated qualification
 into the actual application; those flags are not available as console overrides.
 Physical address/baud/format change, restart, readback and restoration are
 **NOT RUN**. This limitation is independent of the confirmed power/RS485-only,
-free-shaft setup. Prompt 21 must revisit custom-address activation using its
-explicit save operation and an actual available restart/recommissioning route.
+free-shaft setup. [Prompt21's persistence API](ess_persistence.md) now saves a
+pending custom address through this same token-based commissioning lease.
+Candidate confirmation precedes its bounded snapshot; save and post-save reads
+never release the parent lease. Communication finish needs fresh confirmation
+after save or recovery. Native tests cover both original/requested responding
+addresses and host setup failure/restoration; physical saved-address activation
+remains NOT RUN until an actual restart/recommissioning route is available.
 Prompt 22 receives no permission to write during discovery.

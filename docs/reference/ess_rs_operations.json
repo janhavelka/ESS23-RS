@@ -2305,6 +2305,90 @@
         "SerialFormatCode.FORMAT_8E1",
         "SerialFormatCode.FORMAT_8O1"
       ]
+    },
+    {
+      "id": "save_parameters",
+      "kind": "ACTION",
+      "records": [
+        "AUXILIARY_COMMAND"
+      ],
+      "choices": [
+        "AuxiliaryCommand.SAVE_PARAMETERS"
+      ],
+      "api": {
+        "header": "include/MotorControlRS/profiles/ess_rs/Persistence.h",
+        "symbols": [
+          "prepareSave",
+          "nextPersistence",
+          "advancePersistence",
+          "verifyPersistence"
+        ]
+      },
+      "cli_commands": [
+        "profile ess_rs persistence begin save"
+      ],
+      "implementation": "IMPLEMENTED",
+      "cli": "REACHABLE",
+      "native": {
+        "state": "PASS",
+        "evidence": [
+          "test/persistence_test.cpp",
+          "test/persistence_app_test.cpp",
+          "test/persistence_console_test.cpp",
+          "test/persistence_harness_test.py"
+        ]
+      },
+      "hardware": {
+        "state": "NOT_RUN",
+        "evidence": [
+          "docs/ess_persistence.md",
+          "docs/reports/ess_release_21_2026-10-04.md"
+        ],
+        "reason": "No actual motor restart and backup/recommissioning procedure. Final-image plans, snapshot and zero-TX gates pass; no nonvolatile command transmitted."
+      },
+      "reason": "Explicit stopped-state all-parameter action, one admitted FC06 and no replay. ACK, live register readback and restart-qualified individual field survival are distinct. Partial15-word backup never proves all-parameter persistence; factory restore requires complete external backup and route back. Pending-address save reuses communication commissioning token."
+    },
+    {
+      "id": "restore_factory",
+      "kind": "ACTION",
+      "records": [
+        "AUXILIARY_COMMAND"
+      ],
+      "choices": [
+        "AuxiliaryCommand.RESTORE_FACTORY"
+      ],
+      "api": {
+        "header": "include/MotorControlRS/profiles/ess_rs/Persistence.h",
+        "symbols": [
+          "prepareFactoryRestore",
+          "nextPersistence",
+          "advancePersistence",
+          "verifyPersistence"
+        ]
+      },
+      "cli_commands": [
+        "profile ess_rs persistence begin factory-restore"
+      ],
+      "implementation": "IMPLEMENTED",
+      "cli": "REACHABLE",
+      "native": {
+        "state": "PASS",
+        "evidence": [
+          "test/persistence_test.cpp",
+          "test/persistence_app_test.cpp",
+          "test/persistence_console_test.cpp",
+          "test/persistence_harness_test.py"
+        ]
+      },
+      "hardware": {
+        "state": "NOT_RUN",
+        "evidence": [
+          "docs/ess_persistence.md",
+          "docs/reports/ess_release_21_2026-10-04.md"
+        ],
+        "reason": "No actual motor restart and backup/recommissioning procedure. Final-image plans, snapshot and zero-TX gates pass; no nonvolatile command transmitted."
+      },
+      "reason": "Explicit stopped-state all-parameter action, one admitted FC06 and no replay. ACK, live register readback and restart-qualified individual field survival are distinct. Partial15-word backup never proves all-parameter persistence; factory restore requires complete external backup and route back. Pending-address save reuses communication commissioning token."
     }
   ],
   "coverage_notes": [
@@ -2322,6 +2406,7 @@
     "Prompt16 accounts separately for all16 PT records, all16 PV records and all16 shared start-speed words; all16 PT reserved slots remain ACCOUNTED_RESERVED. Stored PT target-pair setters remain UNSUPPORTED; negative PV/start encoding remains guarded. Storage16 is distinct from maximum8 externally selected combinations on four-input ESS drives. PT5ms setup/hold is not inherited by PV. No serial segment execution command exists. Shared EXTERNAL_POSITION_MODE and PV_TRIGGER_MODE reuse existing driver_settings_read/update coverage rather than duplicate operations.",
     "Prompt17 control settings are native configuration, not commanded torque/current modes. Raw algorithm3 remains unknown; RS20 peak-current dial ratings do not establish maximum-effective-current0102 limits, and percent prose referencing2042 does not establish an0102 denominator. Exact independent qualification is required before affected writes.",
     "Fresh16/17audit fixes closure-budget certainty and optional-host help parity, repeats all48 indexed reads and reversible lock-delay stored restoration. The original shared-start write FAIL remains unresolved; no pair permission, current formula or physical trigger qualification is inferred.",
-    "Prompt18 accounts for all20 reviewed scalar tuning fields with group-local masks and fixed bounded read/write sequences. Native filter coefficients, arrival-time/deviation/LA-node/gain codes retain unspecified physical units. Earlier COLLISION_THRESHOLD_003B/COLLISION_CURRENT_003C have unspecified access and remain separate unresolved records, never aliased to0122/0123 or read through a forbidden window. Native gain/collision/arrival writes require exact independent effects qualification; physical effects remain separately unqualified."
+    "Prompt18 accounts for all20 reviewed scalar tuning fields with group-local masks and fixed bounded read/write sequences. Native filter coefficients, arrival-time/deviation/LA-node/gain codes retain unspecified physical units. Earlier COLLISION_THRESHOLD_003B/COLLISION_CURRENT_003C have unspecified access and remain separate unresolved records, never aliased to0122/0123 or read through a forbidden window. Native gain/collision/arrival writes require exact independent effects qualification; physical effects remain separately unqualified.",
+    "Prompt21 implements explicit save/factory-restore choices via typed PersistenceContext and existing commissioning ownership. Per-field source-access notation remains ledger-derived; known raw before-values and post-action reads are separate from durability. Physical nonvolatile writes, motor restart and factory restoration remain NOT_RUN; partial snapshots and read-only regression receive no persistence hardware credit."
   ]
 }

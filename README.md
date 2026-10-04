@@ -1,5 +1,9 @@
 # MotorControl-RS
 
+[Explicit ESS save/factory restore](docs/ess_persistence.md) retains before
+settings, checked outcomes and field-level persistence uncertainty. Native and
+read-only bench checks are separate from unperformed restart/durability proof.
+
 The [runtime debug interface](docs/traffic.md) observes normal operations with
 `debug off|raw|decoded` and a combined owner/capture/memory overview. Typed low-level
 reads, parameter snapshots/restoration and retained results use the ordinary APIs.

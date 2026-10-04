@@ -1,5 +1,12 @@
 # Roadmap to a supported ESS release
 
+Prompt21 delivers [explicit save/factory restore](ess_persistence.md) with
+bounded retained outcomes, before-values, field-level uncertainty and reuse of
+the communication commissioning lease. Software and read-only COM13 evidence
+PASS; actual nonvolatile durability, restart activation and factory restoration
+remain NOT RUN without backup/recommissioning and motor restart capability.
+See the [handoff](reports/ess_release_21_2026-10-04.md).
+
 The [debug refactor](reports/debug_refactor_2026-10-04.md) consolidates runtime
 observation and profile state around the ordinary execution path. Debug changes
 no motor prerequisites or wire policy; software timing remains distinct from

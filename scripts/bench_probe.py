@@ -30,7 +30,7 @@ MAX_LINE = 8192
 MAX_INPUT = 32768
 MAX_TRAFFIC_INPUT = 1048576  # Independent finite diagnostic budget per command/drain.
 COMMANDS = frozenset({"version", "config", "probe", "capture-read", "status", "health", "memory", "stats", "load",
-                      "drv", "result", "release", "cancel", "recover", "reset", "caps", "host", "communication", "motion-profile", "debug",
+                      "drv", "result", "release", "cancel", "recover", "reset", "caps", "host", "communication", "persistence", "motion-profile", "debug",
                       "read-identity", "read-config", "read-state", "health-check", "monitor", "axis", "prepare", "enable", "motor-release", "alarm-clear", "stop", "position-clear", "move-relative", "move-absolute", "move-angle", "velocity", "driver", "io", "segment", "control", "tuning", "home"})
 MAX_COMMANDS = 11  # Eight ordinary operations, recovery, reserved stop and local query.
 MAX_OPERATIONS = 10  # Eight ordinary operations, one recovery and one reserved stop.
@@ -136,6 +136,20 @@ def communication_arguments(tokens: tuple[str, ...]) -> dict:
             raise ValueError("communication target address must be 1..247")
         result["address"] = int(tokens[3])
     return result
+
+
+def persistence_arguments(tokens: tuple[str, ...]) -> dict:
+    """Explicit bounded save/restore workflow; snapshot and verify only read."""
+    if not isinstance(tokens, tuple) or any(type(v) is not str for v in tokens):
+        raise ValueError("persistence arguments require a tuple of strings")
+    if tokens in ((), ("inspect",), ("verify",), ("finish",), ("snapshot",)):
+        return {"action": {"verify": 2, "finish": 3, "snapshot": 4}.get(tokens[0] if tokens else "inspect", -1)}
+    if tokens == ("host", "before"):
+        return {"action": 5}
+    if len(tokens) != 2 or tokens[0] not in ("plan", "begin") or tokens[1] not in ("save", "factory-restore"):
+        raise ValueError("persistence requires inspect, snapshot, plan/begin save/factory-restore, verify, host before or finish")
+    return dict(action=0 if tokens[0] == "plan" else 1, kind=tokens[1], register=45,
+                value=66 if tokens[1] == "save" else 65)
 
 
 def host_arguments(arguments: tuple[str, ...]) -> dict:
@@ -561,6 +575,8 @@ class Console:
         self.last_operation_id = 0
         self.serial = None
         self.communication = None
+        self.persistence = None
+        self.persistence_invocations = 0
         self.communication_candidate = None
         self.motion_profile = None
         self.debug_mode = None
@@ -2295,6 +2311,179 @@ class Console:
                        for key in ("original", "requested", "active", "active_known", "blocked", "serial_generation",
                                    "failure", "actual_baud", "supported_bauds", "supported_formats")}
 
+    def _check_persistence(self, handle: Command, item: dict) -> None:
+        expected = persistence_arguments(handle.host_args)
+        if "action" not in item:
+            if item["ok"]:
+                raise BenchError("persistence reply omitted action")
+            return
+        def require(condition, message):
+            if not condition:
+                raise BenchError("persistence: " + message)
+        require(type(item["action"]) is int and item["action"] == expected["action"], "wrong action")
+        for key in ("pending", "owned", "route_ready", "snapshot_known", "snapshot_failed", "parent_session", "finished", "restart_performed", "write_replayed"):
+            require(type(item.get(key)) is bool, "invalid " + key)
+        require(not item["restart_performed"] and not item["write_replayed"], "unexpected restart or replay")
+        require(not item["pending"] or item["owned"], "pending work has no owner")
+        require(type(item.get("invocations")) is int and 0 <= item["invocations"] <= 2 and item.get("invocation_limit") == 2, "unbounded nonvolatile invocations")
+        require(item["invocations"] >= self.persistence_invocations, "invocation budget disappeared")
+        require(type(item.get("verification_attempts")) is int and 0 <= item["verification_attempts"] <= 2, "unbounded verification attempts")
+        plan = item.get("plan")
+        if expected["action"] in (0, 1):
+            require(isinstance(plan, dict) and all(plan.get(k) == v for k, v in expected.items() if k != "action"), "wrong plan")
+            require(plan.get("writes") == 1 and plan.get("scope") == "all_parameters" and plan.get("stopped_required") is True and
+                    plan.get("completion") == "unresolved" and plan.get("durability") == "unverified" and
+                    plan.get("restart") == "required_for_proof" and plan.get("backup") == "partial_standard_config", "false source claims")
+        else:
+            require(plan is None, "unexpected plan")
+        host = item.get("host")
+        require(isinstance(host, dict) and isinstance(host.get("active"), dict) and type(host.get("active_known")) is bool and
+                type(host.get("blocked")) is bool and self._operation_id(host.get("serial_generation")), "invalid host")
+        if host["active_known"]:
+            require(not host["blocked"] and host["active"].get("baud") in HOST_BAUDS and host["active"].get("format") in HOST_FORMATS, "invalid active tuple")
+        if self.serial is not None and host["serial_generation"] != self.serial["serial_generation"]:
+            self.serial = None
+        regs = (16,17,19,20,21,23,24,25,64,65,66,67,68,256,257)
+        windows = ((16,2),(19,3),(23,3),(64,5),(256,2),(0,4),(6,2))
+        def snapshot(value, *, stationary=False):
+            require(isinstance(value, dict), "missing partial snapshot")
+            endpoint = value.get("endpoint")
+            require(isinstance(endpoint, dict) and self._operation_id(endpoint.get("target")) and self._operation_id(endpoint.get("generation")) and
+                    type(endpoint.get("address")) is int and 1 <= endpoint["address"] <= 247 and endpoint.get("serial_known") is True and
+                    endpoint.get("baud") in HOST_BAUDS and endpoint.get("data_bits") == 8 and
+                    ((endpoint.get("parity") == 1 and endpoint.get("stop_bits") in (1,2)) or
+                     (endpoint.get("parity") in (2,3) and endpoint.get("stop_bits") == 1)), "invalid snapshot endpoint")
+            require(self._operation_id(value.get("configuration_generation")) and isinstance(value.get("operation_ids"), list) and
+                    len(value["operation_ids"]) == 3 and all(self._operation_id(v) for v in value["operation_ids"]), "invalid snapshot IDs")
+            for key, count in (("config_words",15),("identity_words",4),("motion_words",2)):
+                require(isinstance(value.get(key), list) and len(value[key]) == count and
+                        all(type(v) is int and 0 <= v <= 65535 for v in value[key]), "invalid " + key)
+            if stationary:
+                require(value["motion_words"][0] == 0 and not value["motion_words"][1] & ~0x73,
+                        "invocation requires known alarm-free stopped state")
+            evidence = value.get("provenance")
+            require(isinstance(evidence, list) and len(evidence) == 7, "missing snapshot provenance")
+            words = []
+            for index, (p, window) in enumerate(zip(evidence, windows)):
+                require(isinstance(p, list) and len(p) == 7 and p[:2] == list(window), "wrong read window")
+                require(type(p[2]) is str and re.fullmatch(r"[0-9a-fA-F]*",p[2]) is not None and len(p[2])%2 == 0, "bad raw read")
+                require(all(type(t) is int and 0 <= t <= 0xFFFFFFFFFFFFFFFF for t in p[3:]) and p[3] <= p[4] <= p[5] <= p[6], "bad read interval")
+                raw=bytes.fromhex(p[2]);count=window[1]
+                require(len(raw) == 5+count*2 and raw[:3] == bytes([endpoint["address"],3,count*2]) and
+                        wire_crc(raw[:-2]) == int.from_bytes(raw[-2:],"little"), "invalid checked read")
+                decoded=[int.from_bytes(raw[offset:offset+2],"big") for offset in range(3,3+2*count,2)]
+                if index < 5: words.extend(decoded)
+                else: require(decoded == value["identity_words" if index == 5 else "motion_words"], "snapshot differs from raw read")
+            require(words == value["config_words"], "config differs from raw reads")
+            return value
+        baseline=item.get("baseline")
+        if baseline is not None:
+            snapshot(baseline)
+            require(item["snapshot_known"], "unknown baseline was published")
+        c=item.get("context");old=self.persistence
+        if old or (item["ok"] and expected["action"] in (1,2)):
+            require(isinstance(c,dict), "retained context disappeared")
+        if c is not None:
+            require(isinstance(c,dict) and self._operation_id(c.get("operation_id")), "invalid context ID")
+            new = old is None or c["operation_id"] != old["operation_id"]
+            require(new and old is None or not new or expected["action"] == 1, "session replaced without begin")
+            require(c.get("kind") in ("save","factory-restore") and c.get("register") == 45 and
+                    c.get("value") == (66 if c["kind"] == "save" else 65), "wrong command encoding")
+            for key in ("effects","uncertain","snapshot_complete","verification_known","live_readback_known","restart_required_for_proof",
+                        "manual_intervention_required","communication_changed","configuration_invalidated","complete_backup","restart_observed"):
+                require(type(c.get(key)) is bool, "invalid context " + key)
+            require(not c["snapshot_complete"], "partial snapshot claimed complete")
+            require(type(c.get("state")) is int and c["state"] in (1,2,3) and type(c.get("outcome")) is int and 0 <= c["outcome"] <= 7 and
+                    type(c.get("execution")) is int and 0 <= c["execution"] <= 3 and c.get("persistence") in (0,1), "invalid operation state")
+            require((c["state"] == 1 and c["outcome"] == 0) or (c["state"] == 2 and c["outcome"] == 1) or
+                    (c["state"] == 3 and 2 <= c["outcome"] <= 7), "state/outcome mismatch")
+            require(c["uncertain"] == (c["execution"] == 3) and c["configuration_invalidated"] == c["effects"], "lost execution uncertainty/effects")
+            require(type(c.get("verification_count")) is int and 0 <= c["verification_count"] <= 2, "unbounded verification")
+            for key in ("matching_fields","verified_fields"):
+                require(type(c.get(key)) is int and 0 <= c[key] <= 32767, "invalid field mask")
+            require(all(type(c.get(k)) is int and 0 <= c[k] <= 0xFFFFFFFFFFFFFFFF for k in ("started_us","deadline_us","restart_us")) and
+                    c["started_us"] < c["deadline_us"], "invalid write budget")
+            before=snapshot(c.get("before"), stationary=True);after=c.get("verification")
+            if c["verification_known"]:
+                snapshot(after, stationary=True)
+                require(c["verification_count"] > 0 and c["live_readback_known"], "missing verification")
+                require(after["endpoint"] == before["endpoint"] and after["identity_words"][:2] == before["identity_words"][:2] and
+                        after["configuration_generation"] >= before["configuration_generation"], "verification changed binding/identity")
+            else:
+                require(after is None and not c["live_readback_known"] and not c["matching_fields"] and not c["verified_fields"], "fabricated readback")
+            wire=c.get("write_evidence")
+            require(isinstance(wire,dict), "missing write evidence")
+            for key in ("step","event","received_length","tx_accepted","earliest_us","latest_us","delivered_us","frame_error"):
+                require(type(wire.get(key)) is int and 0 <= wire[key] <= 0xFFFFFFFFFFFFFFFF, "invalid wire " + key)
+            for key in ("tx_complete","response_confirmed","qualified","execution_unknown"):
+                require(type(wire.get(key)) is bool, "invalid wire " + key)
+            require(wire["step"] == 0 and wire["event"] in (0,1,2,3) and wire["tx_accepted"] <= 8 and
+                    (not wire["tx_complete"] or wire["tx_accepted"] == 8), "invalid TX/event")
+            raw_hex=wire.get("raw_hex")
+            require(type(raw_hex) is str and re.fullmatch(r"[0-9a-fA-F]*",raw_hex) is not None and len(raw_hex)%2 == 0, "bad raw write")
+            raw=bytes.fromhex(raw_hex)
+            require(len(raw) == min(9,wire["received_length"]), "lost raw write bytes")
+            if c["state"] != 1:
+                require(c["effects"] == bool(wire["tx_accepted"] or wire["execution_unknown"]), "lost effects")
+            if wire["qualified"]:
+                require(wire["event"] == 0 and c["started_us"] <= wire["earliest_us"] <= wire["latest_us"] <= wire["delivered_us"], "invalid write interval")
+            else:
+                require(wire["earliest_us"] == wire["latest_us"] == 0, "unqualified write bounds")
+            if wire["delivered_us"]:
+                if wire["event"] == 0:
+                    require(wire["tx_complete"] and wire["tx_accepted"] == 8, "FRAME lacks completed TX")
+                else:
+                    require(not wire["qualified"] and not wire["response_confirmed"], "local event claims a response")
+            if c["verification_known"]:
+                require(all(p[3] >= (c["restart_us"] if c["restart_observed"] else wire["delivered_us"]) for p in after["provenance"]), "verification reused stale reads")
+            if wire["delivered_us"] and wire.get("status") == "OK":
+                expected_raw=bytes([before["endpoint"]["address"],6,0,45,0,c["value"]])
+                require(raw[:-2] == expected_raw and len(raw) == 8 and wire_crc(raw[:-2]) == int.from_bytes(raw[-2:],"little"), "invalid write echo")
+            if c["execution"] == 1 or c["state"] == 2:
+                require(c["state"] == 2 and c["outcome"] == 1 and c["execution"] == 1 and c.get("status") == wire.get("status") == "OK" and
+                        wire["qualified"] and wire["response_confirmed"] and wire["tx_complete"] and not wire["execution_unknown"] and
+                        wire["latest_us"] <= c["deadline_us"], "false acknowledgement")
+            if c["execution"] == 2:
+                require(len(raw) == 5 and raw[:2] == bytes([before["endpoint"]["address"],0x86]) and raw[2] in (1,2,3,4,6,7) and
+                        wire.get("status") == "EXCEPTION" and wire.get("detail") == raw[2] and wire_crc(raw[:-2]) == int.from_bytes(raw[-2:],"little") and
+                        wire["qualified"] and wire["response_confirmed"] and not wire["execution_unknown"] and
+                        wire["latest_us"] <= c["deadline_us"], "false rejected execution")
+            fields=c.get("fields")
+            require(isinstance(fields,list) and len(fields) == 15, "missing field uncertainty")
+            matching=verified=0
+            for index,(f,reg) in enumerate(zip(fields,regs)):
+                require(isinstance(f,list) and len(f) == 6 and f[0] == reg and f[1] == before["config_words"][index] and
+                        type(f[2]) is int and 0 <= f[2] <= 65535 and f[3] == ("RW/S" if reg >= 256 else "RW") and
+                        type(f[4]) is bool and type(f[5]) is bool, "invalid per-field evidence")
+                require(f[4] == c["verification_known"] and (not f[4] or f[2] == after["config_words"][index]), "field differs from readback")
+                if f[4] and f[1] == f[2]:matching |= 1 << index
+                if f[5]:
+                    require(f[4] and f[1] == f[2] and c["kind"] == "save" and c["restart_observed"] and
+                            self._operation_id(c.get("restart_source")) and wire["delivered_us"] < c["restart_us"] <= min(p[3] for p in after["provenance"]), "false durability proof")
+                    verified |= 1 << index
+            require(c["matching_fields"] == matching and c["verified_fields"] == verified and c["persistence"] == bool(verified), "wrong persistence masks")
+            require(c["restart_required_for_proof"] == (not bool(verified)), "false restart proof requirement")
+            if item["ok"] and expected["action"] == 1:
+                require(new and c["kind"] == expected["kind"] and item["owned"] and item["route_ready"] and c["verification_count"] == 0, "invalid begin")
+            if old and not new:
+                for key in ("kind","register","value","before","started_us","deadline_us","backup_source","complete_backup"):
+                    require(c.get(key) == old.get(key), "immutable context changed: " + key)
+                require(not old["effects"] or c["effects"], "effects disappeared")
+                if old["state"] != 1:
+                    require(all(c[k] == old[k] for k in ("state","outcome","execution","write_evidence","uncertain")), "write result changed")
+                require(c["verification_count"] >= old["verification_count"], "verification disappeared")
+            self.persistence=json.loads(json.dumps(c))
+        if item["ok"] and expected["action"] == 3:
+            require(not item["pending"] and item["owned"] == item["parent_session"] and item["finished"] and host["active_known"] and not host["blocked"], "finish did not settle host/ownership")
+            require(c is None or not c["effects"] or c["verification_known"], "finish lacks post-write verification")
+        if item["ok"] and expected["action"] == 5:
+            before = c["before"] if c is not None and not item["finished"] else baseline
+            require(before is not None and item["owned"] and host["active_known"] and not host["blocked"], "host restore lacks retained context")
+            endpoint=before["endpoint"]
+            fmt="8N2" if endpoint["stop_bits"] == 2 else {1:"8N1",2:"8E1",3:"8O1"}[endpoint["parity"]]
+            require(host["active"] == dict(baud=endpoint["baud"],format=fmt), "host differs from before tuple")
+        self.persistence_invocations=item["invocations"]
+
     def _check_communication(self, handle: Command, item: dict) -> None:
         expected = communication_arguments(handle.host_args)
         # Syntax/availability errors have no session snapshot. Other refusals
@@ -2711,6 +2900,8 @@ class Console:
             self._check_host(handle, item)
         if handle.command == "communication":
             self._check_communication(handle, item)
+        if handle.command == "persistence":
+            self._check_persistence(handle, item)
         if handle.command == "debug":
             self._check_debug(handle, item)
         if handle.command == "motion-profile":
@@ -2961,6 +3152,9 @@ class Console:
         elif command == "communication":
             host_args = () if host_args is None else host_args
             communication_arguments(host_args)
+        elif command == "persistence":
+            host_args = () if host_args is None else host_args
+            persistence_arguments(host_args)
         elif command == "debug":
             host_args = () if host_args is None else host_args
             debug_arguments(host_args)
@@ -3066,7 +3260,7 @@ class Console:
                 suffix = " " + " ".join(driver_args) + suffix
             wire_command = "health check" if health_check else "read " + TYPED_READS[command] if command in TYPED_READS else command
             if command in MOVE_COMMANDS: wire_command = "move " + command[5:]
-            if command in ("driver", "io", "segment", "control", "tuning", "communication"): wire_command = "profile ess_rs " + command
+            if command in ("driver", "io", "segment", "control", "tuning", "communication", "persistence"): wire_command = "profile ess_rs " + command
             payload = f"@{request_id} {wire_command}{suffix}\n".encode("ascii")
             if len(payload) > 128:
                 raise ValueError("command exceeds the console line bound")
@@ -3318,6 +3512,71 @@ def typed_read_campaign(console: Console, *, kind: str, timeout_s: float, addres
         console.emit("summary", mode="typed-read", read_kind=kind, reads_attempted=attempted,
                      reads_passed=completed, reads_failed=attempted - completed,
                      ok=failure is None and completed == len(kinds), error=failure)
+
+
+def persistence_campaign(console: Console, *, kind: str, timeout_s: float,
+                         execute: bool = False, verify: bool = False, finish: bool = False) -> dict:
+    """Finite explicit workflow. Failure leaves retained state without cleanup writes."""
+    persistence_arguments(("plan",kind))
+    positive(timeout_s,"persistence deadline")
+    if (verify or finish) and not execute or finish and not verify:
+        raise ValueError("verification requires execution; finish requires explicit verification")
+    deadline=console.clock()+timeout_s
+    writes=reads=0
+    failure=None
+    operation_id=None
+    def command(tokens):
+        nonlocal operation_id
+        remaining=deadline-console.clock()
+        if remaining <= 0:
+            raise BenchError("persistence procedure deadline; retained session requires inspection")
+        result=console.command("persistence",host_args=tokens,timeout_s=remaining)
+        if not result["ok"]:
+            raise BenchError("persistence command refused: "+str(result.get("result")))
+        context=result.get("context") or {}
+        if tokens[0] == "begin":
+            operation_id=context.get("operation_id")
+            if not Console._operation_id(operation_id):
+                raise BenchError("persistence begin omitted session identity")
+        elif operation_id is not None and context.get("operation_id") != operation_id:
+            raise BenchError("persistence session changed; no further work attempted")
+        return result
+    def settled(result):
+        for _ in range(100):
+            if not result["pending"]:return result
+            remaining=deadline-console.clock()
+            if remaining <= 0:break
+            console.sleep(min(.01,remaining))
+            result=command(("inspect",))
+        raise BenchError("persistence pending bound reached; no replay or automatic cleanup")
+    try:
+        result=command(("plan",kind))
+        console.emit("persistence_plan",plan=result.get("plan"),route_ready=result.get("route_ready"),execute=execute)
+        if not execute:return result
+        if not result["route_ready"]:
+            raise BenchError("persistence backup/recommissioning route unavailable; no write attempted")
+        reads+=1
+        result=settled(command(("snapshot",)))
+        if not result["snapshot_known"]:raise BenchError("persistence snapshot failed; no write attempted")
+        writes+=1
+        result=settled(command(("begin",kind)))
+        c=result.get("context") or {}
+        if c.get("state") not in (2,3) or c.get("outcome") not in (1,7):
+            raise BenchError("persistence write failed/unknown; inspect and direct recovery explicitly")
+        if verify:
+            reads+=1
+            result=settled(command(("verify",)))
+            if not (result.get("context") or {}).get("verification_known"):
+                raise BenchError("persistence verification failed; retained state requires explicit recovery")
+            if finish:result=command(("finish",))
+        return result
+    except BaseException as exc:
+        failure=str(exc)
+        raise
+    finally:
+        console.emit("summary",mode="persistence-check",ok=failure is None,failure=failure,
+                     write_attempts=writes,read_sequences=reads,auto_recovery=False,
+                     restart_performed=False,write_replayed=False,all_parameter_durability=False)
 
 
 def communication_campaign(console: Console, *, field: str, value: str, address: int,
@@ -3695,6 +3954,13 @@ def arguments(argv: list[str] | None) -> argparse.Namespace:
     host.add_argument("host_tokens", nargs="*")
     communication = sub.add_parser("communication", help="one explicit communication session action; no retries/save/restart")
     communication.add_argument("communication_tokens", nargs="*")
+    persistence = sub.add_parser("persistence", help="one explicit save/restore session action; no retries or restart")
+    persistence.add_argument("persistence_tokens", nargs="*")
+    persistence_check = sub.add_parser("persistence-check", help="finite plan, optional one persistence write and explicit read verification")
+    persistence_check.add_argument("persistence_kind", choices=("save","factory-restore"))
+    persistence_check.add_argument("--execute", action="store_true")
+    persistence_check.add_argument("--verify", action="store_true")
+    persistence_check.add_argument("--finish", action="store_true")
     debug = sub.add_parser("debug", help="query or select non-consuming traffic display")
     debug.add_argument("debug_mode", nargs="?", choices=("off", "raw", "decoded"))
     motion_profile = sub.add_parser("motion-profile", help="read position parameters, inspect or restore the original snapshot")
@@ -3802,6 +4068,13 @@ def arguments(argv: list[str] | None) -> argparse.Namespace:
         result.host_args = tuple(result.communication_tokens)
         try: communication_arguments(result.host_args)
         except ValueError as exc: parser.error(str(exc))
+    if result.mode == "persistence":
+        result.host_args=tuple(result.persistence_tokens)
+        try:persistence_arguments(result.host_args)
+        except ValueError as exc:parser.error(str(exc))
+    if result.mode == "persistence-check":
+        if (result.verify or result.finish) and not result.execute or result.finish and not result.verify:
+            parser.error("--verify requires --execute; --finish requires --verify")
     if result.mode == "communication-check":
         try: communication_arguments(("plan", result.field, result.value, str(result.address)))
         except ValueError as exc: parser.error(str(exc))
@@ -3896,6 +4169,12 @@ def main(argv: list[str] | None = None) -> int:
                         result = console.command("communication", host_args=args.host_args, timeout_s=args.timeout)
                         if not result["ok"]:
                             raise BenchError("communication command failed: " + str(result.get("result")))
+                    elif args.mode == "persistence":
+                        result=console.command("persistence",host_args=args.host_args,timeout_s=args.timeout)
+                        if not result["ok"]:raise BenchError("persistence command refused")
+                    elif args.mode == "persistence-check":
+                        persistence_campaign(console,kind=args.persistence_kind,timeout_s=args.timeout,
+                            execute=args.execute,verify=args.verify,finish=args.finish)
                     elif args.mode == "communication-check":
                         communication_campaign(console, field=args.field, value=args.value, address=args.address,
                                                timeout_s=args.timeout, execute=args.execute, confirm=args.confirm, finish=args.finish)
