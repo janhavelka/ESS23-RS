@@ -9,6 +9,7 @@
 #include "MotorControlRS/profiles/ess_rs/Actions.h"
 #include "MotorControlRS/profiles/ess_rs/Position.h"
 #include "MotorControlRS/profiles/ess_rs/Velocity.h"
+#include "MotorControlRS/profiles/ess_rs/DriverSettings.h"
 
 namespace MotorControlRSExample { namespace Probe {
 
@@ -146,6 +147,7 @@ struct ResultView {
     const MotorControlRS::ESS_RS::ActionContext* actionContext = nullptr;
     const MotorControlRS::ESS_RS::MoveContext* moveContext = nullptr; ///< Borrowed only during formatting.
     const MotorControlRS::ESS_RS::VelocityContext* velocityContext = nullptr;
+    const MotorControlRS::ESS_RS::DriverContext* driverContext = nullptr;
     bool interruptedByStop = false;
     ProbeResult probe;
     Rtu::RecoveryResult recoveryResult;
@@ -188,6 +190,11 @@ struct Host {
                        const MotorControlRS::MoveRequest&, uint32_t& operationId) = nullptr;
     Action (*startVelocity)(void*, uint32_t commandId, uint8_t address,
                            const MotorControlRS::VelocityRequest&, uint32_t& operationId) = nullptr;
+    /** Typed drive settings; request is copied by the host before returning.
+     * READ does not change settings; UPDATE validates the complete candidate. */
+    Action (*startDriver)(void*, uint32_t commandId, uint8_t address,
+                         MotorControlRS::ESS_RS::DriverKind,
+                         const MotorControlRS::ESS_RS::DriverRequest&, uint32_t& operationId) = nullptr;
     Action (*recover)(void*, uint32_t commandId, uint32_t& operationId) = nullptr;
     void (*resetStats)(void*) = nullptr;
     Action (*load)(void*, const LoadSettings* requested, LoadSnapshot&) = nullptr;
@@ -235,6 +242,7 @@ public:
                     bool interruptedByStop = false) noexcept;
     bool reportVelocity(uint32_t id, uint32_t operationId, const MotorControlRS::ESS_RS::VelocityContext&,
                         bool interruptedByStop = false) noexcept;
+    bool reportDriver(uint32_t id, uint32_t operationId, const MotorControlRS::ESS_RS::DriverContext&) noexcept;
 
 private:
     void dispatch() noexcept;
@@ -256,6 +264,8 @@ private:
                     const MotorControlRS::ESS_RS::MoveContext&, bool inspection, bool interruptedByStop) noexcept;
     bool formatVelocity(uint32_t id, uint32_t commandId, uint32_t operationId,
                         const MotorControlRS::ESS_RS::VelocityContext&, bool inspection, bool interruptedByStop) noexcept;
+    bool formatDriver(uint32_t id, uint32_t commandId, uint32_t operationId,
+                      const MotorControlRS::ESS_RS::DriverContext&, bool inspection) noexcept;
 
     Host host_;
     char line_[LINE_CAPACITY] = {};
@@ -266,6 +276,7 @@ private:
     MotorControlRS::ESS_RS::IdentityObservation identityView_;
     MotorControlRS::ESS_RS::ConfigObservation configView_;
     MotorControlRS::ESS_RS::StateObservation stateView_;
+    MotorControlRS::ESS_RS::DriverObservation driverView_;
     std::size_t length_ = 0;
     uint32_t nextId_ = 1;
     struct Outstanding { uint32_t commandId = 0, operationId = 0; bool transferred = false; } outstanding_[OUTSTANDING_CAPACITY];

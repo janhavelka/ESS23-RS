@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "register_ledger": "docs/reference/ess_rs_registers.json",
-  "scope": "Typed ESS reads, bounded actions, finite positioning and finite serial velocity; ledger-linked obligations with independent native and hardware evidence.",
+  "scope": "Typed ESS reads, bounded actions/motion and stopped-state driver settings; ledger-linked obligations with independent native and hardware evidence.",
   "default_disposition": {
     "implementation": "NOT_IMPLEMENTED",
     "cli": "NOT_REACHABLE",
@@ -21,8 +21,17 @@
   },
   "shared_records": [
     "AUXILIARY_COMMAND",
+    "DEFAULT_DIRECTION",
     "DRIVER_MODEL",
-    "MOTION_COMMAND"
+    "MOTION_COMMAND",
+    "NEGATIVE_SOFT_LIMIT",
+    "OVER_LIMIT_STOP",
+    "EXTERNAL_POSITION_MODE",
+    "POSITIVE_SOFT_LIMIT",
+    "PV_TRIGGER_MODE",
+    "SOFT_LIMIT_ENABLE",
+    "SUBDIVISION",
+    "WORD_ORDER"
   ],
   "operations": [
     {
@@ -641,6 +650,143 @@
       "choices": [
         "MotionCommandBit.START_SPEED"
       ]
+    },
+    {
+      "id": "driver_settings_read",
+      "kind": "READ",
+      "records": [
+        "DEFAULT_DIRECTION",
+        "SUBDIVISION",
+        "WORD_ORDER",
+        "SOFT_LIMIT_ENABLE",
+        "OVER_LIMIT_STOP",
+        "PV_TRIGGER_MODE",
+        "EXTERNAL_POSITION_MODE",
+        "POSITIVE_SOFT_LIMIT",
+        "NEGATIVE_SOFT_LIMIT"
+      ],
+      "api": {
+        "header": "include/MotorControlRS/profiles/ess_rs/DriverSettings.h",
+        "symbols": [
+          "prepareDriverRead",
+          "nextDriver",
+          "advanceDriver",
+          "getDriver"
+        ]
+      },
+      "cli_commands": [
+        "profile ess_rs driver read"
+      ],
+      "implementation": "IMPLEMENTED",
+      "cli": "REACHABLE",
+      "native": {
+        "state": "PASS",
+        "evidence": [
+          "test/driver_settings_test.cpp",
+          "test/driver_app_test.cpp",
+          "test/driver_console_parity_test.py",
+          "test/installed_consumer/main.cpp"
+        ]
+      },
+      "hardware": {
+        "state": "PASS",
+        "evidence": [
+          "docs/reports/ess_release_13_2026-10-04.md"
+        ],
+        "reason": "Read-only four-window COM13 evidence."
+      },
+      "reason": "Whole checked read; raw/unknown codes and unsigned paired bits retain word-order provenance. No active/persistence/sign/scale inference."
+    },
+    {
+      "id": "driver_settings_update",
+      "kind": "WRITE",
+      "records": [
+        "DEFAULT_DIRECTION",
+        "SUBDIVISION",
+        "WORD_ORDER",
+        "SOFT_LIMIT_ENABLE",
+        "OVER_LIMIT_STOP",
+        "PV_TRIGGER_MODE",
+        "EXTERNAL_POSITION_MODE"
+      ],
+      "api": {
+        "header": "include/MotorControlRS/profiles/ess_rs/DriverSettings.h",
+        "symbols": [
+          "prepareDriverSettings",
+          "nextDriver",
+          "advanceDriver"
+        ]
+      },
+      "cli_commands": [
+        "profile ess_rs driver set"
+      ],
+      "implementation": "IMPLEMENTED",
+      "cli": "REACHABLE",
+      "native": {
+        "state": "PASS",
+        "evidence": [
+          "test/driver_settings_test.cpp",
+          "test/driver_app_test.cpp",
+          "test/driver_console_parity_test.py",
+          "test/installed_consumer/main.cpp"
+        ]
+      },
+      "hardware": {
+        "state": "NOT_RUN",
+        "evidence": [
+          "docs/reports/ess_release_13_2026-10-04.md"
+        ],
+        "reason": "Physical settings writes/restore and soft-limit movement remain gated by source/timing/reference evidence."
+      },
+      "reason": "All seven single-word candidates validate before traffic; stopped/input qualification, checked ACK/readback progress and possible-change effects; no rollback/retry or implicit save.",
+      "choices": [
+        "DefaultDirection.NORMAL",
+        "DefaultDirection.REVERSED",
+        "WordOrder.HIGH_WORD_FIRST",
+        "WordOrder.LOW_WORD_FIRST",
+        "SoftLimitEnable.LIMITS_OFF",
+        "SoftLimitEnable.AFTER_HOMING",
+        "OverLimitStop.FREE_PARKING",
+        "OverLimitStop.EMERGENCY_STOP",
+        "PvTriggerMode.LEVEL",
+        "PvTriggerMode.RISING_EDGE",
+        "PositionMode.RELATIVE",
+        "PositionMode.ABSOLUTE"
+      ]
+    },
+    {
+      "id": "driver_soft_limit_pairs",
+      "kind": "WRITE",
+      "records": [
+        "POSITIVE_SOFT_LIMIT",
+        "NEGATIVE_SOFT_LIMIT"
+      ],
+      "api": {
+        "header": "include/MotorControlRS/profiles/ess_rs/DriverSettings.h",
+        "symbols": [
+          "prepareDriverSettings"
+        ]
+      },
+      "cli_commands": [],
+      "implementation": "UNSUPPORTED",
+      "cli": "NOT_REACHABLE",
+      "native": {
+        "state": "PASS",
+        "evidence": [
+          "test/driver_settings_test.cpp",
+          "test/driver_app_test.cpp",
+          "test/driver_console_parity_test.py",
+          "test/installed_consumer/main.cpp"
+        ]
+      },
+      "hardware": {
+        "state": "NOT_RUN",
+        "evidence": [
+          "docs/reports/ess_release_13_2026-10-04.md"
+        ],
+        "reason": "Physical settings writes/restore and soft-limit movement remain gated by source/timing/reference evidence."
+      },
+      "reason": "Typed candidate fields reject before all traffic: no reviewed FC10 pair window or resolved signed/native unit policy. CLI syntax reports unsupported and grants no setter reachability credit."
     }
   ],
   "coverage_notes": [
@@ -651,6 +797,7 @@
     "Native and hardware states are independent. Hardware evidence does not resolve unknown model availability or undocumented firmware interpretation.",
     "Prompt09 re-audit enforces readiness through both write budgets and current-time consumed reference validation; docs/reports/ess_release_09_audit_2026-10-04.md records fresh software and read-only evidence. Relative motion/staging hardware dispositions remain NOT_RUN.",
     "Prompt10 implements absolute/wrapped finite positioning and explicit zero-only device clear through the same owner and public preparation/operation APIs. Motion/clear physical qualification remains NOT_RUN; host arithmetic/read-only checks never replace independent shaft or linear travel evidence.",
-    "Prompt12 derives pair_write_policy for every writable pair from the same register ledger: exact reviewed FC10 windows, split-FC06 denial and unresolved interpretation/wire-form reasons. This adds no typed-write or hardware credit; see docs/ess_pair_writes.md."
+    "Prompt12 derives pair_write_policy for every writable pair from the same register ledger: exact reviewed FC10 windows, split-FC06 denial and unresolved interpretation/wire-form reasons. This adds no typed-write or hardware credit; see docs/ess_pair_writes.md.",
+    "Prompt13 implements seven typed single-word settings and raw paired-limit reads; unavailable limit-pair writes remain UNSUPPORTED. Settings enum choices receive WRITE coverage separately from native action choices. ACK/readback never imply active or saved settings."
   ]
 }

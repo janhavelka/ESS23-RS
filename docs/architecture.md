@@ -1,5 +1,11 @@
 # MotorControl-RS architecture
 
+Prompt13 adds [bounded typed driver settings](ess_driver_settings.md), checked
+write/readback progress and same-axis effects through the existing application
+owner. No additional bus queue or I/O enters the reusable core. Unsupported
+limit pairs, activation/persistence and physical qualification remain explicit.
+
+
 Prompt09 implements [finite relative positioning](ess_position.md) with pure
 exact preparation and bounded supplied events. The existing application action
 loop owns staging/trigger reservations and priority stop, with one bus queue.

@@ -1,5 +1,12 @@
 # Roadmap and requirement coverage
 
+Prompt13 [implementation evidence](../../reports/ess_release_13_2026-10-04.md)
+records seven typed single-word settings and limit-pair reads. Unreviewed pair
+setters remain UNSUPPORTED; physical writes/restore and limit movement NOT RUN.
+The ledger-linked inventory distinguishes settings enum WRITE choices from
+motor ACTION choices and keeps native/hardware dispositions independent.
+
+
 This map assigns work to prompts; it is **not implementation evidence**.
 Use the [index](README.md) for order/status and the named prompt's handoff for
 actual code/tests/hardware proof. Existing units, catalogue, codecs, runner and

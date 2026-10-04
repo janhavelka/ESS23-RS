@@ -1,5 +1,16 @@
 # Features implementation tasks and open questions
 
+## Prompt 13 driver settings and software limits
+
+[Handoff](reports/ess_release_13_2026-10-04.md): typed reads and seven stopped-state
+single-word settings, whole-candidate validation, retained partial progress and
+configuration effects are implemented/native tested. Current-image read-only
+COM13/gates pass. Physical writes/restoration remain NOT RUN behind timing/FC06/
+input qualification. Positive/negative pair writes remain explicitly unsupported;
+soft-limit movement needs qualified encoding, homing/reference and fixture
+evidence. Homing and optional input changes remain with 14/15.
+
+
 ## Prompt 12 paired-write disposition
 
 - [x] [Fresh audit](reports/ess_release_12_audit_2026-10-04.md) fixes hexadecimal

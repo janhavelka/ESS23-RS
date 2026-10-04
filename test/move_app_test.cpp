@@ -310,6 +310,7 @@ void deliverChangedConfiguration(unsigned field) {
     auto& record = app->records[REQUEST_CAPACITY - 1];
     assert(!record.operationId);
     record.operationId = record.commandId = 1000; record.address = 1; record.typedRead = true;
+    record.configurationGeneration = app->axis.generation;
     assert(ESS::prepareConfig(record.read, app->axis.target, 1000, hardware.time - 1000, hardware.time + REQUEST_US));
     const std::vector<uint8_t> replies[] = {
         registers(1, {raw.direction, raw.subdivision}),

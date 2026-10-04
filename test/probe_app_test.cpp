@@ -1139,7 +1139,8 @@ void testNewConfigurationSeparatesHistoricalFeedbackInterpretation() {
     assert(historical.value.configOperationId == firstConfig && historical.value.rawPosition == previous.value.rawPosition);
     assert(historical.value.positionSource == previous.value.positionSource);
     assert(historical.observedEarliestUs == previous.observedEarliestUs && historical.lastSuccessUs == previous.lastSuccessUs);
-    assert(Probe::fresh(historical, app->configuration.target, hardware.time, 5000000));
+    assert(!Probe::fresh(historical, app->configuration.target, hardware.time, 5000000));
+    assert(historical.invalidatedUs && historical.valid); // Raw history remains; changed decoding needs a new observation.
     command("@5 status\n"); contains("\"interpretation_current\":false");
     const std::string currentConfig = "\"current_config_operation_id\":" + std::to_string(secondConfig);
     contains(currentConfig.c_str());

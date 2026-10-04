@@ -112,6 +112,16 @@ struct Fake {
         if (self.actionResult == Probe::Action::OK) operation = self.nextOperation++;
         return self.actionResult;
     }
+    unsigned drivers = 0;
+    Ess::DriverKind driverKind = Ess::DriverKind::READ;
+    Ess::DriverRequest driverRequest;
+    static Probe::Action startDriver(void* context, uint32_t commandId, uint8_t address,
+                                    Ess::DriverKind kind, const Ess::DriverRequest& request, uint32_t& operation) {
+        Fake& self = *static_cast<Fake*>(context); ++self.drivers;
+        self.driverKind = kind; self.driverRequest = request; self.id = commandId; self.address = address;
+        if (self.actionResult == Probe::Action::OK) operation = self.nextOperation++;
+        return self.actionResult;
+    }
     static Probe::Action monitor(void* context, const Probe::MonitorSettings* request, Probe::MonitorSnapshot& out) {
         Fake& self = *static_cast<Fake*>(context); ++self.monitors;
         if (request) { ++self.monitorChanges; self.monitorData.settings = *request; self.monitorData.remaining = request->count; }
@@ -1314,9 +1324,143 @@ void velocityFixtures() {
 
 } // namespace
 
+void testDriverProfileGrammarAndRetainedReports() {
+    Fake fake; auto host = fake.host(false, true); host.startDriver = Fake::startDriver;
+    Probe::Console console(host);
+    send(console, "@600 profile ess_rs driver read 2\n");
+    assert(fake.drivers == 1 && fake.driverKind == Ess::DriverKind::READ && fake.driverRequest.fields == 0 && fake.address == 2);
+    fake.contains("\"result\":\"accepted\"");
+    Ess::DriverContext result; result.operationId = fake.nextOperation - 1; result.target.id = 1;
+    result.target.address = 2; result.target.generation = 3; result.state = MotorControlRS::ReadState::FAILED;
+    result.outcome = Ess::DriverOutcome::CANCELLED;
+    result.status = {MotorControlRS::Err::ILLEGAL_VALUE, static_cast<int32_t>(Ess::DriverError::CANCELLED), "cancelled"};
+    result.startedUs = 1; result.deadlineUs = 100; result.servicedUs = 2;
+    assert(console.reportDriver(600, result.operationId, result));
+    fake.contains("\"driver_kind\":\"read\""); fake.contains("\"outcome\":\"cancelled\"");
+    assert(!console.reportDriver(600, result.operationId, result));
+    fake.view.commandId = 600; fake.view.operationId = result.operationId; fake.view.driverContext = &result;
+    send(console, "@601 result " + std::to_string(result.operationId) + "\n");
+    fake.contains("\"command\":\"result\""); fake.contains("\"driver\":true");
+    send(console, "@602 profile ess_rs driver set direction 1 subdivision 1600 word-order 1 2\n");
+    assert(fake.drivers == 2 && fake.driverKind == Ess::DriverKind::UPDATE && fake.driverRequest.fields == 7);
+    assert(fake.driverRequest.direction == Ess::DefaultDirection::REVERSED && fake.driverRequest.subdivision == 1600 &&
+           fake.driverRequest.wordOrder == Ess::WordOrder::LOW_WORD_FIRST);
+    send(console, "@603 profile ess_rs driver set positive-limit 9223372036854775807 negative-limit -9223372036854775808\n");
+    assert(fake.drivers == 3 && fake.driverRequest.fields == 384 && fake.driverRequest.positiveLimit == INT64_MAX && fake.driverRequest.negativeLimit == INT64_MIN);
+    // Rejected lexical candidates never reach the public preparation callback.
+    for (const char* line : {"profile ess_rs driver set\n", "profile ess_rs driver set direction 1 direction 0\n",
+        "profile ess_rs driver set unknown 1\n", "profile ess_rs driver set subdivision -1\n",
+        "profile ess_rs driver set subdivision 65536\n", "profile ess_rs driver set direction 1.0\n",
+        "profile ess_rs driver set direction 1/1\n", "profile ess_rs driver read extra\n",
+        "profile ess_rs driver set positive-limit 9223372036854775808\n", "driver read\n"}) {
+        send(console, line); fake.contains("\"ok\":false"); assert(fake.drivers == 3);
+    }
+    fake.blocked = true; send(console, "version\n");
+    send(console, "profile ess_rs driver set direction 0\n"); assert(fake.drivers == 3 && console.inputDropped() == 1);
+    Fake noHook; Probe::Console unavailable(noHook.host()); send(unavailable, "profile ess_rs driver read\n"); noHook.contains("unavailable");
+}
+
+void testMaximumDriverReportFitsFixedOutput() {
+    Fake fake; auto host = fake.host(false, true); host.startDriver = Fake::startDriver;
+    Probe::Console console(host); send(console, "@900 profile ess_rs driver set direction 1\n");
+    Ess::DriverContext c; c.kind = Ess::DriverKind::UPDATE; c.state = MotorControlRS::ReadState::FAILED;
+    c.outcome = Ess::DriverOutcome::TRANSPORT_ERROR; c.status = {MotorControlRS::Err::ILLEGAL_VALUE, INT32_MIN, "transport"};
+    c.operationId = fake.nextOperation - 1; c.target.id = c.target.generation = UINT32_MAX; c.target.address = 247;
+    c.startedUs = c.deadlineUs = c.servicedUs = UINT64_MAX; c.request.fields = c.effects = 127; c.uncertain = true;
+    for (unsigned i = 0; i < Ess::DRIVER_FIELD_COUNT; ++i) {
+        auto& p = c.progress[i]; p.selected = true; p.field = static_cast<Ess::DriverField>(1U << i);
+        p.reg = p.previous = p.requested = p.readback = p.active = UINT16_MAX;
+        p.execution = MotorControlRS::ActionExecution::NOT_TRANSMITTED;
+    }
+    for (unsigned i = 0; i < Ess::DRIVER_MAX_STEPS; ++i) {
+        auto& e = c.observations[i]; e.step = static_cast<uint8_t>(i); e.reg = 0x51; e.count = 1;
+        std::memset(e.raw, 0xFF, sizeof(e.raw)); e.length = sizeof(e.raw); e.receivedLength = i == Ess::DRIVER_MAX_STEPS - 1 ? UINT32_MAX : sizeof(e.raw); e.txAccepted = 8;
+        e.attemptedUs = e.earliestUs = e.latestUs = e.deliveredUs = UINT64_MAX; e.transportDetail = INT32_MIN;
+        e.status = {MotorControlRS::Err::INVALID_CONFIG, INT32_MIN, "error"}; e.frameError = static_cast<Ess::FrameError>(255);
+    }
+    assert(console.reportDriver(900, c.operationId, c));
+    fake.contains("\"driver_kind\":\"update\""); assert(fake.lines.back().size() < Probe::OUTPUT_CAPACITY);
+    std::printf("Maximum-width driver line: %zu/%zu bytes\n", fake.lines.back().size(), Probe::OUTPUT_CAPACITY);
+}
+
+void driverFixtures() {
+    using namespace MotorControlRS;
+    ReadTarget target; target.id = target.address = 1; target.generation = 9;
+    auto consume = [](Ess::DriverContext& c, int failure, bool unknown) {
+        Ess::PreparedDriver p; assert(Ess::nextDriver(c, c.servicedUs, p));
+        uint8_t raw[Ess::DRIVER_MAX_REPLY_BYTES] = {}; std::size_t length = 0;
+        if (p.write) { length = 8; std::memcpy(raw, p.bytes, length); }
+        else {
+            uint16_t words[4] = {};
+            if (c.kind == Ess::DriverKind::UPDATE) words[0] = static_cast<uint16_t>(p.value + (failure == 3 ? 1 : 0));
+            else if (p.reg == 0x10) { words[0] = unknown ? 77 : 0; words[1] = 1600; }
+            else if (p.reg == 0x17) { words[0] = 0; words[1] = 0; words[2] = unknown ? 99 : 0; }
+            else if (p.reg == 0x37) { words[0] = 1; words[1] = 2; words[2] = 3; words[3] = 4; }
+            else { words[0] = 0; words[1] = 1; }
+            length = 5 + 2 * p.count; raw[0] = c.target.address; raw[1] = 3; raw[2] = static_cast<uint8_t>(2 * p.count);
+            for (unsigned i = 0; i < p.count; ++i) { raw[3 + 2*i] = static_cast<uint8_t>(words[i] >> 8); raw[4 + 2*i] = static_cast<uint8_t>(words[i]); }
+            sealTypedReply(raw, length);
+        }
+        ActionEvent event; event.transport.target = c.target; event.transport.operationId = c.operationId;
+        event.transport.step = p.step; event.transport.kind = ReadEventKind::FRAME; event.transport.frame = raw;
+        event.transport.length = length; event.transport.txAccepted = 8; event.transport.qualified = true;
+        event.transport.earliestUs = c.servicedUs + 1; event.transport.latestUs = c.servicedUs + 2;
+        event.txComplete = event.responseConfirmed = true;
+        uint64_t now = c.servicedUs + 3;
+        if (failure == 1 || failure == 2 || failure == 4) {
+            event.transport.kind = failure == 1 ? ReadEventKind::TRANSPORT_FAILURE : failure == 2 ? ReadEventKind::CANCEL : ReadEventKind::DEADLINE;
+            event.transport.frame = nullptr; event.transport.length = 0; event.transport.qualified = false;
+            event.transport.earliestUs = event.transport.latestUs = 0; event.responseConfirmed = false;
+            event.transport.executionUnknown = failure == 1;
+            if (failure == 4) now = c.deadlineUs;
+        } else if (failure == 5) { raw[4] ^= 1; sealTypedReply(raw, length); }
+        else if (failure == 6) now = c.deadlineUs + 1;
+        else if (failure == 7) { event.transport.qualified = false; event.transport.earliestUs = event.transport.latestUs = 0; }
+        else if (failure == 8) event.responseConfirmed = false;
+        else if (failure == 9) { now = c.deadlineUs + 3; event.transport.earliestUs = c.deadlineUs + 1; event.transport.latestUs = c.deadlineUs + 2; }
+        assert(Ess::advanceDriver(c, event, now));
+    };
+    auto read = [&](bool unknown) {
+        Ess::DriverContext c; assert(Ess::prepareDriverRead(c, target, 101, 3, 100, 10000));
+        while (c.state == ReadState::ACTIVE) consume(c, 0, unknown);
+        return c;
+    };
+    Ess::DriverObservation previous; auto baseline = read(false); assert(Ess::getDriver(baseline, previous));
+    auto prepare = [&]() {
+        Ess::DriverRequest request; request.configurationGeneration = 3; request.fields = 127;
+        request.direction = Ess::DefaultDirection::REVERSED; request.subdivision = 800; request.wordOrder = Ess::WordOrder::LOW_WORD_FIRST;
+        request.overLimitStop = Ess::OverLimitStop::EMERGENCY_STOP; request.interruption = Ess::PvTriggerMode::RISING_EDGE;
+        request.positionMode = Ess::PositionMode::ABSOLUTE;
+        Ess::DriverPrerequisites evidence; evidence.previous = previous; evidence.configurationGeneration = 3;
+        evidence.stationaryQualified = evidence.inputsPermit = true; evidence.stationaryTarget = target;
+        evidence.stationaryEarliestUs = evidence.stationaryLatestUs = 100; evidence.maxAgeUs = 20000;
+        Ess::DriverContext c; assert(Ess::prepareDriverSettings(c, target, 101, request, evidence, 200, 10000)); return c;
+    };
+    auto emit = [](const char* name, const Ess::DriverContext& c) {
+        Fake fake; fake.nextOperation = c.operationId; auto host = fake.host(false, true); host.startDriver = Fake::startDriver;
+        Probe::Console console(host); send(console, "@77 profile ess_rs driver read 1\n"); fake.lines.clear();
+        assert(console.reportDriver(77, c.operationId, c)); assert(fake.lines.size() == 1);
+        std::printf("{\"case\":\"%s\",\"record\":%s}\n", name, fake.lines[0].c_str());
+    };
+    emit("read", baseline); emit("unknown_read", read(true));
+    auto c = prepare(); while (c.state == ReadState::ACTIVE) consume(c, 0, false); emit("full_update", c);
+    for (int failure = 1; failure <= 9; ++failure) {
+        c = prepare(); consume(c, 0, false); consume(c, 0, false);
+        if (failure == 3) consume(c, 0, false);
+        consume(c, failure, false);
+        if (c.state == ReadState::ACTIVE) consume(c, 4, false);
+        emit(failure == 1 ? "partial_lost_ack" : failure == 2 ? "cancelled" : failure == 3 ? "readback_mismatch" :
+             failure == 4 ? "deadline" : failure == 5 ? "wrong_echo" : failure == 6 ? "late_delivery" :
+             failure == 7 ? "unqualified" : failure == 8 ? "unconfirmed_echo" : "late_closure", c);
+    }
+}
+
 int main(int argc, char** argv) {
     if (argc == 2 && std::strcmp(argv[1], "--velocity-fixtures") == 0) {
         velocityFixtures(); return 0;
+    }
+    if (argc == 2 && std::strcmp(argv[1], "--driver-fixtures") == 0) {
+        driverFixtures(); return 0;
     }
     testFramingAndIds();
     testInvalidInputHasNoEffects();
@@ -1346,4 +1490,6 @@ int main(int argc, char** argv) {
     testMaximumMoveReportFitsFixedOutput();
     testAbsoluteAngleAndClearRoutesUsePublicRequests();
     testVelocityExactRoutesRetentionAndBound();
+    testDriverProfileGrammarAndRetainedReports();
+    testMaximumDriverReportFitsFixedOutput();
 }

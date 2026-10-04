@@ -97,8 +97,10 @@ def check(inventory, ledger):
         if kind not in {"READ", "WRITE", "ACTION"}:
             raise ValueError("unsupported operation kind")
         selected = operation.get("choices", [])
-        if kind != "ACTION" and selected:
-            raise ValueError("read/write coverage is not named-choice action coverage")
+        if kind == "READ" and selected:
+            raise ValueError("read coverage is not typed setting/action choice coverage")
+        if selected and len(selected) != len(set(selected)):
+            raise ValueError("setting/action choices must be distinct")
         if kind == "ACTION" and (not selected or len(selected) != len(set(selected))):
             raise ValueError("action requires distinct explicit source choices")
         linked = operation.get("records", [])
@@ -112,8 +114,8 @@ def check(inventory, ledger):
                 raise ValueError("read group references reserved/unreadable/unresolved record: " + record_id)
             referenced[record_id] += 1
             record[kind.lower() + "_operations"].append(op_id)
-        if kind == "ACTION" and {choice_id.split(".")[0] for choice_id in selected} != {choice_groups[name] for name in linked}:
-            raise ValueError("every action record requires explicit matching choices")
+        if (kind == "ACTION" or selected) and {choice_id.split(".")[0] for choice_id in selected} != {choice_groups[name] for name in linked if choice_groups[name]}:
+            raise ValueError("setting/action records require explicit matching choices")
         for choice_id in selected:
             if choice_id not in choices or choice_id.split(".")[0] not in {choice_groups[name] for name in linked}:
                 raise ValueError("unknown choice or choice not owned by action record: " + str(choice_id))

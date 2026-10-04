@@ -56,6 +56,33 @@ def load_reply(request_id, settings=(0, 0, 0), **fields):
                  work_stack_free_bytes=2500, **fields)
 
 
+def driver_terminal(request_id, update=False):
+    """Independent signed/pair read vectors and one direction update."""
+    frames = [(0x10, 1, True, bytes.fromhex("01060010000149CF")),
+              (0x10, 1, False, bytes.fromhex("01030200017984"))] if update else [
+        (0x10, 2, False, bytes.fromhex("01030400000640E862")),
+        (0x17, 3, False, bytes.fromhex("0103060000000000002175")),
+        (0x37, 4, False, bytes.fromhex("010308000100020003000469FA")),
+        (0x50, 2, False, bytes.fromhex("01030400000001FA33"))]
+    # Seal literal register payloads independently; the production builder is absent.
+    evidence = []
+    for index, (reg, count, write, raw) in enumerate(frames):
+        raw = raw[:-2] + bench.wire_crc(raw[:-2]).to_bytes(2, "little")
+        evidence.append([index, reg, count, write, 0, raw.hex(), len(raw), 8, True, True, True, False,
+                         1100 + index * 100, 1110 + index * 100, 1120 + index * 100, 1, "OK", 0, 0, 1000 if index == 0 else 1020 + index * 100])
+    return reply(request_id, "driver", type="driver", command_id=request_id, operation_id=request_id + 100,
+                 driver=True, driver_kind="update" if update else "read", state="succeeded", outcome="success",
+                 status="OK", detail=0, target=1, address=1, generation=9, configuration_generation=3,
+                 started_us=1000, deadline_us=20000, stationary_valid_until_us=20000, serviced_us=evidence[-1][14], completed_steps=len(evidence),
+                 fields=1 if update else 0, effects=1 if update else 0, uncertain=False, atomic=False, active_settings_known=False,
+                 progress_columns=bench.DRIVER_PROGRESS_COLUMNS,
+                 progress=[[1, 0x10, 0, 1, True, True, 1, False, 0, "acknowledged"]] if update else [],
+                 evidence_columns=bench.DRIVER_EVIDENCE_COLUMNS, evidence=evidence,
+                 observation=None if update else dict(raw=[0, 1600, 0, 0, 0, 1, 0], known_fields=127,
+                     positive_words=[1, 2], negative_words=[3, 4], pair_known=True,
+                     positive_bits=65538, negative_bits=196612, signed_limits="unresolved", native_scale="unresolved"))
+
+
 def typed_terminal(request_id, kind):
     """Literal independently reviewed windows/vectors, not firmware helpers."""
     fixtures = (
@@ -386,6 +413,71 @@ class Serial:
 
 class Framing(unittest.TestCase):
     MOVE_ARGS = ("1000", "steps", "native", "60", "configured")
+    def test_driver_exact_grammar_rejects_without_port_traffic(self):
+        console = self.session()
+        for args in (None, (), ("set",), ("set", "direction", "1", "direction", "0"),
+                     ("set", "direction", "1.0"), ("set", "subdivision", "-1"),
+                     ("set", "subdivision", "65536"), ("read", "1"), ("set", "unknown", "1"),
+                     ("set", "positive-limit", "9223372036854775808")):
+            with self.assertRaises(ValueError): console.command("driver", driver_args=args)
+        self.assertEqual(len(self.port.writes), 1)
+        self.assertEqual(bench.driver_arguments(("set", "positive-limit", "9223372036854775807", "negative-limit", "-9223372036854775808")),
+                         {"positive-limit": 2**63 - 1, "negative-limit": -2**63})
+
+    def test_driver_read_update_and_retained_inspection_correlation(self):
+        for update in (False, True):
+            terminal = None
+            def handler(i, command, args):
+                nonlocal terminal
+                if command == "version": return Serial.normal(i, command, args)
+                if command == "profile":
+                    self.assertEqual(args[:2], ["ess_rs", "driver"])
+                    terminal = driver_terminal(i, update)
+                    return encoded(reply(i, "driver", result="accepted", address=1, operation_id=i + 100)) + encoded(terminal)
+                if command == "result": return encoded({**terminal, "type": "reply", "id": i, "command": "result"})
+                return Serial.normal(i, command, args)
+            console = self.session(handler)
+            args = ("set", "direction", "1") if update else ("read",)
+            handle = console.begin("driver", address=1, driver_args=args)
+            self.assertEqual(console.wait(handle), terminal)
+            inspected = console.command("result", operation_id=handle.operation_id)
+            self.assertEqual(inspected["evidence"], terminal["evidence"])
+            self.assertIn(b"profile ess_rs driver", self.port.writes[1])
+            self.assertTrue(console.command("release", operation_id=handle.operation_id)["ok"])
+
+    def test_driver_checked_partial_progress_cannot_be_fabricated(self):
+        for update in (False, True):
+            item = driver_terminal(2, update)
+            bench.Console._check_driver(item, 1, ("set", "direction", "1") if update else ("read",))
+            changes = [lambda t: t.update(active_settings_known=True), lambda t: t.update(configuration_generation=0),
+                       lambda t: t.update(effects=2), lambda t: t.update(uncertain=True),
+                       lambda t: t["evidence"][0].__setitem__(5, "00"), lambda t: t["evidence"][0].__setitem__(13, 0),
+                       lambda t: t.update(evidence_columns=[])]
+            if update:
+                changes += [lambda t: t["progress"][0].__setitem__(4, False), lambda t: t["progress"][0].__setitem__(6, 2),
+                            lambda t: t["progress"][0].__setitem__(7, True), lambda t: t["progress"][0].__setitem__(9, "unknown")]
+            else:
+                changes += [lambda t: t["observation"].update(positive_bits=0), lambda t: t["observation"].update(known_fields=0)]
+            for change in changes:
+                broken = copy.deepcopy(item); change(broken)
+                with self.assertRaises(bench.BenchError): bench.Console._check_driver(broken, 1, None)
+
+    def test_driver_read_campaign_inspects_releases_once_and_never_writes(self):
+        terminal = None
+        def handler(i, command, args):
+            nonlocal terminal
+            if command == "profile":
+                self.assertEqual(args, ["ess_rs", "driver", "read", "1"])
+                terminal = driver_terminal(i)
+                return encoded(reply(i, "driver", result="accepted", address=1, operation_id=i + 100)) + encoded(terminal)
+            if command == "result": return encoded({**terminal, "type": "reply", "id": i, "command": "result"})
+            return Serial.normal(i, command, args)
+        console = self.session(handler)
+        bench.driver_read_campaign(console, timeout_s=0.1, address=1)
+        self.assertEqual([line.decode().split()[1] for line in self.port.writes], ["version", "profile", "result", "release"])
+        parsed = bench.arguments(["--port", "fake", "--log", "unused.jsonl", "driver-read"])
+        self.assertEqual(parsed.mode, "driver-read")
+        self.assertEqual(parsed.count, 1)
     VELOCITY_ARGS = ("60", "rpm", "native", "500", "configured", "normal")
 
     def test_velocity_strict_correlation_retention_and_single_cleanup(self):

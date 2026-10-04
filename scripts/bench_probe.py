@@ -29,7 +29,7 @@ MAX_LINE = 4608
 MAX_INPUT = 32768
 COMMANDS = frozenset({"version", "config", "probe", "capture-read", "status", "health", "memory", "stats", "load",
                       "drv", "result", "release", "cancel", "recover", "reset", "caps",
-                      "read-identity", "read-config", "read-state", "health-check", "monitor", "axis", "prepare", "enable", "motor-release", "alarm-clear", "stop", "position-clear", "move-relative", "move-absolute", "move-angle", "velocity"})
+                      "read-identity", "read-config", "read-state", "health-check", "monitor", "axis", "prepare", "enable", "motor-release", "alarm-clear", "stop", "position-clear", "move-relative", "move-absolute", "move-angle", "velocity", "driver"})
 MAX_COMMANDS = 11  # Eight ordinary operations, recovery, reserved stop and local query.
 MAX_OPERATIONS = 10  # Eight ordinary operations, one recovery and one reserved stop.
 MAX_PROBES = 8
@@ -38,6 +38,31 @@ READ_COMMANDS = ("probe", "capture-read", *TYPED_READS)
 ACTION_COMMANDS = ("enable", "motor-release", "alarm-clear", "stop", "position-clear")
 MOVE_COMMANDS = ("move-relative", "move-absolute", "move-angle")
 ACTION_KINDS = {"enable": "enable", "motor-release": "release", "alarm-clear": "clear_alarm", "stop": "stop", "position-clear": "clear_position"}
+DRIVER_FIELDS = ("direction", "subdivision", "word-order", "soft-limit", "over-limit", "interruption", "position-mode", "positive-limit", "negative-limit")
+DRIVER_REGISTERS = (0x10, 0x11, 0x19, 0x18, 0x17, 0x51, 0x50)
+DRIVER_PROGRESS_COLUMNS = ["field", "register", "previous", "requested", "acknowledged", "readback_known", "readback", "active_known", "active", "execution"]
+DRIVER_EVIDENCE_COLUMNS = ["step", "register", "count", "write", "event", "raw_hex", "received_length", "tx_accepted", "tx_complete", "response_confirmed", "qualified", "execution_unknown", "earliest_us", "latest_us", "delivered_us", "transport_detail", "status", "detail", "frame_error", "attempted_us"]
+
+
+def driver_arguments(arguments: tuple[str, ...]) -> dict:
+    """Strict typed profile grammar; value semantics remain in the public API."""
+    if (not isinstance(arguments, tuple) or not 1 <= len(arguments) <= 19 or
+            any(type(token) is not str or not token or any(ord(c) < 33 or ord(c) > 126 for c in token) for token in arguments)):
+        raise ValueError("driver requires bounded ASCII tokens")
+    if arguments == ("read",):
+        return {}
+    if arguments[0] != "set" or len(arguments) < 3 or len(arguments) % 2 != 1:
+        raise ValueError("driver requires read or complete set field/integer pairs")
+    result = {}
+    for index in range(1, len(arguments), 2):
+        field, value = arguments[index:index + 2]
+        if field not in DRIVER_FIELDS or field in result or not re.fullmatch(r"-?[0-9]+", value):
+            raise ValueError("driver field is unknown, repeated or not an integer")
+        number = int(value)
+        if not (-2**63 <= number < 2**63 if field in ("positive-limit", "negative-limit") else 0 <= number <= 65535):
+            raise ValueError("driver integer exceeds installed API storage")
+        result[field] = number
+    return result
 
 
 def operation_quota(command):
@@ -271,6 +296,7 @@ class Command:
         self.stop_policy = None
         self.move_args = None
         self.velocity_args = None
+        self.driver_args = None
 
 
 class Console:
@@ -869,6 +895,157 @@ class Console:
             require(item["outcome"] == expected, "failure outcome contradicts terminal evidence")
         require(item["uncertain"] == (not item["ok"] and bool(stage["tx_accepted"] or stage["execution_unknown"] or
                     trigger["tx_accepted"] or trigger["execution_unknown"])), "uncertainty differs from staging/trigger evidence")
+
+    @staticmethod
+    def _check_driver(item: dict, address: int | None, arguments: tuple[str, ...] | None) -> None:
+        """Retain exact partial progress; acknowledgement is not activation."""
+        def require(condition, message):
+            if not condition: raise BenchError("driver " + message)
+
+        def integer(value, maximum=2**64 - 1):
+            return type(value) is int and 0 <= value <= maximum
+
+        require(item.get("driver") is True and item.get("driver_kind") in ("read", "update") and
+                item.get("velocity", False) is False and all(item.get(k) is None for k in ("read_kind", "move_kind", "action_kind")) and
+                item.get("recovery", False) is False and item.get("capture_read", False) is False, "kind differs")
+        require(integer(item.get("address"), 247) and item["address"] >= 1 and (address is None or item["address"] == address), "target differs")
+        require(all(Console._operation_id(item.get(k)) for k in ("target", "generation", "configuration_generation")), "generation is invalid")
+        require(all(integer(item.get(k)) for k in ("started_us", "deadline_us", "stationary_valid_until_us", "serviced_us", "completed_steps", "fields", "effects")) and
+                item["started_us"] < item["deadline_us"] and item["serviced_us"] >= item["started_us"] and
+                item["started_us"] < item["stationary_valid_until_us"] <= item["deadline_us"] and
+                item["completed_steps"] <= 14 and item["fields"] <= 127 and item["effects"] & ~item["fields"] == 0, "budget or field mask differs")
+        require(type(item.get("uncertain")) is bool and item.get("atomic") is False and item.get("active_settings_known") is False, "activation/rollback claim is invalid")
+        require(item.get("state") == ("succeeded" if item["ok"] else "failed") and
+                item.get("outcome") in ({"success"} if item["ok"] else {"reply_error", "transport_error", "cancelled", "deadline", "timing_unqualified", "unconfirmed_response", "readback_mismatch"}) and
+                item.get("status") in {"OK", "INVALID_CONFIG", "ILLEGAL_VALUE", "UNSUPPORTED", "CRC_ERROR", "FRAME_ERROR", "EXCEPTION"} and
+                (item["ok"] == (item["status"] == "OK")) and type(item.get("detail")) is int, "terminal result differs")
+        parsed = None if arguments is None else driver_arguments(arguments)
+        if parsed is not None:
+            mask = sum(1 << DRIVER_FIELDS.index(k) for k in parsed)
+            require(item["fields"] == mask and item["driver_kind"] == ("update" if parsed else "read"), "candidate differs from command")
+        require(item.get("progress_columns") == DRIVER_PROGRESS_COLUMNS and item.get("evidence_columns") == DRIVER_EVIDENCE_COLUMNS, "evidence schema differs")
+        progress, evidence = item.get("progress"), item.get("evidence")
+        require(isinstance(progress, list) and len(progress) <= 7 and isinstance(evidence, list) and len(evidence) <= 14, "storage bounds exceeded")
+        fields = {}
+        for row in progress:
+            require(isinstance(row, list) and len(row) == len(DRIVER_PROGRESS_COLUMNS), "progress row is invalid")
+            p = dict(zip(DRIVER_PROGRESS_COLUMNS, row)); field = p["field"]
+            require(integer(field, 64) and field and field & (field - 1) == 0 and field not in fields and item["fields"] & field and
+                    p["register"] == DRIVER_REGISTERS[field.bit_length() - 1], "progress field differs")
+            require(all(integer(p[k], 65535) for k in ("previous", "requested", "readback", "active")) and
+                    all(type(p[k]) is bool for k in ("acknowledged", "readback_known", "active_known")) and
+                    p["active_known"] is False and p["execution"] in ("not_transmitted", "acknowledged", "rejected", "unknown"), "progress values are invalid")
+            require(400 <= p["requested"] <= 51200 if field == 2 else p["requested"] <= 1, "candidate is outside reviewed range")
+            if parsed is not None: require(p["requested"] == parsed[DRIVER_FIELDS[field.bit_length() - 1]], "requested value changed")
+            fields[field] = p
+        require(sum(fields) == item["fields"], "selected field progress is missing")
+        steps = []
+        for index, row in enumerate(evidence):
+            require(isinstance(row, list) and len(row) == len(DRIVER_EVIDENCE_COLUMNS), "evidence row is invalid")
+            e = dict(zip(DRIVER_EVIDENCE_COLUMNS, row))
+            require(e["step"] == index and all(integer(e[k], limit) for k, limit in (("register", 65535), ("count", 4), ("event", 3), ("received_length", 2**32 - 1), ("tx_accepted", 8), ("frame_error", 255))) and e["count"] >= 1 and
+                    all(type(e[k]) is bool for k in ("write", "tx_complete", "response_confirmed", "qualified", "execution_unknown")) and
+                    all(integer(e[k]) for k in ("earliest_us", "latest_us", "delivered_us", "attempted_us")) and
+                    all(type(e[k]) is int and -2**31 <= e[k] < 2**31 for k in ("detail", "transport_detail")) and
+                    e["status"] in {"OK", "INVALID_CONFIG", "ILLEGAL_VALUE", "UNSUPPORTED", "CRC_ERROR", "FRAME_ERROR", "EXCEPTION"}, "evidence values are invalid")
+            require(isinstance(e["raw_hex"], str) and re.fullmatch(r"(?:[0-9a-fA-F]{2}){0,13}", e["raw_hex"]) is not None, "raw frame is malformed")
+            raw = bytes.fromhex(e["raw_hex"])
+            require(len(raw) == min(e["received_length"], 13) and item["started_us"] <= e["attempted_us"] <= e["delivered_us"] <= item["serviced_us"] and
+                    (not e["tx_complete"] or e["tx_accepted"] == 8) and (e["event"] == 0 or not e["response_confirmed"]), "transport evidence differs")
+            require((e["qualified"] and e["event"] == 0 and e["attempted_us"] <= e["earliest_us"] <= e["latest_us"] <= e["delivered_us"]) or
+                    (not e["qualified"] and e["earliest_us"] == e["latest_us"] == 0), "closure bounds differ")
+            if item["driver_kind"] == "read":
+                require(index < 4 and not e["write"] and (e["register"], e["count"]) == ((0x10, 2), (0x17, 3), (0x37, 4), (0x50, 2))[index], "read window differs")
+            else:
+                selected = list(fields.values())
+                if 8 in fields and fields[8]["requested"] == 0:
+                    selected = [fields[8]] + [p for p in selected if p["field"] != 8]
+                require(index // 2 < len(selected) and e["register"] == selected[index // 2]["register"] and e["count"] == 1 and
+                        e["write"] == (index % 2 == 0), "update sequence differs")
+            if e["event"] == 0 and e["status"] == "OK":
+                require(e["tx_complete"] and e["detail"] == e["frame_error"] == 0 and wire_crc(raw) == 0 and raw[0] == item["address"], "checked frame differs")
+                if e["write"]:
+                    p = next(p for p in fields.values() if p["register"] == e["register"])
+                    require(len(raw) == 8 and raw[1] == 6 and int.from_bytes(raw[2:4], "big") == e["register"] and
+                            int.from_bytes(raw[4:6], "big") == p["requested"], "write echo differs")
+                else:
+                    require(len(raw) == 5 + 2 * e["count"] and raw[1:3] == bytes((3, 2 * e["count"])), "read payload differs")
+            if e["status"] == "EXCEPTION":
+                require(e["event"] == 0 and len(raw) == 5 and raw[:2] == bytes((item["address"], 0x86 if e["write"] else 0x83)) and
+                        wire_crc(raw) == 0 and e["detail"] == raw[2], "exception differs")
+            steps.append((e, raw))
+        effects = 0
+        uncertain = False
+        for p in fields.values():
+            rows = [(e, raw) for e, raw in steps if e["register"] == p["register"]]
+            acknowledged = any(e["write"] and e["event"] == 0 and e["status"] == "OK" and e["qualified"] and e["response_confirmed"] for e, raw in rows)
+            readbacks = [(e, raw) for e, raw in rows if not e["write"] and e["event"] == 0 and e["status"] == "OK" and e["qualified"] and e["latest_us"] <= item["deadline_us"]]
+            require(p["acknowledged"] == acknowledged and p["readback_known"] == bool(readbacks), "acknowledgement/readback provenance differs")
+            if readbacks: require(p["readback"] == int.from_bytes(readbacks[-1][1][3:5], "big"), "readback value differs")
+            writes = [e for e, raw in rows if e["write"]]
+            execution = "not_transmitted"
+            for e in writes:
+                if e["tx_accepted"] or e["execution_unknown"]:
+                    effects |= p["field"]; execution = "unknown"
+                if e["event"] == 0 and e["qualified"] and e["response_confirmed"]:
+                    if e["status"] == "OK": execution = "acknowledged"
+                    elif e["status"] == "EXCEPTION" and 1 <= e["detail"] <= 7: execution = "rejected"
+            require(p["execution"] == execution, "execution differs from write evidence")
+            uncertain |= execution == "unknown" or (execution == "acknowledged" and (not p["readback_known"] or p["readback"] != p["requested"]))
+        require(item["effects"] == effects and item["uncertain"] == uncertain, "changed-setting mask or uncertainty differs")
+        total = 4 if item["driver_kind"] == "read" else 2 * len(fields)
+        successful_steps = 0
+        for e, raw in steps:
+            deadline = item["stationary_valid_until_us"] if e["write"] else item["deadline_us"]
+            good = e["event"] == 0 and e["qualified"] and e["latest_us"] <= deadline and e["status"] == "OK" and (not e["write"] or e["response_confirmed"])
+            if good and item["driver_kind"] == "update" and not e["write"]:
+                p = next(p for p in fields.values() if p["register"] == e["register"])
+                good = int.from_bytes(raw[3:5], "big") == p["requested"]
+            successful_steps += good
+        require(item["completed_steps"] == successful_steps and len(steps) <= total and
+                (item["ok"] or item["completed_steps"] < total), "completed progress contradicts terminal state")
+        if item["ok"]:
+            require(not item["uncertain"] and item["detail"] == 0 and item["completed_steps"] == len(steps) == (4 if item["driver_kind"] == "read" else 2 * len(fields)) and
+                    all(e["qualified"] and (not e["write"] or e["response_confirmed"]) and e["status"] == "OK" and e["latest_us"] <= item["deadline_us"] for e, raw in steps), "success lacks complete checked evidence")
+            require(all(p["acknowledged"] and p["readback_known"] and p["requested"] == p["readback"] and p["execution"] == "acknowledged" for p in fields.values()), "success lacks matching readback")
+        if item["driver_kind"] == "read" and item["ok"]:
+            v = item.get("observation")
+            require(isinstance(v, dict) and v.get("signed_limits") == "unresolved" and v.get("native_scale") == "unresolved", "limit resolution was fabricated")
+            words = [[int.from_bytes(raw[i:i+2], "big") for i in range(3, len(raw) - 2, 2)] for e, raw in steps]
+            values = [words[0][0], words[0][1], words[1][2], words[1][1], words[1][0], words[3][1], words[3][0]]
+            require(v.get("raw") == values and v.get("positive_words") == words[2][:2] and v.get("negative_words") == words[2][2:], "observation differs from raw replies")
+            known = sum(1 << i for i, value in enumerate(values) if (400 <= value <= 51200 if i == 1 else value <= 1))
+            require(v.get("known_fields") == known, "unknown enums were normalized")
+            require(v.get("pair_known") == (values[2] in (0, 1)), "pair word order differs")
+            if v["pair_known"]:
+                pair = lambda w: (w[0] << 16 | w[1]) if values[2] == 0 else (w[1] << 16 | w[0])
+                require(v.get("positive_bits") == pair(words[2][:2]) and v.get("negative_bits") == pair(words[2][2:]), "paired bits differ")
+            else: require(v.get("positive_bits") == v.get("negative_bits") == 0, "unknown word order was decoded")
+        else: require(item.get("observation") is None, "partial update publishes a whole observation")
+        if item["outcome"] == "readback_mismatch":
+            require(item["status"] == "ILLEGAL_VALUE" and item["detail"] == 18 and steps and not steps[-1][0]["write"] and
+                    any(p["readback_known"] and p["readback"] != p["requested"] for p in fields.values()), "mismatch lacks readback disagreement")
+        if item["outcome"] in ("transport_error", "cancelled"):
+            require(steps and steps[-1][0]["event"] == (1 if item["outcome"] == "transport_error" else 2) and
+                    item["status"] == steps[-1][0]["status"] == "ILLEGAL_VALUE" and
+                    item["detail"] == steps[-1][0]["detail"] == (14 if item["outcome"] == "transport_error" else 15), "local failure lacks evidence")
+        if item["outcome"] == "reply_error":
+            require(steps and steps[-1][0]["event"] == 0 and steps[-1][0]["status"] != "OK" and
+                    item["status"] == steps[-1][0]["status"] and item["detail"] == steps[-1][0]["detail"], "reply failure lacks evidence")
+        if item["outcome"] == "timing_unqualified":
+            require(item["status"] == "ILLEGAL_VALUE" and item["detail"] == 16 and steps and
+                    steps[-1][0]["event"] == 0 and not steps[-1][0]["qualified"], "timing failure lacks unqualified frame")
+        if item["outcome"] == "unconfirmed_response":
+            require(item["status"] == "ILLEGAL_VALUE" and item["detail"] == 17 and steps and
+                    steps[-1][0]["event"] == 0 and steps[-1][0]["write"] and steps[-1][0]["status"] == "OK" and
+                    steps[-1][0]["qualified"] and not steps[-1][0]["response_confirmed"] and
+                    steps[-1][0]["latest_us"] <= item["stationary_valid_until_us"], "unconfirmed failure lacks ambiguous echo")
+        if item["outcome"] == "deadline":
+            require(item["status"] == "ILLEGAL_VALUE" and item["detail"] == 13 and steps, "deadline result is invalid")
+            e = steps[-1][0]; deadline = item["stationary_valid_until_us"] if e["write"] else item["deadline_us"]
+            require((e["event"] == 3 and e["delivered_us"] >= deadline) or
+                    (e["event"] == 0 and e["qualified"] and e["latest_us"] > deadline) or
+                    (len(steps) == item["completed_steps"] and item["completed_steps"] < total and e["delivered_us"] >= item["deadline_us"]), "deadline lacks expired budget evidence")
 
     @staticmethod
     def _check_action(item: dict, command: str, address: int | None, policy: str | None) -> None:
@@ -1505,7 +1682,7 @@ class Console:
         if self.clock() >= handle.deadline:
             raise BenchError("command response deadline expired; command was not replayed")
         self.emit("reply", response=item)
-        asynchronous = handle.command in (*READ_COMMANDS, *ACTION_COMMANDS, "recover", *MOVE_COMMANDS, "velocity")
+        asynchronous = handle.command in (*READ_COMMANDS, *ACTION_COMMANDS, "recover", *MOVE_COMMANDS, "velocity", "driver")
         if asynchronous:
             if item.get("type") == "reply" and not handle.accepted:
                 if not item["ok"]:
@@ -1513,7 +1690,7 @@ class Console:
                     return
                 if item.get("result") != "accepted":
                     raise BenchError(f"{handle.command} acceptance is not explicit")
-                if handle.command in (*READ_COMMANDS, *ACTION_COMMANDS, *MOVE_COMMANDS, "velocity"):
+                if handle.command in (*READ_COMMANDS, *ACTION_COMMANDS, *MOVE_COMMANDS, "velocity", "driver"):
                     address = item.get("address")
                     if (type(address) is not int or not 1 <= address <= 247
                             or (handle.address is not None and address != handle.address)):
@@ -1537,7 +1714,7 @@ class Console:
                 return
             expected_type = {"probe": "probe", "capture-read": "capture_read", "recover": "recovery",
                              "read-identity": "read", "read-config": "read", "read-state": "read",
-                             **dict.fromkeys(ACTION_COMMANDS, "action"), **dict.fromkeys(MOVE_COMMANDS, "move"), "velocity": "velocity"}[handle.command]
+                             **dict.fromkeys(ACTION_COMMANDS, "action"), **dict.fromkeys(MOVE_COMMANDS, "move"), "velocity": "velocity", "driver": "driver"}[handle.command]
             if item.get("type") != expected_type or not handle.accepted:
                 raise BenchError(f"{handle.command} response sequence is invalid")
             if (not self._operation_id(item.get("operation_id"))
@@ -1554,6 +1731,8 @@ class Console:
                 self._check_action(item, handle.command, handle.address, handle.stop_policy)
             elif handle.command == "velocity":
                 self._check_velocity(item, handle.address, handle.velocity_args)
+            elif handle.command == "driver":
+                self._check_driver(item, handle.address, handle.driver_args)
             elif handle.command in MOVE_COMMANDS:
                 self._check_move(item, handle.address, handle.move_args, handle.command[5:])
             else:
@@ -1578,6 +1757,10 @@ class Console:
                     action_kind = item.get("action_kind")
                     move_kind = item.get("move_kind")
                     velocity = item.get("velocity", False)
+                    driver = item.get("driver", False)
+                    if (type(driver) is not bool or (driver and (velocity or move_kind is not None or action_kind is not None or recovery or capture_read or read_kind is not None)) or
+                            (original is not None and driver != (original.command == "driver"))):
+                        raise BenchError("result driver kind does not match retained operation")
                     if type(velocity) is not bool or (velocity and (move_kind is not None or action_kind is not None or recovery or capture_read or read_kind is not None)) or (original is not None and velocity != (original.command == "velocity")):
                         raise BenchError("result velocity kind does not match retained operation")
                     stop_policy = item.get("stop_policy")
@@ -1605,6 +1788,8 @@ class Console:
                             raise BenchError("pending result lacks a valid lifecycle")
                         if original is not None and original.terminal is not None:
                             raise BenchError("completed retained operation regressed to pending")
+                    elif driver:
+                        self._check_driver(item, original.address if original else None, original.driver_args if original else None)
                     elif velocity:
                         self._check_velocity(item, original.address if original else None, original.velocity_args if original else None)
                     elif move_kind is not None:
@@ -1663,7 +1848,8 @@ class Console:
               address: int | None = None, load: tuple[int, int, int] | None = None,
               operation_id: int | None = None, monitor: tuple[int, int] | bool | None = None,
               host_args: tuple[str, ...] | None = None, stop_policy: str | None = None,
-              move_args: tuple[str, ...] | None = None, velocity_args: tuple[str, ...] | None = None) -> Command:
+              move_args: tuple[str, ...] | None = None, velocity_args: tuple[str, ...] | None = None,
+              driver_args: tuple[str, ...] | None = None) -> Command:
         """Send once and collect admission/local reply; bus completion can stay pending.
 
         Up to eleven handles (eight ordinary operations, recovery, stop and a local query) may be
@@ -1690,6 +1876,10 @@ class Console:
             velocity_arguments(velocity_args)
         elif velocity_args is not None:
             raise ValueError("velocity arguments require velocity command")
+        if command == "driver":
+            driver_arguments(driver_args)
+        elif driver_args is not None:
+            raise ValueError("driver arguments require driver command")
         health_check = command == "health-check"
         if health_check:
             command = "read-state"  # The wire alias returns canonical read-state records.
@@ -1699,7 +1889,7 @@ class Console:
                  type(monitor[0]) is not int or type(monitor[1]) is not int or
                  not 100 <= monitor[0] <= 60000 or not 1 <= monitor[1] <= 1000)):
                 raise ValueError("monitor requires off or interval 100..60000/count 1..1000")
-        if address is not None and (command not in (*READ_COMMANDS, *ACTION_COMMANDS, *MOVE_COMMANDS, "velocity") or type(address) is not int
+        if address is not None and (command not in (*READ_COMMANDS, *ACTION_COMMANDS, *MOVE_COMMANDS, "velocity", "driver") or type(address) is not int
                                     or not 1 <= address <= 247):
             raise ValueError("an ESS probe address must be an integer within 1..247")
         if load is not None:
@@ -1723,6 +1913,8 @@ class Console:
             raise ValueError("move command exceeds the console line bound")
         if velocity_args is not None and len(f"@{self.next_id} velocity {' '.join(velocity_args)}" + ("" if address is None else f" {address}")) >= 128:
             raise ValueError("velocity command exceeds the console line bound")
+        if driver_args is not None and len(f"@{self.next_id} profile ess_rs driver {' '.join(driver_args)}" + ("" if address is None else f" {address}")) >= 128:
+            raise ValueError("driver command exceeds the console line bound")
         request_id = self.next_id
         self.next_id += 1
         started = self.clock()
@@ -1735,6 +1927,7 @@ class Console:
             handle.stop_policy = stop_policy
             handle.move_args = move_args
             handle.velocity_args = velocity_args
+            handle.driver_args = driver_args
             self.pending[request_id] = handle
             suffix = "" if address is None else f" {address}"
             if load is not None:
@@ -1751,8 +1944,11 @@ class Console:
                 suffix = " " + " ".join(move_args) + suffix
             if velocity_args is not None:
                 suffix = " " + " ".join(velocity_args) + suffix
+            if driver_args is not None:
+                suffix = " " + " ".join(driver_args) + suffix
             wire_command = "health check" if health_check else "read " + TYPED_READS[command] if command in TYPED_READS else command
             if command in MOVE_COMMANDS: wire_command = "move " + command[5:]
+            if command == "driver": wire_command = "profile ess_rs driver"
             payload = f"@{request_id} {wire_command}{suffix}\n".encode("ascii")
             if len(payload) > 128:
                 raise ValueError("command exceeds the console line bound")
@@ -1822,10 +2018,11 @@ class Console:
                 address: int | None = None, load: tuple[int, int, int] | None = None,
                 operation_id: int | None = None, monitor: tuple[int, int] | bool | None = None,
                 host_args: tuple[str, ...] | None = None, stop_policy: str | None = None,
-                move_args: tuple[str, ...] | None = None, velocity_args: tuple[str, ...] | None = None) -> dict:
+                move_args: tuple[str, ...] | None = None, velocity_args: tuple[str, ...] | None = None,
+                driver_args: tuple[str, ...] | None = None) -> dict:
         """Send once, wait for its terminal, then explicitly release admitted results."""
         handle = self.begin(command, timeout_s=timeout_s, address=address, load=load,
-                            operation_id=operation_id, monitor=monitor, host_args=host_args, stop_policy=stop_policy, move_args=move_args, velocity_args=velocity_args)
+                            operation_id=operation_id, monitor=monitor, host_args=host_args, stop_policy=stop_policy, move_args=move_args, velocity_args=velocity_args, driver_args=driver_args)
         return self.wait(handle, release=True)
 
     def identify(self, *, timeout_s: float = 3.0) -> dict:
@@ -2003,6 +2200,33 @@ def typed_read_campaign(console: Console, *, kind: str, timeout_s: float, addres
         console.emit("summary", mode="typed-read", read_kind=kind, reads_attempted=attempted,
                      reads_passed=completed, reads_failed=attempted - completed,
                      ok=failure is None and completed == len(kinds), error=failure)
+
+
+def driver_read_campaign(console: Console, *, timeout_s: float, address: int) -> None:
+    """One four-window settings read, immutable inspection and explicit release."""
+    positive(timeout_s, "driver read timeout")
+    handle = None; terminal = None; inspected = None; failure = None
+    try:
+        handle = console.begin("driver", driver_args=("read",), address=address, timeout_s=timeout_s)
+        terminal = console.wait(handle)
+        if handle.accepted:
+            inspected = console.command("result", operation_id=handle.operation_id, timeout_s=timeout_s)
+        if not terminal["ok"]:
+            raise BenchError("driver read rejected or failed: " + str(terminal.get("result", terminal.get("outcome"))))
+    except BaseException as exc:
+        failure = str(exc) or "interrupted"
+        raise
+    finally:
+        try:
+            if handle is not None and handle.accepted and handle.terminal is not None and not handle.released and console.synchronized:
+                release = console.command("release", operation_id=handle.operation_id, timeout_s=timeout_s)
+                if not release["ok"]: raise BenchError("driver result release rejected")
+        except BaseException as exc:
+            if failure is None: failure = str(exc) or "interrupted"; raise
+        finally:
+            console.emit("summary", mode="driver-read", reads_attempted=1, ok=failure is None,
+                         driver_result=terminal, inspected_result=inspected,
+                         motor_writes=0, error=failure)
 
 
 def move_campaign(console: Console, *, move_args: tuple[str, ...] | None, cleanup_stop: str,
@@ -2200,6 +2424,7 @@ def arguments(argv: list[str] | None) -> argparse.Namespace:
         if name == "move-relative": move.add_argument("--basis", choices=("actual", "commanded", "queued"))
         move.add_argument("--cleanup-stop", required=True, choices=("normal", "direct"))
     velocity = sub.add_parser("velocity", help="one finite signed velocity with explicit stop cleanup; never replayed")
+    sub.add_parser("driver-read", help="one checked four-window drive-settings read with retained inspection; no writes")
     velocity.add_argument("value", help="exact integer/decimal/fraction velocity")
     velocity.add_argument("unit", choices=("rpm", "steps/s", "fullsteps/s", "counts/s", "turn/s", "turns/s", "deg/s", "rad/s", "mm/s"))
     velocity.add_argument("frame", choices=("native", "motor", "load"))
@@ -2297,6 +2522,8 @@ def main(argv: list[str] | None = None) -> int:
                                              stop_policy=getattr(args, "stop_policy", None))
                     if not result["ok"]:
                         raise BenchError("action rejected or failed: " + str(result.get("result", result.get("outcome"))))
+                elif args.mode == "driver-read":
+                    driver_read_campaign(console, timeout_s=args.timeout, address=args.address)
                 elif args.mode == "velocity":
                     velocity_campaign(console, velocity_args=args.velocity_args, cleanup_stop=args.cleanup_stop,
                                       timeout_s=args.timeout, address=args.address)

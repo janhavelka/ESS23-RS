@@ -1,5 +1,11 @@
 # Motor bench and testing authorization
 
+Prompt13 [current-image evidence](reports/ess_release_13_2026-10-04.md) adds
+typed driver-settings reads and zero-TX setter gates. No settings or motion
+changed; load/monitor off, DE released, owner empty and no recovery need.
+Physical settings/restoration and software-limit movement remain NOT RUN.
+
+
 ## User report on 2026-10-02
 
 The [fresh prompt 12 audit](reports/ess_release_12_audit_2026-10-04.md) passes ten

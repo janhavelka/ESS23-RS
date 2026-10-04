@@ -1,5 +1,13 @@
 # MotorControl-RS standalone CLI contract
 
+Implemented driver routes: `profile ess_rs driver read [address]` and
+`profile ess_rs driver set FIELD INTEGER [FIELD INTEGER ...] [address]` use the
+same public [driver preparation](ess_driver_settings.md). Groups validate before
+TX, retain ACK/readback/partial uncertainty and use existing result/cancel/release
+correlation. Long groups respect the existing 128-byte input bound. Native limit
+pair setters reject explicitly; host `axis` configuration remains separate.
+
+
 Prompt10 implements `move absolute`, `move angle`, matching
 `profile ess_rs move-absolute|move-angle`, and explicit zero-only
 `position-clear` / `profile ess_rs clear-position`. See the actual positional

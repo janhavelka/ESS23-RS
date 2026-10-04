@@ -29,7 +29,8 @@ class Coverage(unittest.TestCase):
             self.assertEqual(policy["split_fc06"], "UNAVAILABLE")
             if row["id"] not in ("POSITION_PULSES", "HOMING_OFFSET"):
                 self.assertEqual(policy["reviewed_windows"], [])
-                self.assertEqual(row["obligations"]["write"], "NOT_IMPLEMENTED")
+                self.assertEqual(row["obligations"]["write"], "UNSUPPORTED" if row["id"] in
+                                 ("POSITIVE_SOFT_LIMIT", "NEGATIVE_SOFT_LIMIT") else "NOT_IMPLEMENTED")
 
     def rejected(self, change):
         inventory = copy.deepcopy(INVENTORY)
@@ -43,22 +44,26 @@ class Coverage(unittest.TestCase):
         self.assertEqual((summary["records"], summary["reserved"], summary["unresolved_access"], summary["named_choices"]),
                          (221, 16, 2, 135))
         self.assertEqual(sum(count for state, count in summary["read"].items() if state in operations.IMPLEMENTATION), 201)
-        self.assertEqual(summary["write"]["NOT_IMPLEMENTED"], 184)
+        self.assertEqual(summary["write"]["NOT_IMPLEMENTED"], 175)
+        self.assertEqual(summary["write"]["UNSUPPORTED"], 2)
         self.assertEqual(summary["action"]["IN_PROGRESS"], 2)
         linked = {record for group in INVENTORY["operations"] for record in group["records"]}
-        self.assertEqual(len(linked), 34)
+        self.assertEqual(len(linked), 38)
         self.assertEqual(len(result["records"]), len({record["id"] for record in result["records"]}))
         self.assertTrue(all(choice["default_disposition"] == operations.DEFAULT for choice in result["named_choices"]))
 
-    def test_only_exact_action_choices_implemented(self):
+    def test_only_exact_action_and_setting_choices_implemented(self):
         result = operations.check(INVENTORY, LEDGER)
         implemented = {choice["id"] for choice in result["named_choices"]
                        if choice["disposition"]["implementation"] == "IMPLEMENTED"}
         self.assertEqual(implemented, {"AuxiliaryCommand.ENABLE", "AuxiliaryCommand.RELEASE",
             "AuxiliaryCommand.CLEAR_ALARM", "AuxiliaryCommand.CLEAR_POSITION", "MotionCommandBit.STOP",
             "MotionCommandBit.EMERGENCY_STOP", "MotionCommandBit.START_POSITION", "MotionCommandBit.ABSOLUTE_POSITION",
-            "MotionCommandBit.START_SPEED"})
-        self.assertEqual(result["summary"]["choice_implementation"], {"NOT_IMPLEMENTED": 126, "IMPLEMENTED": 9})
+            "MotionCommandBit.START_SPEED", "DefaultDirection.NORMAL", "DefaultDirection.REVERSED",
+            "WordOrder.HIGH_WORD_FIRST", "WordOrder.LOW_WORD_FIRST", "SoftLimitEnable.LIMITS_OFF",
+            "SoftLimitEnable.AFTER_HOMING", "OverLimitStop.FREE_PARKING", "OverLimitStop.EMERGENCY_STOP",
+            "PvTriggerMode.LEVEL", "PvTriggerMode.RISING_EDGE", "PositionMode.RELATIVE", "PositionMode.ABSOLUTE"})
+        self.assertEqual(result["summary"]["choice_implementation"], {"NOT_IMPLEMENTED": 114, "IMPLEMENTED": 21})
         for record in result["records"]:
             if record["id"] in ("AUXILIARY_COMMAND", "MOTION_COMMAND"):
                 self.assertEqual(record["obligations"]["write"], "IN_PROGRESS")
@@ -73,6 +78,16 @@ class Coverage(unittest.TestCase):
         self.rejected(lambda value: value["operations"][0].update(choices=["AuxiliaryCommand.ENABLE"]))
         self.rejected(lambda value: operation(value, "release").update(choices=["AuxiliaryCommand.ENABLE"]))
         self.rejected(lambda value: operation(value, "enable")["records"].append("MOTION_COMMAND"))
+
+    def test_setting_choices_are_separate_from_reads_and_actions(self):
+        def update(value):
+            return next(group for group in value["operations"] if group["id"] == "driver_settings_update")
+        for choices in (["AuxiliaryCommand.ENABLE"], ["DefaultDirection.NORMAL"] * 2, ["DefaultDirection.MISSING"]):
+            self.rejected(lambda value: update(value).update(choices=choices))
+        result = operations.check(INVENTORY, LEDGER)
+        records = {row["id"]: row for row in result["records"]}
+        self.assertEqual(records["DEFAULT_DIRECTION"]["obligations"]["action"], "NOT_APPLICABLE")
+        self.assertEqual(records["DEFAULT_DIRECTION"]["obligations"]["write"], "IMPLEMENTED")
 
     def test_unresolved_and_reserved_never_disappear(self):
         records = {record["id"]: record for record in operations.check(INVENTORY, LEDGER)["records"]}

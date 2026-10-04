@@ -32,6 +32,10 @@ shared APIs; physical movement and clear remain unqualified and gated.
 [Finite signed serial velocity](docs/ess_velocity.md) adds shared exact rate preparation,
 configured native ramp snapshots, bounded activity/stop observation and finite
 Python cleanup. Acceleration mapping and physical velocity/stop remain unqualified.
+The [typed driver-settings API](docs/ess_driver_settings.md) adds stopped-state
+single-word updates with checked readback and exact partial progress, plus raw
+soft-limit pair reads. Unreviewed pair setters and physical setting/limit tests
+remain guarded; active settings are not inferred from acknowledgements.
 The [release roadmap](docs/roadmap.md) records the delivery order and completion gates.
 The [numbered implementation prompts](docs/prompts/ess_release/README.md)
 split the remaining work into reviewed, independently dispatched blocks. Typed non-changing read

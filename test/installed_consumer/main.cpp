@@ -7,6 +7,7 @@
 #include <MotorControlRS/profiles/ess_rs/Position.h>
 #include <MotorControlRS/VelocityOperation.h>
 #include <MotorControlRS/profiles/ess_rs/Velocity.h>
+#include <MotorControlRS/profiles/ess_rs/DriverSettings.h>
 
 int main() {
     using namespace MotorControlRS;
@@ -110,5 +111,12 @@ int main() {
         reference.configurationGeneration != axis.generation || reference.observedUs != 1900 ||
         reference.maximumAgeUs != 1000) return 27;
     if (!invalidateAxisReference(axis, reference) || axis.originKnown || reference.nativeKnown) return 28;
+    DriverContext driver;
+    if (!prepareDriverRead(driver, target, 11, axis.generation, 2100, 100000)) return 32;
+    PreparedDriver setting;
+    if (!nextDriver(driver, 2100, setting) || setting.write || setting.reg != 0x10 || setting.count != 2) return 33;
+    evidence = ActionEvent(); evidence.transport.target = target; evidence.transport.operationId = 11;
+    evidence.transport.kind = ReadEventKind::CANCEL;
+    if (!advanceDriver(driver, evidence, 2200) || driver.outcome != DriverOutcome::CANCELLED) return 34;
     return 0;
 }

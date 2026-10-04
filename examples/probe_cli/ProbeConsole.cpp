@@ -10,7 +10,7 @@
 namespace MotorControlRSExample { namespace Probe {
 namespace {
 
-enum class Command : uint8_t { HELP, VERSION, CONFIG, STATUS, HEALTH, STATS, PROBE, CAPTURE_READ, RECOVER, RESET, MEMORY, LOAD, DRV, RESULT, CANCEL, RELEASE, READ, PROFILE, CAPS, READ_IDENTITY, READ_CONFIG, READ_STATE, HEALTH_CHECK, MONITOR, AXIS, PREPARE, ENABLE, MOTOR_RELEASE, ALARM_CLEAR, STOP, MOVE, POSITION_CLEAR, VELOCITY };
+enum class Command : uint8_t { HELP, VERSION, CONFIG, STATUS, HEALTH, STATS, PROBE, CAPTURE_READ, RECOVER, RESET, MEMORY, LOAD, DRV, RESULT, CANCEL, RELEASE, READ, PROFILE, CAPS, READ_IDENTITY, READ_CONFIG, READ_STATE, HEALTH_CHECK, MONITOR, AXIS, PREPARE, ENABLE, MOTOR_RELEASE, ALARM_CLEAR, STOP, MOVE, POSITION_CLEAR, VELOCITY, DRIVER };
 struct Entry { const char* name; Command command; const char* syntax; const char* effect; bool bus; };
 const Entry COMMANDS[] = {
     {"help", Command::HELP, "help [command]", "show_callable_commands", false},
@@ -25,7 +25,8 @@ const Entry COMMANDS[] = {
     {"ping", Command::PROBE, "ping [address]", "read_model_word_only", true},
     {"capture-read", Command::CAPTURE_READ, "capture-read [address]", "read_0x0130_16_words_for_capture_qualification", true},
     {"read", Command::READ, "read identity|config|state [address]", "checked_nonchanging_read", true},
-    {"profile", Command::PROFILE, "profile ess_rs identity|config|state|enable|release|clear-alarm|clear-position|normal-stop|emergency-stop [address] | profile ess_rs move-relative|move-absolute|move-angle ... | profile ess_rs velocity ... | profile ess_rs caps", "public_profile_operations", true},
+    {"profile", Command::PROFILE, "profile ess_rs identity|config|state|enable|release|clear-alarm|clear-position|normal-stop|emergency-stop [address] | profile ess_rs move-relative|move-absolute|move-angle ... | profile ess_rs velocity ... | profile ess_rs driver read|set ... | profile ess_rs caps", "public_profile_operations", true},
+    {"driver", Command::DRIVER, "profile ess_rs driver read [address] | profile ess_rs driver set field integer [field integer ...] [address]", "typed_drive_settings_with_checked_readback", true},
     {"enable", Command::ENABLE, "enable [address]", "request_enable_then_observe_flags", true},
     {"motor-release", Command::MOTOR_RELEASE, "motor-release [address]", "request_release_then_observe_flags", true},
     {"alarm-clear", Command::ALARM_CLEAR, "alarm-clear [address]", "request_clear_resettable_alarm_then_observe_flags", true},
@@ -68,6 +69,19 @@ const char* readOutcome(MotorControlRS::ReadOutcome outcome) {
     case MotorControlRS::ReadOutcome::CANCELLED: return "cancelled";
     case MotorControlRS::ReadOutcome::DEADLINE: return "deadline";
     case MotorControlRS::ReadOutcome::TIMING_UNQUALIFIED: return "timing_unqualified"; } return "unknown";
+}
+const char* driverOutcome(Ess::DriverOutcome outcome) {
+    switch (outcome) {
+    case Ess::DriverOutcome::NONE: return "none";
+    case Ess::DriverOutcome::SUCCESS: return "success";
+    case Ess::DriverOutcome::REPLY_ERROR: return "reply_error";
+    case Ess::DriverOutcome::TRANSPORT_ERROR: return "transport_error";
+    case Ess::DriverOutcome::CANCELLED: return "cancelled";
+    case Ess::DriverOutcome::DEADLINE: return "deadline";
+    case Ess::DriverOutcome::TIMING_UNQUALIFIED: return "timing_unqualified";
+    case Ess::DriverOutcome::UNCONFIRMED_RESPONSE: return "unconfirmed_response";
+    case Ess::DriverOutcome::READBACK_MISMATCH: return "readback_mismatch";
+    } return "unknown";
 }
 
 // Append complete fragments or fail; never publish truncated JSON.
@@ -266,7 +280,8 @@ Core::Status axisRequest(char* const* tokens, std::size_t count, bool prepare, A
 
 bool axisView(char* output, std::size_t capacity, std::size_t& used, const AxisView& view, bool prepare) {
     const auto& c = view.configuration;
-    if (!append(output, capacity, used, ",\"bus_traffic\":false,\"motion_command\":false,\"wire_motion\":\"not_requested\",\"configuration_generation\":%lu,\"target\":%lu,\"address\":%u,\"binding_generation\":%lu",
+    if (!append(output, capacity, used, ",\"bus_traffic\":false,\"motion_command\":false,\"wire_motion\":\"not_requested\",\"polarity_known\":%s,\"configuration_generation\":%lu,\"target\":%lu,\"address\":%u,\"binding_generation\":%lu",
+        view.commandPolarityKnown ? "true" : "false",
         static_cast<unsigned long>(c.generation), static_cast<unsigned long>(c.target.id), c.target.address, static_cast<unsigned long>(c.target.generation))) return false;
     if (prepare) {
         const auto& p = view.prepared;
@@ -481,7 +496,7 @@ void Console::error(uint32_t id, const char* command, const char* reason) noexce
 
 void Console::action(uint32_t id, const char* command, Action result, uint8_t address, uint32_t operationId) noexcept {
     const bool typed = std::strcmp(command, "read-identity") == 0 || std::strcmp(command, "read-config") == 0 || std::strcmp(command, "read-state") == 0;
-    const bool motor = std::strcmp(command, "enable") == 0 || std::strcmp(command, "motor-release") == 0 || std::strcmp(command, "alarm-clear") == 0 || std::strcmp(command, "position-clear") == 0 || std::strcmp(command, "stop") == 0 || std::strncmp(command, "move-", 5) == 0 || std::strcmp(command, "velocity") == 0;
+    const bool motor = std::strcmp(command, "enable") == 0 || std::strcmp(command, "motor-release") == 0 || std::strcmp(command, "alarm-clear") == 0 || std::strcmp(command, "position-clear") == 0 || std::strcmp(command, "stop") == 0 || std::strncmp(command, "move-", 5) == 0 || std::strcmp(command, "velocity") == 0 || std::strcmp(command, "driver") == 0;
     std::snprintf(output_, sizeof(output_),
         "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"%s\",\"ok\":%s,\"result\":\"%s\",\"address\":%u,\"operation_id\":%lu%s}",
         static_cast<unsigned long>(id), command, boolean(result == Action::OK),
@@ -538,6 +553,63 @@ void Console::dispatch() noexcept {
         error(id, capability, "unsupported"); return;
     }
     if (!entry) { error(id, "unknown", "unknown_command"); return; }
+    const bool nativeDriver = entry->command == Command::PROFILE && count > first + 2 &&
+        std::strcmp(tokens[first + 1], "ess_rs") == 0 && std::strcmp(tokens[first + 2], "driver") == 0;
+    if (entry->command == Command::DRIVER || nativeDriver) {
+        if (outputPending()) { ++inputDropped_; return; }
+        if (!nativeDriver) { error(id, "driver", "use_profile_route"); return; }
+        if (!host_.startDriver || !host_.snapshot) { error(id, "driver", "unavailable"); return; }
+        std::size_t next = first + 3;
+        if (next >= count) { error(id, "driver", "invalid_arguments"); return; }
+        Ess::DriverRequest request;
+        const bool reading = std::strcmp(tokens[next], "read") == 0;
+        if (!reading && std::strcmp(tokens[next], "set") != 0) { error(id, "driver", "invalid_arguments"); return; }
+        ++next;
+        // An odd trailing token is the optional target; every remaining token
+        // must belong to a complete field/value pair before host admission.
+        const bool hasAddress = reading ? count == next + 1 : (count - next) % 2 != 0;
+        const std::size_t end = count - (hasAddress ? 1 : 0);
+        if ((reading && end != next) || (!reading && end == next)) { error(id, "driver", "invalid_arguments"); return; }
+        uint32_t address = 0;
+        if (hasAddress && (!number(tokens[end], address) || address < 1 || address > 247)) { error(id, "driver", "invalid_address"); return; }
+        const char* fields[] = {"direction", "subdivision", "word-order", "soft-limit", "over-limit", "interruption", "position-mode", "positive-limit", "negative-limit"};
+        for (; next < end; next += 2) {
+            std::size_t field = 0;
+            while (field < sizeof(fields) / sizeof(fields[0]) && std::strcmp(tokens[next], fields[field]) != 0) ++field;
+            if (field == sizeof(fields) / sizeof(fields[0])) { error(id, "driver", "unknown_field"); return; }
+            const uint16_t mask = static_cast<uint16_t>(1U << field);
+            if (request.fields & mask) { error(id, "driver", "duplicate_field"); return; }
+            Core::Rational value;
+            const char* digit = tokens[next + 1]; if (*digit == '-') ++digit;
+            if (!*digit) { error(id, "driver", "invalid_integer"); return; }
+            for (const char* p = digit; *p; ++p) if (*p < '0' || *p > '9') { error(id, "driver", "invalid_integer"); return; }
+            if (!Core::parseExactNumber(tokens[next + 1], value) || value.denominator != 1 ||
+                (field < 7 && (value.numerator < 0 || value.numerator > 65535))) { error(id, "driver", "invalid_integer"); return; }
+            request.fields = static_cast<uint16_t>(request.fields | mask);
+            const uint16_t word = static_cast<uint16_t>(value.numerator);
+            switch (field) {
+            case 0: request.direction = static_cast<Ess::DefaultDirection>(word); break;
+            case 1: request.subdivision = word; break;
+            case 2: request.wordOrder = static_cast<Ess::WordOrder>(word); break;
+            case 3: request.softLimitEnable = static_cast<Ess::SoftLimitEnable>(word); break;
+            case 4: request.overLimitStop = static_cast<Ess::OverLimitStop>(word); break;
+            case 5: request.interruption = static_cast<Ess::PvTriggerMode>(word); break;
+            case 6: request.positionMode = static_cast<Ess::PositionMode>(word); break;
+            case 7: request.positiveLimit = value.numerator; break;
+            case 8: request.negativeLimit = value.numerator; break;
+            }
+        }
+        if (!hasAddress) { Snapshot snapshot; host_.snapshot(host_.context, snapshot); address = snapshot.address; }
+        if (address < 1 || address > 247) { error(id, "driver", "invalid_address"); return; }
+        bool available = false;
+        for (std::size_t i = 0; i < OUTSTANDING_CAPACITY - 1; ++i) available = available || !outstanding_[i].commandId;
+        uint32_t operationId = 0;
+        const Action result = available ? host_.startDriver(host_.context, id, static_cast<uint8_t>(address),
+            reading ? Ess::DriverKind::READ : Ess::DriverKind::UPDATE, request, operationId) : Action::BUSY;
+        if (result == Action::OK) track(id, operationId);
+        action(id, "driver", result, static_cast<uint8_t>(address), result == Action::OK ? operationId : 0);
+        return;
+    }
     const bool nativeVelocity = entry->command == Command::PROFILE && count > first + 2 &&
         std::strcmp(tokens[first + 1], "ess_rs") == 0 && std::strcmp(tokens[first + 2], "velocity") == 0;
     if (entry->command == Command::VELOCITY || nativeVelocity) {
@@ -793,8 +865,9 @@ void Console::dispatch() noexcept {
         case Command::ENABLE: case Command::MOTOR_RELEASE: case Command::ALARM_CLEAR: case Command::STOP: case Command::POSITION_CLEAR: return host_.startAction && host_.snapshot;
         case Command::MOVE: return host_.startMove && host_.snapshot && host_.axis;
         case Command::VELOCITY: return host_.startVelocity && host_.snapshot && host_.axis;
+        case Command::DRIVER: return host_.startDriver && host_.snapshot;
         case Command::PROFILE: return ((host_.startTypedRead || host_.startAction) && host_.snapshot) ||
-            ((host_.startMove || host_.startVelocity) && host_.snapshot && host_.axis);
+            ((host_.startMove || host_.startVelocity) && host_.snapshot && host_.axis) || (host_.startDriver && host_.snapshot);
         case Command::READ: case Command::READ_IDENTITY: case Command::READ_CONFIG: case Command::READ_STATE: case Command::HEALTH_CHECK: return host_.startTypedRead != nullptr;
         case Command::RESULT: return host_.result != nullptr;
         case Command::CANCEL: return host_.cancel != nullptr;
@@ -839,9 +912,9 @@ void Console::dispatch() noexcept {
         const auto caps = Ess::readCapabilities();
         Snapshot snapshot; host_.snapshot(host_.context, snapshot);
         std::snprintf(output_, sizeof(output_),
-            "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"caps\",\"ok\":true,\"probe\":%s,\"identity\":%s,\"config\":%s,\"state\":%s,\"max_steps\":%u,\"max_reply_bytes\":%u,\"writes\":true,\"motion\":%s,\"actions_qualified\":%s,\"axis_reserved\":%s,\"actions\":[\"enable\",\"release\",\"clear_alarm\",\"clear_position\",\"stop_normal\",\"stop_direct\"],\"device_queue_guarantee\":false,\"velocity\":%s,\"configured_ramp_policy\":true,\"acceleration_mapping\":false,\"velocity_unsupported\":[\"jerk\",\"blending\",\"live_updates\",\"torque\",\"current\",\"external_jog\"]}",
+            "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"caps\",\"ok\":true,\"probe\":%s,\"identity\":%s,\"config\":%s,\"state\":%s,\"max_steps\":%u,\"max_reply_bytes\":%u,\"writes\":true,\"motion\":%s,\"actions_qualified\":%s,\"axis_reserved\":%s,\"actions\":[\"enable\",\"release\",\"clear_alarm\",\"clear_position\",\"stop_normal\",\"stop_direct\"],\"device_queue_guarantee\":false,\"velocity\":%s,\"configured_ramp_policy\":true,\"acceleration_mapping\":false,\"velocity_unsupported\":[\"jerk\",\"blending\",\"live_updates\",\"torque\",\"current\",\"external_jog\"],\"driver_settings\":%s,\"limit_pair_writes\":false}",
             static_cast<unsigned long>(id), boolean(caps.probe), boolean(caps.identity), boolean(caps.config), boolean(caps.state), caps.maxSteps, caps.maxReplyBytes,
-            boolean(host_.startMove && host_.snapshot && host_.axis), boolean(snapshot.actionsQualified), boolean(snapshot.axisReserved), boolean(host_.startVelocity && host_.snapshot && host_.axis));
+            boolean(host_.startMove && host_.snapshot && host_.axis), boolean(snapshot.actionsQualified), boolean(snapshot.axisReserved), boolean(host_.startVelocity && host_.snapshot && host_.axis), boolean(host_.startDriver && host_.snapshot));
         emit(); return;
     }
     if (entry->command == Command::RESET || (entry->command == Command::STATS && arg)) {
@@ -864,14 +937,15 @@ void Console::dispatch() noexcept {
         if (!host_.result(host_.context, operationId, view)) { error(id, entry->name, "unavailable"); return; }
         if (view.pending) {
             std::snprintf(output_, sizeof(output_),
-                "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"result\",\"command_id\":%lu,\"operation_id\":%lu,\"ok\":true,\"result\":\"pending\",\"recovery\":%s,\"capture_read\":%s,\"read_kind\":%s,\"action_kind\":%s,\"stop_policy\":%s,\"move_kind\":%s,\"velocity\":%s}",
+                "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"result\",\"command_id\":%lu,\"operation_id\":%lu,\"ok\":true,\"result\":\"pending\",\"recovery\":%s,\"capture_read\":%s,\"read_kind\":%s,\"action_kind\":%s,\"stop_policy\":%s,\"move_kind\":%s,\"velocity\":%s,\"driver\":%s}",
                 static_cast<unsigned long>(id), static_cast<unsigned long>(view.commandId),
                 static_cast<unsigned long>(view.operationId), boolean(view.recovery), boolean(view.captureRead),
                 !view.typedRead ? "null" : view.typedRead->kind == Ess::ReadKind::IDENTITY ? "\"identity\"" : view.typedRead->kind == Ess::ReadKind::CONFIG ? "\"config\"" : "\"state\"",
                 !view.actionContext ? "null" : view.actionContext->request.kind == Core::ActionKind::ENABLE ? "\"enable\"" : view.actionContext->request.kind == Core::ActionKind::RELEASE ? "\"release\"" : view.actionContext->request.kind == Core::ActionKind::CLEAR_ALARM ? "\"clear_alarm\"" : view.actionContext->request.kind == Core::ActionKind::CLEAR_POSITION ? "\"clear_position\"" : "\"stop\"",
-                view.actionContext ? stopPolicy(view.actionContext->request) : "null", view.moveContext ? (view.moveContext->request.position.wrapped ? "\"angle\"" : view.moveContext->request.position.relative ? "\"relative\"" : "\"absolute\"") : "null", boolean(view.velocityContext != nullptr));
+                view.actionContext ? stopPolicy(view.actionContext->request) : "null", view.moveContext ? (view.moveContext->request.position.wrapped ? "\"angle\"" : view.moveContext->request.position.relative ? "\"relative\"" : "\"absolute\"") : "null", boolean(view.velocityContext != nullptr), boolean(view.driverContext != nullptr));
             emit();
-        } else if (view.velocityContext) formatVelocity(id, view.commandId, view.operationId, *view.velocityContext, true, view.interruptedByStop);
+        } else if (view.driverContext) formatDriver(id, view.commandId, view.operationId, *view.driverContext, true);
+        else if (view.velocityContext) formatVelocity(id, view.commandId, view.operationId, *view.velocityContext, true, view.interruptedByStop);
         else if (view.moveContext) formatMove(id, view.commandId, view.operationId, *view.moveContext, true, view.interruptedByStop);
         else if (view.actionContext) formatAction(id, view.commandId, view.operationId, *view.actionContext, true, view.interruptedByStop);
         else if (view.typedRead) formatRead(id, view.commandId, view.operationId, *view.typedRead, true);
@@ -1095,6 +1169,71 @@ bool Console::reportAction(uint32_t id, uint32_t operationId, const Ess::ActionC
         return true;
     }
     return false;
+}
+
+bool Console::reportDriver(uint32_t id, uint32_t operationId, const Ess::DriverContext& context) noexcept {
+    if (outputPending() || context.operationId != operationId ||
+        (context.state != Core::ReadState::SUCCEEDED && context.state != Core::ReadState::FAILED)) return false;
+    for (auto& item : outstanding_) if (item.commandId == id && item.operationId == operationId && !item.transferred) {
+        if (!formatDriver(id, id, operationId, context, false)) return false;
+        if (item.operationId == operationId) item.transferred = true;
+        return true;
+    }
+    return false;
+}
+
+bool Console::formatDriver(uint32_t id, uint32_t commandId, uint32_t operationId,
+                           const Ess::DriverContext& c, bool inspection) noexcept {
+    std::size_t used = 0;
+    uint64_t stationaryUntil = c.deadlineUs;
+    if (c.kind == Ess::DriverKind::UPDATE) {
+        const auto& p = c.prerequisites;
+        const uint64_t maximum = std::numeric_limits<uint64_t>::max();
+        const uint64_t until = p.maxAgeUs > maximum - p.stationaryEarliestUs ? maximum : p.stationaryEarliestUs + p.maxAgeUs;
+        if (until < stationaryUntil) stationaryUntil = until;
+    }
+    if (!append(output_, sizeof(output_), used,
+        "{\"type\":\"%s\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"%s\",\"command_id\":%lu,\"operation_id\":%lu,\"driver\":true,\"driver_kind\":\"%s\",\"ok\":%s,\"state\":\"%s\",\"outcome\":\"%s\",\"status\":\"%s\",\"detail\":%ld,\"target\":%lu,\"address\":%u,\"generation\":%lu,\"configuration_generation\":%lu,\"started_us\":%llu,\"deadline_us\":%llu,\"stationary_valid_until_us\":%llu,\"serviced_us\":%llu,\"completed_steps\":%u,\"fields\":%u,\"effects\":%u,\"uncertain\":%s,\"atomic\":false,\"active_settings_known\":false,\"progress_columns\":[\"field\",\"register\",\"previous\",\"requested\",\"acknowledged\",\"readback_known\",\"readback\",\"active_known\",\"active\",\"execution\"],\"progress\":[",
+        inspection ? "reply" : "driver", static_cast<unsigned long>(id), inspection ? "result" : "driver",
+        static_cast<unsigned long>(commandId), static_cast<unsigned long>(operationId), c.kind == Ess::DriverKind::READ ? "read" : "update",
+        boolean(c.state == Core::ReadState::SUCCEEDED), readState(c.state), driverOutcome(c.outcome), Core::errToString(c.status.code), static_cast<long>(c.status.detail),
+        static_cast<unsigned long>(c.target.id), c.target.address, static_cast<unsigned long>(c.target.generation), static_cast<unsigned long>(c.configurationGeneration),
+        static_cast<unsigned long long>(c.startedUs), static_cast<unsigned long long>(c.deadlineUs), static_cast<unsigned long long>(stationaryUntil), static_cast<unsigned long long>(c.servicedUs),
+        c.completedSteps, c.request.fields, c.effects, boolean(c.uncertain))) return false;
+    bool comma = false;
+    for (const auto& p : c.progress) if (p.selected) {
+        if (!append(output_, sizeof(output_), used, "%s[%u,%u,%u,%u,%s,%s,%u,%s,%u,\"%s\"]", comma ? "," : "",
+            static_cast<unsigned>(p.field), p.reg, p.previous, p.requested, boolean(p.acknowledged), boolean(p.readbackKnown), p.readback,
+            boolean(p.activeKnown), p.active, executionName(p.execution))) return false;
+        comma = true;
+    }
+    if (!append(output_, sizeof(output_), used,
+        "],\"evidence_columns\":[\"step\",\"register\",\"count\",\"write\",\"event\",\"raw_hex\",\"received_length\",\"tx_accepted\",\"tx_complete\",\"response_confirmed\",\"qualified\",\"execution_unknown\",\"earliest_us\",\"latest_us\",\"delivered_us\",\"transport_detail\",\"status\",\"detail\",\"frame_error\",\"attempted_us\"],\"evidence\":[")) return false;
+    comma = false;
+    for (std::size_t i = 0; i < Ess::DRIVER_MAX_STEPS; ++i) {
+        const auto& e = c.observations[i];
+        if (!e.count) continue;
+        char raw[Ess::DRIVER_MAX_REPLY_BYTES * 2 + 1]; hex(e.raw, e.length, raw, sizeof(raw));
+        if (!append(output_, sizeof(output_), used,
+            "%s[%u,%u,%u,%s,%u,\"%s\",%u,%u,%s,%s,%s,%s,%llu,%llu,%llu,%ld,\"%s\",%ld,%u,%llu]",
+            comma ? "," : "", e.step, e.reg, e.count, boolean(e.write), static_cast<unsigned>(e.event), raw,
+            static_cast<unsigned>(e.receivedLength), static_cast<unsigned>(e.txAccepted), boolean(e.txComplete), boolean(e.responseConfirmed),
+            boolean(e.qualified), boolean(e.executionUnknown), static_cast<unsigned long long>(e.earliestUs),
+            static_cast<unsigned long long>(e.latestUs), static_cast<unsigned long long>(e.deliveredUs), static_cast<long>(e.transportDetail),
+            Core::errToString(e.status.code), static_cast<long>(e.status.detail), static_cast<unsigned>(e.frameError), static_cast<unsigned long long>(e.attemptedUs))) return false;
+        comma = true;
+    }
+    if (!append(output_, sizeof(output_), used, "],\"observation\":")) return false;
+    if (c.kind == Ess::DriverKind::READ && Ess::getDriver(c, driverView_)) {
+        const auto& v = driverView_;
+        if (!append(output_, sizeof(output_), used,
+            "{\"raw\":[%u,%u,%u,%u,%u,%u,%u],\"known_fields\":%u,\"positive_words\":[%u,%u],\"negative_words\":[%u,%u],\"pair_known\":%s,\"positive_bits\":%lu,\"negative_bits\":%lu,\"signed_limits\":\"unresolved\",\"native_scale\":\"unresolved\"}",
+            v.raw[0], v.raw[1], v.raw[2], v.raw[3], v.raw[4], v.raw[5], v.raw[6], v.knownFields,
+            v.positiveWords[0], v.positiveWords[1], v.negativeWords[0], v.negativeWords[1], boolean(v.pairKnown),
+            static_cast<unsigned long>(v.positiveBits), static_cast<unsigned long>(v.negativeBits))) return false;
+    } else if (!append(output_, sizeof(output_), used, "null")) return false;
+    if (!append(output_, sizeof(output_), used, "}")) return false;
+    emit(inspection ? 0 : operationId); return true;
 }
 
 bool Console::formatAction(uint32_t id, uint32_t commandId, uint32_t operationId,

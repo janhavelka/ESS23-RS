@@ -2,6 +2,12 @@
 
 ## Architecture baseline
 
+Prompt13 implements [typed driver settings](ess_driver_settings.md), shared
+generation/effect invalidation, strict console/Python evidence and raw limit
+reads. [Native/build and read-only bench evidence](reports/ess_release_13_2026-10-04.md)
+pass; paired setters and physical settings/soft-limit qualification remain open.
+
+
 Prompt 12 records the [complete paired-write disposition](ess_pair_writes.md).
 The four FC10 windows now share the generated register-ledger policy; no new
 window or physical pair-write qualification is inferred. See the
@@ -51,9 +57,9 @@ actual C++ operation terminals now participate in a registered parity check.
 Implemented blocks include exact target preparation, typed non-changing reads, pure unit conversion, an ESS register catalogue,
 checked wire codecs with a minimal probe and standalone build foundations.
 The standalone RTU runner and ESP32-S3 adapter have native fake tests. The read-only
-probe CLI has bench evidence; external timing qualification, typed setting
-commands, motion workflows, discovery orchestration and full CLI coverage remain future
-work. See the [root README](../README.md)
+probe CLI has bench evidence. Selected typed settings and bounded motion workflows
+are implemented; physical qualification, remaining native settings, discovery
+orchestration and full CLI coverage remain future work. See the [root README](../README.md)
 for current code and builds.
 
 - [Standalone RTU runner](runner.md): current callback/timing contract, state

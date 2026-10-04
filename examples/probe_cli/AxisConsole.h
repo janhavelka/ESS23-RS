@@ -23,6 +23,7 @@ struct AxisCommand {
     MotorControlRS::PositionRequest position;
 };
 struct AxisView {
+    bool commandPolarityKnown = true;
     MotorControlRS::AxisConfig configuration;
     MotorControlRS::PreparedTarget prepared;
 };

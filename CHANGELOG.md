@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Add typed ESS driver-settings reads and seven stopped-state single-word
+  updates with checked readback, immutable partial progress and settings effects.
+  Preserve raw limit pairs and reject unreviewed pair writes before traffic.
+  Extend existing console/Python correlation and conservative cache invalidation.
+
+
 - Preserve reference age across host preference changes and invalidate origins
   on external movement during stop or other axis reservations. Retain clear
   uncertainty through failed observations, result release and recovery.

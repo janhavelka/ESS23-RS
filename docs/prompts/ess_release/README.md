@@ -1,8 +1,8 @@
 # ESS release implementation sequence
 
 Prepared 2026-10-03 against MotorControl-RS `4ae0c4d` (0.6.0).
-Preparing this set executed no numbered prompt. **Prompts 01–12 have implementation and available verification dispositions;
-13–30 remain prepared and unexecuted. Independent electrical and physical action/motion qualification remain open.**
+Preparing this set executed no numbered prompt. **Prompts 01–13 have implementation and available verification dispositions;
+14–30 remain prepared and unexecuted. Independent electrical and physical action/motion qualification remain open.**
 The current core, runner, ESP32-S3 capture and probe/load tools are existing work;
 do not rebuild them from an old prompt as if they were missing.
 
@@ -51,7 +51,7 @@ Never mark all preceding physical work qualified just because code compiles.
 | [10 — Absolute positions, wrapped angles and coordinate changes](10_absolute_angle_and_origins.md) | 6 | Implemented and freshly audited; native/package/build and corrected-image read-only COM13/zero-TX gates PASS; physical move/clear/unit comparisons NOT RUN, linear travel unqualified | [Handoff](../../reports/ess_release_10_2026-10-04.md), [fresh audit](../../reports/ess_release_10_audit_2026-10-04.md) |
 | [11 — Velocity operation and verified ramp semantics](11_velocity_and_ramp_semantics.md) | 6 | Implemented and freshly audited; native/package/build and read-only COM13/gates PASS; physical velocity/ramp/stop NOT RUN behind qualification gates | [Handoff](../../reports/ess_release_11_2026-10-04.md), [fresh audit](../../reports/ess_release_11_audit_2026-10-04.md) |
 | [12 — Resolve paired-register write support before expansion](12_paired_register_write_policy.md) | 7 prerequisite | Freshly audited all 20 writable pairs; generator address consistency fixed; four-window policy retained; native/package/build and read-only COM13 PASS; new pair forms/order and physical writes remain unresolved/NOT RUN | [Handoff](../../reports/ess_release_12_2026-10-04.md), [fresh audit](../../reports/ess_release_12_audit_2026-10-04.md), [per-pair disposition](../../ess_pair_writes.md) |
-| [13 — Typed driver settings and software limits](13_driver_configuration_and_limits.md) | 7 | Prepared | — |
+| [13 — Typed driver settings and software limits](13_driver_configuration_and_limits.md) | 7 | Implemented and independently audited; native/package/build and read-only COM13/gates PASS; pair setters unsupported, physical writes/limits NOT RUN | [Handoff](../../reports/ess_release_13_2026-10-04.md), [API](../../ess_driver_settings.md) |
 | [14 — Homing methods and reference establishment](14_homing_and_reference_establishment.md) | 6 / 7 | Prepared | — |
 | [15 — Optional digital I/O and external-control configuration](15_digital_io_and_external_controls.md) | 7 | Prepared | — |
 | [16 — Stored position/speed records and external triggers](16_stored_position_and_speed_segments.md) | 7 | Prepared | — |

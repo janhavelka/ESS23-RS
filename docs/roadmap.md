@@ -171,5 +171,10 @@ pass; exact firmware speed/ramp semantics and physical stopping remain NOT RUN.
 Prompt 12 [reviews every writable pair](ess_pair_writes.md) and generates the
 four-window FC10 policy from the same ledger. No new span or typed setter was
 justified; home-order, limits/stored-record forms and physical writes remain
-open. Native/package/build and read-only regression pass. Prompt 13 is next
-when separately dispatched, with those qualification obligations preserved.
+open. Native/package/build and read-only regression pass.
+
+Prompt13 implements [typed driver settings](ess_driver_settings.md), checked
+ACK/readback/partial progress and shared settings-effect invalidation. Native,
+installed package, firmware and read-only COM13 checks pass; actual settings
+changes/restoration and software-limit movement remain NOT RUN. Pair setters
+stay guarded. Prompt14 is next only when separately dispatched.
