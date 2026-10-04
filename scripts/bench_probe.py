@@ -488,6 +488,7 @@ class Console:
         self.last_operation_id = 0
         self.serial = None
         self.communication = None
+        self.communication_candidate = None
 
     def _lines(self, data: bytes) -> list[bytes]:
         self.buffer.extend(data)
@@ -2213,8 +2214,17 @@ class Console:
         if self.serial is not None and host["serial_generation"] != self.serial["serial_generation"]:
             self.serial = None
         c = item.get("context")
+        old = self.communication
+        if item["owned"] or (item["ok"] and expected["action"] in (1, 2, 3, 4, 5, 6)) or old:
+            require(isinstance(c, dict), "session lost retained context")
+        candidate_check = self.communication_candidate
         if c is not None:
             require(isinstance(c, dict) and self._operation_id(c.get("operation_id")), "invalid context")
+            new_session = old is None or c["operation_id"] != old["operation_id"]
+            if old and new_session:
+                require(expected["action"] == 1, "session changed without begin")
+            if new_session:
+                candidate_check = None
             for key in ("readback_known", "observed_active_known", "activation_unknown", "effects", "uncertain"):
                 require(type(c.get(key)) is bool, "invalid context " + key)
             require(c["activation_unknown"], "readback cannot establish activation")
@@ -2225,6 +2235,9 @@ class Console:
             require((c["state"] == 1 and c["outcome"] == 0) or (c["state"] == 2 and c["outcome"] in (1, 3)) or
                     (c["state"] == 3 and c["outcome"] in (2, 4, 5, 6, 7, 8, 9, 10)), "state/outcome mismatch")
             require(c.get("field") in ("address", "baud", "format") and c.get("register") == {"address":19,"baud":20,"format":21}[c["field"]], "wrong field/register")
+            address_setting = c["field"] == "address"
+            require(c.get("save") == ("required" if address_setting else "unresolved") and
+                    c.get("restart") == ("unresolved" if address_setting else "required"), "false retained source requirements")
             require(type(c.get("requested")) is int and (1 <= c["requested"] <= 247 if c["field"] == "address" else 0 <= c["requested"] <= 3), "invalid candidate value")
             require(c["step"] > 0 or c["write_outcome"] == c["outcome"], "write outcome mismatch")
             require(c["step"] == 0 or c["write_outcome"] != 0, "confirmation lacks completed write")
@@ -2306,10 +2319,26 @@ class Console:
             if c["observed_active_known"]:
                 latest=observations[c["step"]]
                 require(c["step"] > 0 and latest.get("readback_known") is True and c["observed_active"] == latest.get("endpoint"), "foreign or unproven observed interface")
-            if item["ok"] and expected["action"] == 1:
+            if expected["action"] == 1 and (item["ok"] or (old is not None and new_session)):
+                require(new_session and c["step"] == 0, "begin did not start a new write attempt")
                 require(c.get("field") == expected["field"] and c.get("requested") == expected["value"] and c.get("register") == expected["register"], "begun candidate differs")
+                require(c["before"]["address"] == plan["address"], "begun target differs")
                 require(item["owned"] and item["route_ready"], "begin lacks ownership/route")
-            old = self.communication
+            if item["ok"] and expected["action"] in (2, 3, 4, 5):
+                require(item["owned"], "session action lost ownership")
+                selected = c["before"] if expected["action"] in (2, 4) else c["requested_endpoint"]
+                fmt = "8N2" if selected["stop_bits"] == 2 else {1:"8N1", 2:"8E1", 3:"8O1"}[selected["parity"]]
+                require(host["active_known"] and not host["blocked"] and
+                        host["active"] == dict(baud=selected["baud"], format=fmt), "selected host differs from requested candidate")
+                if expected["action"] in (4, 5):
+                    require(c["step"] > 0 and (old is None or c["step"] == old["step"] + 1), "confirmation did not start a new attempt")
+                    candidate_check = (c["operation_id"], c["step"], dict(selected))
+            if candidate_check is not None:
+                operation_id, step, selected = candidate_check
+                require(c["operation_id"] == operation_id and c["step"] >= step, "selected confirmation disappeared")
+                observation = c["confirmation_evidence"][step - 1]
+                if observation["deadline_us"]:
+                    require(observation["endpoint"] == selected, "confirmation differs from selected candidate")
             if old and c["operation_id"] == old["operation_id"]:
                 for key in ("field", "register", "previous", "requested", "before", "requested_endpoint"):
                     require(c.get(key) == old.get(key), "retained candidate changed: " + key)
@@ -2320,7 +2349,6 @@ class Console:
                 for index, retained in enumerate(old["confirmation_evidence"]):
                     if retained["deadline_us"]:
                         require(c["confirmation_evidence"][index] == retained, "confirmation evidence or budget changed")
-            self.communication = json.loads(json.dumps(c))
         if item["ok"] and expected["action"] == 6:
             require(not item["owned"] and not item["pending"] and host["active_known"] and not host["blocked"], "finish did not settle ownership")
             require(c is not None, "finish lost retained context")
@@ -2329,6 +2357,9 @@ class Console:
             settled=c["before"] if no_write else c["observed_active"]
             fmt="8N2" if settled["stop_bits"] == 2 else {1:"8N1",2:"8E1",3:"8O1"}[settled["parity"]]
             require(host["active"] == dict(baud=settled["baud"],format=fmt), "finish host differs from confirmed endpoint")
+        if c is not None:
+            self.communication = json.loads(json.dumps(c))
+            self.communication_candidate = candidate_check
 
     def _complete(self, handle: Command, item: dict) -> None:
         if self.clock() >= handle.deadline:
@@ -2956,15 +2987,25 @@ def communication_campaign(console: Console, *, field: str, value: str, address:
     deadline = console.clock() + timeout_s
     writes = reads = 0
     failure = None
+    operation_id = None
     def command(args):
+        nonlocal operation_id
         remaining = deadline - console.clock()
         if remaining <= 0:
             raise BenchError("communication procedure deadline; retained session requires inspection")
         result = console.command("communication", host_args=args, timeout_s=remaining)
         if not result["ok"]:
             raise BenchError("communication command refused: " + str(result.get("result")))
+        context = result.get("context") or {}
+        if args[0] == "begin":
+            operation_id = context.get("operation_id")
+            if not Console._operation_id(operation_id):
+                raise BenchError("communication begin omitted session identity")
+        elif operation_id is not None and context.get("operation_id") != operation_id:
+            raise BenchError("communication procedure session changed; no further work attempted")
         return result
     def settled(result):
+        step = (result.get("context") or {}).get("step")
         for _ in range(100):
             if not result["pending"]:
                 return result
@@ -2973,6 +3014,8 @@ def communication_campaign(console: Console, *, field: str, value: str, address:
                 break
             console.sleep(min(0.01, remaining))
             result = command(("inspect",))
+            if (result.get("context") or {}).get("step") != step:
+                raise BenchError("communication procedure attempt changed; no further work attempted")
         raise BenchError("communication pending bound reached; no command replay or automatic cleanup")
     try:
         result = command(tokens)
@@ -2984,7 +3027,7 @@ def communication_campaign(console: Console, *, field: str, value: str, address:
         writes += 1  # Counts attempts even when the console response is lost.
         result = settled(command(("begin", field, value, str(address))))
         context = result.get("context") or {}
-        if context.get("state") != 2 or context.get("status") != "OK":
+        if context.get("step") != 0 or context.get("state") != 2 or context.get("status") != "OK":
             raise BenchError("write outcome is not confirmed success; inspect retained context and direct recovery explicitly")
         if confirm is not None:
             command(("host", confirm))

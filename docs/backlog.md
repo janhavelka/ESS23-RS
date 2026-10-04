@@ -2,6 +2,11 @@
 
 ## Prompt20 drive communication commissioning
 
+The [fresh independent audit](reports/ess_release_20_audit_2026-10-04.md) fixes
+confirmation retention on unchanged host selection and exact Python
+candidate/session correlation. Native/package/four builds and37 corrected-image
+read-only frames PASS; physical activation/restoration gates remain open.
+
 - [x] Typed address/baud/format preparations, exact before/requested/readback/responding contexts, exclusive owner lease and finite explicit confirmation; no hidden save, restart or replay.
 - [x] Native core/owner/actual application/CLI/Python failure cases, installed consumer and four firmware builds PASS; final COM13 image passes 37 read-only frames and all three zero-TX qualification gates. See [handoff](reports/ess_release_20_2026-10-04.md) and [API](ess_communication.md).
 - [ ] Physical setting changes, activation and restoration NOT RUN: actual motor restart and qualified route back are unavailable. Address save activation goes to prompt21; baud/format save requirement and acknowledgement/activation timing remain unresolved.

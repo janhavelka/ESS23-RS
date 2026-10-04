@@ -119,8 +119,12 @@ Probe::Action communication(void* context, const Probe::CommunicationCommand* co
         Probe::HostRequest request;
         request.tuple = communicationHost(command->kind == Kind::SELECT_BEFORE ?
             a.commissioning.beforeSerial : a.commissioning.requestedSerial);
+        const uint32_t previousGeneration = a.serial.generation;
         const auto selected = hostSerialImpl(&a, &request, out.host, true);
-        a.commissioningConfirmedGeneration = 0;
+        // Selecting an already-active tuple performs no reconfiguration and
+        // does not invalidate its retained candidate response.
+        if (selected != Probe::Action::OK || a.serial.generation != previousGeneration)
+            a.commissioningConfirmedGeneration = 0;
         communicationView(a, out); return selected;
     }
     if (command->kind == Kind::CONFIRM_BEFORE || command->kind == Kind::CONFIRM_REQUESTED) {

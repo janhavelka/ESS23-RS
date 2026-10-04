@@ -77,6 +77,7 @@ class Campaign:
         assert name=="communication"
         self.calls.append(host_args)
         item=response(host_args,route_ready=self.route)
+        if host_args[0] in ("host", "finish"):item["context"]=context()
         if host_args[0]=="begin":item.update(owned=True,pending=self.fail=="pending",context=context())
         if host_args[0]=="inspect":item.update(owned=True,pending=self.fail=="pending",context=context())
         if host_args[0]=="confirm":item.update(owned=True,context=context(observed_active_known=True))
@@ -110,6 +111,88 @@ class CommunicationTests(unittest.TestCase):
         c,p=self.console(lambda t:response(t,ok=False,result="unavailable",route_ready=False))
         r=c.command("communication",host_args=("begin","baud","9600"),timeout_s=.1)
         self.assertFalse(r["ok"]);self.assertFalse(r["route_ready"]);self.assertEqual(len(p.sent),1)
+    def test_first_refused_begin_can_inspect_existing_different_session(self):
+        retained=context(step=1,confirmations=1,state=3,outcome=6,status="TIMEOUT",
+                         confirmation_evidence=[observation(1,failed=True)])
+        c,p=self.console(lambda t:response(t,ok=False,result="busy",owned=True,context=retained))
+        r=c.command("communication",host_args=("begin","baud","38400","2"),timeout_s=.1)
+        self.assertFalse(r["ok"])
+        self.assertEqual(r["context"],retained)
+        self.assertEqual(len(p.sent),1)
+    def test_begin_requires_context_and_exact_target(self):
+        for retained in (None, context()):
+            c,p=self.console(lambda t:response(t,owned=True,context=retained))
+            with self.subTest(retained=retained),self.assertRaises(bench.BenchError):
+                c.command("communication",host_args=("begin","baud","9600","2"),timeout_s=.1)
+            self.assertEqual(len(p.sent),1)
+        c,p=self.console(lambda t:response(t,owned=True,context=context()))
+        self.assertTrue(c.command("communication",host_args=("begin","baud","9600","1"),timeout_s=.1)["ok"])
+    def test_selected_host_and_confirmation_match_requested_candidate(self):
+        confirmed=context(step=1,confirmations=1,outcome=3,readback_known=True,readback=3,
+                          observed_active_known=True,confirmation_evidence=[observation(1)])
+        for action,retained in (("host",context()),("confirm",confirmed)):
+            def factory(tokens):
+                r=response(tokens,owned=True,context=retained)
+                # For confirm the host switched correctly, but the evidence is
+                # from the other candidate. Both must be independently checked.
+                if action=="confirm":r["host"]["active"]["baud"]=9600
+                return r
+            c,p=self.console(factory)
+            with self.subTest(action=action),self.assertRaises(bench.BenchError):
+                c.command("communication",host_args=(action,"requested"),timeout_s=.1)
+            self.assertEqual(len(p.sent),1)
+        c,p=self.console(lambda t:response(t,owned=True,context=confirmed))
+        self.assertTrue(c.command("communication",host_args=("confirm","before"),timeout_s=.1)["ok"])
+    def test_pending_confirmation_retains_selected_candidate_through_inspection(self):
+        pending=context(step=1,confirmations=1,state=1,outcome=0,confirmation_evidence=[
+            dict(eligible_us=0,deadline_us=0,wire={})])
+        confirmed=context(step=1,confirmations=1,outcome=3,readback_known=True,readback=3,
+                          observed_active_known=True,confirmation_evidence=[observation(1)])
+        def factory(tokens):
+            r=response(tokens,owned=True,pending=tokens[0]=="confirm",
+                       context=pending if tokens[0]=="confirm" else confirmed)
+            r["host"]["active"]["baud"]=9600
+            return r
+        c,p=self.console(factory)
+        self.assertTrue(c.command("communication",host_args=("confirm","requested"),timeout_s=.1)["pending"])
+        with self.assertRaises(bench.BenchError):
+            c.command("communication",host_args=("inspect",),timeout_s=.1)
+        self.assertEqual(len(p.sent),2)
+    def test_false_context_source_requirements_are_rejected(self):
+        for field in ("save","restart"):
+            retained=context(**{field:"not_required"})
+            c,p=self.console(lambda t:response(t,context=retained))
+            with self.subTest(field=field),self.assertRaises(bench.BenchError):
+                c.command("communication",host_args=("inspect",),timeout_s=.1)
+    def test_inspection_cannot_replace_or_drop_session(self):
+        for replacement in (None,context(operation_id=6)):
+            retained=context()
+            c,p=self.console(lambda t:response(t,context=retained))
+            c.command("communication",host_args=("inspect",),timeout_s=.1)
+            retained=replacement
+            with self.subTest(replacement=replacement),self.assertRaises(bench.BenchError):
+                c.command("communication",host_args=("inspect",),timeout_s=.1)
+            self.assertEqual(len(p.sent),2)
+    def test_refused_selection_and_new_begin_preserve_valid_diagnostics(self):
+        retained=context(state=3,outcome=6,status="TIMEOUT",write_outcome=6,execution=3,
+                         uncertain=True,write_evidence=observation(failed=True))
+        c,p=self.console(lambda t:response(t,owned=True,context=retained,
+            ok=t[0]!="host",result="failed" if t[0]=="host" else "done"))
+        c.command("communication",host_args=("inspect",),timeout_s=.1)
+        self.assertFalse(c.command("communication",host_args=("host","requested"),timeout_s=.1)["ok"])
+        # An explicit new begin may replace the historical session.
+        retained=context(operation_id=6)
+        self.assertTrue(c.command("communication",host_args=("begin","baud","9600","1"),timeout_s=.1)["ok"])
+    def test_begin_cannot_reuse_old_session_or_confirmation(self):
+        for replacement in (context(), context(operation_id=6,step=1,confirmations=1,outcome=3,
+                readback_known=True,readback=3,observed_active_known=True,confirmation_evidence=[observation(1)])):
+            retained=context()
+            c,p=self.console(lambda t:response(t,owned=t[0]=="begin",context=retained))
+            c.command("communication",host_args=("plan","baud","9600","1"),timeout_s=.1)
+            retained=replacement
+            with self.subTest(replacement=replacement),self.assertRaises(bench.BenchError):
+                c.command("communication",host_args=("begin","baud","9600","1"),timeout_s=.1)
+            self.assertEqual(len(p.sent),2)
     def test_retained_candidates_cannot_change_on_inspection(self):
         retained=context()
         c,p=self.console(lambda t:response(t,owned=True,context=copy.deepcopy(retained)))
@@ -174,6 +257,30 @@ class CommunicationTests(unittest.TestCase):
     def test_explicit_success_one_write_one_read_finish(self):
         c=Campaign();bench.communication_campaign(c,field="baud",value="9600",address=1,timeout_s=1,execute=True,confirm="before",finish=True)
         self.assertEqual([x[0] for x in c.calls],["plan","begin","host","confirm","finish"])
+    def test_campaign_stops_if_pending_session_changes(self):
+        class ReplacedCampaign(Campaign):
+            def command(self,name,*,host_args,timeout_s):
+                item=super().command(name,host_args=host_args,timeout_s=timeout_s)
+                if host_args[0]=="begin":item["pending"]=True
+                if host_args[0]=="inspect":item["context"]["operation_id"]+=1
+                return item
+        c=ReplacedCampaign()
+        with self.assertRaises(bench.BenchError):
+            bench.communication_campaign(c,field="baud",value="9600",address=1,
+                                         timeout_s=1,execute=True,confirm="requested",finish=True)
+        self.assertEqual([x[0] for x in c.calls],["plan","begin","inspect"])
+    def test_campaign_stops_if_write_poll_returns_confirmation(self):
+        class AdvancedCampaign(Campaign):
+            def command(self,name,*,host_args,timeout_s):
+                item=super().command(name,host_args=host_args,timeout_s=timeout_s)
+                if host_args[0]=="begin":item["pending"]=True
+                if host_args[0]=="inspect":item["context"]["step"]=1
+                return item
+        c=AdvancedCampaign()
+        with self.assertRaises(bench.BenchError):
+            bench.communication_campaign(c,field="baud",value="9600",address=1,
+                                         timeout_s=1,execute=True,confirm="requested",finish=True)
+        self.assertEqual([x[0] for x in c.calls],["plan","begin","inspect"])
     def test_failure_has_no_replay_or_automatic_cleanup(self):
         for failure in ("begin","lost_ack","host","confirm","pending"):
             c=Campaign(fail=failure)

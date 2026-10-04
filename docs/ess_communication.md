@@ -71,6 +71,9 @@ commands reuse prompt 19's adapter/timing/reconfiguration implementation.
 Failed configuration keeps the host blocked and both candidates inspectable;
 successful UART repair alone does not establish a responding target. Recovery
 does not clear write evidence or replay it.
+Selecting an already-active, settled host tuple preserves its current candidate
+confirmation. An actual host change, failed selection or recovery invalidates
+finish eligibility and requires a new explicit confirmation.
 
 After possible transmission, old transport-confidence caches are invalidated.
 Session finish requires a settled known host and a checked candidate response

@@ -297,6 +297,39 @@ void recoveryExcludesUnharvestedConfirmation() {
     assert(command(Kind::CONFIRM_BEFORE) == Probe::Action::OK); reply(words({1}));
     assert(command(Kind::FINISH) == Probe::Action::OK);
 }
+
+void unchangedHostSelectionPreservesConfirmation() {
+    fresh(); configuration(); begin(); reply();
+    assert(command(Kind::CONFIRM_BEFORE) == Probe::Action::OK); reply(words({1}));
+    assert(command(Kind::CONFIRM_BEFORE) == Probe::Action::OK); reply(words({1}));
+    assert(app->commissioning.confirmations == 2);
+    const auto generation = app->serial.generation;
+    const auto writes = hardware.writes;
+    const auto configurations = hardware.configCalls;
+    assert(app->commissioningConfirmedGeneration == generation);
+    assert(command(Kind::SELECT_BEFORE) == Probe::Action::OK);
+    assert(app->serial.generation == generation && hardware.configCalls == configurations);
+    assert(app->commissioningConfirmedGeneration == generation);
+    assert(command(Kind::FINISH) == Probe::Action::OK && hardware.writes == writes);
+}
+
+void confirmationWaitsForRecoveryQuarantine() {
+    fresh(); configuration(); begin(); reply();
+    uint32_t id = 0;
+    assert(host(app).recover(app, 77, id) == Probe::Action::OK);
+    const auto guard = app->recoveryGuardUntilUs;
+    const auto writes = hardware.writes;
+    while (hardware.time + 100 < guard) {
+        assert(command(Kind::CONFIRM_BEFORE) == Probe::Action::RECOVERY_REQUIRED);
+        step(100);
+    }
+    assert(!app->commissioning.confirmations && hardware.writes == writes);
+    for (unsigned i = 0; i < 10000 && !app->owner.recoveryResult(app->recovery.id); ++i) step();
+    assert(hardware.time >= guard);
+    assert(app->owner.recoveryResult(app->recovery.id)->outcome == Rtu::RecoveryOutcome::RECOVERED);
+    assert(command(Kind::CONFIRM_BEFORE) == Probe::Action::OK); reply(words({1}));
+    assert(command(Kind::FINISH) == Probe::Action::OK);
+}
 }
 int main() {
     prerequisitesAndExclusiveAdmission(); storedReadbackAndKnownRestoration();
@@ -306,4 +339,6 @@ int main() {
     rejectedWriteRetainsCandidates(); delayedDeliveryUsesCapturedClosure();
     recoveryInvalidatesPriorConfirmation();
     recoveryExcludesUnharvestedConfirmation();
+    unchangedHostSelectionPreservesConfirmation();
+    confirmationWaitsForRecoveryQuarantine();
 }

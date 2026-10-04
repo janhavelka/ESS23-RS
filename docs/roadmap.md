@@ -1,5 +1,10 @@
 # Roadmap to a supported ESS release
 
+The [fresh prompt20 audit](reports/ess_release_20_audit_2026-10-04.md) fixes
+unchanged-host confirmation retention and strict CLI/Python evidence correlation.
+All52 native suites, installed consumption, four firmware builds and37 corrected-
+image read-only frames pass. Physical commissioning remains NOT RUN.
+
 Prompt20 implements [drive communication commissioning](ess_communication.md)
 with retained candidate contexts, exclusive owner admission and explicit bounded
 confirmation/restoration. All 52 native suites, installed consumption and four

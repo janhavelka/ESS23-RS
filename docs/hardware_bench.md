@@ -1,5 +1,10 @@
 # Motor bench and testing authorization
 
+[Prompt20 fresh audit](reports/ess_release_20_audit_2026-10-04.md) repeats37
+read-only frames on the corrected image with zero failures and unchanged
+configuration. No communication write/save/motor restart occurred; physical
+activation/restoration still requires an actual restart and qualified route back.
+
 [Prompt20 final-image evidence](reports/ess_release_20_2026-10-04.md) passes
 37 read-only frames with unchanged identity/configuration/state and zero errors
 at node1/1152008N1. Address/baud/format begin gates reject before TX; no motor
