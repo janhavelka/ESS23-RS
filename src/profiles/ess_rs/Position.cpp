@@ -63,7 +63,7 @@ ActionExecution execution(const ActionEvidence& evidence) {
 }
 } // namespace
 
-Status prepareMoveRelative(MoveContext& output, const AxisConfig& axis, const AxisReference* reference,
+static Status prepareMove(MoveContext& output, const AxisConfig& axis, const AxisReference* reference,
         uint32_t operationId, const MoveRequest& request, const MovePrerequisites& prerequisites,
         uint64_t nowUs, uint64_t deadlineUs, const ActionOptions& options) noexcept {
     if (!axis.target.id || !axis.target.generation || !isValidAddress(axis.target.address))
@@ -72,7 +72,7 @@ Status prepareMoveRelative(MoveContext& output, const AxisConfig& axis, const Ax
     if (deadlineUs <= nowUs) return invalid(MoveError::INVALID_DEADLINE, "expired move deadline");
     if (!options.pollIntervalUs || !options.maxPolls || options.maxPolls > ACTION_MAX_POLLS)
         return invalid(MoveError::INVALID_OPTIONS, "invalid bounded move observation policy");
-    if (!request.position.relative || request.position.basis != RelativeBasis::ACTUAL)
+    if (request.position.relative && request.position.basis != RelativeBasis::ACTUAL)
         return Status(Err::UNSUPPORTED, static_cast<int32_t>(MoveError::UNRESOLVED_BASIS),
             "ESS finite relative move requires the verified actual-position basis");
     if (!sameTarget(axis.target, prerequisites.target) ||
@@ -80,8 +80,11 @@ Status prepareMoveRelative(MoveContext& output, const AxisConfig& axis, const Ax
         return invalid(MoveError::STALE_CONFIGURATION, "move prerequisite binding mismatch");
     if (!prerequisites.commandUnitsVerified)
         return invalid(MoveError::UNRESOLVED_UNITS, "device command increment interpretation is unresolved");
-    if (!prerequisites.relativeBasisVerified)
+    if (request.position.relative && !prerequisites.relativeBasisVerified)
         return invalid(MoveError::UNRESOLVED_BASIS, "relative basis is unresolved for this configuration");
+    if (!request.position.relative && (!reference || !reference->nativeKnown ||
+        reference->basis != RelativeBasis::ACTUAL || !reference->stationary))
+        return invalid(MoveError::READINESS, "absolute positioning needs established stationary actual command coordinates");
     if (request.ramp != MoveRamp::VERIFIED_CONFIGURED || !prerequisites.configuredRampVerified ||
         prerequisites.accelerationTime > 2000 || prerequisites.decelerationTime > 2000)
         return invalid(MoveError::UNRESOLVED_RAMP, "verified configured native ramps are required");
@@ -110,12 +113,13 @@ Status prepareMoveRelative(MoveContext& output, const AxisConfig& axis, const Ax
         const uint64_t writeEnd = readinessEnd < deadlineUs ? readinessEnd : deadlineUs;
         if (ageDeadline(reference->observedUs, reference->maximumAgeUs) < writeEnd)
             return invalid(MoveError::READINESS, "native reference freshness must cover both write budgets");
+        prepared.reference = *reference;
     }
     if (prepared.prepared.zeroDisplacement)
         return failed(MoveError::INVALID_REQUEST, "effective relative displacement is zero");
     const int64_t native = prepared.prepared.effectiveNative;
     if (native < std::numeric_limits<int32_t>::min() || native > std::numeric_limits<int32_t>::max())
-        return failed(MoveError::INVALID_REQUEST, "relative target exceeds the supported signed 32-bit subset");
+        return failed(MoveError::INVALID_REQUEST, "target exceeds the supported signed 32-bit subset");
     if (native < 0 && !prerequisites.negativeTwosComplementVerified)
         return invalid(MoveError::UNRESOLVED_SIGN, "negative ESS position encoding is unresolved");
     prepared.words[0] = prerequisites.accelerationTime;
@@ -135,6 +139,28 @@ Status prepareMoveRelative(MoveContext& output, const AxisConfig& axis, const Ax
     return Ok();
 }
 
+Status prepareMoveRelative(MoveContext& output, const AxisConfig& axis, const AxisReference* reference,
+        uint32_t id, const MoveRequest& request, const MovePrerequisites& prerequisites,
+        uint64_t now, uint64_t deadline, const ActionOptions& options) noexcept {
+    if (!request.position.relative || request.position.wrapped)
+        return invalid(MoveError::INVALID_REQUEST, "relative preparation requires an unwrapped relative request");
+    return prepareMove(output, axis, reference, id, request, prerequisites, now, deadline, options);
+}
+Status prepareMoveAbsolute(MoveContext& output, const AxisConfig& axis, const AxisReference* reference,
+        uint32_t id, const MoveRequest& request, const MovePrerequisites& prerequisites,
+        uint64_t now, uint64_t deadline, const ActionOptions& options) noexcept {
+    if (request.position.relative || request.position.wrapped)
+        return invalid(MoveError::INVALID_REQUEST, "absolute preparation requires an unwrapped absolute request");
+    return prepareMove(output, axis, reference, id, request, prerequisites, now, deadline, options);
+}
+Status prepareMoveAngle(MoveContext& output, const AxisConfig& axis, const AxisReference* reference,
+        uint32_t id, const MoveRequest& request, const MovePrerequisites& prerequisites,
+        uint64_t now, uint64_t deadline, const ActionOptions& options) noexcept {
+    if (request.position.relative || !request.position.wrapped)
+        return invalid(MoveError::INVALID_REQUEST, "angle preparation requires an explicit wrapped request");
+    return prepareMove(output, axis, reference, id, request, prerequisites, now, deadline, options);
+}
+
 Status nextMove(const MoveContext& c, uint64_t nowUs, PreparedMove& output) noexcept {
     if (c.state == ActionState::EMPTY) return invalid(MoveError::INVALID_STATE, "move is empty");
     if (nowUs < c.servicedUs) return invalid(MoveError::CLOCK_ERROR, "move clock moved backwards");
@@ -152,7 +178,8 @@ Status nextMove(const MoveContext& c, uint64_t nowUs, PreparedMove& output) noex
             next.bytes, sizeof(next.bytes));
     } else if (c.step == 1) {
         next.function = 6; next.reg = Registers::MOTION_COMMAND;
-        next.value = static_cast<uint16_t>(MotionCommandBit::START_POSITION); next.count = 1;
+        next.value = static_cast<uint16_t>(MotionCommandBit::START_POSITION) |
+            (c.request.position.relative ? 0 : static_cast<uint16_t>(MotionCommandBit::ABSOLUTE_POSITION)); next.count = 1;
         next.length = buildWriteSingleRegister(c.target.address, next.reg, next.value, next.bytes, sizeof(next.bytes));
     } else {
         next.function = 3; next.reg = Registers::ERROR_CODE; next.count = 2;
@@ -195,7 +222,8 @@ Status advanceMove(MoveContext& c, const ActionEvent& supplied, uint64_t nowUs) 
         if (c.step == 0) evidence.status = parseWriteMultipleRegisters(event.frame, event.length, c.target.address,
             Registers::POSITION_ACCELERATION_TIME, 5, &evidence.frameError);
         else if (c.step == 1) evidence.status = parseWriteSingleRegister(event.frame, event.length, c.target.address,
-            Registers::MOTION_COMMAND, static_cast<uint16_t>(MotionCommandBit::START_POSITION), &evidence.frameError);
+            Registers::MOTION_COMMAND, static_cast<uint16_t>(MotionCommandBit::START_POSITION) |
+                (c.request.position.relative ? 0 : static_cast<uint16_t>(MotionCommandBit::ABSOLUTE_POSITION)), &evidence.frameError);
         else evidence.status = parseRegisters(event.frame, event.length, c.target.address, 2,
             words, 2, count, &evidence.frameError);
     } else if (event.kind == ReadEventKind::CANCEL)

@@ -43,6 +43,7 @@ struct ActionContext {
     uint16_t reg = 0, value = 0;
     bool observationKnown = false;
     uint16_t rawAlarm = 0, rawMotion = 0; ///< Last valid report, including unknown bits.
+    uint32_t rawPosition = 0; ///< CLEAR_POSITION only: first wire word <<16 | second; zero check needs no word order. No signed-coordinate/origin proof.
     ActionEvidence writeEvidence, lastObservation, failureEvidence;
     Status status;
 };
@@ -75,6 +76,15 @@ Status prepareRelease(ActionContext&, const ReadTarget&, uint32_t operationId,
                       uint64_t nowUs, uint64_t deadlineUs, const ActionOptions& = ActionOptions()) noexcept;
 Status prepareClearAlarm(ActionContext&, const ReadTarget&, uint32_t operationId,
                          uint64_t nowUs, uint64_t deadlineUs, const ActionOptions& = ActionOptions()) noexcept;
+/** Explicit ESS zero-only counter clear (auxiliary 0x0031 at 0x002D).
+ * Requires caller-qualified semantics/stopped-state policy before preparation.
+ * Nonzero positions reject without yielding work. The ACK is followed by new
+ * checked current-position pair observations; zero establishes neither homing,
+ * host origin, signed encoding nor feedback-to-command coordinate mapping. */
+Status prepareSetDevicePosition(ActionContext&, const ReadTarget&, uint32_t operationId,
+                                int64_t nativePosition, bool qualified,
+                                uint64_t nowUs, uint64_t deadlineUs,
+                                const ActionOptions& = ActionOptions()) noexcept;
 Status prepareStop(ActionContext&, const ReadTarget&, uint32_t operationId, const StopPolicy&,
                    uint64_t nowUs, uint64_t deadlineUs, const ActionOptions& = ActionOptions()) noexcept;
 Status prepareNormalStop(ActionContext&, const ReadTarget&, uint32_t operationId,
@@ -104,6 +114,11 @@ inline Status prepareRelease(ESS_RS::ActionContext& c, const ReadTarget& t, uint
 inline Status prepareClearAlarm(ESS_RS::ActionContext& c, const ReadTarget& t, uint32_t id,
                                 uint64_t now, uint64_t deadline, const ActionOptions& options = ActionOptions()) noexcept {
     return ESS_RS::prepareClearAlarm(c, t, id, now, deadline, options);
+}
+inline Status prepareSetDevicePosition(ESS_RS::ActionContext& c, const ReadTarget& t, uint32_t id,
+        int64_t nativePosition, bool qualified, uint64_t now, uint64_t deadline,
+        const ActionOptions& options = ActionOptions()) noexcept {
+    return ESS_RS::prepareSetDevicePosition(c, t, id, nativePosition, qualified, now, deadline, options);
 }
 inline Status prepareStop(ESS_RS::ActionContext& c, const ReadTarget& t, uint32_t id,
                           const StopPolicy& policy, uint64_t now, uint64_t deadline,

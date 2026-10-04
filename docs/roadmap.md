@@ -7,8 +7,10 @@ future version numbers are not commitments.
 
 The [ESS release prompt set](prompts/ess_release/README.md) turns these stages
 into 30 ordered implementation blocks with tests, independent audits and
-evidence handoffs. Prompts 01–09 have implementation and available verification
-dispositions; prompt 10 remains separately dispatched. The [relative-position handoff](reports/ess_release_09_2026-10-04.md) supplies finite staging/trigger/completion APIs while physical moves remain gated. The [action/stop handoff](reports/ess_release_08_2026-10-04.md)
+evidence handoffs. Prompts 01–10 have implementation and available verification
+dispositions. [Prompt10](reports/ess_release_10_2026-10-04.md) adds absolute/wrapped
+coordinates and device zero-clear while physical comparisons remain gated.
+The [relative-position handoff](reports/ess_release_09_2026-10-04.md) supplies finite staging/trigger/completion APIs while physical moves remain gated. The [action/stop handoff](reports/ess_release_08_2026-10-04.md)
 has native reservations, uncertainty and priority stop, plus read-only COM13 and
 zero-TX gate evidence. Physical actions and motion require independent timing/echo
 qualification; no live move or dynamic-stop claim is made.
@@ -67,7 +69,7 @@ this session; integrating there is a separate delivery step.
 | 3. Small bus-owner reference | Bounded request queue, retained results, fairness, deadlines and priority for a pending stop after settling in-flight TX | Multiple simulated clients, full queue, cancellation and starvation tests; read-only hardware regression under load | Prompts 01–03 implemented/native/build PASS; actual owner console and read-only loaded/interleaved timer bench PASS; no physical stop or electrical qualification |
 | 4. Typed ESS observations | Identity, firmware/configuration, alarms, readiness and position/velocity observations | Original-manual review; exact model readback; validity/freshness independent of communication health | Prompts 05–06 implement typed reads and separate health; bench SKU is user-confirmed ESS23-RS20; wire-code/firmware interpretation, feedback source/sign/units and motion qualification remain unresolved |
 | 5. First controlled motion | Explicit enable/release, small relative move and documented stop | Verified units and limits, acknowledgement vs completion, interrupted/lost replies, stop while another operation is active; bench measurements | Exact preparation in 07 and bounded action/stop software in 08 pass; physical actions remain gated, first move belongs to 09 |
-| 6. Complete common motion API | Absolute/relative position, step/angle/travel modes, velocity, acceleration, homing and fault clear where supported | Same public API in firmware and CLI; unsupported operations fail before TX; origin/rounding/path policy tested | Exact preparation, host configuration and origin APIs implemented in 07; wrapped paths, profile sequences and physical reference qualification pending |
+| 6. Complete common motion API | Absolute/relative position, step/angle/travel modes, velocity, acceleration, homing and fault clear where supported | Same public API in firmware and CLI; unsupported operations fail before TX; origin/rounding/path policy tested | 07–10 implement exact preparation, host origins, relative/absolute/wrapped finite sequencing and zero-only device clear; velocity/homing and physical reference/travel qualification pending |
 | 7. ESS native coverage and discovery | Typed documented ESS extensions; bounded non-changing discovery | Coverage matrix for every documented command/field; uncertain firmware behavior marked explicitly; read side effects reviewed | Ledger/codecs and typed identity/config reads exist; complete operation inventory derives remaining obligations; broader helpers/discovery pending |
 | 8. Platform and release qualification | Arduino and native ESP-IDF examples, package/install checks, maintenance documentation | Clean consumer builds; repeatable hardware suite, extended soak, resource budgets, documented exact supported models and limitations | CMake/IDF core consumption exists; native IDF application and release evidence pending |
 
@@ -143,3 +145,11 @@ The [independent prompt09 audit](reports/ess_release_09_audit_2026-10-04.md)
 also enforces readiness during queued/deferred writes and current-time reference
 validation; Python interruption and correlation checks preserve unknown cleanup.
 Physical positive/negative moves and dynamic stop remain unqualified.
+
+[Prompt10](reports/ess_release_10_2026-10-04.md) implements preserved multi-turn
+absolute targets, explicit wrapped paths, shared finite staging/trigger and
+zero-only device clear, with reference invalidation and native/CLI parity.
+Software/package/firmware checks and current read-only COM13 regression pass.
+Equivalent-unit physical motion and independent shaft/origin/clear proof remain
+NOT RUN; linear travel requires a real configured mechanism. Prompt11 is next
+only when separately dispatched, retaining all unresolved ramp/sign/model facts.

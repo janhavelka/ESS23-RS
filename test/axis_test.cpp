@@ -271,8 +271,153 @@ static void testRadiansAndParsing() {
     assert(!preparePosition(r,c,nullptr,out)); // Power-of-two denominator alone does not imply binary64 exactness.
 
 }
+static void testWrappedCoordinates() {
+    AxisConfig c = config(); c.units.commandStepsPerMotorTurn = UnitScale(1000,1,ScaleSource::QUALIFIED);
+    c.originKnown = true; c.originSource = ScaleSource::QUALIFIED;
+    PositionRequest r = request(c,720); r.relative = false; r.unit = PositionUnit::DEGREES;
+    r.frame = CoordinateFrame::MOTOR;
+    AxisReference ref = reference(c,10); PreparedTarget out;
+    assert(preparePosition(r,c,&ref,out)); assert(out.effectiveNative == 2000 && out.displacementNative == 1990);
+    r.wrapped = true; r.path = AnglePath::SHORTEST;
+    assert(preparePosition(r,c,&ref,out)); assert(out.effectiveNative == 0 && out.displacementNative == -10);
+    r.value = Rational(INT64_MAX); r.unit = PositionUnit::TURNS;
+    assert(preparePosition(r,c,&ref,out)); assert(out.effectiveNative == 0); // Normalize before multiplying the scale.
+    r.value = Rational(INT64_MIN);
+    assert(preparePosition(r,c,&ref,out)); assert(out.effectiveNative == 0);
+    r.value = Rational(720); r.unit = PositionUnit::DEGREES;
+    r.path = AnglePath::POSITIVE;
+    assert(preparePosition(r,c,&ref,out)); assert(out.effectiveNative == 1000 && out.displacementNative == 990);
+    r.path = AnglePath::NEGATIVE;
+    assert(preparePosition(r,c,&ref,out)); assert(out.effectiveNative == 0 && out.displacementNative == -10);
+    ref = reference(c,2000);
+    for (AnglePath path : {AnglePath::POSITIVE,AnglePath::NEGATIVE,AnglePath::SHORTEST}) {
+        r.path = path; assert(preparePosition(r,c,&ref,out)); assert(out.effectiveNative == 2000 && out.zeroDisplacement);
+    }
+    r.value = Rational(-360); ref = reference(c,-10); r.path = AnglePath::POSITIVE;
+    assert(preparePosition(r,c,&ref,out)); assert(out.effectiveNative == 0 && out.displacementNative == 10);
+    r.path = AnglePath::NEGATIVE;
+    assert(preparePosition(r,c,&ref,out)); assert(out.effectiveNative == -1000 && out.displacementNative == -990);
+    r.path = AnglePath::SHORTEST; ref = reference(c,500); out.effectiveNative = 71;
+    assert(preparePosition(r,c,&ref,out).detail == static_cast<int32_t>(AxisError::AMBIGUOUS));
+    assert(out.effectiveNative == 71);
+    r.tie = HalfTurnTie::POSITIVE;
+    assert(preparePosition(r,c,&ref,out)); assert(out.effectiveNative == 1000);
+    r.tie = HalfTurnTie::NEGATIVE;
+    assert(preparePosition(r,c,&ref,out)); assert(out.effectiveNative == 0);
+    c.units.commandPolarity = -1; r.tie = HalfTurnTie::POSITIVE;
+    assert(preparePosition(r,c,&ref,out)); assert(out.effectiveNative == 0);
+    r.path = AnglePath::POSITIVE; ref = reference(c,10);
+    assert(preparePosition(r,c,&ref,out)); assert(out.effectiveNative == 0);
+    c.units.commandPolarity = 1; c.originNative = 17; ref = reference(c,20);
+    r.path = AnglePath::SHORTEST; assert(preparePosition(r,c,&ref,out)); assert(out.effectiveNative == 17);
+    c.softLimitsKnown = true; c.softMinimum = 0; c.softMaximum = 100;
+    r.path = AnglePath::POSITIVE; out.effectiveNative = 71;
+    assert(preparePosition(r,c,&ref,out).detail == static_cast<int32_t>(AxisError::LIMIT));
+    assert(out.effectiveNative == 71); // Never silently switch to a legal opposite path.
+    c.softLimitsKnown = false; c.originNative = 0; r.path = AnglePath::SHORTEST;
+    ref.observedUs = 0; assert(!preparePosition(r,c,&ref,out));
+    ref = reference(c); ref.configurationGeneration++; assert(!preparePosition(r,c,&ref,out));
+    ref = reference(c); ref.nativeKnown = false; assert(!preparePosition(r,c,&ref,out));
+    assert(!preparePosition(r,c,nullptr,out));
+    ref = reference(c); ref.basis = RelativeBasis::COMMANDED; assert(!preparePosition(r,c,&ref,out));
+    r.basis = RelativeBasis::COMMANDED; assert(preparePosition(r,c,&ref,out));
+    r.basis = RelativeBasis::ACTUAL;
+    ref = reference(c); r.relative = true; assert(!preparePosition(r,c,&ref,out)); r.relative = false;
+    r.frame = CoordinateFrame::NATIVE; assert(!preparePosition(r,c,&ref,out)); r.frame = CoordinateFrame::MOTOR;
+    c.originKnown = false; assert(!preparePosition(r,c,&ref,out)); c.originKnown = true;
+    // Large native positions are never converted to double or multiplied by a denominator.
+    ref = reference(c,INT64_MAX); r.value = Rational(252); r.path = AnglePath::NEGATIVE;
+    assert(preparePosition(r,c,&ref,out)); assert(out.effectiveNative == INT64_MAX - 107);
+    ref = reference(c,INT64_MIN); r.path = AnglePath::POSITIVE;
+    assert(preparePosition(r,c,&ref,out)); assert(out.effectiveNative == INT64_MIN + 508);
+    ref = reference(c,INT64_MAX); r.path = AnglePath::POSITIVE;
+    assert(!preparePosition(r,c,&ref,out));
+    // A fractional native-per-turn scale retains exact phase and quantization.
+    c.units.commandStepsPerMotorTurn = UnitScale(1000,3,ScaleSource::QUALIFIED);
+    ref = reference(c); r.value = Rational(90); r.path = AnglePath::SHORTEST;
+    assert(!preparePosition(r,c,&ref,out)); r.rounding = Rounding::NEAREST; r.maximumQuantizationError = 0.34;
+    assert(preparePosition(r,c,&ref,out)); assert(out.effectiveNative == 83 && out.requestedNative.numerator == 1 && out.requestedNative.denominator == 3);
+    r.value = Rational(0); ref = reference(c,167); r.maximumQuantizationError = 0.34;
+    assert(preparePosition(r,c,&ref,out)); assert(out.effectiveNative == 333);
+    c.units.motorTurnsPerLoadTurn = UnitScale(3,1,ScaleSource::QUALIFIED);
+    r.frame = CoordinateFrame::LOAD; r.value = Rational(90); ref = reference(c);
+    assert(preparePosition(r,c,&ref,out)); assert(out.effectiveNative == 250);
+    // Tiny requested positive paths can quantize to zero, but retain their error.
+    r.value = Rational(1,10000); r.path = AnglePath::POSITIVE; r.rounding = Rounding::TOWARD_ZERO;
+    assert(preparePosition(r,c,&ref,out)); assert(out.zeroDisplacement && out.roundingError < 0);
+    c.softLimitsKnown = true; c.softMinimum = c.softMaximum = 0;
+    assert(!preparePosition(r,c,&ref,out)); // Requested path limit cannot be evaded by rounding.
+}
+static void testWrappedRadiansAndInvalidation() {
+    AxisConfig c = config(); c.units.commandStepsPerMotorTurn = UnitScale(1000,1,ScaleSource::QUALIFIED);
+    c.originKnown = true; c.originSource = ScaleSource::QUALIFIED;
+    AxisReference ref = reference(c,10); PreparedTarget out;
+    PositionRequest r = request(c,0); r.relative = false; r.wrapped = true;
+    r.frame = CoordinateFrame::MOTOR; r.unit = PositionUnit::RADIANS;
+    assert(preparePosition(r,c,&ref,out)); assert(out.effectiveNative == 0 && out.exactArithmetic);
+    r.value = Rational(1); r.approximate = true; r.rounding = Rounding::NEAREST;
+    r.maximumApproximationError = 1e-8; r.maximumQuantizationError = 1;
+    assert(preparePosition(r,c,&ref,out)); assert(out.effectiveNative == 159 && !out.exactArithmetic);
+    r.rationalRadians = false; r.radians = 6.28318530717958647692;
+    assert(preparePosition(r,c,&ref,out)); assert(out.effectiveNative == 0);
+    ref = reference(c); out.effectiveNative = 71;
+    assert(preparePosition(r,c,&ref,out).detail == static_cast<int32_t>(AxisError::AMBIGUOUS));
+    assert(out.effectiveNative == 71);
+    r.radians = 3.14159265358979323846; r.tie = HalfTurnTie::POSITIVE;
+    assert(!preparePosition(r,c,&ref,out)); // Approximate interval cannot turn an unresolved tie into certainty.
+    r.radians = std::numeric_limits<double>::infinity(); assert(!preparePosition(r,c,&ref,out));
+    r.radians = 0.001; r.path = AnglePath::POSITIVE;
+    c.softLimitsKnown = true; c.softMinimum = c.softMaximum = 0;
+    assert(!preparePosition(r,c,&ref,out));
+    c.softMinimum = -1000; c.softMaximum = 1000;
+    c.encoderOriginKnown = true; c.encoderOriginSource = ScaleSource::QUALIFIED;
+    const UnitScale retained = c.units.commandStepsPerMotorTurn;
+    assert(invalidateAxisReference(c,ref));
+    assert(c.generation == 2 && !c.originKnown && !c.encoderOriginKnown && !c.softLimitsKnown);
+    assert(!ref.nativeKnown && !ref.stationary && !ref.idle && !ref.configurationGeneration);
+    assert(c.units.commandStepsPerMotorTurn.numerator == retained.numerator);
+    assert(!preparePosition(r,c,&ref,out));
+    c.generation = UINT32_MAX; c.originKnown = true; ref = reference(c);
+    assert(invalidateAxisReference(c,ref).detail == static_cast<int32_t>(AxisError::GENERATION_EXHAUSTED));
+    assert(c.generation == UINT32_MAX && !c.originKnown && !ref.nativeKnown);
+    c.generation = 0; c.originKnown = true; ref.nativeKnown = true;
+    assert(invalidateAxisReference(c,ref).detail == static_cast<int32_t>(AxisError::GENERATION_EXHAUSTED));
+    assert(!c.generation && !c.originKnown && !ref.nativeKnown); // Repeated loss cannot revive an exhausted axis.
+}
+static void testWrappedIntegerOracle() {
+    AxisConfig c = config(); c.units.commandStepsPerMotorTurn = UnitScale(360,1,ScaleSource::QUALIFIED);
+    c.originKnown = true; c.originSource = ScaleSource::QUALIFIED;
+    PositionRequest r = request(c,0); r.relative = false; r.wrapped = true;
+    r.frame = CoordinateFrame::MOTOR; r.unit = PositionUnit::DEGREES;
+    PreparedTarget out;
+    for (int polarity : {-1,1}) for (int origin : {-17,0,17}) {
+        c.units.commandPolarity = static_cast<int8_t>(polarity); c.originNative = origin;
+        for (int position = -731; position <= 731; position += 17) {
+            AxisReference ref = reference(c,position);
+            for (int angle = -720; angle <= 720; angle += 45) {
+                r.value = Rational(angle);
+                int positive = (origin + polarity * angle - position) % 360;
+                if (positive < 0) positive += 360;
+                const int negative = positive ? positive - 360 : 0;
+                for (AnglePath path : {AnglePath::POSITIVE,AnglePath::NEGATIVE,AnglePath::SHORTEST}) {
+                    r.path = path; r.tie = HalfTurnTie::REJECT;
+                    int expected = 0;
+                    if (path == AnglePath::SHORTEST) {
+                        if (positive == 180) { assert(!preparePosition(r,c,&ref,out)); continue; }
+                        expected = positive < 180 ? positive : negative;
+                    } else expected = ((path == AnglePath::POSITIVE) == (polarity > 0)) ? positive : negative;
+                    assert(preparePosition(r,c,&ref,out));
+                    assert(out.effectiveNative == position + expected && out.displacementNative == expected);
+                    assert(out.zeroDisplacement == (expected == 0));
+                }
+            }
+        }
+    }
+}
 int main() {
     testNative(); testRounding(); testFactorsAndOrigins(); testEncodersAndLimits(); testHostConfiguration();
     testRelativeRequestedRange(); testZeroRadiansAndCancellation(); testRadiansAndParsing();
+    testWrappedCoordinates(); testWrappedRadiansAndInvalidation();
+    testWrappedIntegerOracle();
     return 0;
 }

@@ -82,5 +82,21 @@ int main() {
     evidence = ActionEvent(); evidence.transport.target = target; evidence.transport.operationId = 7;
     evidence.transport.kind = ReadEventKind::CANCEL;
     if (!advanceMove(moving, evidence, 2100) || moving.outcome != ActionOutcome::CANCELLED || moving.uncertain) return 23;
+    axis.originKnown = true; axis.originSource = ScaleSource::QUALIFIED;
+    axis.units.commandStepsPerMotorTurn = UnitScale(1000, 1, ScaleSource::QUALIFIED);
+    AxisReference reference; reference.target = target; reference.configurationGeneration = axis.generation;
+    reference.nativeKnown = reference.stationary = true; reference.source = ScaleSource::QUALIFIED;
+    reference.nativePosition = 1990; reference.observedUs = 1900; reference.maximumAgeUs = 1000;
+    move.position.relative = false; move.position.unit = PositionUnit::DEGREES;
+    move.position.frame = CoordinateFrame::MOTOR; move.position.value = Rational(720);
+    if (!MotorControlRS::prepareMoveAbsolute(moving, axis, &reference, 8, move, prerequisites, 2000, 100000) ||
+        moving.prepared.effectiveNative != 2000 || moving.prepared.displacementNative != 10) return 24;
+    reference.nativePosition = 990; move.position.wrapped = true; move.position.value = Rational(0);
+    move.position.path = AnglePath::POSITIVE;
+    if (!MotorControlRS::prepareMoveAngle(moving, axis, &reference, 9, move, prerequisites, 2000, 100000) ||
+        moving.prepared.effectiveNative != 1000) return 25;
+    if (!MotorControlRS::prepareSetDevicePosition(action, target, 10, 0, true, 2000, 100000) ||
+        !nextAction(action, 2000, work) || work.reg != 0x2D || work.value != 49) return 26;
+    if (!invalidateAxisReference(axis, reference) || axis.originKnown || reference.nativeKnown) return 27;
     return 0;
 }

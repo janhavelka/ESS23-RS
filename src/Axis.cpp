@@ -82,7 +82,7 @@ Status evidence(const AxisConfig& c, const AxisReference& r, bool stationary, bo
     return Ok();
 }
 Status increment(AxisConfig& c) {
-    if (c.generation == UINT32_MAX) return fail(AxisError::GENERATION_EXHAUSTED,"configuration generation exhausted",Err::INVALID_CONFIG);
+    if (!c.generation || c.generation == UINT32_MAX) return fail(AxisError::GENERATION_EXHAUSTED,"configuration generation exhausted",Err::INVALID_CONFIG);
     ++c.generation; return Ok();
 }
 Status factors(const PositionRequest& r, const AxisConfig& c, detail::UnitFactors& f) {
@@ -168,6 +168,93 @@ Status effectiveBounds(int64_t q, const AxisConfig& c, bool soft) {
         return fail(AxisError::LIMIT,"effective target is outside limits");
     return Ok();
 }
+// Modular arithmetic never multiplies native positions by a denominator. The
+// loop has at most 64 iterations, including signed int64 extremes.
+uint64_t modularAdd(uint64_t a, uint64_t b, uint64_t modulus) {
+    return a >= modulus - b ? a - (modulus - b) : a + b;
+}
+uint64_t modularMultiply(uint64_t a, uint64_t b, uint64_t modulus) {
+    uint64_t result = 0; a %= modulus;
+    while (b) {
+        if (b & 1u) result = modularAdd(result,a,modulus);
+        b >>= 1;
+        if (b) a = modularAdd(a,a,modulus);
+    }
+    return result;
+}
+uint64_t nativePhase(int64_t value, uint64_t denominator, uint64_t period) {
+    const uint64_t phase = modularMultiply(magnitude(value),denominator,period);
+    return value < 0 && phase ? period - phase : phase;
+}
+Status turnPeriod(const PositionRequest& request, const AxisConfig& c, NativeQuantity& period) {
+    PositionRequest turn = request; turn.unit = PositionUnit::TURNS;
+    turn.value = Rational(1); turn.relative = true; turn.wrapped = false;
+    detail::UnitFactors f; Status s = factors(turn,c,f); if (!s) return s;
+    f.sign = 1; return exactNative(turn,f,period);
+}
+Status exactAngle(const PositionRequest& r, const AxisConfig& c, const AxisReference& ref,
+                  const detail::UnitFactors& f, PreparedTarget& next) {
+    NativeQuantity angle, period;
+    const bool zeroRadians = r.unit == PositionUnit::RADIANS;
+    PositionRequest normalized = r;
+    if (!zeroRadians) {
+        const uint64_t turn = r.unit == PositionUnit::DEGREES ? 360 : 1;
+        if (r.value.denominator <= UINT64_MAX / turn) {
+            const uint64_t remainder = magnitude(r.value.numerator) % (r.value.denominator * turn);
+            signedMagnitude(remainder,r.value.numerator < 0,normalized.value.numerator);
+        }
+    }
+    Status s = zeroRadians ? Ok() : exactNative(normalized,f,angle); if (!s) return s;
+    s = turnPeriod(r,c,period); if (!s) return s;
+    const uint64_t common = gcd(angle.denominator,period.denominator);
+    const uint64_t multiplier = period.denominator / common;
+    if (angle.denominator > UINT64_MAX / multiplier)
+        return fail(AxisError::ARITHMETIC_OVERFLOW,"wrapped denominator exceeds fixed storage");
+    const uint64_t denominator = angle.denominator * multiplier;
+    if (uint64_t(period.integral) > (UINT64_MAX - period.numerator) / period.denominator)
+        return fail(AxisError::ARITHMETIC_OVERFLOW,"wrapped turn exceeds fixed storage");
+    const uint64_t periodNumerator = uint64_t(period.integral) * period.denominator + period.numerator;
+    const uint64_t periodMultiplier = denominator / period.denominator;
+    if (!periodNumerator || periodNumerator > UINT64_MAX / periodMultiplier)
+        return fail(AxisError::ARITHMETIC_OVERFLOW,"wrapped turn exceeds fixed storage");
+    const uint64_t modulus = periodNumerator * periodMultiplier;
+    uint64_t phase = nativePhase(angle.integral,denominator,modulus);
+    const uint64_t fraction = modularMultiply(angle.numerator,denominator / angle.denominator,modulus);
+    phase = modularAdd(phase,angle.negative && fraction ? modulus - fraction : fraction,modulus);
+    phase = modularAdd(phase,nativePhase(c.originNative,denominator,modulus),modulus);
+    const uint64_t current = nativePhase(ref.nativePosition,denominator,modulus);
+    const uint64_t positive = phase >= current ? phase - current : modulus - (current - phase);
+    const uint64_t negative = positive ? modulus - positive : 0;
+    bool nativePositive = c.units.commandPolarity > 0;
+    if (r.path == AnglePath::NEGATIVE) nativePositive = !nativePositive;
+    if (r.path == AnglePath::SHORTEST) {
+        if (positive == negative && positive) {
+            if (r.tie == HalfTurnTie::REJECT)
+                return fail(AxisError::AMBIGUOUS,"wrapped half-turn requires an explicit tie direction");
+            nativePositive = (r.tie == HalfTurnTie::POSITIVE) == (c.units.commandPolarity > 0);
+        } else nativePositive = positive < negative;
+    }
+    const uint64_t distance = nativePositive ? positive : negative;
+    int64_t integral;
+    if (!signedMagnitude(distance / denominator,!nativePositive,integral) ||
+        !add(ref.nativePosition,integral,next.requestedNative.integral))
+        return fail(AxisError::ARITHMETIC_OVERFLOW,"wrapped endpoint overflows");
+    next.requestedNative.numerator = distance % denominator;
+    next.requestedNative.denominator = denominator;
+    next.requestedNative.negative = !nativePositive && next.requestedNative.numerator;
+    normalize(next.requestedNative);
+    s = requestedBounds(next.requestedNative,c,c.softLimitsKnown); if (!s) return s;
+    s = quantize(next.requestedNative,r.rounding,r.maximumQuantizationError,next.effectiveNative,next.roundingError); if (!s) return s;
+    s = effectiveBounds(next.effectiveNative,c,c.softLimitsKnown); if (!s) return s;
+    if (!subtract(next.effectiveNative,ref.nativePosition,next.displacementNative))
+        return fail(AxisError::ARITHMETIC_OVERFLOW,"wrapped displacement overflows");
+    if ((next.displacementNative > 0 && !nativePositive) || (next.displacementNative < 0 && nativePositive))
+        return fail(AxisError::AMBIGUOUS,"wrapped rounding reverses selected direction");
+    next.endpointKnown = next.displacementKnown = true;
+    next.endpointNative = next.effectiveNative;
+    next.zeroDisplacement = next.displacementNative == 0;
+    return Ok();
+}
 Status approximateNative(const PositionRequest& r, const detail::UnitFactors& f,
                          NativeQuantity& q, int64_t origin, int64_t& effective, double& roundError, double& error) {
     if (!r.approximate || !std::isfinite(r.maximumApproximationError) || r.maximumApproximationError <= 0)
@@ -215,6 +302,71 @@ Status approximateNative(const PositionRequest& r, const detail::UnitFactors& f,
     q.integral = static_cast<int64_t>(std::trunc(v + origin));
     // Approximate quantities are never labelled as exact rational fractions.
     q.numerator = 0; q.denominator = 1; q.negative = false;
+    return Ok();
+}
+Status approximateAngle(const PositionRequest& r, const AxisConfig& c, const AxisReference& ref,
+                        const detail::UnitFactors& f, PreparedTarget& next) {
+    if (!r.approximate || !std::isfinite(r.maximumApproximationError) || r.maximumApproximationError <= 0)
+        return fail(AxisError::APPROXIMATION_REQUIRED,"radians require an explicit approximation allowance");
+    const long double input = r.rationalRadians ? static_cast<long double>(r.value.numerator) / r.value.denominator : r.radians;
+    if (!std::isfinite(input) || (input && std::fpclassify(static_cast<double>(input)) != FP_NORMAL))
+        return fail(AxisError::INVALID_ARGUMENT,"nonfinite or underflowing radian input");
+    const long double value = input * detail::approximateFactor(f);
+    NativeQuantity exactPeriod; Status s = turnPeriod(r,c,exactPeriod); if (!s) return s;
+    const long double period = static_cast<long double>(exactPeriod.integral) +
+        static_cast<long double>(exactPeriod.numerator) / exactPeriod.denominator;
+    if (!std::isfinite(value) || !period || std::fabs(value) > 9007199254740992.0L ||
+        std::fabs(static_cast<long double>(ref.nativePosition)) > 9007199254740992.0L ||
+        std::fabs(static_cast<long double>(c.originNative)) > 9007199254740992.0L)
+        return fail(AxisError::ARITHMETIC_OVERFLOW,"wrapped radian arithmetic exceeds binary64 precision");
+    const double error = static_cast<double>((std::fabs(value) + period +
+        std::fabs(static_cast<long double>(ref.nativePosition)) + std::fabs(static_cast<long double>(c.originNative))) *
+        (64 * std::numeric_limits<double>::epsilon()));
+    if (error > r.maximumApproximationError)
+        return fail(AxisError::APPROXIMATION_REQUIRED,"wrapped radian precision exceeds allowance");
+    long double positive = std::fmod(value + c.originNative - ref.nativePosition,period);
+    if (positive < 0) positive += period;
+    if (positive <= error || period - positive <= error)
+        return fail(AxisError::AMBIGUOUS,"radian interval crosses the same-angle boundary");
+    bool nativePositive = c.units.commandPolarity > 0;
+    if (r.path == AnglePath::NEGATIVE) nativePositive = !nativePositive;
+    if (r.path == AnglePath::SHORTEST) {
+        if (std::fabs(positive - period / 2) <= error)
+            return fail(AxisError::AMBIGUOUS,"radian interval cannot resolve the half-turn path");
+        nativePositive = positive < period / 2;
+    }
+    const long double delta = nativePositive ? positive : positive - period;
+    // Reuse the radians interval quantizer for both conservative path bounds.
+    // The identity factor represents an already resolved native displacement.
+    PositionRequest bound = r; bound.rationalRadians = false;
+    detail::UnitFactors identity;
+    NativeQuantity q; int64_t low, high; double lowRound, highRound, lowError, highError;
+    bound.radians = static_cast<double>(delta - error);
+    s = approximateNative(bound,identity,q,ref.nativePosition,low,lowRound,lowError); if (!s) return s;
+    bound.radians = static_cast<double>(delta + error);
+    s = approximateNative(bound,identity,q,ref.nativePosition,high,highRound,highError); if (!s) return s;
+    if (low != high) return fail(AxisError::AMBIGUOUS,"wrapped radian interval crosses a quantization boundary");
+    next.approximationErrorBound = error + (lowError > highError ? lowError : highError);
+    if (next.approximationErrorBound > r.maximumApproximationError)
+        return fail(AxisError::APPROXIMATION_REQUIRED,"wrapped endpoint exceeds precision allowance");
+    next.approximateRequestedNative = static_cast<double>(ref.nativePosition + delta);
+    next.roundingError = static_cast<double>(low - (static_cast<long double>(ref.nativePosition) + delta));
+    if (std::fabs(next.roundingError) + next.approximationErrorBound > r.maximumQuantizationError)
+        return fail(AxisError::QUANTIZATION_ERROR,"wrapped radian quantization exceeds allowance");
+    const long double endpoint = static_cast<long double>(ref.nativePosition) + delta;
+    if (endpoint - next.approximationErrorBound < c.nativeMinimum || endpoint + next.approximationErrorBound > c.nativeMaximum ||
+        (c.softLimitsKnown && (endpoint - next.approximationErrorBound < c.softMinimum || endpoint + next.approximationErrorBound > c.softMaximum)))
+        return fail(AxisError::LIMIT,"wrapped radian interval crosses a limit");
+    s = effectiveBounds(low,c,c.softLimitsKnown); if (!s) return s;
+    if (!subtract(low,ref.nativePosition,next.displacementNative))
+        return fail(AxisError::ARITHMETIC_OVERFLOW,"wrapped displacement overflows");
+    if ((next.displacementNative > 0 && !nativePositive) || (next.displacementNative < 0 && nativePositive))
+        return fail(AxisError::AMBIGUOUS,"wrapped rounding reverses selected direction");
+    next.exactArithmetic = false;
+    next.effectiveNative = next.endpointNative = low;
+    next.endpointKnown = next.displacementKnown = true;
+    next.zeroDisplacement = next.displacementNative == 0;
+    next.requestedNative.integral = static_cast<int64_t>(std::trunc(endpoint));
     return Ok();
 }
 } // namespace
@@ -313,14 +465,29 @@ Status setAxisOrigin(AxisConfig& c, int64_t origin, const AxisReference& e) {
     next.softLimitsKnown = false;
     c = next; return Ok();
 }
+Status invalidateAxisReference(AxisConfig& c, AxisReference& ref) {
+    c.originKnown = c.encoderOriginKnown = c.softLimitsKnown = false;
+    c.originSource = c.encoderOriginSource = ScaleSource::UNKNOWN;
+    ref.nativeKnown = ref.idle = ref.stationary = false;
+    ref.configurationGeneration = 0;
+    return increment(c);
+}
 Status preparePosition(const PositionRequest& r, const AxisConfig& c, const AxisReference* ref, PreparedTarget& output) {
     Status s = validateAxisConfig(c); if (!s) return s;
     if (r.configurationGeneration != c.generation) return fail(AxisError::STALE_GENERATION,"position configuration generation mismatch",Err::INVALID_CONFIG);
     if (!r.value.denominator || r.frame > CoordinateFrame::LOAD || r.unit > PositionUnit::MILLIMETRES ||
         r.basis > RelativeBasis::QUEUED || r.rounding > Rounding::CEIL ||
+        r.path > AnglePath::SHORTEST || r.tie > HalfTurnTie::NEGATIVE ||
         !std::isfinite(r.maximumQuantizationError) || r.maximumQuantizationError < 0 ||
         (r.approximate && r.unit != PositionUnit::RADIANS))
         return fail(AxisError::INVALID_ARGUMENT,"invalid position argument");
+    if (r.wrapped && (r.relative || r.frame == CoordinateFrame::NATIVE ||
+        (r.unit != PositionUnit::TURNS && r.unit != PositionUnit::DEGREES && r.unit != PositionUnit::RADIANS)))
+        return fail(AxisError::INVALID_ARGUMENT,"wrapped orientation requires an absolute motor/load angle");
+    if (r.wrapped && (!ref || !ref->nativeKnown))
+        return fail(AxisError::MISSING_REFERENCE,"wrapped orientation requires a multi-turn native reference",Err::INVALID_CONFIG);
+    if (r.wrapped && ref->basis != r.basis)
+        return fail(AxisError::MISSING_REFERENCE,"wrapped reference basis mismatch",Err::INVALID_CONFIG);
     if (r.relative && !(c.supportedRelativeBases & (1u << unsigned(r.basis))))
         return fail(AxisError::UNSUPPORTED_BASIS,"relative basis is not supported",Err::UNSUPPORTED);
     // Unestablished optional feedback is not a prerequisite for a native displacement.
@@ -348,6 +515,11 @@ Status preparePosition(const PositionRequest& r, const AxisConfig& c, const Axis
     int64_t effective = 0;
     const bool zeroRadians = r.unit == PositionUnit::RADIANS &&
         (r.rationalRadians ? r.value.numerator == 0 : r.radians == 0);
+    if (r.wrapped) {
+        s = r.unit == PositionUnit::RADIANS && !zeroRadians ? approximateAngle(r,c,*ref,f,next) : exactAngle(r,c,*ref,f,next);
+        if (!s) return s;
+        output = next; return Ok();
+    }
     if (r.unit == PositionUnit::RADIANS && !zeroRadians) {
         s = approximateNative(r,f,next.requestedNative,origin,effective,next.roundingError,next.approximationErrorBound);
         if (!s) return s;

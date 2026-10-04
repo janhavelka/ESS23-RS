@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "register_ledger": "docs/reference/ess_rs_registers.json",
-  "scope": "Typed ESS reads, bounded actions and finite relative positioning; obligations derive from the authoritative ledger, with independent native and hardware evidence.",
+  "scope": "Typed ESS reads, bounded actions and finite relative/absolute/wrapped positioning; obligations derive from the authoritative ledger, with independent native and hardware evidence.",
   "default_disposition": {
     "implementation": "NOT_IMPLEMENTED",
     "cli": "NOT_REACHABLE",
@@ -213,13 +213,19 @@
         "header": "include/MotorControlRS/profiles/ess_rs/Position.h",
         "symbols": [
           "prepareMoveRelative",
+          "prepareMoveAbsolute",
+          "prepareMoveAngle",
           "nextMove",
           "advanceMove"
         ]
       },
       "cli_commands": [
         "move relative",
-        "profile ess_rs move-relative"
+        "move absolute",
+        "move angle",
+        "profile ess_rs move-relative",
+        "profile ess_rs move-absolute",
+        "profile ess_rs move-angle"
       ],
       "implementation": "IMPLEMENTED",
       "cli": "REACHABLE",
@@ -227,7 +233,10 @@
         "state": "PASS",
         "evidence": [
           "test/position_test.cpp",
-          "test/move_app_test.cpp"
+          "test/move_app_test.cpp",
+          "test/axis_test.cpp",
+          "test/probe_console_test.cpp",
+          "test/bench_probe_test.py"
         ]
       },
       "hardware": {
@@ -235,7 +244,7 @@
         "evidence": [],
         "reason": "Independent timing, physical stop, sign/basis/ramp/input evidence remain unqualified; production admission fails closed."
       },
-      "id": "relative_position_staging",
+      "id": "finite_position_staging",
       "kind": "WRITE",
       "records": [
         "POSITION_ACCELERATION_TIME",
@@ -243,7 +252,7 @@
         "POSITION_SPEED",
         "POSITION_PULSES"
       ],
-      "reason": "Exact five-word relative move staging only, with verified configured raw ramps; no arbitrary paired writes or separate configuration setter."
+      "reason": "One shared reviewed five-word finite positioning staging window, exact public preparation and verified configured raw ramps; no arbitrary paired writes or separate configuration setter."
     },
     {
       "api": {
@@ -471,6 +480,88 @@
         "reason": "Independent TX/RX/DE timing and FC06 echo qualification missing; firmware rejects timing_unqualified before TX."
       },
       "reason": "Explicit one-shot command plus bounded checked state observation; acknowledgement is distinct from reported completion and physical effect."
+    },
+    {
+      "id": "move_absolute",
+      "kind": "ACTION",
+      "records": [
+        "MOTION_COMMAND"
+      ],
+      "choices": [
+        "MotionCommandBit.ABSOLUTE_POSITION"
+      ],
+      "api": {
+        "header": "include/MotorControlRS/profiles/ess_rs/Position.h",
+        "symbols": [
+          "prepareMoveAbsolute",
+          "prepareMoveAngle",
+          "nextMove",
+          "advanceMove"
+        ]
+      },
+      "cli_commands": [
+        "move absolute",
+        "move angle",
+        "profile ess_rs move-absolute",
+        "profile ess_rs move-angle"
+      ],
+      "implementation": "IMPLEMENTED",
+      "cli": "REACHABLE",
+      "native": {
+        "state": "PASS",
+        "evidence": [
+          "test/axis_test.cpp",
+          "test/position_test.cpp",
+          "test/move_app_test.cpp",
+          "test/probe_console_test.cpp",
+          "test/bench_probe_test.py"
+        ]
+      },
+      "hardware": {
+        "state": "NOT_RUN",
+        "evidence": [],
+        "reason": "Independent timing/echo and command-coordinate/sign/ramp/input qualification remain unresolved; production writes fail closed. No physical equivalent-unit or shaft/travel comparison."
+      },
+      "reason": "Unwrapped absolute and explicitly wrapped paths use the existing finite mover and START_POSITION choice, counted separately under move_relative; full turns, direction/ties, fresh references and selected-path limits are retained."
+    },
+    {
+      "id": "clear_position",
+      "kind": "ACTION",
+      "records": [
+        "AUXILIARY_COMMAND"
+      ],
+      "choices": [
+        "AuxiliaryCommand.CLEAR_POSITION"
+      ],
+      "api": {
+        "header": "include/MotorControlRS/profiles/ess_rs/Actions.h",
+        "symbols": [
+          "prepareSetDevicePosition",
+          "nextAction",
+          "advanceAction"
+        ]
+      },
+      "cli_commands": [
+        "position-clear",
+        "profile ess_rs clear-position"
+      ],
+      "implementation": "IMPLEMENTED",
+      "cli": "REACHABLE",
+      "native": {
+        "state": "PASS",
+        "evidence": [
+          "test/actions_test.cpp",
+          "test/move_app_test.cpp",
+          "test/probe_console_test.cpp",
+          "test/bench_probe_test.py"
+        ]
+      },
+      "hardware": {
+        "state": "NOT_RUN",
+        "evidence": [],
+        "reason": "Independent electrical/echo qualification and stopped clear commissioning evidence remain missing; production clear admission fails closed."
+      },
+      "reason": "Explicit zero-only auxiliary clear followed by new checked current-position pair zero observation; nonzero setters reject before traffic. Current-position read coverage remains under read_state. Clear never establishes homing or host origin, and accepted or uncertain execution invalidates dependent coordinate confidence."
     }
   ],
   "coverage_notes": [
@@ -479,6 +570,7 @@
     "Every named enum/bit choice remains accounted for separately; read decoding never establishes typed setting/action support.",
     "Source certainty is derived from source-access and issue metadata. No recorded issue is not hardware qualification.",
     "Native and hardware states are independent. Hardware evidence does not resolve unknown model availability or undocumented firmware interpretation.",
-    "Prompt09 re-audit enforces readiness through both write budgets and current-time consumed reference validation; docs/reports/ess_release_09_audit_2026-10-04.md records fresh software and read-only evidence. Relative motion/staging hardware dispositions remain NOT_RUN."
+    "Prompt09 re-audit enforces readiness through both write budgets and current-time consumed reference validation; docs/reports/ess_release_09_audit_2026-10-04.md records fresh software and read-only evidence. Relative motion/staging hardware dispositions remain NOT_RUN.",
+    "Prompt10 implements absolute/wrapped finite positioning and explicit zero-only device clear through the same owner and public preparation/operation APIs. Motion/clear physical qualification remains NOT_RUN; host arithmetic/read-only checks never replace independent shaft or linear travel evidence."
   ]
 }

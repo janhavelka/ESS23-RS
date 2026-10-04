@@ -2,6 +2,16 @@
 
 ## User report on 2026-10-02
 
+Current [prompt10 image and evidence](reports/ess_release_10_2026-10-04.md) add
+absolute/wrapped/clear software while preserving physical gates. The timer image
+passes28-frame read-only regression plus10 probes; total47 frames/455 RX bytes
+include9 successful reads before a campaign-script field-lookup correction.
+All transport/capture errors remain zero, motor raw settings/state unchanged,
+load/monitor off, DE released and owner empty. Pure step/degree/radian previews
+agree under an explicit ASSUMED host scale; this is no physical motion proof.
+Physical absolute/angle movement, position clear and origin establishment remain
+NOT RUN pending the recorded command-reference/timing/stop prerequisites.
+
 Latest prompt08 check: [fresh action/stop audit](reports/ess_release_08_audit_2026-10-04.md).
 Audited timer image passes 28-frame read-only regression, ten further probes and
 five action-admission rejections with zero TX. Final totals are 38 frames/358 RX

@@ -1,5 +1,5 @@
 /** @file Position.h
- * @brief Bounded ESS relative positioning: checked staging, trigger and fresh observations. No I/O.
+ * @brief Bounded ESS positioning: checked staging, trigger and fresh observations. No I/O.
  * SPDX-License-Identifier: MIT
  */
 #pragma once
@@ -29,7 +29,7 @@ struct MovePrerequisites {
     uint64_t observedUs = 0, maximumAgeUs = 0; ///< Admission/new writes require age below this immutable budget; qualified closure may equal its deadline.
 };
 /** Caller-owned, read-only between API calls. step0 stages 0x0021/5; step1
- * triggers exactly 0x0001; later tokens read non-consuming alarm/motion words.
+ * triggers 0x0001 relative or 0x0005 absolute; later tokens read alarm/motion words.
  * One axis reservation must survive every staging/trigger/wait boundary.
  * uncertain includes a possibly/definitely applied setup on terminal failure;
  * execution separately describes the trigger, never physical completion. */
@@ -38,6 +38,7 @@ struct MoveContext {
     uint32_t operationId = 0;
     MoveRequest request;
     MovePrerequisites prerequisites; ///< Immutable admitted qualification/baseline snapshot.
+    AxisReference reference; ///< Consumed command-coordinate witness, copied at admission; nativeKnown=false when not needed.
     PreparedTarget prepared;
     ActionOptions options;
     ActionState state = ActionState::EMPTY;
@@ -75,6 +76,20 @@ Status prepareMoveRelative(MoveContext&, const AxisConfig&, const AxisReference*
                            uint32_t operationId, const MoveRequest&, const MovePrerequisites&,
                            uint64_t nowUs, uint64_t deadlineUs,
                            const ActionOptions& = ActionOptions()) noexcept;
+/** Preserve a multi-turn absolute target. Requires a fresh, established actual
+ * command-coordinate reference covering both write budgets. No normalization.
+ * Unsupported/unresolved preparation leaves output unchanged and yields no I/O. */
+Status prepareMoveAbsolute(MoveContext&, const AxisConfig&, const AxisReference*,
+                           uint32_t operationId, const MoveRequest&, const MovePrerequisites&,
+                           uint64_t nowUs, uint64_t deadlineUs,
+                           const ActionOptions& = ActionOptions()) noexcept;
+/** Resolve an explicitly wrapped angular path through preparePosition, then use
+ * the same native absolute sequence. Same orientation/quantized zero rejects
+ * without a write. Limits never cause an alternative revolution to be chosen. */
+Status prepareMoveAngle(MoveContext&, const AxisConfig&, const AxisReference*,
+                        uint32_t operationId, const MoveRequest&, const MovePrerequisites&,
+                        uint64_t nowUs, uint64_t deadlineUs,
+                        const ActionOptions& = ActionOptions()) noexcept;
 Status nextMove(const MoveContext&, uint64_t nowUs, PreparedMove&) noexcept;
 /** Copies bounded evidence. Confirmed echoes acknowledge only; completion needs
  * a fresh post-trigger RUNNING report followed by arrived and stopped. A short
@@ -93,5 +108,17 @@ inline Status prepareMoveRelative(ESS_RS::MoveContext& c, const AxisConfig& axis
         const ESS_RS::MovePrerequisites& prerequisites, uint64_t now, uint64_t deadline,
         const ActionOptions& options = ActionOptions()) noexcept {
     return ESS_RS::prepareMoveRelative(c, axis, reference, id, request, prerequisites, now, deadline, options);
+}
+inline Status prepareMoveAbsolute(ESS_RS::MoveContext& c, const AxisConfig& axis,
+        const AxisReference* reference, uint32_t id, const MoveRequest& request,
+        const ESS_RS::MovePrerequisites& prerequisites, uint64_t now, uint64_t deadline,
+        const ActionOptions& options = ActionOptions()) noexcept {
+    return ESS_RS::prepareMoveAbsolute(c, axis, reference, id, request, prerequisites, now, deadline, options);
+}
+inline Status prepareMoveAngle(ESS_RS::MoveContext& c, const AxisConfig& axis,
+        const AxisReference* reference, uint32_t id, const MoveRequest& request,
+        const ESS_RS::MovePrerequisites& prerequisites, uint64_t now, uint64_t deadline,
+        const ActionOptions& options = ActionOptions()) noexcept {
+    return ESS_RS::prepareMoveAngle(c, axis, reference, id, request, prerequisites, now, deadline, options);
 }
 } // namespace MotorControlRS

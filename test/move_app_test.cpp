@@ -450,6 +450,132 @@ void testDeferredTriggerExpiresBeforeAdmission() {
     assert(view(operation).moveContext->execution == ActionExecution::NOT_TRANSMITTED);
     assert(axisReserved(*app, 1)); // The applied staging uncertainty is retained.
 }
+void coordinates(int64_t native = 0) {
+    auto& a = app->axis; a.originKnown = true; a.originSource = ScaleSource::QUALIFIED;
+    a.units.commandStepsPerMotorTurn = UnitScale(1000, 1, ScaleSource::QUALIFIED);
+    a.units.fullStepsPerMotorTurn = UnitScale(200, 1, ScaleSource::DOCUMENTED);
+    a.units.motorTurnsPerLoadTurn = UnitScale(1, 1, ScaleSource::ASSUMED);
+    a.units.millimetresPerLoadTurn = UnitScale(4, 1, ScaleSource::ASSUMED);
+    auto& ref = app->coordinateReference; ref.target = a.target; ref.configurationGeneration = a.generation;
+    ref.nativeKnown = ref.stationary = ref.idle = true; ref.nativePosition = native;
+    ref.source = ScaleSource::QUALIFIED; ref.observedUs = hardware.time; ref.maximumAgeUs = 1000000;
+}
+void testAbsoluteAngleApiCliAndLostReference() {
+    for (const char* line : {"@1 move absolute 20 steps native 60 configured\n",
+        "@1 profile ess_rs move-absolute 7.2 deg motor 60 configured\n",
+        "@1 move absolute 4 fullsteps motor 60 configured\n",
+        "@1 move absolute 0.02 turn motor 60 configured\n",
+        "@1 move absolute 0.08 mm load 60 configured\n",
+        "@1 move absolute 0.1256637061435917 rad motor 60 configured round nearest 1 approx 0.00001\n",
+        "@1 move angle 7.2 deg motor positive reject 60 configured\n",
+        "@1 profile ess_rs move-angle 7.2 deg motor shortest reject 60 configured\n"}) {
+        fresh(); qualify(); coordinates();
+        auto r = request(); r.position.relative = false;
+        ESS::MoveContext direct;
+        assert(MotorControlRS::prepareMoveAbsolute(direct, app->axis, &app->coordinateReference, 99,
+            r, app->movePrerequisites, nowUs(), nowUs() + 3000000));
+        command(line);
+        assert(Serial.output.find("\"result\":\"accepted\"") != std::string::npos);
+        const auto operation = view(0).operationId;
+        assert(view(operation).moveContext->prepared.effectiveNative == direct.prepared.effectiveNative);
+        moveStep(operation); moveStep(operation);
+        assert(hardware.tx[1] == 6 && hardware.tx[3] == 0x27 && hardware.tx[5] == 5);
+        assert(!app->coordinateReference.nativeKnown); // Trigger makes prior pose unavailable immediately.
+        const auto retainedReference = view(operation).moveContext->reference;
+        advanceHardware(retainedReference.observedUs + retainedReference.maximumAgeUs + 1);
+        step(); assert(view(operation).pending); // Starting-reference age cannot cancel a triggered move.
+        moveStep(operation, registers(1, {0, 4})); moveStep(operation, registers(1, {0, 1}));
+        assert(!view(operation).pending && view(operation).moveContext->state == ActionState::SUCCEEDED);
+        assert(!app->axis.originKnown && !app->coordinateReference.nativeKnown);
+        assert(view(operation).moveContext->reference.nativePosition == retainedReference.nativePosition);
+    }
+    // Preserve a multi-turn endpoint even though the bounded bench displacement is small.
+    fresh(); qualify(); coordinates(1990); app->axis.nativeMaximum = 10000;
+    command("@2 move absolute 720 deg motor 60 configured\n");
+    assert(view(0).moveContext->prepared.effectiveNative == 2000 && view(0).moveContext->prepared.displacementNative == 10);
+
+    fresh(); qualify(); coordinates(); const unsigned writes = hardware.writes;
+    for (const char* invalid : {"@3 move absolute 20 steps native 60 configured\n",
+        "@4 move angle 90 deg motor positive reject 60 configured\n"}) {
+        app->coordinateReference.nativeKnown = false; command(invalid);
+        assert(hardware.writes == writes && !axisReserved(*app, 1));
+    }
+    coordinates(); ++app->coordinateReference.configurationGeneration;
+    command("@5 move absolute 20 steps native 60 configured\n");
+    assert(hardware.writes == writes && !axisReserved(*app, 1));
+}
+void testOriginIsHostOnlyAndConfidenceInvalidates() {
+    fresh(); qualify(); coordinates(50);
+    const auto observed = app->coordinateReference.observedUs;
+    command("@1 axis origin 10\n");
+    assert(Serial.output.find("\"ok\":true") != std::string::npos);
+    assert(app->axis.originKnown && app->axis.originNative == 10 && hardware.writes == 0);
+    assert(app->coordinateReference.observedUs == observed && app->coordinateReference.nativePosition == 50);
+    command("@2 status\n"); command("@3 axis config\n");
+    assert(app->coordinateReference.observedUs == observed && hardware.writes == 0);
+    advanceHardware(observed + app->coordinateReference.maximumAgeUs + 1); step();
+    assert(!app->axis.originKnown && !app->coordinateReference.nativeKnown && hardware.writes == 0);
+    qualify(); coordinates();
+    auto& motion = app->stateCache.blocks[static_cast<uint8_t>(ESS::StateBlock::MOTION)];
+    motion.value.released = true; step();
+    assert(!app->axis.originKnown && !app->coordinateReference.nativeKnown);
+    qualify(); coordinates(); motion.value.running = true; motion.value.released = false; step();
+    assert(!app->axis.originKnown && !app->coordinateReference.nativeKnown);
+}
+void testPositionClearApiCliAndUncertainInvalidation() {
+    for (bool lost : {false, true}) {
+        fresh(); qualify(); coordinates(); uint32_t unchanged = 77;
+        ActionRequest clear; clear.kind = ActionKind::CLEAR_POSITION; clear.positionClearQualified = true;
+        assert(host(app).startAction(app, 1, 1, clear, unchanged) == Probe::Action::UNAVAILABLE);
+        assert(unchanged == 77 && hardware.writes == 0); // Caller cannot bypass app qualification.
+        app->positionClearQualified = true;
+        clear.devicePosition = 1;
+        assert(host(app).startAction(app, 2, 1, clear, unchanged) == Probe::Action::UNSUPPORTED);
+        assert(unchanged == 77 && hardware.writes == 0);
+        command(lost ? "@3 position-clear\n" : "@3 profile ess_rs clear-position\n");
+        assert(Serial.output.find("\"result\":\"accepted\"") != std::string::npos);
+        const auto operation = view(0).operationId; waitTx(operation); step();
+        assert(hardware.tx[3] == 0x2D && hardware.tx[5] == 0x31);
+        assert(!app->axis.originKnown && !app->coordinateReference.nativeKnown && axisReserved(*app, 1));
+        if (lost) {
+            for (unsigned i = 0; i < 30000 && view(operation).pending; ++i) step();
+            assert(view(operation).actionContext->execution == ActionExecution::UNKNOWN);
+            const auto retained = *view(operation).actionContext;
+            pump(); assert(hardware.writes == 1 && !app->axis.originKnown);
+            uint32_t recovery = 0; assert(recover(app, 8, recovery) == Probe::Action::OK);
+            for (unsigned i = 0; i < 80000 && app->owner.recovering(); ++i) step();
+            assert(view(operation).actionContext->execution == retained.execution && !app->axis.originKnown);
+            assert(hardware.writes == 1 && axisReserved(*app, 1));
+        } else {
+            actionStep(operation); actionStep(operation, registers(1, {0, 1}));
+            assert(view(operation).pending && view(operation).actionContext->rawPosition == 1);
+            assert(hardware.tx[3] == 0xA && hardware.tx[5] == 2);
+            actionStep(operation, registers(1, {0, 0}));
+            assert(!view(operation).pending && view(operation).actionContext->completion == ActionCompletion::OBSERVED);
+            assert(!app->axis.originKnown && !app->coordinateReference.nativeKnown);
+            assert(!axisReserved(*app, 1)); // Zero readback establishes neither host origin nor mapping.
+        }
+    }
+}
+void testExternalFeedbackInvalidatesOnlyCurrentTarget() {
+    for (bool sameTarget : {false, true}) {
+        fresh(); qualify(); coordinates();
+        auto& old = app->stateCache.blocks[static_cast<uint8_t>(ESS::StateBlock::FEEDBACK)];
+        old.valid = true; old.value.target = app->axis.target; old.value.pairKnown = true;
+        old.value.rawPosition = 0; old.observedLatestUs = old.observedEarliestUs = nowUs();
+        if (!sameTarget) { old.value.target.address = 2; old.value.target.id = 2; }
+        uint32_t operation = 0;
+        assert(startTypedRead(app, 1, 1, ESS::ReadKind::STATE, operation, false) == Probe::Action::OK);
+        const std::vector<uint8_t> responses[] = {registers(1, {0, 1}), registers(1, {0, 0}), registers(1, {0, 1, 0})};
+        for (unsigned block = 0; block < 3; ++block) {
+            waitTx(operation); scheduleReply(hardware.time + 2000, responses[block]);
+            for (unsigned i = 0; i < 25000 && view(operation).pending && view(operation).typedRead->step == block; ++i) step();
+            assert(!view(operation).pending || view(operation).typedRead->step != block);
+        }
+        assert(!view(operation).pending && hardware.writes == 3);
+        assert(app->axis.originKnown != sameTarget && app->coordinateReference.nativeKnown != sameTarget);
+    }
+}
 } // namespace
 
 int main() {
@@ -461,5 +587,8 @@ int main() {
     testConfigurationChangesCancelContinuations();
     testReadinessBoundsActualOwnerWrites(); testDeferredTriggerExpiresBeforeAdmission();
     testCheckedStagingExceptionRetainsPartialSetupUncertainty();
+    testAbsoluteAngleApiCliAndLostReference(); testOriginIsHostOnlyAndConfidenceInvalidates();
+    testPositionClearApiCliAndUncertainInvalidation();
+    testExternalFeedbackInvalidatesOnlyCurrentTarget();
     std::puts("Actual move application tests passed");
 }

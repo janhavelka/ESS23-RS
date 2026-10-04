@@ -26,8 +26,9 @@ is recorded in [prompt 06](docs/reports/ess_release_06_2026-10-04.md).
 rational quantities, with frames, references, quantization and host-only configuration.
 The console exposes pure previews and [bounded enable/release, alarm-clear and
 priority stop operations](docs/ess_actions.md). Physical actions remain gated by
-independent timing/echo qualification. Finite relative-move software is
-implemented; physical movement remains unqualified and gated.
+independent timing/echo qualification. Finite relative/absolute/wrapped-angle
+motion and zero-only device position-clear software are implemented through
+shared APIs; physical movement and clear remain unqualified and gated.
 The [release roadmap](docs/roadmap.md) records the delivery order and completion gates.
 The [numbered implementation prompts](docs/prompts/ess_release/README.md)
 split the remaining work into reviewed, independently dispatched blocks. Typed non-changing read
@@ -79,8 +80,9 @@ Status status = convertAcceleration(
 input/output units and caller-owned rational scales. They check invalid scales,
 missing conversion dependencies, finite values, magnitude and arithmetic error;
 outputs stay unchanged on error. Exact native integer range checks avoid
-floating-point conversion. Origins, wrapped-angle paths, target quantization
-and device-specific ramp encoding follow later.
+floating-point conversion. The shared [target preparation](docs/axis_preparation.md)
+adds origins, wrapped paths and quantization. Device-specific physical ramp
+encoding remains unresolved.
 
 Gearing and linear lead are required only when crossing the corresponding
 motor/load/travel boundaries. Motor steps-to-full-steps conversion needs no
@@ -138,7 +140,8 @@ not establish a device-wide maximum. The malformed position example on manual
 p16 is corrected in the builder and covered by an independent frame fixture.
 Builders validate raw access/framing, not register-value meaning, motion limits,
 readiness or persistence. Typed identity/configuration reads are implemented;
-typed setting changes and moves remain future work. The installed
+typed setting changes remain future work. The installed [position API](docs/ess_position.md)
+implements finite relative/absolute motion and wrapped orientations. The installed
 [action API](docs/ess_actions.md) prepares bounded enable/release, alarm-clear
 and explicit normal/direct stop operations. It separates acknowledgement from
 reported completion; physical action admission on the current bench remains

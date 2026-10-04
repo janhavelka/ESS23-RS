@@ -1,8 +1,8 @@
 # ESS release implementation sequence
 
 Prepared 2026-10-03 against MotorControl-RS `4ae0c4d` (0.6.0).
-Preparing this set executed no numbered prompt. **Prompts 01–09 have implementation and available verification dispositions;
-10–30 remain prepared and unexecuted. Independent electrical and physical action/motion qualification remain open.**
+Preparing this set executed no numbered prompt. **Prompts 01–10 have implementation and available verification dispositions;
+11–30 remain prepared and unexecuted. Independent electrical and physical action/motion qualification remain open.**
 The current core, runner, ESP32-S3 capture and probe/load tools are existing work;
 do not rebuild them from an old prompt as if they were missing.
 
@@ -48,7 +48,7 @@ Never mark all preceding physical work qualified just because code compiles.
 | [07 — Exact target preparation, coordinates and limits](07_coordinates_and_target_preparation.md) | 5 / 6 | Implemented and freshly audited; native/package/build PASS; host API plus 23-frame read-only COM13 PASS; physical origins/travel/motion unqualified | [Handoff](../../reports/ess_release_07_2026-10-04.md), [fresh audit](../../reports/ess_release_07_audit_2026-10-04.md) |
 | [08 — Bounded actions, enable/release and priority stop](08_operations_enable_release_and_stop.md) | 5 | Implemented and freshly audited; native/package/build PASS; read-only COM13 and zero-TX action gates PASS; physical actions NOT RUN pending timing/echo evidence | [Handoff](../../reports/ess_release_08_2026-10-04.md), [fresh audit](../../reports/ess_release_08_audit_2026-10-04.md) |
 | [09 — First finite relative move and dynamic stop](09_first_relative_motion.md) | 5 | Implemented and independently re-audited; native/package/build and read-only COM13/gate checks PASS; physical movement/dynamic stop NOT RUN pending qualified timing/sign/basis/ramp/input prerequisites | [Audit](../../reports/ess_release_09_audit_2026-10-04.md), [handoff](../../reports/ess_release_09_2026-10-04.md) |
-| [10 — Absolute positions, wrapped angles and coordinate changes](10_absolute_angle_and_origins.md) | 6 | Prepared | — |
+| [10 — Absolute positions, wrapped angles and coordinate changes](10_absolute_angle_and_origins.md) | 6 | Implemented and independently reviewed; native/package/build and read-only COM13/zero-TX gates PASS; physical move/clear/unit comparisons NOT RUN, linear travel unqualified | [Handoff](../../reports/ess_release_10_2026-10-04.md) |
 | [11 — Velocity operation and verified ramp semantics](11_velocity_and_ramp_semantics.md) | 6 | Prepared | — |
 | [12 — Resolve paired-register write support before expansion](12_paired_register_write_policy.md) | 7 prerequisite | Prepared | — |
 | [13 — Typed driver settings and software limits](13_driver_configuration_and_limits.md) | 7 | Prepared | — |

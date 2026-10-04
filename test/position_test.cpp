@@ -59,7 +59,7 @@ ActionEvent frame(const Ess::MoveContext& c, const std::vector<uint8_t>& bytes, 
 std::vector<uint8_t> reply(const Ess::MoveContext& c, uint16_t flags = 1, uint16_t alarm = 0) {
     std::vector<uint8_t> b;
     if (c.step == 0) b = {1, 16, 0, 0x21, 0, 5};
-    else if (c.step == 1) b = {1, 6, 0, 0x27, 0, 1};
+    else if (c.step == 1) b = {1, 6, 0, 0x27, 0, static_cast<uint8_t>(c.request.position.relative ? 1 : 5)};
     else b = {1, 3, 4, static_cast<uint8_t>(alarm >> 8), static_cast<uint8_t>(alarm),
         static_cast<uint8_t>(flags >> 8), static_cast<uint8_t>(flags)};
     crc(b); return b;
@@ -430,6 +430,65 @@ void testConsumedReferenceUsesOperationTimeAndCoversWrites() {
     assert(Ess::prepareMoveRelative(c, axis(), &reference, 12, request(), p, 100, 10000));
     assert(!c.prepared.endpointKnown && c.prepared.effectiveNative == 25);
 }
+void testAbsoluteAndAngleReuseSequenceAndRetainReference() {
+    auto a = axis(); a.originKnown = true; a.originSource = ScaleSource::QUALIFIED;
+    a.units.commandStepsPerMotorTurn = UnitScale(1000, 1, ScaleSource::QUALIFIED);
+    AxisReference ref; ref.target = a.target; ref.configurationGeneration = a.generation;
+    ref.nativeKnown = ref.stationary = true; ref.source = ScaleSource::QUALIFIED;
+    ref.nativePosition = 1990; ref.observedUs = 80; ref.maximumAgeUs = 1000; ref.nowUs = 1;
+    auto r = request(); r.position.relative = false; r.position.frame = CoordinateFrame::MOTOR;
+    r.position.unit = PositionUnit::DEGREES; r.position.value = Rational(720);
+    auto p = prerequisites(); p.relativeBasisVerified = false; // Absolute has no relative-basis dependency.
+    Ess::MoveContext c, common;
+    assert(Ess::prepareMoveAbsolute(c, a, &ref, 12, r, p, 100, 10000, options()));
+    assert(MotorControlRS::prepareMoveAbsolute(common, a, &ref, 12, r, p, 100, 10000, options()));
+    assert(c.prepared.effectiveNative == 2000 && c.prepared.displacementNative == 10);
+    assert(c.words[3] == 0 && c.words[4] == 2000 && common.words[4] == c.words[4]);
+    ref.nativePosition = -999; ref.maximumAgeUs = 0; // Admitted context owns its reference.
+    assert(c.reference.nativePosition == 1990 && c.reference.nowUs == 100);
+    consume(c); Ess::PreparedMove work; assert(Ess::nextMove(c, c.servicedUs, work));
+    assert(work.value == 5 && work.bytes[5] == 5 && work.deadlineUs == 1080);
+    consume(c); consume(c, 1); assert(c.state == ActionState::ACTIVE); // A stale arrival is not completion.
+    consume(c, 4); consume(c, 1); assert(c.state == ActionState::SUCCEEDED);
+
+    ref = common.reference; ref.nativePosition = 990;
+    r.position.wrapped = true; r.position.path = AnglePath::POSITIVE; r.position.tie = HalfTurnTie::REJECT;
+    r.position.value = Rational(0);
+    assert(MotorControlRS::prepareMoveAngle(c, a, &ref, 12, r, p, 100, 10000, options()));
+    assert(c.prepared.effectiveNative == 1000 && c.prepared.displacementNative == 10);
+    consume(c); assert(Ess::nextMove(c, c.servicedUs, work) && work.value == 5);
+    // A response echoing relative start cannot authorize an absolute start.
+    std::vector<uint8_t> echo = {1, 6, 0, 0x27, 0, 1}; crc(echo);
+    assert(Ess::advanceMove(c, frame(c, echo, c.eligibleUs + 20), c.eligibleUs + 40));
+    assert(c.state == ActionState::FAILED && c.execution == ActionExecution::UNKNOWN && c.uncertain);
+    noMoreWork(c);
+}
+void testAbsoluteReferenceAndZeroGatesPreserveOutput() {
+    auto a = axis(); a.originKnown = true; a.originSource = ScaleSource::QUALIFIED;
+    AxisReference ref; ref.target = a.target; ref.configurationGeneration = a.generation;
+    ref.nativeKnown = ref.stationary = true; ref.source = ScaleSource::QUALIFIED;
+    ref.observedUs = 80; ref.maximumAgeUs = 1000;
+    auto r = request(); r.position.relative = false; auto c = move(); const Saved<Ess::MoveContext> saved(c);
+    for (unsigned fault = 0; fault < 11; ++fault) {
+        auto bad = ref; auto config = a; auto req = r;
+        switch (fault) {
+        case 0: bad.nativeKnown = false; break;
+        case 1: bad.stationary = false; break;
+        case 2: ++bad.target.id; break;
+        case 3: ++bad.target.generation; break;
+        case 4: ++bad.configurationGeneration; break;
+        case 5: bad.observedUs = 101; break;
+        case 6: bad.maximumAgeUs = 1; break;
+        case 7: bad.basis = RelativeBasis::COMMANDED; break;
+        case 8: config.originKnown = false; req.position.frame = CoordinateFrame::MOTOR; break;
+        case 9: req.position.value = Rational(0); break;
+        case 10: req.position.value = Rational(1, 2); req.position.rounding = Rounding::NEAREST;
+            req.position.maximumQuantizationError = 1; break; // Ties-to-even gives zero displacement.
+        }
+        assert(!Ess::prepareMoveAbsolute(c, config, &bad, 12, req, prerequisites(), 100, 10000, options())); saved.check(c);
+    }
+    assert(!Ess::prepareMoveAbsolute(c, a, nullptr, 12, r, prerequisites(), 100, 10000)); saved.check(c);
+}
 } // namespace
 int main() {
     testExactStageTriggerAndCommonParity(); testAllPreparationGatesLeaveOutputUnchanged();
@@ -438,4 +497,5 @@ int main() {
     testFreshCompletionLimitsAndDelayedService(); testDriveFaultAndPreviousObservationRetention();
     testWriteDeadlinesRetainReadinessAndOperationBudgets();
     testConsumedReferenceUsesOperationTimeAndCoversWrites();
+    testAbsoluteAndAngleReuseSequenceAndRetainReference(); testAbsoluteReferenceAndZeroGatesPreserveOutput();
 }

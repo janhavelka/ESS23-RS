@@ -27,6 +27,11 @@ Prompt09 adds [finite relative positioning](ess_position.md): exact common/nativ
 preparation, checked staging/trigger, new activity/completion evidence and priority
 stop interruption. Physical movement remains gated; software/API paths are real.
 
+Prompt10 adds shared absolute/wrapped-angle preparation and execution, zero-only
+device clear, host-origin/reference invalidation and all spatial-unit CLI routes.
+The [handoff](reports/ess_release_10_2026-10-04.md) records native/package/build and
+read-only COM13 evidence separately from unperformed physical comparisons.
+
 Implemented blocks include exact target preparation, typed non-changing reads, pure unit conversion, an ESS register catalogue,
 checked wire codecs with a minimal probe and standalone build foundations.
 The standalone RTU runner and ESP32-S3 adapter have native fake tests. The read-only

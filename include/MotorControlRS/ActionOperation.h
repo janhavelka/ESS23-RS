@@ -7,7 +7,7 @@
 
 namespace MotorControlRS {
 
-enum class ActionKind : uint8_t { ENABLE, RELEASE, CLEAR_ALARM, STOP };
+enum class ActionKind : uint8_t { ENABLE, RELEASE, CLEAR_ALARM, STOP, CLEAR_POSITION };
 enum class StopBehavior : uint8_t { UNSPECIFIED, CONFIGURED_DECELERATION, DIRECT };
 /** UNSPECIFIED explicitly requests no device-queue guarantee. It does not mean
  * preserve or discard. Host continuation cancellation is application-owned. */
@@ -20,6 +20,8 @@ struct StopPolicy {
 struct ActionRequest {
     ActionKind kind = ActionKind::ENABLE;
     StopPolicy stop;
+    int64_t devicePosition = 0; ///< ESS permits an explicit zero clear only, never an arbitrary counter setter.
+    bool positionClearQualified = false; ///< Caller verified clear semantics, target and stopped-state prerequisites.
 };
 /** Finite observation scheduling, supplied by the application. The interval is
  * a polling policy, not a vendor-guaranteed action or stop latency. */

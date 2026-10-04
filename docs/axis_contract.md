@@ -5,7 +5,9 @@ It defines the intended callable library behavior for applications and consoles.
 `Units.h` implements displacement, velocity and acceleration conversion with
 independent preferences. Prompt 07 adds [exact host target preparation](axis_preparation.md),
 origins, reference evidence, quantization and native soft limits through `Axis.h`.
-Motion execution, wrapped-angle resolution and profile ramp mapping remain future work. See
+Prompt 09 implements the bounded ESS finite-relative sequence; prompt 10 reuses
+it for absolute and wrapped-angle motion with shared `preparePosition` arithmetic.
+Physical qualification and general profile ramp mapping remain open. See
 [encoder and units evidence](reference/06_encoder_units.md) for the initial API.
 The [architecture](architecture.md) defines the three layers and ownership,
 the [profile contract](profile_contract.md) defines complete family access,
@@ -270,6 +272,26 @@ Reject preparation or revalidate before transmission if its starting-reference
 assumptions change. Publish the resolved multi-turn target and direction with
 the operation result so the CLI and application see exactly the same decision.
 
+The implemented `PositionRequest` selects this behavior with `wrapped=true`,
+`AnglePath` and `HalfTurnTie`; `preparePosition` is the one common arithmetic
+path. Ordinary absolute preparation does not normalize. Exact turns/degrees
+normalize before scale multiplication and support rational native-per-turn
+scales with checked fixed storage. Wrapped requests require MOTOR/LOAD frame,
+angular units and a fresh native reference with matching requested basis.
+Approximate radian intervals crossing equality or half-turn selection reject;
+they do not become resolved ties through a caller-selected direction.
+
+Pure absolute preview may calculate an endpoint without current evidence and
+then reports displacement as unknown. The ESS finite absolute/angle executor
+requires established stationary ACTUAL command-coordinate evidence, copies it
+into the operation and checks its freshness at supplied admission time. Its
+age budget must cover readiness-capped staging/trigger deadlines. Observation
+work retains the immutable overall operation deadline; expiry of the consumed
+starting reference after an on-time trigger does not cancel that observation
+sequence. Zero effective displacement is reported by pure preview and rejected
+by the executor before traffic. These software paths do not qualify unresolved
+drive sign, coordinate-source, electrical or ramp semantics.
+
 ## Velocity, ramps and effort
 
 Velocity is signed in the selected frame. Supported input families are
@@ -329,6 +351,19 @@ explicit acknowledgement/verification handling. It invalidates command and
 feedback origin relations affected by the write. A lost acknowledgement can
 leave the coordinate change unknown; it must not be hidden as a successful
 host-origin change.
+
+`invalidateAxisReference` is the implemented pure host confidence-loss operation:
+it clears both origins, derived limits and supplied reference confidence while
+preserving unit scales/preferences, then advances the coordinate generation.
+Exhausted or disabled generations never wrap or revive; confidence still clears
+when invalidation returns `GENERATION_EXHAUSTED`. Applications invalidate on
+actual release, uncertain clear, newly observed external movement, stale/lost
+reference or relevant interpretation changes, preserve admitted/historical
+evidence and require fresh qualification before new dependent preparation.
+The ESS `prepareSetDevicePosition` subset supports explicit zero clear only,
+with caller-qualified documented semantics/readiness and checked acknowledgement
+plus a new zero-pair observation. Arbitrary nonzero requests reject before work;
+neither a lost acknowledgement nor raw zero alone establishes a host origin.
 
 Successful homing establishes only the reference and completion evidence
 defined by that method/profile. Device restart, release, encoder resets,

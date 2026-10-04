@@ -267,6 +267,45 @@ void testObservationLimitsAndLateDelivery() {
     assert(Ess::advanceAction(boundary, event(boundary, ReadEventKind::DEADLINE), maximum - 1));
     assert(boundary.execution == ActionExecution::ACKNOWLEDGED && boundary.outcome == ActionOutcome::DEADLINE);
 }
+void testZeroOnlyDeviceClearNeedsQualifiedFreshReadback() {
+    Ess::ActionContext c = action(); const Saved<Ess::ActionContext> saved(c);
+    for (int64_t nonzero : {INT64_MIN, INT64_C(-1), INT64_C(1), INT64_MAX}) {
+        assert(Ess::prepareSetDevicePosition(c, target(), 12, nonzero, true, 100, 10000).code == Err::UNSUPPORTED);
+        saved.check(c);
+    }
+    assert(!Ess::prepareSetDevicePosition(c, target(), 12, 0, false, 100, 10000)); saved.check(c);
+    ActionOptions options; options.pollIntervalUs = 100; options.maxPolls = 3;
+    assert(MotorControlRS::prepareSetDevicePosition(c, target(), 12, 0, true, 100, 10000, options));
+    Ess::PreparedAction work; assert(Ess::nextAction(c, 100, work));
+    // The manual's auxiliary value is decimal49, not a position-register write.
+    std::vector<uint8_t> expected = {1, 6, 0, 0x2D, 0, 0x31}; crc(expected);
+    assert(work.reg == 0x2D && work.value == 49 && work.length == expected.size());
+    assert(std::memcmp(work.bytes, expected.data(), expected.size()) == 0);
+    acknowledge(c); assert(!c.observationKnown && c.completion == ActionCompletion::NOT_OBSERVED);
+    assert(Ess::nextAction(c, c.eligibleUs, work) && !work.write && work.reg == 0xA && work.count == 2);
+    observe(c, 0, 1); assert(c.state == ActionState::ACTIVE && c.rawPosition == 1);
+    assert(c.rawAlarm == 0 && c.rawMotion == 0); // These words are position, not motor status.
+    observe(c, 1, 0); assert(c.state == ActionState::ACTIVE && c.rawPosition == 0x10000);
+    observe(c, 0, 0); assert(c.state == ActionState::SUCCEEDED && c.rawPosition == 0);
+    assert(c.completion == ActionCompletion::OBSERVED && c.execution == ActionExecution::ACKNOWLEDGED);
+    assert(c.lastObservation.step > c.writeEvidence.step && c.lastObservation.earliestUs > c.writeEvidence.latestUs);
+    const Saved<Ess::ActionContext> completed(c);
+    assert(!Ess::advanceAction(c, event(c, ReadEventKind::CANCEL), c.servicedUs)); completed.check(c);
+
+    assert(Ess::prepareSetDevicePosition(c, target(), 13, 0, true, 100, 10000, options));
+    auto lost = event(c, ReadEventKind::DEADLINE); lost.transport.txAccepted = 8; lost.txComplete = true;
+    assert(Ess::advanceAction(c, lost, 10000));
+    assert(c.execution == ActionExecution::UNKNOWN && !c.observationKnown && c.outcome == ActionOutcome::DEADLINE);
+    assert(Ess::nextAction(c, c.servicedUs, work) && work.kind == Ess::ActionWork::DONE && !work.length);
+    assert(Ess::prepareSetDevicePosition(c, target(), 14, 0, true, 100, 10000, options)); acknowledge(c);
+    auto zero = motion(0, 0); auto stale = frame(c, zero.data(), zero.size(), c.writeEvidence.latestUs);
+    const Saved<Ess::ActionContext> acknowledged(c);
+    assert(!Ess::advanceAction(c, stale, c.eligibleUs + 20)); acknowledged.check(c);
+    zero.back() ^= 1;
+    assert(Ess::advanceAction(c, frame(c, zero.data(), zero.size(), c.eligibleUs), c.eligibleUs + 20));
+    assert(c.state == ActionState::FAILED && c.status.code == Err::CRC_ERROR && !c.observationKnown);
+    assert(c.execution == ActionExecution::ACKNOWLEDGED && c.completion == ActionCompletion::NOT_OBSERVED);
+}
 } // namespace
 int main() {
     testExactCommandsAndCommonNativeParity(); testPolicyRejectionPreservesPreparedOperation();
@@ -274,4 +313,5 @@ int main() {
     testFailuresRetainUncertaintyAndNeverReplay(); testBadRepliesAndExceptionPreserveEvidence();
     testExceptionExecutionUsesOnlyDocumentedRejections();
     testObservationLimitsAndLateDelivery();
+    testZeroOnlyDeviceClearNeedsQualifiedFreshReadback();
 }

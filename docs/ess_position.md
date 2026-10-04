@@ -1,10 +1,12 @@
-# Finite ESS relative positioning
+# Finite ESS positioning
 
 Prompt09 adds the installed common intent in
 [MoveOperation.h](../include/MotorControlRS/MoveOperation.h) and the concrete ESS
 sequence in [Position.h](../include/MotorControlRS/profiles/ess_rs/Position.h).
-`MotorControlRS::prepareMoveRelative` and `ESS_RS::prepareMoveRelative` invoke
-the same implementation. Construction and advancement perform no I/O, read no
+Prompt10 adds `prepareMoveAbsolute` and `prepareMoveAngle` beside
+`prepareMoveRelative`. Common `MotorControlRS` and native `ESS_RS` routes invoke
+the same implementation and reuse `nextMove`/`advanceMove`; there is one staging,
+trigger and completion sequence. Construction and advancement perform no I/O, read no
 clock and allocate nothing. Native tests are software evidence; physical moves
 and dynamic stopping remain unqualified on the current bench.
 
@@ -21,8 +23,32 @@ reference or choose a smaller readiness/deadline budget; an old cached `nowUs`
 cannot authorize a stale endpoint. Unestablished optional feedback remains
 irrelevant to native displacement preparation without endpoint limits.
 
+Finite absolute-move preparation preserves the complete target: `720 deg` and `2 turn`
+mean two turns from the selected host origin. It requires a fresh stationary
+actual-position reference whose command-coordinate relation is established.
+The admitted `MoveContext` owns a copy of that reference. Native absolute steps
+need no host origin; absolute motor/load engineering coordinates use the
+configured host origin. Commanded and queued relative bases remain unsupported
+by this ESS operation; their observability cannot be inferred from feedback.
+The pure `preparePosition` arithmetic preview may calculate an ordinary
+absolute endpoint without current-position evidence when its conversion and
+limits need none. Such a preview does not establish displacement or authorize
+the finite move, whose preparation requires the fresh actual reference.
+
+Wrapped preparation sets `PositionRequest::wrapped` and uses the same public
+`preparePosition` arithmetic. It accepts motor/load turns, degrees or radians,
+a known host origin and fresh multi-turn native reference. `AnglePath` selects
+POSITIVE, NEGATIVE or SHORTEST; the exact half-turn tie defaults to REJECT, with
+explicit POSITIVE/NEGATIVE alternatives. Matching orientation produces zero for
+every path, and the mover rejects that zero without traffic. Limits are checked
+on the chosen requested/effective target; failure never chooses another turn.
+Radians retain explicit approximation/error bounds and reject unresolved path
+or quantization intervals. Ordinary absolute and relative inputs are never
+normalized as orientations.
+
 `MovePrerequisites` binds the exact target and host configuration generation.
-The caller must supply qualified command-unit/actual-relative-basis semantics,
+The caller must supply qualified command-unit semantics (and actual-relative-
+basis semantics for relative moves),
 word order, native starting-speed relationship, configured ramp words, fresh
 enabled/stationary/alarm-free readiness and permission from the actual input
 and drive-limit configuration. Plain raw readback is insufficient for unresolved
@@ -49,7 +75,7 @@ event and must independently qualify FC06 response source against local echo.
 | Step | Yielded work and requirement |
 | --- | --- |
 | 0 | FC10 `0x0021/5`: acceleration, deceleration, RPM, target pair in retained word order |
-| 1 | Only after checked, qualified, confirmed staging acknowledgement: FC06 `0x0027=0x0001`, finite relative and noninterrupting |
+| 1 | Only after checked, qualified, confirmed staging acknowledgement: FC06 `0x0027=0x0001` relative or `0x0005` absolute/wrapped, both finite and noninterrupting |
 | 2 onward | Bounded FC03 `0x0006/2` observations, separated by waits which hold no bus transaction |
 | Completion | Fresh post-trigger RUNNING report, then a later checked ARRIVED and not-RUNNING report without alarm/release/limit interruption |
 
@@ -90,27 +116,51 @@ priority stop cancels only unsent continuation work and settles in-flight TX.
 Interrupted and stop results remain separate under output/result pressure.
 Uncertainty survives result release and host recovery; no queued trigger resumes.
 
+The application drops current native-reference confidence when trigger TX is
+accepted. A terminal triggered move invalidates dependent origins/limits until
+a newly qualified reference is supplied; arrival flags alone cannot establish
+its exact endpoint. Release, accepted or uncertain device clear, reference
+expiry, observed external movement and relevant settings changes also invalidate
+coordinate knowledge while retaining historical raw evidence. Host `axis origin`
+changes no motor counter and requires idle stationary native reference evidence.
+The current board cannot establish that reference from unsigned raw feedback
+or an old zero readback.
+
 CLI grammar is:
 
 ```text
 move relative <value> <unit> <native|motor|load> <native_rpm> configured [address]
+move absolute <value> <unit> <native|motor|load> <native_rpm> configured [address]
+move angle <value> <turn|deg|rad> <motor|load> <positive|negative|shortest> <reject|positive|negative> <native_rpm> configured [address]
 profile ess_rs move-relative <value> <unit> <native|motor|load> <native_rpm> configured [address]
+profile ess_rs move-absolute <value> <unit> <native|motor|load> <native_rpm> configured [address]
+profile ess_rs move-angle <value> <turn|deg|rad> <motor|load> <path> <tie> <native_rpm> configured [address]
 ```
 
-Numbers use `parseExactNumber`, with explicit frames and EXACT quantization.
+All units (`steps`, `fullsteps`, `counts`, `turn`, `deg`, `rad`, `mm`) share public
+preparation for relative/absolute requests, rejecting missing scales only when
+needed. Relative commands may add `basis actual|commanded|queued`; unsupported
+bases fail before work. Every move may add `round exact|nearest|zero|floor|ceil
+<maximum_native_error>` and radians additionally `approx <maximum_native_error>`
+before the optional address. Numbers use `parseExactNumber`, explicit frames
+and EXACT quantization by default.
 These routes use the same common/native API and active host generation. Nine
 ordinary correlations plus one stop correlation remain bounded; moves use the
 eight ordinary application result slots, with explicit `result`/`release`.
-Accepted records use command `move-relative`, followed by one `type=move`
-terminal. Context lookup is non-consuming. Maximum output remains 4096 bytes.
+Accepted records use `move-relative`, `move-absolute` or `move-angle`, followed
+by one `type=move` terminal. Requested path/tie, resolved target/displacement,
+quantization and copied reference provenance are retained. Context lookup is
+non-consuming. Maximum output is 4608 bytes, including bounded reference and
+numerical provenance.
 
-The standalone proposed free-shaft software ceiling is ±250 native increments,
+The standalone proposed free-shaft software ceiling is ±250 native increments of displacement,
 at most60 RPM, a3-second absolute deadline and at most64 observations spaced
 20ms apart. This is not a qualified physical test envelope. Production
 `actionTimingQualified` remains false; command/sign/basis/ramp/input verification
 flags also remain false. There is no CLI bypass or implicit motor commissioning.
 
-Python `move-relative ... --cleanup-stop normal|direct` performs one attempt,
+Python `move-relative`, `move-absolute` and `move-angle` with explicit
+`--cleanup-stop normal|direct` perform one attempt,
 retained inspection, explicit cleanup stop, checked final state/health, and
 local result releases. A malformed session becomes unusable and cannot replay
 the move. An interrupted acceptance/result wait also makes the session unusable,
@@ -120,3 +170,7 @@ reported non-running does not supply missing independent shaft observation.
 See [the fresh prompt09 audit](reports/ess_release_09_audit_2026-10-04.md) and
 [implementation report](reports/ess_release_09_2026-10-04.md) for tests,
 actual image/bench evidence and outstanding physical gates.
+Prompt10 software and current read-only/gate evidence are recorded separately in
+[its report](reports/ess_release_10_2026-10-04.md). Physical absolute/wrapped
+motion, equivalent-unit shaft comparisons and linear travel remain NOT RUN;
+free-shaft arithmetic is not machine-travel qualification.

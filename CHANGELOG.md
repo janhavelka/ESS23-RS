@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Add exact wrapped paths and shared finite absolute/angle motion preparation,
+  copied reference provenance, zero-only ESS device position clear and coordinate
+  confidence invalidation. Expose common/native console and Python routes;
+  physical movement and clear remain gated by outstanding qualification.
+
 - Add bounded ESS enable/release, alarm-clear and explicit normal/direct stop
   operations, application axis reservations and reserved stop delivery. Preserve
   write uncertainty separately from checked status completion; physical actions

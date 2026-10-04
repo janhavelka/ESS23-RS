@@ -5,7 +5,7 @@ Prompt 08 implements the installed `ActionOperation.h` and
 clock, transport, scheduling, reservation and retained results. Core functions
 perform no I/O, allocation, retries or clock reads. Include the ESS header to
 use the common `MotorControlRS::prepareEnable`, `prepareRelease`,
-`prepareClearAlarm` and `prepareStop` overloads. They call the same implementation
+`prepareClearAlarm`, `prepareSetDevicePosition` and `prepareStop` overloads. They call the same implementation
 as the native ESS preparations, including `prepareNormalStop` and
 `prepareEmergencyStop`.
 
@@ -14,6 +14,7 @@ as the native ESS preparations, including `prepareNormalStop` and
 | Enable | `0x002D = 0x0012` | RELEASED bit clear |
 | Release | `0x002D = 0x0011` | RELEASED bit set |
 | Clear resettable alarm | `0x002D = 0x0021` | Alarm word zero and ALARM bit clear |
+| Clear device position (zero only) | `0x002D = 0x0031` | New checked current-position pair reads zero |
 | Normal stop | `0x0027 = 0x0100` | RUNNING bit clear |
 | Direct stop (native emergency command) | `0x0027 = 0x0200` | RUNNING bit clear |
 
@@ -22,7 +23,8 @@ shaft standstill or stopping latency. Already-matching flags do not establish
 that the action caused a transition. Alarm clear does not reset faults for which
 the hardware manual requires power cycling. Enable does not promise to override
 an assigned external release input. The implementation changes no input function,
-polarity, ramp, position or persistent setting.
+polarity, ramp or persistent setting. Device position clear is an explicit
+coordinate change, separate from these other actions and host origin updates.
 
 The original function manual physical pages 25–26 and 70–71 establish these
 commands. The stop page has inconsistent copied table descriptions; its prose,
@@ -34,13 +36,43 @@ traffic. `DeviceQueue::UNSPECIFIED` explicitly requests no device queue guarante
 Host continuation cancellation is a separate application effect. A serial direct
 stop is not a qualified independent emergency-stop mechanism.
 
+## Explicit device position clear
+
+Prompt10 adds `prepareSetDevicePosition(context, target, operationId,
+nativePosition, qualified, nowUs, deadlineUs, options)` through common and native
+ESS routes. Only zero is supported; any nonzero value rejects without yielding
+traffic. The command is auxiliary value `0x0031` at `0x002D`, documented on
+physical PDF pages 26 and 71. Register `0x0031` itself is the separate homing
+mode; the current-position pair `0x000A/0x000B` is read-only (page69).
+
+The caller must qualify the clear semantics and stopped-state prerequisites;
+this is a conservative application policy. The manual's explicit stopped-state
+note on pages26/71 applies to factory restore/save, not position clear. The
+standalone also requires new, matching, enabled/stopped/alarm-free readiness
+and caps the request deadline by that retained readiness age. Its separate
+`positionClearQualified` commissioning flag remains false on the actual board.
+
+The checked, source-confirmed acknowledgement is followed by bounded new FC03
+`0x000A/2` observations. Both words must be zero; old cached zero and the echo
+alone do not establish completion. The context retains `rawPosition` as raw
+unsigned bits. Zero verification needs no guessed signed decoding or word order
+and establishes neither homing, host origin nor feedback-to-command mapping.
+No arbitrary counter write or motion is substituted for this command.
+
+Accepted clear TX invalidates origins, reference confidence and dependent limits
+in the application. Lost acknowledgement retains UNKNOWN execution and a
+coordinate conflict; result release or host recovery cannot restore the old
+origin. Unsent cancellation preserves previous confidence. Use
+`invalidateAxisReference` in other consumers to apply the same explicit host
+invalidation to caller-owned configuration/reference state.
+
 ## Preparation and event lifetime
 
 `prepareAction` validates target/address/generation, nonzero operation ID,
 absolute deadline and bounded observation options without changing output on
 rejection. `nextAction` yields the same step token until the caller consumes an
 event: one eight-byte FC06 write, then WAIT or an eight-byte FC03 `0x0006/2`
-read. A read returns nine bytes. The default observation policy is 10 ms between
+read (`0x000A/2` for device position clear). A read returns nine bytes. The default observation policy is 10 ms between
 reads, at most 20 polls; configurable limits are positive interval and 1–64 polls.
 These are scheduling choices, not vendor latency guarantees. DONE yields no work.
 
@@ -87,7 +119,7 @@ record so a later explicit stop can run; it does not clear the uncertainty bit.
 
 The first actual or possible action TX invalidates earlier cached state with an
 explicit `invalidated_us` watermark while preserving raw observations. Release
-also invalidates host origin/reference generation. Rejected admission and
+and device position clear also invalidate host origin/reference generation. Rejected admission and
 unsent cancellation leave those assumptions intact. Fresh explicit reads can
 restore current state; action result observations keep their own provenance.
 
@@ -114,6 +146,7 @@ configuration belongs to prompt 15.
 | `enable [address]` | `profile ess_rs enable [address]` |
 | `motor-release [address]` | `profile ess_rs release [address]` |
 | `alarm-clear [address]` | `profile ess_rs clear-alarm [address]` |
+| `position-clear [address]` | `profile ess_rs clear-position [address]` |
 | `stop normal [address]` | `profile ess_rs normal-stop [address]` |
 | `stop direct [address]` | `profile ess_rs emergency-stop [address]` |
 
@@ -140,9 +173,14 @@ and all dynamic stop/motion claims remain NOT RUN. Prompt 09 can reuse the real
 software path, but live moves require these gates plus its own setup/units and
 independent stop prerequisites.
 
-## Relative-move integration
+Device position clear hardware remains NOT RUN, independently of its native
+tests and zero-TX admission gates. It is never added to read/load campaigns;
+the one-attempt Python `position-clear` command is explicit. See the
+[prompt10 report](reports/ess_release_10_2026-10-04.md) for current dispositions.
 
-[Finite relative positioning](ess_position.md) reuses the existing action event,
+## Finite-move integration
+
+[Finite relative, absolute and wrapped positioning](ess_position.md) reuse the existing action event,
 observation scheduling and application reservation/stop path. An admitted stop
 settles the current move frame and invalidates unsent staging/trigger/observation
 continuations; retained partial setup/trigger uncertainty stays unchanged.

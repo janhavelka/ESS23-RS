@@ -1,5 +1,16 @@
 # MotorControl-RS standalone CLI contract
 
+Prompt10 implements `move absolute`, `move angle`, matching
+`profile ess_rs move-absolute|move-angle`, and explicit zero-only
+`position-clear` / `profile ess_rs clear-position`. See the actual positional
+grammar and limits in [finite positioning](ess_position.md),
+[clear action](ess_actions.md) and [pure previews](axis_preparation.md).
+The future grammar below does not add aliases to the current console.
+Multi-turn absolute values preserve turns; wrapped requests require explicit
+path/tie and fresh established command coordinates. All unit routes reuse
+the installed preparation API; host origins perform no motor traffic.
+Production physical admission remains qualification-gated.
+
 Prompt09 implements `move relative <value> <unit> <native|motor|load> <native_rpm>
 configured [address]` and `profile ess_rs move-relative` through the same public
 preparation/sequence. Accepted and retained terminal evidence remains distinct;

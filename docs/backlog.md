@@ -161,15 +161,15 @@ FieldCore remains read-only; typed identity/state and motion/stop retain their g
   preparation, explicit rounding, checked origins and endpoint limits in 07.
 - [x] Implement pure motor/load/native target preparation, identified encoder
   and configured travel mappings, precision provenance, generation checks and
-  evidence-gated host configuration/origin APIs. Drive execution and wrapped
-  angle path policy remain separate work.
+  evidence-gated host configuration/origin APIs. Prompt10 now implements wrapped
+  paths and shared finite position execution; physical qualification is separate.
 
 - [ ] Implement capability/configuration inspection and exact native value
   preservation, with structured unsupported/unresolved/unimplemented reasons.
 - [ ] Implement absolute/relative moves in command steps, full steps and
   identified encoder counts where mappings exist.
-- [ ] Implement turns, degrees and radians: unwrapped multi-turn positioning
-  and wrapped orientations with direction and half-turn tie policy.
+- [x] Implement turns, degrees and radians: unwrapped multi-turn positioning
+  and wrapped orientations with direction and half-turn tie policy in prompt10.
 - [ ] Prepare and execute configured linear-travel moves, initially mm, using
   the existing velocity/acceleration conversions and rational scale/gear/lead.
 - [x] Implement conversion provenance, precision/rounding reports, overflow,
@@ -498,7 +498,7 @@ action gates and the operation coverage denominator remain unchanged.
 - [x] Explicit-frame CLI, strict Python one-attempt finite scenario and retained cleanup evidence; public installed-core and failure-injection/application tests.
 - [ ] Physical small positive/negative moves, independently observed shaft displacement, ramp/sign/basis/input qualification and dynamic-stop latency: NOT RUN behind the existing independent timing/echo and physical stop gates. Uncertain writes never replay.
 
-See [the contract](ess_position.md) and [prompt09 evidence](reports/ess_release_09_2026-10-04.md). The proposed standalone +/-250-native/60-RPM ceiling is a software limit, not a physically qualified envelope. Prompt10 remains separately dispatched.
+See [the contract](ess_position.md) and [prompt09 evidence](reports/ess_release_09_2026-10-04.md). The proposed standalone +/-250-native/60-RPM ceiling is a software limit, not a physically qualified envelope. Prompt10 extends the same executor.
 
 The [fresh prompt09 audit](reports/ess_release_09_audit_2026-10-04.md) fixes
 readiness through queue/setup/TX and deferred trigger admission, reevaluates
@@ -507,3 +507,29 @@ Python evidence, and marks interrupted transport cleanup unknown. Help and
 capability routes require the complete move callback set. Native/application,
 installed-package, firmware and read-only COM13 checks are recorded separately
 from the still unperformed physical motion and dynamic-stop qualification.
+
+## Prompt10 absolute coordinates and explicit clear disposition
+
+- [x] Shared exact absolute/wrapped preparation with motor/load frames, preserved
+  multi-turn targets, positive/negative/shortest paths, explicit half-turn ties,
+  same-angle stay, requested/rounded limits and zero-displacement rejection.
+- [x] Reuse the finite mover and same-axis staging reservation; absolute trigger5,
+  copied fresh command-reference provenance, existing stop/uncertainty/deadlines.
+- [x] Explicit zero-only device position clear uses reviewed auxiliary49 and new
+  checked current-position pair zero; nonzero counter changes reject before TX.
+  Host origin remains separate, evidence-gated and generates no motor traffic.
+- [x] Invalidate coordinate confidence on accepted release/clear, external
+  movement, lost/expired reference and relevant settings changes; trigger drops
+  live pose confidence without cancelling its admitted observation sequence.
+- [x] Common/profile console and Python routes, all requested spatial units,
+  strict correlation, installed public headers and independent failure tests.
+- [x] Available COM13 read-only regression, pure step/degree/radian equivalence
+  under explicitly ASSUMED host scale, zero-TX motion/clear/origin gates and RAM
+  measurements; exact traffic/settings retained in [report](reports/ess_release_10_2026-10-04.md).
+- [ ] Physical equivalent-unit motion, origin/clear effects, independent shaft
+  comparison and dynamic stop: NOT RUN pending independent timing/FC06 source,
+  command/feedback sign/basis/ramp/input qualification and usable physical stop.
+  Linear travel remains unqualified without a configured mechanism.
+
+Prompt11 remains separately dispatched. Unknown algorithm3/firmware0x0029 and
+unsigned feedback never become qualified command-reference or ramp semantics.

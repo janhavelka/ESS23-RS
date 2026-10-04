@@ -37,6 +37,7 @@ struct Fake {
     unsigned axisCalls = 0;
     Probe::AxisCommand axisRequest;
     MotorControlRS::AxisConfig axisConfig;
+    MotorControlRS::AxisReference axisReference;
     MotorControlRS::Status axisStatus;
     Probe::Action cancelAction = Probe::Action::OK, releaseAction = Probe::Action::OK;
     uint8_t address = 0;
@@ -125,7 +126,7 @@ struct Fake {
         if (!self.axisStatus) return self.axisStatus;
         if (request.kind != Probe::AxisCommandKind::PREPARE) return MotorControlRS::Ok();
         auto position = request.position; position.configurationGeneration = self.axisConfig.generation;
-        return MotorControlRS::preparePosition(position, self.axisConfig, nullptr, out.prepared);
+        return MotorControlRS::preparePosition(position, self.axisConfig, self.axisReference.nativeKnown ? &self.axisReference : nullptr, out.prepared);
     }
     Probe::Host host(bool withLoad = false, bool withOwner = false) {
         Probe::Host result;
@@ -1019,7 +1020,7 @@ void testMoveRoutesExactParsingAndRetainedReports() {
     }
     Fake fake; auto host = fake.host(); host.startMove = Fake::startMove; host.axis = Fake::axis;
     Probe::Console console(host);
-    for (const char* input : {"move", "move absolute 1 steps native 60 configured", "move relative 1 steps native 0 configured",
+    for (const char* input : {"move", "move absolute 1 steps native 60", "move relative 1 steps native 0 configured",
         "move relative 1 steps native -1 configured", "move relative 1 steps native 60.5 configured", "move relative 1 steps native 65536 configured",
         "move relative 1/2.0 steps native 60 configured", "move relative NaN steps native 60 configured", "move relative 1 deg other 60 configured",
         "move relative 1 steps native 60 default", "move relative 1 steps native 60 configured 0", "move relative 1 steps native 60 configured 248",
@@ -1076,6 +1077,10 @@ void testMaximumMoveReportFitsFixedOutput() {
     c.prerequisites.rawAlarm = c.prerequisites.rawMotion = c.prerequisites.startSpeed = UINT16_MAX;
     c.prepared.effectiveNative = c.prepared.displacementNative = INT32_MIN;
     c.prepared.endpointKnown = true; c.prepared.endpointNative = INT64_MIN;
+    c.request.position.relative = false; c.request.position.wrapped = true;
+    c.reference.target.id = c.reference.target.generation = c.reference.configurationGeneration = UINT32_MAX;
+    c.reference.nativeKnown = true; c.reference.nativePosition = INT64_MIN;
+    c.reference.observedUs = c.reference.maximumAgeUs = UINT64_MAX;
     for (auto& word : c.words) word = UINT16_MAX;
     for (auto* e : {&c.stagingEvidence, &c.triggerEvidence, &c.activityEvidence, &c.lastObservation, &c.failureEvidence}) {
         e->step = 65; e->event = Core::ReadEventKind::TRANSPORT_FAILURE;
@@ -1088,6 +1093,77 @@ void testMaximumMoveReportFitsFixedOutput() {
     fake.contains("\"interrupted_by_stop\":true"); fake.contains("FFFFFFFFFFFFFFFFFF");
     fake.contains("\"requested_native_approximate\":-2147483647.875");
     std::printf("Maximum-width move line: %zu/%zu bytes\n", fake.lines.back().size(), Probe::OUTPUT_CAPACITY);
+}
+
+void testAbsoluteAngleAndClearRoutesUsePublicRequests() {
+    namespace Core = MotorControlRS;
+    Fake fake; auto host = fake.host(false, true);
+    host.axis = Fake::axis; host.startMove = Fake::startMove; host.startAction = Fake::startAction;
+    fake.axisConfig.target.id = fake.axisConfig.target.address = 1;
+    fake.axisConfig.target.generation = 9; fake.axisConfig.generation = 17;
+    fake.axisConfig.units.commandStepsPerMotorTurn = Core::UnitScale(1000, 1, Core::ScaleSource::ASSUMED);
+    fake.axisConfig.originKnown = true; fake.axisConfig.originNative = 0; fake.axisConfig.originSource = Core::ScaleSource::ASSUMED;
+    fake.axisReference.target = fake.axisConfig.target; fake.axisReference.configurationGeneration = 17;
+    fake.axisReference.nativeKnown = true; fake.axisReference.nativePosition = 2000;
+    fake.axisReference.source = Core::ScaleSource::ASSUMED;
+    fake.axisReference.observedUs = fake.axisReference.nowUs = 100; fake.axisReference.maximumAgeUs = 1000;
+    Probe::Console console(host);
+    for (const char* route : {"move absolute", "profile ess_rs move-absolute"}) {
+        send(console, std::string(route) + " 720 deg motor 60 configured\n");
+        assert(!fake.moveRequest.position.relative && !fake.moveRequest.position.wrapped);
+        assert(fake.moveRequest.position.value.numerator == 720 && fake.moveRequest.position.unit == Core::PositionUnit::DEGREES);
+        fake.contains("\"command\":\"move-absolute\"");
+    }
+    for (const char* route : {"move angle", "profile ess_rs move-angle"}) {
+        send(console, std::string(route) + " 1/2 turn motor shortest negative 60 configured\n");
+        assert(!fake.moveRequest.position.relative && fake.moveRequest.position.wrapped);
+        assert(fake.moveRequest.position.path == Core::AnglePath::SHORTEST && fake.moveRequest.position.tie == Core::HalfTurnTie::NEGATIVE);
+        fake.contains("\"command\":\"move-angle\"");
+    }
+    send(console, "move relative 1 rad motor 60 configured round nearest 1 approx 0.001\n");
+    assert(fake.moveRequest.position.approximate && fake.moveRequest.position.rationalRadians);
+    assert(fake.moveRequest.position.maximumApproximationError > 0);
+    send(console, "move relative 1 steps native 60 configured basis commanded\n");
+    assert(fake.moveRequest.position.basis == Core::RelativeBasis::COMMANDED);
+    const unsigned admitted = fake.moves;
+    for (const char* input : {"move angle 0 deg motor shortest 60 configured", "move angle 0 deg motor wrong reject 60 configured",
+        "move absolute 1 steps native 60 configured basis actual", "move relative 1 deg motor 60 configured round nearest 1 approx 0.01",
+        "move relative 1 rad motor 60 configured round nearest 1 approx 0", "move absolute 1 steps native 60 configured round nearest"}) {
+        send(console, std::string(input) + "\n"); fake.contains("\"ok\":false"); assert(fake.moves == admitted);
+    }
+    send(console, "prepare angle 90 deg motor positive reject\n");
+    fake.contains("\"ok\":true"); fake.contains("\"wrapped\":true"); fake.contains("\"endpoint_native\":2250");
+    auto direct = fake.axisRequest.position; direct.configurationGeneration = 17;
+    Core::PreparedTarget prepared; assert(Core::preparePosition(direct, fake.axisConfig, &fake.axisReference, prepared));
+    assert(prepared.endpointNative == 2250);
+    Fake units; auto unitHost = units.host(); unitHost.axis = Fake::axis; unitHost.startMove = Fake::startMove;
+    Probe::Console unitConsole(unitHost);
+    for (const char* unit : {"steps", "fullsteps", "turn", "deg", "rad", "mm"}) {
+        send(unitConsole, std::string("move absolute 1 ") + unit + " motor 60 configured\n");
+        assert(!units.moveRequest.position.relative);
+    }
+    assert(units.moves == 6);
+    Fake clear; auto clearHost = clear.host(); clearHost.startAction = Fake::startAction;
+    Probe::Console clearConsole(clearHost);
+    for (const char* route : {"position-clear", "profile ess_rs clear-position"}) {
+        send(clearConsole, std::string(route) + " 2\n");
+        assert(clear.actionRequest.kind == Core::ActionKind::CLEAR_POSITION && clear.actionRequest.devicePosition == 0);
+        assert(!clear.actionRequest.positionClearQualified && clear.address == 2);
+        clear.contains("\"command\":\"position-clear\"");
+    }
+    const unsigned actions = clear.actions;
+    send(clearConsole, "position-clear 1 12\n"); clear.contains("\"ok\":false"); assert(clear.actions == actions);
+    send(clearConsole, "help position-clear\n"); clear.contains("explicit_device_position_zero_only");
+    Ess::ActionContext cleared; cleared.operationId = 100; cleared.request.kind = Core::ActionKind::CLEAR_POSITION;
+    cleared.request.positionClearQualified = true; cleared.state = Core::ActionState::SUCCEEDED;
+    cleared.completion = Core::ActionCompletion::OBSERVED; cleared.outcome = Core::ActionOutcome::OBSERVED;
+    cleared.observationKnown = true; cleared.rawPosition = 0;
+    assert(clearConsole.reportAction(1, 100, cleared));
+    clear.contains("\"raw_position\":0"); clear.contains("\"raw_alarm\":null,\"raw_motion\":null");
+    clear.contains("\"device_position\":0,\"position_clear_qualified\":true");
+    auto partialHost = clear.host(); partialHost.startAction = Fake::startAction; partialHost.snapshot = nullptr;
+    Probe::Console partial(partialHost); send(partial, "help position-clear\n"); clear.contains("\"result\":\"unavailable\"");
+    send(console, "help move\n"); fake.contains("move angle");
 }
 
 } // namespace
@@ -1119,4 +1195,5 @@ int main() {
     testMaximumActionAndInvalidatedCacheFormatting();
     testMoveRoutesExactParsingAndRetainedReports();
     testMaximumMoveReportFitsFixedOutput();
+    testAbsoluteAngleAndClearRoutesUsePublicRequests();
 }

@@ -38,20 +38,23 @@ class Coverage(unittest.TestCase):
         implemented = {choice["id"] for choice in result["named_choices"]
                        if choice["disposition"]["implementation"] == "IMPLEMENTED"}
         self.assertEqual(implemented, {"AuxiliaryCommand.ENABLE", "AuxiliaryCommand.RELEASE",
-            "AuxiliaryCommand.CLEAR_ALARM", "MotionCommandBit.STOP", "MotionCommandBit.EMERGENCY_STOP", "MotionCommandBit.START_POSITION"})
-        self.assertEqual(result["summary"]["choice_implementation"], {"NOT_IMPLEMENTED": 129, "IMPLEMENTED": 6})
+            "AuxiliaryCommand.CLEAR_ALARM", "AuxiliaryCommand.CLEAR_POSITION", "MotionCommandBit.STOP",
+            "MotionCommandBit.EMERGENCY_STOP", "MotionCommandBit.START_POSITION", "MotionCommandBit.ABSOLUTE_POSITION"})
+        self.assertEqual(result["summary"]["choice_implementation"], {"NOT_IMPLEMENTED": 127, "IMPLEMENTED": 8})
         for record in result["records"]:
             if record["id"] in ("AUXILIARY_COMMAND", "MOTION_COMMAND"):
                 self.assertEqual(record["obligations"]["write"], "IN_PROGRESS")
                 self.assertEqual(record["obligations"]["action"], "IN_PROGRESS")
 
     def test_action_choices_must_match_ledger_record(self):
+        def operation(value, name):
+            return next(group for group in value["operations"] if group["id"] == name)
         for choices in ([], ["AuxiliaryCommand.MISSING"], ["MotionCommandBit.STOP"],
                         ["AuxiliaryCommand.ENABLE", "AuxiliaryCommand.ENABLE"]):
-            self.rejected(lambda value: value["operations"][-5].update(choices=choices))
+            self.rejected(lambda value: operation(value, "enable").update(choices=choices))
         self.rejected(lambda value: value["operations"][0].update(choices=["AuxiliaryCommand.ENABLE"]))
-        self.rejected(lambda value: value["operations"][-4].update(choices=["AuxiliaryCommand.ENABLE"]))
-        self.rejected(lambda value: value["operations"][-5]["records"].append("MOTION_COMMAND"))
+        self.rejected(lambda value: operation(value, "release").update(choices=["AuxiliaryCommand.ENABLE"]))
+        self.rejected(lambda value: operation(value, "enable")["records"].append("MOTION_COMMAND"))
 
     def test_unresolved_and_reserved_never_disappear(self):
         records = {record["id"]: record for record in operations.check(INVENTORY, LEDGER)["records"]}

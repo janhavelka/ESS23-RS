@@ -1,5 +1,10 @@
 # ESP32-S3 read-only probe bench
 
+Prompt10 adds shared relative/absolute/wrapped-angle console and Python routes
+and zero-only device position clear; see [finite positioning](ess_position.md).
+They remain gated on this bench. [Current evidence](reports/ess_release_10_2026-10-04.md)
+records read-only regression, pure step/degree/radian equivalence and zero-TX gates.
+
 Prompt 08 adds [typed actions and priority stop](ess_actions.md) to this console.
 The application exposes `actions_qualified:false` and rejects physical action
 admission before TX until independent timing/echo qualification is available.
@@ -370,8 +375,9 @@ The first error stops a campaign without replay or automatic recovery.
 admitted handles can interleave. `wait(handle)` retains the terminal by default.
 `command("probe")` and `command("recover")` wait and send a separate correlated
 `release` acknowledgement. Inspection/cancellation/release take `operation_id`;
-they do not reuse the command correlation ID. The host tracks at most ten
-handles and eight request plus one recovery result; mismatches poison the session.
+they do not reuse the command correlation ID. The host tracks at most eleven
+handles: eight ordinary operations, recovery, reserved stop and one local query.
+Result quotas remain independent; mismatches poison the session.
 
 `probe` performs one explicit model read. `stress` repeats that same read a
 finite number of times, with status/health/memory observations between reads.
@@ -385,8 +391,10 @@ readiness and motion completion are not inferred.
 
 The example allocates its `App` once in PSRAM during startup. It contains the
 32-byte TX buffer, 64-byte RX buffer, 128-entry trace, runner, owner, five pending
-slots, nine result slots, eight foreground and one private polling record, state caches, console buffers
-and eight4097-byte output lines. It uses62200 bytes on ESP32-S3 (65040 native), including
+slots, nine bus result slots, eight ordinary frontend records, one private
+polling and one reserved stop record, state caches, console buffers
+and eight4609-byte output lines. The current prompt10 image uses81184 bytes for
+the ESP32-S3 App, including
 all that storage. Driver capture state (1704 bytes), load fixture (4816 bytes,
 including its 4096-byte stack), SDK buffers and owner stack remain internal.
 Failure to allocate PSRAM reports a boot error;
@@ -399,7 +407,7 @@ FIFO submission copies at most 64 bytes to an internal stack array before its
 short critical section. Larger PSRAM storage is never read from that section.
 Task stacks remain under the framework's allocation rules. Memory snapshots
 include largest available blocks as well as free/minimum totals so fragmented
-heaps are visible. Console JSON output is capped at4096 bytes; retained hex is capped
+heaps are visible. Console JSON output is capped at4608 bytes; retained hex is capped
 at eight TX and 64 RX bytes with an explicit truncation flag.
 
 Native verification covers runner framing/failure cases, adapter snapshot races,
@@ -428,7 +436,13 @@ write before returning; the runner's separate setup wait cannot shorten it.
 
 Use `read identity [address]`, `read config [address]`, `profile ess_rs identity [address]`, `profile ess_rs config [address]`, `caps` or `profile ess_rs caps`. The [public read API](ess_reads.md) supplies every preparation/event/decoder; the CLI has no private raw-register sequence. Each admitted frontend read retains one terminal `type:read` record, with original command correlation, a separate operation ID, raw decoded codes and copied per-window TX/RX/closure evidence. `result` is non-consuming and `release` explicit. Eight retained/admitted read/probe operations share the existing frontend quota; a separate recovery record remains available. One 500-ms absolute deadline covers all five configuration windows.
 
-The JSON output capacity is 4096 bytes. The tested full-width configuration record is3382 bytes; input remains96 bytes/six tokens,32 input characters and64 output bytes per loop. Larger operation/cached/console buffers belong to the PSRAM App; the UART capture and worker stack remain internal. `config` shows cached observation IDs, targets and binding generations separately from the active host tuple. Cached identity/configuration evidence survives failed reads and explicit result release; cached probe health remains a separately labelled observation.
+The JSON output capacity is4608 bytes. The tested full-width move record is4287
+bytes; input is128 bytes including terminator/20 tokens,32 input characters and64
+output bytes per loop. Larger operation/cached/console buffers belong to the
+PSRAM App; the UART capture and worker stack remain internal. `config` shows
+cached observation IDs, targets and binding generations separately from the
+active host tuple. Cached identity/configuration evidence survives failed reads
+and explicit result release; cached probe health remains separately labelled.
 
 ```powershell
 python scripts/bench_probe.py --port COM13 --log build/bench/my_typed_reads.jsonl typed-read --kind both

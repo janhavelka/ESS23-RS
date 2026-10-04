@@ -94,6 +94,8 @@ struct App {
     ESS::IdentityObservation identity;
     ESS::ConfigObservation configuration;
     MotorControlRS::AxisConfig axis;
+    MotorControlRS::AxisReference coordinateReference; // Qualified command-coordinate evidence; never inferred from an unsigned/raw zero.
+    bool positionClearQualified = false; // Supplied commissioning semantics, independent of electrical qualification.
     ESS::MovePrerequisites movePrerequisites; // Supplied commissioning evidence; false until verified.
     uint32_t bindingGeneration = 1;
     uint8_t actionConflicts[32] = {}; ///< Physical address conflicts survive result release and host recovery.
@@ -163,29 +165,47 @@ bool reading(const App& a) {
 // Raw observations keep their original transport generation. Only derived host
 // coordinates are invalidated; exhaustion disables preparation instead of wrap.
 void invalidateAxis(App& a) {
-    if (a.axis.generation)
-        a.axis.generation = a.axis.generation == UINT32_MAX ? 0 : a.axis.generation + 1;
-    a.axis.originKnown = a.axis.encoderOriginKnown = a.axis.softLimitsKnown = false;
-    a.axis.originSource = a.axis.encoderOriginSource = MotorControlRS::ScaleSource::UNKNOWN;
+    if (!MotorControlRS::invalidateAxisReference(a.axis, a.coordinateReference)) a.axis.generation = 0;
     a.axis.target.generation = a.bindingGeneration;
     for (auto& record : a.records) if (record.moveOperation && !terminal(a, record)) {
         record.cancelContinuation = true;
         if (record.requestId.owner) a.owner.cancelUnsent(record.requestId, nowUs());
     }
 }
+bool coordinateKnowledge(const App& a) {
+    return a.axis.originKnown || a.axis.encoderOriginKnown || a.axis.softLimitsKnown || a.coordinateReference.nativeKnown;
+}
+void serviceCoordinates(App& a, uint64_t now) {
+    if (!coordinateKnowledge(a)) return;
+    const auto& reference = a.coordinateReference;
+    if (reference.nativeKnown && (!reference.maximumAgeUs || now < reference.observedUs ||
+        now - reference.observedUs > reference.maximumAgeUs)) {
+        invalidateAxis(a); return;
+    }
+    const auto& motion = a.stateCache.blocks[static_cast<uint8_t>(ESS::StateBlock::MOTION)];
+    if (Probe::fresh(motion, a.axis.target, now, 5000000) &&
+        (motion.value.released || (motion.value.running && !axisReserved(a, a.axis.target.address))))
+        invalidateAxis(a);
+}
 MotorControlRS::AxisReference axisReference(const App& a) {
     using namespace MotorControlRS;
-    AxisReference evidence;
+    AxisReference evidence = a.coordinateReference;
+    if (!Probe::sameTarget(evidence.target, a.axis.target) ||
+        evidence.configurationGeneration != a.axis.generation) evidence = AxisReference();
     evidence.target = a.axis.target; evidence.configurationGeneration = a.axis.generation;
-    evidence.nowUs = nowUs(); evidence.maximumAgeUs = 5000000;
+    evidence.nowUs = nowUs();
+    if (!evidence.nativeKnown) evidence.maximumAgeUs = 5000000;
     evidence.idle = !a.owner.active() && !a.owner.pending() && !a.owner.recovering() &&
         !a.owner.needsRecovery() && !uart.needsRecovery() && !reading(a) && !a.monitorState.settings.enabled &&
         !axisReserved(a, a.axis.target.address);
     const auto& motion = a.stateCache.blocks[static_cast<uint8_t>(ESS::StateBlock::MOTION)];
+    evidence.stationary = false;
     if (Probe::fresh(motion, a.axis.target, evidence.nowUs, evidence.maximumAgeUs)) {
-        evidence.observedUs = motion.observedEarliestUs;
-        evidence.source = ScaleSource::READBACK;
-        evidence.stationary = !motion.value.running && !motion.value.alarmFlag && motion.value.rawAlarm == 0;
+        if (!evidence.nativeKnown) {
+            evidence.observedUs = motion.observedEarliestUs;
+            evidence.source = ScaleSource::READBACK;
+        }
+        evidence.stationary = !motion.value.running && !motion.value.released && !motion.value.alarmFlag && motion.value.rawAlarm == 0;
     }
     // ESS pair signedness and its exact command relation remain unresolved.
     // A zero raw position is insufficient evidence for nativeKnown or an origin.
@@ -204,7 +224,11 @@ MotorControlRS::Status axisCommand(void* context, const Probe::AxisCommand& comm
     }
     if (command.kind == Probe::AxisCommandKind::ORIGIN) {
         const Status status = setAxisOrigin(a.axis, command.value.numerator, evidence);
-        if (status) view.configuration = a.axis;
+        if (status) {
+            a.coordinateReference = evidence;
+            a.coordinateReference.configurationGeneration = a.axis.generation;
+            view.configuration = a.axis;
+        }
         return status;
     }
     AxisConfig candidate = a.axis;
@@ -232,7 +256,10 @@ MotorControlRS::Status axisCommand(void* context, const Probe::AxisCommand& comm
     if (scale) *scale = command.clear ? UnitScale() :
         UnitScale(static_cast<uint32_t>(command.value.numerator), static_cast<uint32_t>(command.value.denominator), ScaleSource::ASSUMED);
     const Status status = configureAxis(a.axis, candidate, evidence);
-    if (status) view.configuration = a.axis;
+    if (status) {
+        a.coordinateReference.nativeKnown = false;
+        view.configuration = a.axis;
+    }
     return status;
 }
 void snapshot(void* context, Probe::Snapshot& s) {
@@ -420,9 +447,25 @@ Probe::Action startAction(void* context, uint32_t commandId, uint8_t address,
     if (!platformReady) return Probe::Action::UNAVAILABLE;
     if (!a.nextOperationId) return Probe::Action::IDS_EXHAUSTED;
     const uint64_t now = uart.sample();
+    ActionRequest admittedRequest = request;
+    uint64_t deadline = now + REQUEST_US;
+    if (request.kind == ActionKind::CLEAR_POSITION) {
+        if (request.devicePosition != 0) return Probe::Action::UNSUPPORTED;
+        if (!actionTimingQualified) return Probe::Action::TIMING_UNQUALIFIED;
+        if (!a.positionClearQualified) return Probe::Action::UNAVAILABLE;
+        const auto& motion = a.stateCache.blocks[static_cast<uint8_t>(ESS::StateBlock::MOTION)];
+        const uint64_t age = 5000000;
+        if (a.axis.target.address != address || !Probe::fresh(motion, a.axis.target, now, age) ||
+            motion.value.running || motion.value.released || motion.value.rawAlarm || motion.value.alarmFlag)
+            return Probe::Action::UNAVAILABLE;
+        const uint64_t readinessEnd = motion.observedEarliestUs > UINT64_MAX - age ? UINT64_MAX : motion.observedEarliestUs + age;
+        if (readinessEnd <= now) return Probe::Action::UNAVAILABLE;
+        if (readinessEnd < deadline) deadline = readinessEnd;
+        admittedRequest.positionClearQualified = true;
+    }
     ReadTarget target; target.id = address; target.address = address; target.generation = a.bindingGeneration;
     ESS::ActionContext preparedContext;
-    const Status prepared = ESS::prepareAction(preparedContext, target, a.nextOperationId, request, now, now + REQUEST_US);
+    const Status prepared = ESS::prepareAction(preparedContext, target, a.nextOperationId, admittedRequest, now, deadline);
     if (!prepared) return prepared.code == Err::UNSUPPORTED ? Probe::Action::UNSUPPORTED : Probe::Action::INVALID;
     if (!actionTimingQualified) return Probe::Action::TIMING_UNQUALIFIED;
     if (a.owner.needsRecovery() || uart.needsRecovery()) return Probe::Action::RECOVERY_REQUIRED;
@@ -522,7 +565,7 @@ Probe::Action startMove(void* context, uint32_t commandId, uint8_t address,
     using namespace MotorControlRS;
     App& a = *static_cast<App*>(context);
     if (!platformReady) return Probe::Action::UNAVAILABLE;
-    if (!ESS::isValidAddress(address) || !supplied.position.relative || !supplied.speedRpm ||
+    if (!ESS::isValidAddress(address) || !supplied.speedRpm ||
         supplied.ramp != MoveRamp::VERIFIED_CONFIGURED) return Probe::Action::INVALID;
     if (!a.nextOperationId) return Probe::Action::IDS_EXHAUSTED;
     if (!actionTimingQualified) return Probe::Action::TIMING_UNQUALIFIED;
@@ -552,11 +595,14 @@ Probe::Action startMove(void* context, uint32_t commandId, uint8_t address,
     ESS::MoveContext& prepared = record->move;
     const uint64_t deadline = now + 3000000;
     ActionOptions options; options.maxPolls = ESS::ACTION_MAX_POLLS; options.pollIntervalUs = 20000;
-    const Status checked = MotorControlRS::prepareMoveRelative(prepared, a.axis,
-        reference.nativeKnown ? &reference : nullptr, a.nextOperationId, request, prerequisites, now, deadline, options);
+    const auto prepare = request.position.wrapped ? ESS::prepareMoveAngle :
+        request.position.relative ? ESS::prepareMoveRelative : ESS::prepareMoveAbsolute;
+    const Status checked = prepare(prepared, a.axis, reference.nativeKnown ? &reference : nullptr,
+        a.nextOperationId, request, prerequisites, now, deadline, options);
     if (!checked) return checked.code == Err::UNSUPPORTED ? Probe::Action::UNSUPPORTED : Probe::Action::INVALID;
     // Proposed free-shaft software envelope, not a qualified physical envelope.
-    if (prepared.prepared.effectiveNative < -250 || prepared.prepared.effectiveNative > 250 || request.speedRpm > 60) {
+    if (!prepared.prepared.displacementKnown || prepared.prepared.displacementNative < -250 ||
+        prepared.prepared.displacementNative > 250 || request.speedRpm > 60) {
         clearRecord(*record); return Probe::Action::INVALID;
     }
     ESS::PreparedMove work;
@@ -626,8 +672,19 @@ void advanceReads(App& a, uint64_t sampled) {
                 if (!ESS::advanceRead(record.read, failed, sampled)) continue;
             }
             observeCommunication(a, *result);
-            if (record.read.kind == ESS::ReadKind::STATE)
+            if (record.read.kind == ESS::ReadKind::STATE) {
+                const auto& previous = a.stateCache.blocks[static_cast<uint8_t>(block)];
+                const bool hadPosition = previous.valid && previous.value.pairKnown &&
+                    Probe::sameTarget(previous.value.target, a.axis.target);
+                const auto previousPosition = previous.value.rawPosition;
+                const auto previousSuccess = previous.observedLatestUs;
                 Probe::stateResult(a.stateCache, record.read, block, result->transport.startedUs);
+                const auto& current = a.stateCache.blocks[static_cast<uint8_t>(block)];
+                if (block == static_cast<uint8_t>(ESS::StateBlock::FEEDBACK) && hadPosition && current.valid && current.value.pairKnown &&
+                    current.observedLatestUs > previousSuccess && current.value.rawPosition != previousPosition &&
+                    Probe::sameTarget(current.value.target, a.axis.target) && coordinateKnowledge(a) &&
+                    !axisReserved(a, a.axis.target.address)) invalidateAxis(a);
+            }
             if (record.read.state != ReadState::ACTIVE) continue;
             a.owner.release(record.requestId); record.requestId = Rtu::RequestId();
         }
@@ -643,6 +700,11 @@ void advanceReads(App& a, uint64_t sampled) {
 void updateActionReservation(App& a, App::Record& record) {
     using namespace MotorControlRS;
     if (!terminal(a, record)) return;
+    // Arrival flags alone do not establish an exact new command coordinate.
+    // Retain the move's original reference/result; invalidate dependent host
+    // knowledge until an application can supply a newly qualified reference.
+    if (record.moveOperation && record.move.triggerEvidence.txAccepted &&
+        record.address == a.axis.target.address && coordinateKnowledge(a)) invalidateAxis(a);
     record.axisReserved = false;
     const uint8_t mask = static_cast<uint8_t>(1U << (record.address % 8));
     if (record.moveOperation ? record.move.uncertain :
@@ -662,11 +724,14 @@ void advanceActions(App& a, uint64_t now) {
     for (auto& record : a.records) {
         if ((!record.actionOperation && !record.moveOperation) || terminal(a, record)) continue;
         if (record.requestId.owner) {
+            if (record.moveOperation && record.move.step == 1 && record.address == a.axis.target.address &&
+                a.owner.txAccepted(record.requestId)) a.coordinateReference.nativeKnown = false;
             if (!record.effectsInvalidated && (record.moveOperation ? record.move.step == 0 : record.action.step == 0) && a.owner.txAccepted(record.requestId)) {
                 record.effectsInvalidated = true;
                 for (auto& block : a.stateCache.blocks)
                     if (block.valid && block.value.target.address == record.address) block.invalidatedUs = now;
-                if (!record.moveOperation && record.action.request.kind == MotorControlRS::ActionKind::RELEASE &&
+                if (!record.moveOperation && (record.action.request.kind == MotorControlRS::ActionKind::RELEASE ||
+                    record.action.request.kind == MotorControlRS::ActionKind::CLEAR_POSITION) &&
                     a.axis.target.address == record.address) invalidateAxis(a);
             }
             const auto* result = a.owner.result(record.requestId); if (!result) continue;
@@ -1028,6 +1093,7 @@ void loop() {
     }
     advanceReads(a, nowUs());
     advanceActions(a, nowUs());
+    serviceCoordinates(a, nowUs());
     a.console.serviceOutput(); deliver(a);
     serviceMonitor(a, nowUs());
     for (unsigned i = 0; i < 32 && Serial.available(); ++i) {

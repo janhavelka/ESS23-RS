@@ -160,7 +160,8 @@ Keep raw native signed 64-bit positions as integers. Do not pass them through
 the engineering `double` API to narrow them; use `validateNativePosition` and
 `narrowNativePosition`. Prompt 07 adds [exact rational/native target preparation](../axis_preparation.md),
 origins, frames, quantization and native limits using the same factor planner.
-Wrapped-angle path selection and drive motion remain later work. The displacement
+Prompt10 adds wrapped-angle path selection and shared finite position software;
+physical motion/reference qualification remains open. The displacement
 conversion functions themselves still have no origin or motion side effects.
 
 Every fallible conversion/narrowing preserves its output on error. Validation

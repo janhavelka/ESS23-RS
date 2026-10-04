@@ -1,5 +1,5 @@
 /** @file MoveOperation.h
- * @brief Pure finite relative-move intent; transport and reservation are application-owned.
+ * @brief Pure finite-position intent; transport and reservation are application-owned.
  * SPDX-License-Identifier: MIT
  */
 #pragma once

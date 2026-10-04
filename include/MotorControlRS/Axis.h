@@ -19,6 +19,8 @@ struct Rational {
 };
 enum class CoordinateFrame : uint8_t { NATIVE, MOTOR, LOAD };
 enum class RelativeBasis : uint8_t { ACTUAL, COMMANDED, QUEUED };
+enum class AnglePath : uint8_t { POSITIVE, NEGATIVE, SHORTEST };
+enum class HalfTurnTie : uint8_t { REJECT, POSITIVE, NEGATIVE };
 enum class Rounding : uint8_t { EXACT, NEAREST, TOWARD_ZERO, FLOOR, CEIL };
 enum class AxisError : int32_t {
     NONE, INVALID_ARGUMENT, INVALID_TARGET, STALE_GENERATION, STALE_REFERENCE,
@@ -68,6 +70,9 @@ struct PositionRequest {
     PositionUnit unit = PositionUnit::STEPS;
     CoordinateFrame frame = CoordinateFrame::NATIVE;
     bool relative = true;
+    bool wrapped = false; ///< Explicit orientation selection; ordinary absolute targets retain all turns.
+    AnglePath path = AnglePath::SHORTEST;
+    HalfTurnTie tie = HalfTurnTie::REJECT;
     RelativeBasis basis = RelativeBasis::ACTUAL;
     uint32_t configurationGeneration = 0;
     Rounding rounding = Rounding::EXACT;
@@ -117,10 +122,20 @@ Status configureAxis(AxisConfig& current, const AxisConfig& candidate,
  * Advances generation and invalidates soft limits; changes no drive counter. */
 Status setAxisOrigin(AxisConfig& config, int64_t originNative,
                      const AxisReference& evidence);
+/** Explicitly forget position confidence after caller-established loss/release,
+ * device clear or interpretation changes. No I/O. Clears both origins, derived
+ * limits and supplied reference, preserving scales/preferences. Advances the
+ * coordinate generation; at exhaustion confidence still clears and an error
+ * forbids treating dependent prepared targets as reusable. */
+Status invalidateAxisReference(AxisConfig& config, AxisReference& reference);
 /** Pure target arithmetic only, not an implemented motion command. EXACT is the
  * default. Quantization applies to the final absolute native target, or to the
  * relative displacement. Relative native
  * requests without endpoint limits need no unrelated origin, gear or reference.
+ * Wrapped orientation requires an absolute angular MOTOR/LOAD request, known
+ * host origin and fresh multi-turn native reference. Equal orientation stays
+ * still; shortest half-turn ties reject unless explicitly directed. Selected
+ * paths fail at limits rather than selecting another turn.
  * Every output remains unchanged on error. */
 Status preparePosition(const PositionRequest& request, const AxisConfig& config,
                        const AxisReference* reference, PreparedTarget& output);

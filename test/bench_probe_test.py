@@ -4,6 +4,7 @@ import copy
 import importlib.util
 import io
 import json
+import math
 from contextlib import redirect_stderr
 from pathlib import Path
 import unittest
@@ -161,9 +162,12 @@ class TypedSerial:
 
 def action_terminal(request_id, command, policy=None):
     tx = {"enable": "0106002D001299CE", "motor-release": "0106002D0011D9CF",
-          "alarm-clear": "0106002D0021D9DB", "stop": "0106002701003851" if policy == "normal" else "01060027020038A1"}[command]
+          "alarm-clear": "0106002D0021D9DB", "position-clear": "0106002D0031D817", "stop": "0106002701003851" if policy == "normal" else "01060027020038A1"}[command]
+    if command == "position-clear":
+        prefix = bytes((1, 6, 0, 0x2D, 0, 0x31))
+        tx = (prefix + bench.wire_crc(prefix).to_bytes(2, "little")).hex()
     motion = 17 if command == "motor-release" else 1
-    raw = bytes((1, 3, 4, 0, 0, 0, motion))
+    raw = bytes((1, 3, 4, 0, 0, 0, 0 if command == "position-clear" else motion))
     rx = (raw + bench.wire_crc(raw).to_bytes(2, "little")).hex()
     empty = dict(step=0, event=0, raw_hex="", received_length=0, tx_accepted=0, tx_complete=False,
         response_confirmed=False, qualified=False, execution_unknown=False, earliest_us=0,
@@ -171,12 +175,15 @@ def action_terminal(request_id, command, policy=None):
     write = dict(empty, raw_hex=tx, received_length=8, tx_accepted=8, tx_complete=True,
         response_confirmed=True, qualified=True, earliest_us=1100, latest_us=1200, delivered_us=1250)
     observation = dict(write, step=1, raw_hex=rx, received_length=9, earliest_us=2000, latest_us=2200, delivered_us=2300)
-    return reply(request_id, command, type="action", command_id=request_id, operation_id=request_id + 100,
+    result = reply(request_id, command, type="action", command_id=request_id, operation_id=request_id + 100,
         action_kind=bench.ACTION_KINDS[command], stop_policy=policy, read_kind=None, capture_read=False,
         recovery=False, target=1, address=1, generation=9, state="succeeded", outcome="observed",
         execution="acknowledged", completion="observed", observation_known=True, interrupted_by_stop=False, raw_alarm=0,
         raw_motion=motion, started_us=1000, deadline_us=10000, serviced_us=2300, polls=1,
         write_evidence=write, last_observation=observation, failure_evidence=empty)
+    if command == "position-clear":
+        result.update(device_position=0, position_clear_qualified=True, raw_position=0, raw_motion=None, raw_alarm=None)
+    return result
 
 
 class ActionSerial:
@@ -213,7 +220,7 @@ def move_terminal(request_id):
         staging_applied=True, uncertain=False, running_observed=True, observation_known=True, interrupted_by_stop=False,
         raw_alarm=0, raw_motion=1, started_us=1000, deadline_us=10000, serviced_us=4300, polls=2,
         native_rpm=60, ramp="configured", staging_words=[100, 100, 60, 0, 1000],
-        requested=dict(numerator=1000, denominator=1, unit="steps", frame=0, relative=True, basis=0, rounding=0,
+        requested=dict(numerator=1000, denominator=1, unit="steps", frame=0, relative=True, wrapped=False, angle_path=2, half_turn_tie=0, basis=0, rounding=0,
             approximate=False, rational_radians=True, radians=None, maximum_quantization_error=0, maximum_approximation_error=None),
         effective_native=1000, displacement_native=1000, endpoint_known=False, endpoint_native=0,
         zero_displacement=False, exact_arithmetic=True, rounding_error=0, approximation_error_bound=0, requested_native_approximate=None,
@@ -221,6 +228,7 @@ def move_terminal(request_id):
             raw_alarm=0, raw_motion=1, command_units_verified=True, relative_basis_verified=True,
             negative_encoding_verified=False, configured_ramp_verified=True, serial_inputs_permit=True,
             readiness_qualified=True, word_order_known=True, word_order=0, start_speed_known=True, start_speed=10),
+        reference=dict(target=0, generation=0, configuration_generation=0, native_known=False, native_position=0, basis=0, source=0, observed_us=0, maximum_age_us=0),
         staging_evidence=frame(0, [1, 16, 0, 0x21, 0, 5], 19, 1100, 1200, 1250),
         trigger_evidence=frame(1, [1, 6, 0, 0x27, 0, 1], 8, 2000, 2100, 2150),
         activity_evidence=frame(2, [1, 3, 4, 0, 0, 0, 4], 8, 3000, 3200, 3300),
@@ -340,6 +348,96 @@ class Serial:
 class Framing(unittest.TestCase):
     MOVE_ARGS = ("1000", "steps", "native", "60", "configured")
 
+    def test_absolute_and_angle_preserve_coordinates_and_start_flags(self):
+        for kind in ("absolute", "angle"):
+            def converted(t):
+                t.update(command="move-" + kind, move_kind=kind, endpoint_known=True,
+                         endpoint_native=1000, displacement_native=250)
+                t["requested"].update(relative=False, wrapped=kind == "angle")
+                if kind == "angle": t["requested"].update(unit="deg", frame=1)
+                t["reference"].update(target=1, generation=9, configuration_generation=3,
+                    native_known=True, native_position=750, source=3, observed_us=900, maximum_age_us=10000)
+                raw = bytes((1, 6, 0, 0x27, 0, 5))
+                t["trigger_evidence"]["raw_hex"] = (raw + bench.wire_crc(raw).to_bytes(2, "little")).hex()
+            arguments = self.MOVE_ARGS if kind == "absolute" else ("1000", "deg", "motor", "shortest", "reject", "60", "configured")
+            responder = MoveSerial(converted)
+            def handler(i, command, args):
+                raw = responder(i, command, args)
+                if command == "move":
+                    raw = raw.replace(b"move-relative", ("move-" + kind).encode())
+                return raw
+            console = self.session(handler)
+            result = console.command("move-" + kind, address=1, move_args=arguments)
+            self.assertEqual(result["effective_native"], 1000)
+            self.assertEqual(result["displacement_native"], 250)
+            self.assertIn(("move " + kind).encode(), self.port.writes[1])
+            for mutate in (lambda t: t["reference"].update(configuration_generation=4),
+                           lambda t: t["reference"].update(observed_us=1001),
+                           lambda t: t["reference"].update(native_known=False),
+                           lambda t: t.update(endpoint_native=1001),
+                           lambda t: t["requested"].update(wrapped=kind != "angle")):
+                bad = copy.deepcopy(result); mutate(bad)
+                with self.assertRaises(bench.BenchError): bench.Console._check_move(bad, 1, arguments, kind)
+            wrong = copy.deepcopy(result)
+            wrong["trigger_evidence"]["raw_hex"] = move_terminal(2)["trigger_evidence"]["raw_hex"]
+            with self.assertRaises(bench.BenchError): bench.Console._check_move(wrong, 1, arguments, kind)
+
+    def test_rounded_radian_move_keeps_public_api_provenance(self):
+        item = move_terminal(2)
+        item["requested"].update(numerator=1, unit="rad", frame=1, rounding=1, approximate=True,
+            maximum_quantization_error=0.5, maximum_approximation_error=math.nextafter(1e-9, 0))
+        item.update(exact_arithmetic=False, requested_native_approximate=1000.125,
+                    rounding_error=-0.125, approximation_error_bound=1e-11)
+        arguments = ("1", "rad", "motor", "60", "configured", "round", "nearest", "0.5", "approx", "0.000000001")
+        bench.Console._check_move(item, 1, arguments)
+        with self.assertRaises(bench.BenchError):
+            bench.Console._check_move(item, 1, arguments[:-1] + ("0.000000002",))
+        for malformed in (("1", "deg", "motor", "60", "configured", "round", "nearest", "1", "approx", "1"),
+                          ("1", "turn", "motor", "shortest", "wrong", "60", "configured")):
+            with self.assertRaises(ValueError): bench.move_arguments("angle" if "shortest" in malformed else "relative", malformed)
+
+    def test_clear_position_is_separate_zero_only_observation(self):
+        console = self.session(ActionSerial())
+        result = console.command("position-clear", address=1)
+        self.assertEqual(result["raw_position"], 0)
+        self.assertIsNone(result["raw_motion"])
+        self.assertEqual(self.port.writes[1], b"@2 position-clear 1\n")
+        # Original function manual p70: auxiliary action 49 (0x31), not 0x22.
+        self.assertEqual(bytes.fromhex(result["write_evidence"]["raw_hex"]), bytes.fromhex("0106002D0031D817"))
+        for mutate in (lambda t: t.update(device_position=1), lambda t: t.update(position_clear_qualified=False),
+                       lambda t: t.update(raw_position=1), lambda t: t.update(raw_motion=1),
+                       lambda t: t.update(action_kind="clear_alarm")):
+            bad = copy.deepcopy(result); mutate(bad)
+            with self.assertRaises(bench.BenchError): bench.Console._check_action(bad, "position-clear", 1, None)
+        wrong = copy.deepcopy(result)
+        raw = bytes((1, 6, 0, 0x2D, 0, 0x22))
+        wrong["write_evidence"]["raw_hex"] = (raw + bench.wire_crc(raw).to_bytes(2, "little")).hex()
+        with self.assertRaises(bench.BenchError): bench.Console._check_action(wrong, "position-clear", 1, None)
+
+    def test_zero_radians_absolute_retains_allowance_without_approximating(self):
+        item = move_terminal(2)
+        item.update(command="move-absolute", move_kind="absolute", effective_native=0, endpoint_native=0,
+                    endpoint_known=True, displacement_native=-750)
+        item["staging_words"][3:] = [0, 0]
+        item["requested"].update(relative=False, numerator=0, unit="rad", frame=1, approximate=True,
+                                 rounding=1, maximum_quantization_error=1, maximum_approximation_error=0.5)
+        item["reference"].update(target=1, generation=9, configuration_generation=3,
+            native_known=True, native_position=750, source=3, observed_us=900, maximum_age_us=10000)
+        raw = bytes((1, 6, 0, 0x27, 0, 5))
+        item["trigger_evidence"]["raw_hex"] = (raw + bench.wire_crc(raw).to_bytes(2, "little")).hex()
+        args = ("0", "rad", "motor", "60", "configured", "round", "nearest", "1", "approx", "0.5")
+        bench.Console._check_move(item, 1, args, "absolute")
+        item["requested"]["numerator"] = 1
+        with self.assertRaises(bench.BenchError): bench.Console._check_move(item, 1, None, "absolute")
+
+    def test_finite_coordinate_modes_keep_explicit_policy_arguments(self):
+        common = ["--port", "COM13", "--log", "unused.jsonl"]
+        absolute = bench.arguments(common + ["move-absolute", "720", "deg", "motor", "60", "configured", "--cleanup-stop", "normal"])
+        self.assertEqual(absolute.move_args, ("720", "deg", "motor", "60", "configured"))
+        angle = bench.arguments(common + ["move-angle", "1", "rad", "motor", "shortest", "negative", "60", "configured",
+            "--round", "nearest", "--maximum-error", "1", "--approximation-error", "0.001", "--cleanup-stop", "direct"])
+        self.assertEqual(angle.move_args, ("1", "rad", "motor", "shortest", "negative", "60", "configured", "round", "nearest", "1", "approx", "0.001"))
+
     def test_unknown_move_inspections_preserve_api_rounding_and_radian_inputs(self):
         for rounding in (1, 2, 3, 4):
             item = move_terminal(2)
@@ -408,7 +506,7 @@ class Framing(unittest.TestCase):
         console = self.session(MoveSerial(cancelled))
         events = []; console.emit = lambda event, **data: events.append((event, data))
         with self.assertRaisesRegex(bench.BenchError, "move rejected or failed: cancelled"):
-            bench.relative_move_campaign(console, move_args=self.MOVE_ARGS, cleanup_stop="normal", timeout_s=3, address=1)
+            bench.move_campaign(console, move_args=self.MOVE_ARGS, cleanup_stop="normal", timeout_s=3, address=1)
         self.assertTrue(console.synchronized)
         commands = [line.decode().split()[1] for line in self.port.writes]
         self.assertEqual(commands.count("move"), 1)
@@ -469,7 +567,7 @@ class Framing(unittest.TestCase):
         console = self.session(interrupt)
         events = []; console.emit = lambda event, **data: events.append((event, data))
         with self.assertRaises(KeyboardInterrupt):
-            bench.relative_move_campaign(console, move_args=self.MOVE_ARGS, cleanup_stop="normal", timeout_s=3, address=1)
+            bench.move_campaign(console, move_args=self.MOVE_ARGS, cleanup_stop="normal", timeout_s=3, address=1)
         self.assertFalse(console.synchronized)
         self.assertEqual(len(self.port.writes), 2)
         self.assertEqual(events[-1][1]["cleanup"], "unknown")
@@ -484,7 +582,7 @@ class Framing(unittest.TestCase):
         self.port.read = interrupt
         events = []; console.emit = lambda event, **data: events.append((event, data))
         with self.assertRaises(KeyboardInterrupt):
-            bench.relative_move_campaign(console, move_args=self.MOVE_ARGS, cleanup_stop="normal", timeout_s=3, address=1)
+            bench.move_campaign(console, move_args=self.MOVE_ARGS, cleanup_stop="normal", timeout_s=3, address=1)
         self.assertFalse(console.synchronized)
         self.assertTrue(console.operations[102].accepted)
         self.assertEqual(len(self.port.writes), 2)
@@ -578,7 +676,7 @@ class Framing(unittest.TestCase):
     def test_move_campaign_one_attempt_stop_cleanup_and_local_release(self):
         console = self.session(MoveSerial())
         events = []; console.emit = lambda event, **data: events.append((event, data))
-        bench.relative_move_campaign(console, move_args=self.MOVE_ARGS, cleanup_stop="normal", timeout_s=3, address=1)
+        bench.move_campaign(console, move_args=self.MOVE_ARGS, cleanup_stop="normal", timeout_s=3, address=1)
         commands = [line.decode().split()[1] for line in self.port.writes]
         self.assertEqual(commands.count("move"), 1)
         self.assertEqual(commands.count("stop"), 1)
@@ -598,7 +696,7 @@ class Framing(unittest.TestCase):
         console = self.session(rejected)
         events = []; console.emit = lambda event, **data: events.append((event, data))
         with self.assertRaises(bench.BenchError):
-            bench.relative_move_campaign(console, move_args=self.MOVE_ARGS, cleanup_stop="direct", timeout_s=3, address=1)
+            bench.move_campaign(console, move_args=self.MOVE_ARGS, cleanup_stop="direct", timeout_s=3, address=1)
         self.assertEqual(len(self.port.writes), 2)
         self.assertEqual(events[-1][1]["cleanup"], "not_required")
         self.assertFalse(events[-1][1]["ok"])
@@ -607,7 +705,7 @@ class Framing(unittest.TestCase):
         console = self.session(MoveSerial(lambda t: t.update(running_observed=False)))
         events = []; console.emit = lambda event, **data: events.append((event, data))
         with self.assertRaises(bench.BenchError):
-            bench.relative_move_campaign(console, move_args=self.MOVE_ARGS, cleanup_stop="normal", timeout_s=3, address=1)
+            bench.move_campaign(console, move_args=self.MOVE_ARGS, cleanup_stop="normal", timeout_s=3, address=1)
         self.assertEqual(len(self.port.writes), 2)
         self.assertEqual(events[-1][1]["cleanup"], "unknown")
         self.assertIn("framing", events[-1][1]["cleanup_error"])
@@ -816,9 +914,9 @@ class Framing(unittest.TestCase):
         def handler(request_id, command, args):
             if command == "prepare":
                 return encoded(reply(request_id, command, code="OK", detail=0, bus_traffic=False,
-                    motion_command=False, wire_motion="unimplemented", configuration_generation=2,
+                    motion_command=False, wire_motion="not_requested", configuration_generation=2,
                     target=1, address=1, binding_generation=1,
-                    requested=dict(numerator=value, denominator=1, unit="steps", frame=0, relative=True, basis=0, rounding=0),
+                    requested=dict(numerator=value, denominator=1, unit="steps", frame=0, relative=True, wrapped=False, angle_path=2, half_turn_tie=0, basis=0, rounding=0),
                     requested_native=dict(integral=value, numerator=0, denominator=1, negative=False),
                     requested_native_approximate=None, effective_native=value, endpoint_known=False, endpoint_native=0,
                     displacement_known=True, displacement_native=value, zero_displacement=False,
@@ -892,10 +990,10 @@ class Framing(unittest.TestCase):
                 def handler(request_id, command, args):
                     if command == "prepare":
                         return encoded(reply(request_id, command, code="OK", detail=0, bus_traffic=False,
-                            motion_command=False, wire_motion="unimplemented", configuration_generation=2,
+                            motion_command=False, wire_motion="not_requested", configuration_generation=2,
                             target=1, address=1, binding_generation=1,
                             requested=dict(numerator=0 if exact else 1, denominator=1, unit="rad", frame=1,
-                                relative=relative, basis=0, rounding=0 if exact else 1),
+                                relative=relative, wrapped=False, angle_path=2, half_turn_tie=0, basis=0, rounding=0 if exact else 1),
                             requested_native=dict(integral=effective, numerator=0, denominator=1, negative=False) if exact else None,
                             requested_native_approximate=None if exact else approximate,
                             effective_native=effective, endpoint_known=not relative, endpoint_native=0 if relative else effective,
@@ -916,7 +1014,7 @@ class Framing(unittest.TestCase):
         def handler(request_id, command, args):
             if command == "axis":
                 return encoded(reply(request_id, command, code="OK", detail=0, bus_traffic=False,
-                    motion_command=False, wire_motion="unimplemented", configuration_generation=0,
+                    motion_command=False, wire_motion="not_requested", configuration_generation=0,
                     target=1, address=1, binding_generation=1,
                     operator_scales=[dict(numerator=0, denominator=1, source=0) for _ in range(5)]))
             return Serial.normal(request_id, command, args)

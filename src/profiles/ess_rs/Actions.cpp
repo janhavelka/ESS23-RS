@@ -15,17 +15,26 @@ bool sameTarget(const ReadTarget& a, const ReadTarget& b) {
     return a.id == b.id && a.address == b.address && a.generation == b.generation;
 }
 Status command(const ActionRequest& request, uint16_t& reg, uint16_t& value) {
-    if (request.kind > ActionKind::STOP || request.stop.behavior > StopBehavior::DIRECT ||
+    if (request.kind > ActionKind::CLEAR_POSITION || request.stop.behavior > StopBehavior::DIRECT ||
         request.stop.deviceQueue > DeviceQueue::DISCARD)
         return invalid(ActionError::INVALID_POLICY, "invalid action policy");
     if (request.kind != ActionKind::STOP && (request.stop.behavior != StopBehavior::UNSPECIFIED ||
         request.stop.deviceQueue != DeviceQueue::UNSPECIFIED || request.stop.customDeceleration))
         return invalid(ActionError::INVALID_POLICY, "stop policy on another action");
+    if (request.kind != ActionKind::CLEAR_POSITION && (request.devicePosition || request.positionClearQualified))
+        return invalid(ActionError::INVALID_POLICY, "position-clear policy on another action");
     reg = Registers::AUXILIARY_COMMAND;
     switch (request.kind) {
     case ActionKind::ENABLE: value = static_cast<uint16_t>(AuxiliaryCommand::ENABLE); return Ok();
     case ActionKind::RELEASE: value = static_cast<uint16_t>(AuxiliaryCommand::RELEASE); return Ok();
     case ActionKind::CLEAR_ALARM: value = static_cast<uint16_t>(AuxiliaryCommand::CLEAR_ALARM); return Ok();
+    case ActionKind::CLEAR_POSITION:
+        if (request.devicePosition != 0)
+            return Status(Err::UNSUPPORTED, static_cast<int32_t>(ActionError::UNSUPPORTED_POLICY),
+                "ESS supports zero position clear only");
+        if (!request.positionClearQualified)
+            return invalid(ActionError::INVALID_POLICY, "position clear semantics and readiness are unqualified");
+        value = static_cast<uint16_t>(AuxiliaryCommand::CLEAR_POSITION); return Ok();
     case ActionKind::STOP:
         if (request.stop.behavior == StopBehavior::UNSPECIFIED)
             return invalid(ActionError::INVALID_POLICY, "stop behavior must be explicit");
@@ -55,6 +64,7 @@ bool observed(const ActionContext& c, uint16_t alarm, uint16_t motion) {
     case ActionKind::CLEAR_ALARM:
         return alarm == 0 && (motion & static_cast<uint16_t>(MotionStatusBit::ALARM)) == 0;
     case ActionKind::STOP: return (motion & static_cast<uint16_t>(MotionStatusBit::RUNNING)) == 0;
+    case ActionKind::CLEAR_POSITION: return alarm == 0 && motion == 0; // Both current-position words must be zero.
     }
     return false;
 }
@@ -99,6 +109,13 @@ Status prepareClearAlarm(ActionContext& c, const ReadTarget& t, uint32_t id,
                          uint64_t now, uint64_t deadline, const ActionOptions& options) noexcept {
     return prepareKind(c, t, id, ActionKind::CLEAR_ALARM, now, deadline, options);
 }
+Status prepareSetDevicePosition(ActionContext& c, const ReadTarget& t, uint32_t id,
+        int64_t nativePosition, bool qualified, uint64_t now, uint64_t deadline,
+        const ActionOptions& options) noexcept {
+    ActionRequest request; request.kind = ActionKind::CLEAR_POSITION;
+    request.devicePosition = nativePosition; request.positionClearQualified = qualified;
+    return prepareAction(c, t, id, request, now, deadline, options);
+}
 Status prepareStop(ActionContext& c, const ReadTarget& t, uint32_t id, const StopPolicy& policy,
                    uint64_t now, uint64_t deadline, const ActionOptions& options) noexcept {
     ActionRequest request; request.kind = ActionKind::STOP; request.stop = policy;
@@ -129,7 +146,8 @@ Status nextAction(const ActionContext& c, uint64_t nowUs, PreparedAction& output
         next.reg = c.reg; next.value = c.value;
         next.length = buildWriteSingleRegister(c.target.address, next.reg, next.value, next.bytes, sizeof(next.bytes));
     } else {
-        next.reg = Registers::ERROR_CODE; next.count = 2;
+        next.reg = c.request.kind == ActionKind::CLEAR_POSITION ? Registers::CURRENT_POSITION : Registers::ERROR_CODE;
+        next.count = 2;
         next.length = buildReadRegisters(c.target.address, next.reg, next.count, next.bytes, sizeof(next.bytes));
     }
     if (!next.length) return invalid(ActionError::INVALID_STATE, "invalid prepared action frame");
@@ -204,7 +222,9 @@ Status advanceAction(ActionContext& c, const ActionEvent& supplied, uint64_t now
     } else {
         ++c.polls;
         c.lastObservation = evidence; c.observationKnown = true;
-        c.rawAlarm = words[0]; c.rawMotion = words[1];
+        if (c.request.kind == ActionKind::CLEAR_POSITION)
+            c.rawPosition = (static_cast<uint32_t>(words[0]) << 16) | words[1];
+        else { c.rawAlarm = words[0]; c.rawMotion = words[1]; }
         if (observed(c, words[0], words[1])) {
             c.completion = ActionCompletion::OBSERVED;
             finish(c, ActionOutcome::OBSERVED, Ok());

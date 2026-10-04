@@ -25,18 +25,19 @@ import sys
 import time
 
 
-MAX_LINE = 4096
+MAX_LINE = 4608
 MAX_INPUT = 32768
 COMMANDS = frozenset({"version", "config", "probe", "capture-read", "status", "health", "memory", "stats", "load",
                       "drv", "result", "release", "cancel", "recover", "reset", "caps",
-                      "read-identity", "read-config", "read-state", "health-check", "monitor", "axis", "prepare", "enable", "motor-release", "alarm-clear", "stop", "move-relative"})
+                      "read-identity", "read-config", "read-state", "health-check", "monitor", "axis", "prepare", "enable", "motor-release", "alarm-clear", "stop", "position-clear", "move-relative", "move-absolute", "move-angle"})
 MAX_COMMANDS = 11  # Eight ordinary operations, recovery, reserved stop and local query.
 MAX_OPERATIONS = 10  # Eight ordinary operations, one recovery and one reserved stop.
 MAX_PROBES = 8
 TYPED_READS = {"read-identity": "identity", "read-config": "config", "read-state": "state"}
 READ_COMMANDS = ("probe", "capture-read", *TYPED_READS)
-ACTION_COMMANDS = ("enable", "motor-release", "alarm-clear", "stop")
-ACTION_KINDS = {"enable": "enable", "motor-release": "release", "alarm-clear": "clear_alarm", "stop": "stop"}
+ACTION_COMMANDS = ("enable", "motor-release", "alarm-clear", "stop", "position-clear")
+MOVE_COMMANDS = ("move-relative", "move-absolute", "move-angle")
+ACTION_KINDS = {"enable": "enable", "motor-release": "release", "alarm-clear": "clear_alarm", "stop": "stop", "position-clear": "clear_position"}
 
 
 def operation_quota(command):
@@ -151,6 +152,67 @@ class Evidence:
         }
         self.stream.write(json.dumps(record, ensure_ascii=True, allow_nan=False) + "\n")
         self.stream.flush()
+
+
+def move_arguments(kind: str, arguments: tuple[str, ...]) -> dict:
+    """Validate the finite console grammar; conversions stay in the public API."""
+    if (kind not in ("relative", "absolute", "angle") or not isinstance(arguments, tuple) or
+            not 5 <= len(arguments) <= 14 or any(type(token) is not str or not token or
+            any(ord(char) < 33 or ord(char) > 126 for char in token) for token in arguments)):
+        raise ValueError("move requires bounded ASCII coordinate and ramp tokens")
+    value, unit, frame = arguments[:3]
+    if unit not in ("steps", "fullsteps", "counts", "turn", "deg", "rad", "mm") or frame not in ("native", "motor", "load"):
+        raise ValueError("move unit or frame is invalid")
+    result = dict(value=value, unit=unit, frame=frame, path=2, tie=0, rounding=0,
+                  error="0", approximate=False, approximation_error="0", basis=0)
+    index = 3
+    if kind == "angle":
+        if unit not in ("turn", "deg", "rad") or frame == "native":
+            raise ValueError("wrapped orientation requires a motor or load angular unit")
+        if len(arguments) < 7 or arguments[index] not in ("positive", "negative", "shortest") or arguments[index + 1] not in ("reject", "positive", "negative"):
+            raise ValueError("angle requires explicit path and half-turn tie")
+        result["path"] = ("positive", "negative", "shortest").index(arguments[index])
+        result["tie"] = ("reject", "positive", "negative").index(arguments[index + 1])
+        index += 2
+    result.update(speed=arguments[index], ramp=arguments[index + 1])
+    if result["ramp"] != "configured":
+        raise ValueError("move requires configured ramp")
+    index += 2
+    if index < len(arguments) and arguments[index] == "basis":
+        if kind != "relative" or index + 1 >= len(arguments) or arguments[index + 1] not in ("actual", "commanded", "queued"):
+            raise ValueError("relative basis is invalid")
+        result["basis"] = ("actual", "commanded", "queued").index(arguments[index + 1])
+        index += 2
+    if index < len(arguments) and arguments[index] == "round":
+        if index + 2 >= len(arguments) or arguments[index + 1] not in ("exact", "nearest", "zero", "floor", "ceil"):
+            raise ValueError("move rounding policy is invalid")
+        result["rounding"] = ("exact", "nearest", "zero", "floor", "ceil").index(arguments[index + 1])
+        result["error"] = arguments[index + 2]
+        index += 3
+        if index < len(arguments) and arguments[index] == "approx":
+            if unit != "rad" or index + 1 >= len(arguments):
+                raise ValueError("approximation allowance requires radians")
+            result.update(approximate=True, approximation_error=arguments[index + 1])
+            index += 2
+    if index != len(arguments):
+        raise ValueError("move arguments exceed the explicit grammar")
+    for key in ("value", "speed", "error", "approximation_error"):
+        token = result[key]
+        if re.fullmatch(r"[+-]?(?:[0-9]+(?:\.[0-9]+)?|[0-9]+/[0-9]+)", token) is None:
+            raise ValueError("move numbers require exact integer, decimal or fraction syntax")
+        try:
+            number = Fraction(token)
+        except (ValueError, ZeroDivisionError) as exc:
+            raise ValueError("move exact number is invalid") from exc
+        if not -2**63 <= number.numerator < 2**63 or not 1 <= number.denominator < 2**64:
+            raise ValueError("move exact number exceeds installed API storage")
+        if key == "speed" and (number.denominator != 1 or not 1 <= number <= 65535):
+            raise ValueError("native rpm requires a positive integer")
+        if key in ("error", "approximation_error") and number < 0:
+            raise ValueError("numerical allowances must be nonnegative")
+    if result["approximate"] and Fraction(result["approximation_error"]) <= 0:
+        raise ValueError("radians require a positive approximation allowance")
+    return result
 
 
 class Command:
@@ -345,14 +407,14 @@ class Console:
             raise BenchError("capture-read raw frame evidence is inconsistent") from exc
 
     @staticmethod
-    def _check_move(item: dict, address: int | None, arguments: tuple[str, ...] | None) -> None:
+    def _check_move(item: dict, address: int | None, arguments: tuple[str, ...] | None, kind: str = "relative") -> None:
         """Check staged/triggered execution and fresh running-to-arrival evidence."""
         def require(condition, text):
             if not condition:
                 raise BenchError("move " + text)
         def integer(value, low=0, high=0xFFFFFFFFFFFFFFFF):
             return type(value) is int and low <= value <= high
-        require(item.get("move_kind") == "relative" and item.get("action_kind") is None and
+        require(item.get("move_kind") == kind and item.get("action_kind") is None and
                 item.get("read_kind") is None and item.get("capture_read") is False and item.get("recovery") is False,
                 "kind is inconsistent")
         require(integer(item.get("address"), 1, 247) and (address is None or item["address"] == address) and
@@ -371,8 +433,9 @@ class Console:
         for key in ("staging_applied", "uncertain", "running_observed", "observation_known", "interrupted_by_stop",
                     "endpoint_known", "zero_displacement", "exact_arithmetic"):
             require(type(item.get(key)) is bool, "missing " + key)
-        require(integer(item.get("effective_native"), -2**31, 2**31 - 1) and item["effective_native"] != 0 and
-                item.get("displacement_native") == item["effective_native"] and item["zero_displacement"] is False and
+        require(integer(item.get("effective_native"), -2**31, 2**31 - 1) and
+                integer(item.get("displacement_native"), -2**63, 2**63 - 1) and item["displacement_native"] != 0 and
+                (kind != "relative" or item["displacement_native"] == item["effective_native"]) and item["zero_displacement"] is False and
                 integer(item.get("endpoint_native"), -2**63, 2**63 - 1), "effective target is invalid")
         require(integer(item.get("native_rpm"), 1, 3000) and item.get("ramp") == "configured", "speed or ramp is invalid")
         words = item.get("staging_words")
@@ -383,10 +446,11 @@ class Console:
         prerequisites = item.get("prerequisites")
         require(isinstance(prerequisites, dict) and all(prerequisites.get(key) == item[key] for key in
                 ("target", "generation", "configuration_generation")), "qualification binding differs")
-        require(all(prerequisites.get(key) is True for key in ("command_units_verified", "relative_basis_verified", "configured_ramp_verified",
+        require(all(prerequisites.get(key) is True for key in ("command_units_verified", "configured_ramp_verified",
                 "serial_inputs_permit", "readiness_qualified", "word_order_known", "start_speed_known")) and
                 type(prerequisites.get("negative_encoding_verified")) is bool and
-                (item["effective_native"] >= 0 or prerequisites["negative_encoding_verified"]), "qualification is missing")
+                (item["effective_native"] >= 0 or prerequisites["negative_encoding_verified"]) and
+                (kind != "relative" or prerequisites.get("relative_basis_verified") is True), "qualification is missing")
         require(integer(prerequisites.get("observed_us")) and integer(prerequisites.get("maximum_age_us"), 1) and
                 prerequisites["observed_us"] <= item["started_us"] and
                 item["started_us"] - prerequisites["observed_us"] < prerequisites["maximum_age_us"] and
@@ -395,6 +459,20 @@ class Console:
                 integer(prerequisites.get("start_speed"), 0, item["native_rpm"]), "readiness or configured speed evidence is inconsistent")
         write_deadline = min(item["deadline_us"], 0xFFFFFFFFFFFFFFFF,
                              prerequisites["observed_us"] + prerequisites["maximum_age_us"])
+        reference = item.get("reference")
+        require(isinstance(reference, dict) and type(reference.get("native_known")) is bool and
+                all(integer(reference.get(key), 0, 0xFFFFFFFF) for key in ("target", "generation", "configuration_generation")) and
+                integer(reference.get("native_position"), -2**63, 2**63 - 1) and integer(reference.get("basis"), 0, 2) and
+                integer(reference.get("source"), 0, 4) and integer(reference.get("observed_us")) and integer(reference.get("maximum_age_us")),
+                "reference provenance is invalid")
+        if kind != "relative" or reference["native_known"]:
+            require(reference["native_known"] and all(reference[key] == item[key] for key in ("target", "generation", "configuration_generation")) and
+                    reference["basis"] == 0 and reference["source"] != 0 and reference["maximum_age_us"] > 0 and
+                    reference["observed_us"] <= item["started_us"] < min(0xFFFFFFFFFFFFFFFF,
+                        reference["observed_us"] + reference["maximum_age_us"]), "reference is stale or mismatched")
+            require(item["endpoint_known"] and item["endpoint_native"] - reference["native_position"] == item["displacement_native"] and
+                    (kind == "relative" or item["effective_native"] == item["endpoint_native"]), "reference endpoint differs")
+            write_deadline = min(write_deadline, 0xFFFFFFFFFFFFFFFF, reference["observed_us"] + reference["maximum_age_us"])
         expected_words = [encoded >> 16, encoded & 65535]
         if prerequisites["word_order"] == 1: expected_words.reverse()
         require(words[3:] == expected_words, "staged target word order differs from qualification")
@@ -402,8 +480,10 @@ class Console:
         require(isinstance(requested, dict) and integer(requested.get("numerator"), -2**63, 2**63 - 1) and
                 integer(requested.get("denominator"), 1, 2**64 - 1) and requested.get("unit") in
                 ("steps", "fullsteps", "counts", "turn", "deg", "rad", "mm") and integer(requested.get("frame"), 0, 2) and
-                requested.get("relative") is True and requested.get("basis") == 0 and integer(requested.get("rounding"), 0, 4),
+                requested.get("relative") is (kind == "relative") and requested.get("wrapped") is (kind == "angle") and
+                integer(requested.get("angle_path"), 0, 2) and integer(requested.get("half_turn_tie"), 0, 2) and requested.get("basis") == 0 and integer(requested.get("rounding"), 0, 4),
                 "request provenance is invalid")
+        require(kind != "angle" or (requested["unit"] in ("turn", "deg", "rad") and requested["frame"] != 0), "wrapped request is not an angular frame")
         def finite(value):
             return type(value) in (int, float) and math.isfinite(value)
         require(type(requested.get("approximate")) is bool and type(requested.get("rational_radians")) is bool and
@@ -415,7 +495,11 @@ class Console:
                 finite(requested.get("radians")), "selected radian input is missing")
         if item["exact_arithmetic"]:
             require(item["approximation_error_bound"] == 0 and item.get("requested_native_approximate") is None and
-                    requested.get("maximum_approximation_error") is None, "exact preparation contains approximate provenance")
+                    (requested.get("maximum_approximation_error") is None or
+                     (requested["unit"] == "rad" and requested["approximate"] and
+                      (requested["numerator"] == 0 if requested["rational_radians"] else requested["radians"] == 0) and
+                      finite(requested.get("maximum_approximation_error")) and requested["maximum_approximation_error"] > 0)),
+                    "exact preparation contains approximate provenance")
         else:
             require(requested["unit"] == "rad" and requested["approximate"] is True and requested["rounding"] != 0 and
                     finite(requested.get("maximum_approximation_error")) and requested["maximum_approximation_error"] > 0 and
@@ -425,15 +509,24 @@ class Console:
         if requested["rounding"] == 0:
             require(item["exact_arithmetic"] is True and item["rounding_error"] == 0, "EXACT preparation rounded the target")
         if arguments is not None:
-            require(requested["rounding"] == 0 and item["exact_arithmetic"] is True and item["rounding_error"] == 0,
-                    "exact CLI preparation lost numerical provenance")
-            try:
-                value, unit, frame, speed, ramp = arguments
-                require(Fraction(value) == Fraction(requested["numerator"], requested["denominator"]) and unit == requested["unit"] and
-                        ("native", "motor", "load")[requested["frame"]] == frame and Fraction(speed) == item["native_rpm"] and ramp == item["ramp"],
-                        "request differs from admitted input")
-            except (ValueError, ZeroDivisionError) as exc:
-                raise BenchError("move request cannot be checked exactly") from exc
+            parsed = move_arguments(kind, arguments)
+            def retained_allowance(text, value):
+                # The public parser narrows allowances toward zero. Check its
+                # retained binary64 interval without repeating target math.
+                exact = Fraction(text)
+                return (finite(value) and value >= 0 and Fraction(value) <= exact and
+                        (exact == Fraction(value) or exact < Fraction(math.nextafter(value, math.inf))))
+            require(Fraction(parsed["value"]) == Fraction(requested["numerator"], requested["denominator"]) and
+                    parsed["unit"] == requested["unit"] and ("native", "motor", "load")[requested["frame"]] == parsed["frame"] and
+                    Fraction(parsed["speed"]) == item["native_rpm"] and parsed["ramp"] == item["ramp"] and
+                    parsed["basis"] == requested["basis"] and
+                    parsed["rounding"] == requested["rounding"] and
+                    retained_allowance(parsed["error"], requested["maximum_quantization_error"]) and
+                    parsed["approximate"] == requested["approximate"], "request differs from admitted input")
+            if kind == "angle":
+                require(parsed["path"] == requested["angle_path"] and parsed["tie"] == requested["half_turn_tie"], "angle policy differs")
+            if parsed["approximate"]:
+                require(retained_allowance(parsed["approximation_error"], requested["maximum_approximation_error"]), "radian error differs")
         evidence = {}
         for name, token, tx_size in (("staging_evidence", 0, 19), ("trigger_evidence", 1, 8),
                                     ("activity_evidence", None, 8), ("last_observation", None, 8), ("failure_evidence", None, None)):
@@ -477,7 +570,7 @@ class Console:
             require(item.get(execution) in ("not_transmitted", "acknowledged", "rejected", "unknown"), execution + " is invalid")
             entry, raw, empty = evidence[name]
             if item[execution] == "acknowledged":
-                confirmed(name, (item["address"], 16, 0, 0x21, 0, 5) if execution == "setup_execution" else (item["address"], 6, 0, 0x27, 0, 1), 8)
+                confirmed(name, (item["address"], 16, 0, 0x21, 0, 5) if execution == "setup_execution" else (item["address"], 6, 0, 0x27, 0, 1 if kind == "relative" else 5), 8)
             elif item[execution] == "rejected":
                 require(not empty and entry["qualified"] and entry["response_confirmed"] and entry["tx_complete"] and
                         entry["status"] == "EXCEPTION" and entry["frame_error"] == 10 and len(raw) == 5 and
@@ -600,6 +693,10 @@ class Console:
                 "reported completion is inconsistent")
         require(type(item.get("observation_known")) is bool, "observation validity is missing")
         require(type(item.get("interrupted_by_stop")) is bool, "stop interruption evidence is missing")
+        if command == "position-clear":
+            require(type(item.get("device_position")) is int and item["device_position"] == 0 and item.get("position_clear_qualified") is True,
+                    "device position clear was not zero-only and qualified")
+            require(item["observation_known"] or item.get("raw_position") is None, "absent clear observation publishes a counter")
         evidence = {}
         for name in ("write_evidence", "last_observation", "failure_evidence"):
             entry = item.get(name)
@@ -646,7 +743,7 @@ class Console:
                     and write["event"] == 0 and wire_crc(raw) == 0, "acknowledgement lacks confirmed drive response")
             if item["execution"] == "acknowledged":
                 reg, value = {"enable": (0x2D, 0x12), "motor-release": (0x2D, 0x11),
-                              "alarm-clear": (0x2D, 0x21), "stop": (0x27, 0x100 if policy == "normal" else 0x200)}[command]
+                              "alarm-clear": (0x2D, 0x21), "position-clear": (0x2D, 0x31), "stop": (0x27, 0x100 if policy == "normal" else 0x200)}[command]
                 require(raw[:6] == bytes((item["address"], 6, reg >> 8, reg & 255, value >> 8, value & 255))
                         and len(raw) == 8 and write["status"] == "OK" and write["frame_error"] == 0,
                         "write echo differs from requested action")
@@ -672,10 +769,16 @@ class Console:
             require(write["delivered_us"] < obs["earliest_us"] <= obs["latest_us"] <= item["deadline_us"],
                     "observation precedes acknowledgement or exceeds the deadline")
             alarm, motion = int.from_bytes(raw[3:5], "big"), int.from_bytes(raw[5:7], "big")
-            require(type(item.get("raw_alarm")) is int and item["raw_alarm"] == alarm
+            if command == "position-clear":
+                require(item.get("raw_alarm") is None and item.get("raw_motion") is None and
+                        type(item.get("raw_position")) is int and item["raw_position"] == (alarm << 16 | motion),
+                        "clear-position observation differs from retained RX")
+                observed = item["raw_position"] == 0
+            else:
+                require(type(item.get("raw_alarm")) is int and item["raw_alarm"] == alarm
                     and type(item.get("raw_motion")) is int and item["raw_motion"] == motion,
                     "decoded report differs from retained RX")
-            observed = {"enable": not bool(motion & 16), "motor-release": bool(motion & 16),
+                observed = {"enable": not bool(motion & 16), "motor-release": bool(motion & 16),
                         "alarm-clear": alarm == 0 and not bool(motion & 8), "stop": not bool(motion & 4)}[command]
             require(observed == item["ok"], "status differs from requested reported completion")
         else:
@@ -1086,7 +1189,7 @@ class Console:
                 "validation outcome is inconsistent")
         if not item["ok"]:
             return
-        require(item.get("wire_motion") == "unimplemented", "reply claims implemented wire motion")
+        require(item.get("wire_motion") == "not_requested", "host preview claims a wire motion request")
         require(integer(item.get("configuration_generation"), 1 if preparation else 0, 0xFFFFFFFF),
                 "configuration generation is invalid")
         for name in ("target", "binding_generation"):
@@ -1107,8 +1210,12 @@ class Console:
                 and integer(requested.get("denominator"), 1, 2**64 - 1)
                 and requested.get("unit") in ("steps", "fullsteps", "counts", "turn", "deg", "rad", "mm")
                 and integer(requested.get("frame"), 0, 2) and integer(requested.get("basis"), 0, 2)
-                and integer(requested.get("rounding"), 0, 4) and type(requested.get("relative")) is bool,
+                and integer(requested.get("rounding"), 0, 4) and type(requested.get("relative")) is bool
+                and type(requested.get("wrapped")) is bool and integer(requested.get("angle_path"), 0, 2)
+                and integer(requested.get("half_turn_tie"), 0, 2),
                 "exact request is incomplete")
+        require(not requested["wrapped"] or (not requested["relative"] and requested["frame"] != 0 and
+                requested["unit"] in ("turn", "deg", "rad")), "wrapped preview lacks an explicit angular frame")
         for name in ("effective_native", "endpoint_native", "displacement_native"):
             require(integer(item.get(name), -2**63, 2**63 - 1), "native integer is invalid")
         for name in ("endpoint_known", "displacement_known", "zero_displacement", "exact_arithmetic"):
@@ -1183,7 +1290,7 @@ class Console:
         if self.clock() >= handle.deadline:
             raise BenchError("command response deadline expired; command was not replayed")
         self.emit("reply", response=item)
-        asynchronous = handle.command in (*READ_COMMANDS, *ACTION_COMMANDS, "recover", "move-relative")
+        asynchronous = handle.command in (*READ_COMMANDS, *ACTION_COMMANDS, "recover", *MOVE_COMMANDS)
         if asynchronous:
             if item.get("type") == "reply" and not handle.accepted:
                 if not item["ok"]:
@@ -1191,7 +1298,7 @@ class Console:
                     return
                 if item.get("result") != "accepted":
                     raise BenchError(f"{handle.command} acceptance is not explicit")
-                if handle.command in (*READ_COMMANDS, *ACTION_COMMANDS, "move-relative"):
+                if handle.command in (*READ_COMMANDS, *ACTION_COMMANDS, *MOVE_COMMANDS):
                     address = item.get("address")
                     if (type(address) is not int or not 1 <= address <= 247
                             or (handle.address is not None and address != handle.address)):
@@ -1215,7 +1322,7 @@ class Console:
                 return
             expected_type = {"probe": "probe", "capture-read": "capture_read", "recover": "recovery",
                              "read-identity": "read", "read-config": "read", "read-state": "read",
-                             **dict.fromkeys(ACTION_COMMANDS, "action"), "move-relative": "move"}[handle.command]
+                             **dict.fromkeys(ACTION_COMMANDS, "action"), **dict.fromkeys(MOVE_COMMANDS, "move")}[handle.command]
             if item.get("type") != expected_type or not handle.accepted:
                 raise BenchError(f"{handle.command} response sequence is invalid")
             if (not self._operation_id(item.get("operation_id"))
@@ -1230,8 +1337,8 @@ class Console:
                 self._check_typed_read(item, TYPED_READS[handle.command], handle.address)
             elif handle.command in ACTION_COMMANDS:
                 self._check_action(item, handle.command, handle.address, handle.stop_policy)
-            elif handle.command == "move-relative":
-                self._check_move(item, handle.address, handle.move_args)
+            elif handle.command in MOVE_COMMANDS:
+                self._check_move(item, handle.address, handle.move_args, handle.command[5:])
             else:
                 self._check_recovery(item)
         else:
@@ -1254,9 +1361,9 @@ class Console:
                     action_kind = item.get("action_kind")
                     move_kind = item.get("move_kind")
                     stop_policy = item.get("stop_policy")
-                    if (move_kind is not None and move_kind != "relative") or (
+                    if (move_kind is not None and "move-" + move_kind not in MOVE_COMMANDS) or (
                             move_kind is not None and (action_kind is not None or recovery or capture_read or read_kind is not None)) or (
-                            original is not None and (move_kind == "relative") != (original.command == "move-relative")):
+                            original is not None and move_kind != (original.command[5:] if original.command in MOVE_COMMANDS else None)):
                         raise BenchError("result move kind does not match retained operation")
                     if (action_kind is not None and action_kind not in ACTION_KINDS.values()) or (
                             action_kind == "stop" and stop_policy not in ("normal", "direct")) or (
@@ -1279,7 +1386,7 @@ class Console:
                         if original is not None and original.terminal is not None:
                             raise BenchError("completed retained operation regressed to pending")
                     elif move_kind is not None:
-                        self._check_move(item, original.address if original else None, original.move_args if original else None)
+                        self._check_move(item, original.address if original else None, original.move_args if original else None, move_kind)
                     elif action_kind is not None:
                         action_command = next(name for name, kind in ACTION_KINDS.items() if kind == action_kind)
                         self._check_action(item, action_command, original.address if original else None, stop_policy)
@@ -1348,19 +1455,15 @@ class Console:
             raise ValueError("stop requires explicit normal or direct policy")
         if host_args is not None:
             if (command not in ("axis", "prepare") or not isinstance(host_args, tuple) or
-                    not 1 <= len(host_args) <= 8 or any(type(token) is not str or not token or
+                    not 1 <= len(host_args) <= (9 if command == "prepare" else 8) or any(type(token) is not str or not token or
                     any(ord(char) < 33 or ord(char) > 126 for char in token) for token in host_args)):
                 raise ValueError("host preparation requires bounded ASCII tokens without whitespace")
         elif command in ("axis", "prepare"):
             raise ValueError("axis/prepare require explicit host-only arguments")
-        if command == "move-relative":
-            if (not isinstance(move_args, tuple) or len(move_args) != 5 or
-                    any(type(token) is not str or not token or any(ord(char) < 33 or ord(char) > 126 for char in token) for token in move_args) or
-                    move_args[1] not in ("steps", "fullsteps", "counts", "turn", "deg", "rad", "mm") or
-                    move_args[2] not in ("native", "motor", "load") or move_args[4] != "configured"):
-                raise ValueError("move requires value/unit/frame/native_rpm/configured tokens")
+        if command in MOVE_COMMANDS:
+            move_arguments(command[5:], move_args)
         elif move_args is not None:
-            raise ValueError("move arguments are only valid for move-relative")
+            raise ValueError("move arguments are only valid for finite moves")
         health_check = command == "health-check"
         if health_check:
             command = "read-state"  # The wire alias returns canonical read-state records.
@@ -1370,7 +1473,7 @@ class Console:
                  type(monitor[0]) is not int or type(monitor[1]) is not int or
                  not 100 <= monitor[0] <= 60000 or not 1 <= monitor[1] <= 1000)):
                 raise ValueError("monitor requires off or interval 100..60000/count 1..1000")
-        if address is not None and (command not in (*READ_COMMANDS, *ACTION_COMMANDS, "move-relative") or type(address) is not int
+        if address is not None and (command not in (*READ_COMMANDS, *ACTION_COMMANDS, *MOVE_COMMANDS) or type(address) is not int
                                     or not 1 <= address <= 247):
             raise ValueError("an ESS probe address must be an integer within 1..247")
         if load is not None:
@@ -1390,7 +1493,7 @@ class Console:
             raise BenchError("request IDs exhausted; start a new inspected session")
         if host_args is not None and len(f"@{self.next_id} {command} {' '.join(host_args)}") >= 128:
             raise ValueError("host command exceeds the console line bound")
-        if move_args is not None and len(f"@{self.next_id} move relative {' '.join(move_args)}" + ("" if address is None else f" {address}")) >= 128:
+        if move_args is not None and len(f"@{self.next_id} move {command[5:]} {' '.join(move_args)}" + ("" if address is None else f" {address}")) >= 128:
             raise ValueError("move command exceeds the console line bound")
         request_id = self.next_id
         self.next_id += 1
@@ -1418,7 +1521,7 @@ class Console:
             if move_args is not None:
                 suffix = " " + " ".join(move_args) + suffix
             wire_command = "health check" if health_check else "read " + TYPED_READS[command] if command in TYPED_READS else command
-            if command == "move-relative": wire_command = "move relative"
+            if command in MOVE_COMMANDS: wire_command = "move " + command[5:]
             payload = f"@{request_id} {wire_command}{suffix}\n".encode("ascii")
             if len(payload) > 128:
                 raise ValueError("command exceeds the console line bound")
@@ -1661,8 +1764,8 @@ def typed_read_campaign(console: Console, *, kind: str, timeout_s: float, addres
                      ok=failure is None and completed == len(kinds), error=failure)
 
 
-def relative_move_campaign(console: Console, *, move_args: tuple[str, ...], cleanup_stop: str,
-                           timeout_s: float, address: int) -> None:
+def move_campaign(console: Console, *, move_args: tuple[str, ...], cleanup_stop: str,
+                  timeout_s: float, address: int, command: str = "move-relative") -> None:
     """One move attempt, explicit stop, checked final reports and local result release.
 
     Cleanup never replays the move or converts an uncertain outcome to success.
@@ -1678,7 +1781,7 @@ def relative_move_campaign(console: Console, *, move_args: tuple[str, ...], clea
     cleanup = "not_required"
     failure = None
     try:
-        handle = console.begin("move-relative", move_args=move_args, address=address, timeout_s=timeout_s)
+        handle = console.begin(command, move_args=move_args, address=address, timeout_s=timeout_s)
         if handle.accepted:
             cleanup = "unknown"
         terminal = console.wait(handle)
@@ -1717,7 +1820,7 @@ def relative_move_campaign(console: Console, *, move_args: tuple[str, ...], clea
                     cleanup_error = str(exc) or "cleanup interrupted"
             else:
                 cleanup_error = "framing unavailable; no cleanup command sent"
-        console.emit("summary", mode="move-relative", moves_attempted=1, move_result=terminal,
+        console.emit("summary", mode=command, moves_attempted=1, move_result=terminal,
                      retained_inspection=inspected, cleanup_policy=cleanup_stop, cleanup=cleanup,
                      stop_result=stopped, final_state=final_state, final_health=final_health,
                      physical_observation="not_supplied", ok=failure is None and cleanup_error is None,
@@ -1820,13 +1923,21 @@ def arguments(argv: list[str] | None) -> argparse.Namespace:
             action.add_argument("stop_policy", choices=("normal", "direct"))
     typed = sub.add_parser("typed-read", help="typed identity/configuration/state reads, retained inspection and release")
     typed.add_argument("--kind", choices=("identity", "config", "state", "both"), default="both")
-    move = sub.add_parser("move-relative", help="one finite exact move with explicit stop cleanup; never replayed")
-    move.add_argument("value", help="exact integer/decimal/fraction displacement")
-    move.add_argument("unit", choices=("steps", "fullsteps", "counts", "turn", "deg", "rad", "mm"))
-    move.add_argument("frame", choices=("native", "motor", "load"))
-    move.add_argument("native_rpm", help="positive exact integer native motor rpm")
-    move.add_argument("ramp", choices=("configured",))
-    move.add_argument("--cleanup-stop", required=True, choices=("normal", "direct"))
+    for name in MOVE_COMMANDS:
+        move = sub.add_parser(name, help="one finite move with explicit stop cleanup; never replayed")
+        move.add_argument("value", help="exact integer/decimal/fraction coordinate")
+        move.add_argument("unit", choices=("turn", "deg", "rad") if name == "move-angle" else ("steps", "fullsteps", "counts", "turn", "deg", "rad", "mm"))
+        move.add_argument("frame", choices=("motor", "load") if name == "move-angle" else ("native", "motor", "load"))
+        if name == "move-angle":
+            move.add_argument("path", choices=("positive", "negative", "shortest"))
+            move.add_argument("tie", choices=("reject", "positive", "negative"))
+        move.add_argument("native_rpm", help="positive exact integer native motor rpm")
+        move.add_argument("ramp", choices=("configured",))
+        move.add_argument("--round", choices=("exact", "nearest", "zero", "floor", "ceil"))
+        move.add_argument("--maximum-error", default="0", help="exact maximum native quantization error")
+        move.add_argument("--approximation-error", help="explicit positive native error allowance for radians")
+        if name == "move-relative": move.add_argument("--basis", choices=("actual", "commanded", "queued"))
+        move.add_argument("--cleanup-stop", required=True, choices=("normal", "direct"))
     for mode, default_count, default_interval, description in (
         ("stress", 100, 0.1, "explicit repeated probes"),
         ("state-health", 5, 0.1, "stationary state/health refresh, retained checks and passive cache age"),
@@ -1860,6 +1971,19 @@ def arguments(argv: list[str] | None) -> argparse.Namespace:
         parser.error("count must be within 1..1000000")
     if not math.isfinite(result.interval) or not 0 <= result.interval <= 60:
         parser.error("interval must be finite and within 0..60 seconds")
+    result.move_args = None
+    if result.mode in MOVE_COMMANDS:
+        tokens = [result.value, result.unit, result.frame]
+        if result.mode == "move-angle": tokens.extend((result.path, result.tie))
+        tokens.extend((result.native_rpm, result.ramp))
+        if getattr(result, "basis", None): tokens.extend(("basis", result.basis))
+        if result.round: tokens.extend(("round", result.round, result.maximum_error))
+        elif result.maximum_error != "0" or result.approximation_error:
+            parser.error("numerical allowances require an explicit --round policy")
+        if result.approximation_error: tokens.extend(("approx", result.approximation_error))
+        result.move_args = tuple(tokens)
+        try: move_arguments(result.mode[5:], result.move_args)
+        except ValueError as exc: parser.error(str(exc))
     result.load = None
     if result.mode == "load":
         result.load = (result.work_us, result.owner_delay_us, result.console_bytes)
@@ -1889,9 +2013,9 @@ def main(argv: list[str] | None = None) -> int:
                                              stop_policy=getattr(args, "stop_policy", None))
                     if not result["ok"]:
                         raise BenchError("action rejected or failed: " + str(result.get("result", result.get("outcome"))))
-                elif args.mode == "move-relative":
-                    relative_move_campaign(console, move_args=(args.value, args.unit, args.frame, args.native_rpm, args.ramp),
-                                           cleanup_stop=args.cleanup_stop, timeout_s=args.timeout, address=args.address)
+                elif args.mode in MOVE_COMMANDS:
+                    move_campaign(console, command=args.mode, move_args=args.move_args,
+                                  cleanup_stop=args.cleanup_stop, timeout_s=args.timeout, address=args.address)
                 else:
                     campaign(console, args.mode, count=args.count, interval_s=args.interval,
                              timeout_s=args.timeout, address=args.address, load=args.load,
