@@ -756,6 +756,8 @@ void testExactHostPreparationAndParsing() {
     assert(expected.effectiveNative == fake.axisRequest.position.value.numerator);
     send(console, "prepare absolute 9223372036854775807 steps native\n");
     fake.contains("\"effective_native\":9223372036854775807");
+    send(console, "prepare absolute 9223372036854775807.000 steps native\n");
+    fake.contains("\"effective_native\":9223372036854775807");
     send(console, "prepare relative -5/2 steps native commanded nearest 1\n");
     fake.contains("\"effective_native\":-2"); fake.contains("\"rounding_error\":0.5");
     direct.value = Core::Rational(-5, 2); direct.basis = Core::RelativeBasis::COMMANDED;
@@ -802,12 +804,15 @@ void testHostArgumentsAndBackpressure() {
     const char* invalid[] = {
         "axis", "axis origin 1/2", "axis config set bad 1", "axis config set command 0",
         "axis config set gear 4294967296", "axis config set lead -1", "axis config set command 1/4294967296",
+        "axis config set command 1/2.0", "axis config set gear 1/2.000",
         "axis config set polarity 0", "axis config set encoder-id -1", "axis config set relative-bases 8",
         "axis config set acceleration-unit rpm/s2", "axis config set native-limits 2 1",
         "axis config set soft-limits 1", "axis config set position-unit native", "axis config set encoder-basis none",
         "prepare relative 1 steps native", "prepare relative 1 steps native unknown", "prepare absolute 1 steps other",
         "prepare absolute nan steps native", "prepare absolute inf steps native", "prepare absolute 1e3 steps native",
         "prepare absolute 1/0 steps native", "prepare absolute 0x10 steps native", "prepare absolute 1junk steps native",
+        "prepare relative 1/2.0 steps native actual nearest 1", "prepare absolute 1/2.000 steps native nearest 1",
+        "prepare relative 1/2 steps native actual nearest 1/2.0",
         "prepare absolute 9223372036854775808 steps native", "prepare absolute 1 steps native nearest -1",
         "prepare absolute 1 steps native nearest 1 0.001", "prepare absolute 1 rad load nearest 1 0",
         "prepare absolute 1 rad load nearest 1 1e-3"
@@ -829,6 +834,50 @@ void testHostArgumentsAndBackpressure() {
     Fake absent; Probe::Console unavailable(absent.host());
     send(unavailable, "help\n"); assert(absent.lines.back().find("\"axis\"") == std::string::npos && absent.lines.back().find("\"prepare\"") == std::string::npos);
     send(unavailable, "axis config\n"); absent.contains("unavailable");
+}
+
+void testZeroRadiansAndApproximateCancellationMatchApi() {
+    namespace Core = MotorControlRS;
+    Fake fake;
+    fake.axisConfig.target.id = fake.axisConfig.target.address = 1;
+    fake.axisConfig.target.generation = 1;
+    fake.axisConfig.supportedRelativeBases = 1;
+    fake.axisConfig.units.commandStepsPerMotorTurn = Core::UnitScale(1000, 1, Core::ScaleSource::ASSUMED);
+    auto host = fake.host(); host.axis = Fake::axis;
+    Probe::Console console(host);
+    send(console, "prepare relative 0 rad motor actual\n");
+    fake.contains("\"ok\":true"); fake.contains("\"exact_arithmetic\":true");
+    for (const char* policy : {"exact", "nearest", "zero", "floor", "ceil"}) {
+        send(console, std::string("prepare relative 0 rad motor actual ") + policy + " 0\n");
+        fake.contains("\"ok\":true"); fake.contains("\"effective_native\":0");
+        fake.contains("\"zero_displacement\":true"); fake.contains("\"exact_arithmetic\":true");
+        fake.contains("\"rounding_error\":0"); fake.contains("\"approximation_error_bound\":0");
+        auto request = fake.axisRequest.position; request.configurationGeneration = fake.axisConfig.generation;
+        Core::PreparedTarget expected;
+        assert(Core::preparePosition(request, fake.axisConfig, nullptr, expected));
+        assert(expected.effectiveNative == 0 && expected.zeroDisplacement && expected.exactArithmetic);
+    }
+    fake.axisConfig.originKnown = true; fake.axisConfig.originSource = Core::ScaleSource::ASSUMED;
+    for (int64_t origin : {INT64_MIN, INT64_MAX}) {
+        fake.axisConfig.originNative = origin;
+        send(console, "prepare absolute 0 rad motor\n");
+        const std::string effective = "\"effective_native\":" + std::to_string(origin);
+        fake.contains("\"ok\":true"); fake.contains(effective.c_str());
+        fake.contains("\"exact_arithmetic\":true"); fake.contains("\"displacement_known\":false");
+        auto request = fake.axisRequest.position; request.configurationGeneration = fake.axisConfig.generation;
+        Core::PreparedTarget expected;
+        assert(Core::preparePosition(request, fake.axisConfig, nullptr, expected));
+        assert(expected.effectiveNative == origin && expected.requestedNative.integral == origin);
+    }
+    fake.axisConfig.originNative = -159;
+    send(console, "prepare absolute 1 rad motor nearest 1 0.0001\n");
+    fake.contains("\"ok\":true"); fake.contains("\"effective_native\":0");
+    fake.contains("\"exact_arithmetic\":false"); fake.contains("\"requested_native\":null");
+    auto request = fake.axisRequest.position; request.configurationGeneration = fake.axisConfig.generation;
+    Core::PreparedTarget expected;
+    assert(Core::preparePosition(request, fake.axisConfig, nullptr, expected));
+    assert(expected.effectiveNative == 0 && !expected.exactArithmetic && expected.approximationErrorBound > 0);
+    fake.untouched(); assert(fake.snapshots == 0);
 }
 
 } // namespace
@@ -855,4 +904,5 @@ int main() {
     testStateRoutesCacheAndPolling();
     testExactHostPreparationAndParsing();
     testHostArgumentsAndBackpressure();
+    testZeroRadiansAndApproximateCancellationMatchApi();
 }

@@ -451,3 +451,9 @@ The [fresh06 audit](reports/ess_release_06_audit_2026-10-04.md) separates histor
 The operation ledger gets no read/write/action credit for host arithmetic.
 Reduced exact intermediates use bounded uint64 storage and reject overflow;
 there is no implicit approximate fallback. Prompt08 is not executed here.
+
+The [fresh07 audit](reports/ess_release_07_audit_2026-10-04.md) fixes requested
+relative-displacement range checking with a reference, zero-radian exactness,
+normal cancellation onto zero and malformed decimal fraction operands. Native,
+installed consumer, four firmware builds and a repeated 23-frame read-only COM13
+campaign pass; no device setting or qualification claim changed.

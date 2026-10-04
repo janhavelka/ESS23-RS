@@ -178,13 +178,15 @@ Status approximateNative(const PositionRequest& r, const detail::UnitFactors& f,
     const long double v = input * detail::approximateFactor(f);
     if (!std::isfinite(v) || std::fabs(v) > 9007199254740992.0L)
         return fail(AxisError::ARITHMETIC_OVERFLOW,"radian native result exceeds binary64 precision");
+    if (input != 0 && (v == 0 || std::fpclassify(static_cast<double>(v)) != FP_NORMAL))
+        return fail(AxisError::APPROXIMATION_REQUIRED,"radian native conversion underflows");
     if (std::fabs(static_cast<long double>(origin)) > 9007199254740992.0L ||
         std::fabs(v + origin) > 9007199254740992.0L)
         return fail(AxisError::ARITHMETIC_OVERFLOW,"radian origin exceeds binary64 precision");
     const double value = static_cast<double>(v + origin);
     error = std::fabs(static_cast<double>(v)) * (64 * std::numeric_limits<double>::epsilon()) +
         (origin ? std::fabs(value) * (2 * std::numeric_limits<double>::epsilon()) : 0);
-    if ((input != 0 && (value == 0 || std::fpclassify(value) != FP_NORMAL)) || error > r.maximumApproximationError)
+    if (error > r.maximumApproximationError)
         return fail(AxisError::APPROXIMATION_REQUIRED,"radian precision exceeds allowance");
     if (r.rounding == Rounding::EXACT && input != 0)
         return fail(AxisError::APPROXIMATION_REQUIRED,"nonzero radians are not mathematically exact native counts");
@@ -228,6 +230,8 @@ Status parseExactNumber(const char* text, Rational& output) {
     unsigned point = length;
     for (unsigned j = i; j < length; ++j) if (text[j] == '.') { point = j; break; }
     if (point < length) {
+        for (unsigned j = i; j < length; ++j)
+            if (text[j] == '/') return fail(AxisError::INVALID_ARGUMENT,"fraction operands must be integers");
         while (length > point + 1 && text[length-1] == '0') --length;
         if (length == point + 1) length = point;
     }
@@ -342,13 +346,18 @@ Status preparePosition(const PositionRequest& r, const AxisConfig& c, const Axis
     detail::UnitFactors f; s = factors(r,c,f); if (!s) return s;
     PreparedTarget next; next.requested = r; next.target = c.target; next.configurationGeneration = c.generation;
     int64_t effective = 0;
-    if (r.unit == PositionUnit::RADIANS) {
+    const bool zeroRadians = r.unit == PositionUnit::RADIANS &&
+        (r.rationalRadians ? r.value.numerator == 0 : r.radians == 0);
+    if (r.unit == PositionUnit::RADIANS && !zeroRadians) {
         s = approximateNative(r,f,next.requestedNative,origin,effective,next.roundingError,next.approximationErrorBound);
         if (!s) return s;
         next.exactArithmetic = false;
         // Test the complete uncertainty interval, including fractional native boundaries.
         const long double input = r.rationalRadians ? static_cast<long double>(r.value.numerator) / r.value.denominator : r.radians;
         const long double v = input * detail::approximateFactor(f);
+        if (r.relative && (v - next.approximationErrorBound < c.nativeMinimum ||
+                           v + next.approximationErrorBound > c.nativeMaximum))
+            return fail(AxisError::LIMIT,"radian requested displacement crosses native range");
         const int64_t base = r.relative && ref ? ref->nativePosition : origin;
         if (std::fabs(static_cast<long double>(base)) > 9007199254740992.0L ||
             std::fabs(v + base) > 9007199254740992.0L)
@@ -366,7 +375,12 @@ Status preparePosition(const PositionRequest& r, const AxisConfig& c, const Axis
             (c.softLimitsKnown && (lo < c.softMinimum || hi > c.softMaximum)))
             return fail(AxisError::LIMIT,"radian requested interval crosses a limit");
     } else {
-        s = exactNative(r,f,next.requestedNative); if (!s) return s;
+        // Zero radians are exactly zero without evaluating pi or floating origin
+        // arithmetic. Preserve the selected input and ordinary metadata checks.
+        if (!zeroRadians) { s = exactNative(r,f,next.requestedNative); if (!s) return s; }
+        if (r.relative) {
+            s = requestedBounds(next.requestedNative,c,false); if (!s) return s;
+        }
         if (!r.relative) {
             if (!add(next.requestedNative.integral,origin,next.requestedNative.integral))
                 return fail(AxisError::ARITHMETIC_OVERFLOW,"origin addition overflows");

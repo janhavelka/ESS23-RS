@@ -122,3 +122,8 @@ reference/limit checks and host-only configuration through the installed API
 and console. Software and read-only COM13 checks pass; native origin evidence
 is unresolved on this drive, and no motion, drive setting or travel qualification
 is implied. Prompt08 is the next separately dispatched action/stop block.
+
+The [fresh07 audit](reports/ess_release_07_audit_2026-10-04.md) corrects numerical
+and exact-parser boundary defects and repeats software/package/build and read-only
+host API checks. Requested relative displacement and endpoint limits remain
+independent; zero radians retain exact integer references without approximation.

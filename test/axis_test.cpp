@@ -2,6 +2,7 @@
 #include "MotorControlRS/Axis.h"
 #include <cassert>
 #include <cmath>
+#include <initializer_list>
 #include <limits>
 using namespace MotorControlRS;
 static AxisConfig config() {
@@ -167,6 +168,65 @@ static void testHostConfiguration() {
     c.originKnown = true; c.originSource = ScaleSource::QUALIFIED; c.originNative = 11;
     assert(!validateAxisConfig(c));
 }
+static void testRelativeRequestedRange() {
+    AxisConfig c = config(); c.nativeMinimum = -2; c.nativeMaximum = 2;
+    PreparedTarget out; out.effectiveNative = 71;
+    PositionRequest r = request(c,5,2); r.rounding = Rounding::TOWARD_ZERO;
+    r.maximumQuantizationError = 0.5;
+    for (int sign : { -1,1 }) {
+        r.value.numerator = sign * 5;
+        AxisReference ref = reference(c,-sign);
+        assert(preparePosition(r,c,nullptr,out).detail == static_cast<int32_t>(AxisError::LIMIT));
+        assert(preparePosition(r,c,&ref,out).detail == static_cast<int32_t>(AxisError::LIMIT));
+        assert(out.effectiveNative == 71); // A legal rounded delta/endpoint cannot hide an illegal requested delta.
+    }
+    c.units.commandStepsPerMotorTurn = UnitScale(1,1,ScaleSource::ASSUMED);
+    r.unit = PositionUnit::RADIANS; r.frame = CoordinateFrame::MOTOR;
+    r.approximate = true; r.rationalRadians = false;
+    r.maximumApproximationError = 1e-10; r.maximumQuantizationError = 0.6;
+    for (int sign : { -1,1 }) {
+        r.radians = sign * 2.5 * 6.28318530717958647692;
+        AxisReference ref = reference(c,-sign);
+        assert(preparePosition(r,c,&ref,out).detail == static_cast<int32_t>(AxisError::LIMIT));
+        assert(out.effectiveNative == 71);
+    }
+}
+static void testZeroRadiansAndCancellation() {
+    AxisConfig c = config(); c.units.commandStepsPerMotorTurn = UnitScale(1,1,ScaleSource::ASSUMED);
+    c.originKnown = true; c.originSource = ScaleSource::QUALIFIED;
+    PositionRequest r = request(c,0); r.unit = PositionUnit::RADIANS;
+    r.frame = CoordinateFrame::MOTOR; r.relative = false;
+    PreparedTarget out;
+    for (int64_t origin : { INT64_MIN,INT64_C(17),INT64_MAX }) {
+        c.originNative = origin;
+        for (Rounding rounding : { Rounding::EXACT,Rounding::NEAREST,Rounding::TOWARD_ZERO,Rounding::FLOOR,Rounding::CEIL }) {
+            r.rounding = rounding;
+            assert(preparePosition(r,c,nullptr,out));
+            assert(out.effectiveNative == origin && out.requestedNative.integral == origin);
+            assert(out.exactArithmetic && out.roundingError == 0 && out.approximationErrorBound == 0);
+        }
+    }
+    r.relative = true; r.rounding = Rounding::EXACT;
+    c.softLimitsKnown = true; c.softMinimum = c.softMaximum = INT64_MAX;
+    AxisReference ref = reference(c,INT64_MAX);
+    assert(preparePosition(r,c,&ref,out));
+    assert(out.endpointNative == INT64_MAX && out.zeroDisplacement && out.approximationErrorBound == 0);
+    // The selected binary64 input is retained and need not match the unused rational field.
+    r.rationalRadians = false; r.radians = -0.0; r.value = Rational(1);
+    assert(preparePosition(r,c,&ref,out));
+    assert(out.zeroDisplacement && out.requested.value.numerator == 1 && out.exactArithmetic);
+    AxisConfig missing = c; missing.units.commandStepsPerMotorTurn = UnitScale();
+    assert(!preparePosition(r,missing,&ref,out)); // Zero does not waive the selected frame's scale contract.
+
+    c.softLimitsKnown = false; c.originNative = 1;
+    r.relative = false; r.approximate = true; r.radians = -6.28318530717958647692;
+    r.rounding = Rounding::NEAREST; r.maximumApproximationError = 1e-10; r.maximumQuantizationError = 1e-10;
+    assert(preparePosition(r,c,nullptr,out)); // Normal conversion cancelling an origin is not underflow.
+    assert(out.effectiveNative == 0 && !out.exactArithmetic && out.approximationErrorBound > 0);
+    r.relative = true; r.radians = std::numeric_limits<double>::min(); out.effectiveNative = 71;
+    assert(!preparePosition(r,c,nullptr,out)); // Actual converted subnormal values still reject.
+    assert(out.effectiveNative == 71);
+}
 static void testRadiansAndParsing() {
     AxisConfig c = config(); c.units.commandStepsPerMotorTurn = UnitScale(1000,1,ScaleSource::ASSUMED);
     PositionRequest r = request(c,1); r.frame = CoordinateFrame::MOTOR; r.unit = PositionUnit::RADIANS;
@@ -194,7 +254,7 @@ static void testRadiansAndParsing() {
     assert(parseExactNumber("-9223372036854775808.000",number)); assert(number.numerator == INT64_MIN && number.denominator == 1);
     assert(parseExactNumber("18446744073709551615/18446744073709551615",number)); assert(number.numerator == 1 && number.denominator == 1);
     assert(parseExactNumber("-1.250",number)); assert(number.numerator == -5 && number.denominator == 4);
-    const char* bad[] = {"", "1e3", "NaN", "inf", "1/0", "1.", ".5", " 1", "1 ", "9223372036854775808", "-9223372036854775809", "1/-2", "--1", "1.2.3"};
+    const char* bad[] = {"", "1e3", "NaN", "inf", "1/0", "1.", ".5", " 1", "1 ", "9223372036854775808", "-9223372036854775809", "1/-2", "--1", "1.2.3", "1/2.0", "1/2.000", "1.0/2", "1.00/2.000"};
     for (unsigned i = 0; i < sizeof(bad)/sizeof(bad[0]); ++i) { number = Rational(71,3); assert(!parseExactNumber(bad[i],number)); assert(number.numerator == 71 && number.denominator == 3); }
     char longText[130]; for (unsigned i = 0; i < 129; ++i) longText[i] = '1'; longText[129] = 0;
     assert(!parseExactNumber(longText,number));
@@ -212,6 +272,7 @@ static void testRadiansAndParsing() {
 
 }
 int main() {
-    testNative(); testRounding(); testFactorsAndOrigins(); testEncodersAndLimits(); testHostConfiguration(); testRadiansAndParsing();
+    testNative(); testRounding(); testFactorsAndOrigins(); testEncodersAndLimits(); testHostConfiguration();
+    testRelativeRequestedRange(); testZeroRadiansAndCancellation(); testRadiansAndParsing();
     return 0;
 }

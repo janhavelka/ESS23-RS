@@ -5,6 +5,8 @@
 - Add exact host target preparation, native/rational input, frame-aware scaling,
   origin/reference validation, quantization and limits. Reuse the units factor
   planner; host-only console configuration and previews perform no motor writes.
+- Fix referenced relative-displacement limits, exact zero-radian preparation,
+  radian cancellation onto zero and malformed decimal fraction operands.
 
 - Remove product-specific naming from the standalone RS485 reference and
   release prompts. Rename example environments to `bench_s3_*` and keep

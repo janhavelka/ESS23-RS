@@ -77,7 +77,11 @@ completion and record changes to the setup for the next session.
 
 ## Current status
 
-- [Prompt07](reports/ess_release_07_2026-10-04.md): current timer image verifies pure
+- [Prompt07 fresh audit](reports/ess_release_07_audit_2026-10-04.md): corrected timer
+  image rejects malformed fractions before host effects and prepares zero radians
+  exactly. Repeated 23 FC03 frames/209 RX bytes pass with zero transport errors
+  and unchanged drive settings; load/monitor off, DE released, owner empty.
+- [Prompt07](reports/ess_release_07_2026-10-04.md): its timer image verifies pure
   host preparation/configuration and 23 FC03 frames/209 RX bytes, zero transport
   errors and unchanged drive configuration. Explicit operator scales remain
   assumptions; origin/soft-limit establishment rejects unresolved native feedback.

@@ -289,6 +289,60 @@ class Framing(unittest.TestCase):
         self.assertTrue(console.synchronized)
         self.assertFalse(console.operations)
 
+    def test_malformed_exact_fraction_rejections_are_not_replayed(self):
+        def handler(request_id, command, args):
+            if command in ("axis", "prepare"):
+                return encoded(reply(request_id, command, ok=False, code="ILLEGAL_VALUE", detail=1,
+                    bus_traffic=False, motion_command=False))
+            return Serial.normal(request_id, command, args)
+        console = self.session(handler)
+        requests = (
+            ("prepare", ("relative", "1/2.0", "steps", "native", "actual", "nearest", "1")),
+            ("prepare", ("absolute", "1/2.000", "steps", "native", "nearest", "1")),
+            ("axis", ("config", "set", "command", "1/2.0")),
+        )
+        for command, arguments in requests:
+            with self.subTest(command=command, arguments=arguments):
+                before = len(self.port.writes)
+                result = console.command(command, host_args=arguments)
+                self.assertFalse(result["ok"])
+                self.assertEqual(len(self.port.writes), before + 1)
+                self.assertTrue(console.synchronized)
+                self.assertFalse(console.operations)
+
+    def test_zero_radian_and_approximate_zero_targets_keep_provenance(self):
+        scenarios = [
+            (("relative", "0", "rad", "motor", "actual"), 0, True, 0, 0),
+            (("absolute", "0", "rad", "motor"), -(2**63), True, 0, 0),
+            (("absolute", "0", "rad", "motor"), 2**63 - 1, True, 0, 0),
+            (("absolute", "1", "rad", "motor", "nearest", "1", "0.0001"), 0, False, 0.1549, 0.00000001),
+        ]
+        for arguments, effective, exact, approximate, error in scenarios:
+            with self.subTest(arguments=arguments, effective=effective):
+                relative = arguments[0] == "relative"
+                def handler(request_id, command, args):
+                    if command == "prepare":
+                        return encoded(reply(request_id, command, code="OK", detail=0, bus_traffic=False,
+                            motion_command=False, wire_motion="unimplemented", configuration_generation=2,
+                            target=1, address=1, binding_generation=1,
+                            requested=dict(numerator=0 if exact else 1, denominator=1, unit="rad", frame=1,
+                                relative=relative, basis=0, rounding=0 if exact else 1),
+                            requested_native=dict(integral=effective, numerator=0, denominator=1, negative=False) if exact else None,
+                            requested_native_approximate=None if exact else approximate,
+                            effective_native=effective, endpoint_known=not relative, endpoint_native=0 if relative else effective,
+                            displacement_known=relative, displacement_native=0, zero_displacement=relative,
+                            rounding_error=0 if exact else -approximate,
+                            approximation_error_bound=error, exact_arithmetic=exact))
+                    return Serial.normal(request_id, command, args)
+                console = self.session(handler)
+                result = console.command("prepare", host_args=arguments)
+                self.assertEqual(result["effective_native"], effective)
+                self.assertEqual(result["exact_arithmetic"], exact)
+                self.assertEqual(result["approximation_error_bound"], error)
+                self.assertEqual(len(self.port.writes), 2)
+                self.assertFalse(console.operations)
+                self.assertTrue(console.synchronized)
+
     def test_exhausted_host_generation_is_queryable_but_never_prepared(self):
         def handler(request_id, command, args):
             if command == "axis":

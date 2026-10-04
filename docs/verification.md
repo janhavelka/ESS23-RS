@@ -1,5 +1,14 @@
 # Software verification
 
+## Fresh prompt07 audit
+
+[Fresh independent review](reports/ess_release_07_audit_2026-10-04.md) corrects
+relative displacement limits, zero-radian exactness, cancellation onto zero and
+strict fractional parsing. All 20 native suites, 109 Python cases, installed
+C++11 consumer and four firmware builds pass, plus 45,000 independent rational
+oracle cases. The corrected image passes 23 read-only COM13 frames with no
+transport errors and unchanged drive settings; motion and travel remain unqualified.
+
 ## Prompt07 exact target preparation
 
 [Preparation verification](reports/ess_release_07_2026-10-04.md) passes 20 native
