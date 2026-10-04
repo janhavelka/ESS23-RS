@@ -40,10 +40,7 @@ Status writeWindow(uint8_t address, uint16_t start, uint16_t count) noexcept {
     if (!isValidAddress(address)) return invalid(address, "expected unicast address 1..247");
     // Exact manual examples: physical pages 8, 16, 18, 20. No device-wide
     // maximum is inferred, and arbitrary subsets are not silently admitted.
-    if ((start == Registers::POSITION_PULSES && count == 2) ||
-        (start == Registers::POSITION_ACCELERATION_TIME && count == 5) ||
-        (start == Registers::JOG_SPEED && count == 3) ||
-        (start == Registers::HOMING_METHOD && count == 6)) return Ok();
+    if (Detail::canWriteMultiple(start, count)) return Ok();
     return unsupported(start, "unreviewed FC10 register window");
 }
 
@@ -137,7 +134,7 @@ std::size_t expectedReadRegistersLen(uint16_t count) noexcept {
 std::size_t expectedWriteSingleRegisterLen() noexcept { return 8; }
 
 std::size_t expectedWriteMultipleRegistersLen(uint16_t count) noexcept {
-    return count == 2 || count == 3 || count == 5 || count == 6 ? 9u + 2u * count : 0;
+    return Detail::hasWriteMultipleCount(count) ? 9u + 2u * count : 0;
 }
 
 uint16_t calcCrc16(const uint8_t* data, std::size_t length) noexcept {

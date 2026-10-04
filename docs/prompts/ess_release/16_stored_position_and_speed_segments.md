@@ -7,6 +7,10 @@ Prerequisite: 12 pair policy, 13 configuration effects and 15 optional I/O confi
 
 ## Read and reuse
 
+Read [the prompt 12 per-pair disposition](../../ess_pair_writes.md): no stored
+position pair has a reviewed FC10 window. The six-word record includes a reserved
+word; its layout supplies neither whole-record nor five-word write permission.
+
 Review original ESS multisegment pages and indexed ledger records. Reuse index validation, pair codecs, typed parameters and configuration sequence handling.
 
 ## Implement

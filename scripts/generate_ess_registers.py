@@ -103,7 +103,43 @@ def validate(data, rows):
             expected_base = start + (i["index"] - 1) * group["stride"]
             if int(i["base"], 16) != expected_base or int(i["last"], 16) != expected_base + group["stride"] - 1:
                 raise ValueError("invalid indexed range: " + group["name"])
+    validate_write_windows(data, rows)
     return occupied
+
+
+def validate_write_windows(data, rows):
+    """Validate explicit source windows; writable adjacency never grants FC10."""
+    by_word = {word: row for row in rows for word in
+               range(int(row["address"], 16), int(row["address"], 16) + row["words"])}
+    seen = set()
+    windows = data["write_multiple_windows"]
+    if not windows:
+        raise ValueError("missing reviewed FC10 windows")
+    for window in windows:
+        start, count = int(window["start"], 16), window["count"]
+        # Structural frame-buffer bound only, never an inferred device maximum.
+        if (type(count) is not int or count < 1 or 9 + 2 * count > 256 or start < 0 or
+                start + count > 0x140 or (start, count) in seen):
+            raise ValueError("invalid or duplicate FC10 window")
+        seen.add((start, count))
+        if (not window["pages"] or any(type(page) is not int or not 1 <= page <= 79
+                                       for page in window["pages"]) or
+                not isinstance(window["evidence"], str) or not window["evidence"].strip()):
+            raise ValueError("FC10 window requires ESS source evidence")
+        if window["partial_application"] != "UNSPECIFIED":
+            raise ValueError("no ESS atomic-write guarantee has been established")
+        for word in range(start, start + count):
+            row = by_word.get(word)
+            if (row is None or row["source_access"] not in ("WO", "RW", "RW/S") or
+                    row["signedness"] == "RESERVED"):
+                raise ValueError("FC10 window contains a gap or nonwritable word")
+            first = int(row["address"], 16)
+            if first < start or first + row["words"] > start + count:
+                raise ValueError("FC10 window splits a paired field")
+    for row in rows:
+        if row["words"] == 2 and row["source_access"] in ("WO", "RW", "RW/S"):
+            if not isinstance(row.get("write_constraint"), str) or not row["write_constraint"].strip():
+                raise ValueError("writable pair requires an explicit disposition: " + row["name"])
 
 
 def types_header(data):
@@ -131,7 +167,7 @@ def types_header(data):
     return "".join(lines)
 
 
-def access_header(rows):
+def access_header(data, rows):
     # One byte per address keeps codec access checks independent of the optional
     # string-rich catalogue. Both outputs use this one source ledger.
     flags = [0] * 0x140
@@ -154,6 +190,13 @@ def access_header(rows):
               '    return address < sizeof(ACCESS) && (ACCESS[address] & 1) != 0;\n}\n\n',
               'inline bool canWriteSingle(uint16_t address) noexcept {\n',
               '    return address < sizeof(ACCESS) && (ACCESS[address] & 2) != 0;\n}\n\n',
+              '// Exact source-reviewed FC10 windows; adjacency does not imply permission.\n',
+              'inline bool canWriteMultiple(uint16_t start, uint16_t count) noexcept {\n',
+              '    return ' + ' ||\n           '.join('(start == 0x%04X && count == %d)' %
+                  (int(w['start'], 16), w['count']) for w in data['write_multiple_windows']) + ';\n}\n\n',
+              'inline bool hasWriteMultipleCount(uint16_t count) noexcept {\n',
+              '    return ' + ' || '.join('count == %d' % count for count in
+                  sorted({w['count'] for w in data['write_multiple_windows']})) + ';\n}\n\n',
               '} // namespace Detail\n', CLOSE_NS]
     return ''.join(lines)
 
@@ -346,6 +389,20 @@ def markdown(data, rows, occupied):
               "| --- | --- | ---: | --- | --- | --- | --- | --- | --- |\n"]
     for row in rows:
         lines.append("| `%s` | `%s` | %d | %s | %s | %s | %s | %s | %s |\n" % (row["address"], row["name"], row["words"], "RESERVED (source " + row["source_access"] + ")" if row["signedness"] == "RESERVED" else row["source_access"], row["unit"], row["source_range"], row["source_default"], ", ".join(map(str, row["pages"])), ", ".join(row["issues"]) or "none recorded"))
+    lines += ["\n## Reviewed FC10 windows and writable pairs\n\n",
+              "Only these complete transactions are admitted. Counts are not a device-wide\n",
+              "maximum; subsets and adjacent fields gain no permission. FC06 rejects every\n",
+              "paired half. Atomicity and partial-application behavior remain unspecified.\n",
+              "See the [pair-write handoff](../ess_pair_writes.md) for typed availability\n",
+              "and the gated qualification experiment.\n\n",
+              "| Start | Count | Physical PDF pages | Evidence |\n| --- | ---: | --- | --- |\n"]
+    for window in data["write_multiple_windows"]:
+        lines.append("| `%s` | %d | %s | %s |\n" % (window["start"], window["count"],
+                     ", ".join(map(str, window["pages"])), window["evidence"]))
+    lines += ["\n| Writable pair | First word | Source disposition |\n| --- | --- | --- |\n"]
+    for row in rows:
+        if "write_constraint" in row:
+            lines.append("| `%s` | `%s` | %s |\n" % (row["name"], row["address"], row["write_constraint"]))
     lines += ["\n## Undocumented address holes\n\n",
               "Within the appendix span 0x0000-0x013F, the following holes have no ESS\n",
               "entry. They are not declared readable, writable or reserved by inference.\n\n"]
@@ -392,7 +449,7 @@ def main():
         PUBLIC / "Types.h": types_header(data),
         PUBLIC / "Registers.h": registers_header(rows),
         ROOT / "src/profiles/ess_rs/Registers.cpp": source_file(data, rows),
-        ROOT / "src/profiles/ess_rs/Access.h": access_header(rows),
+        ROOT / "src/profiles/ess_rs/Access.h": access_header(data, rows),
         ROOT / "docs/reference/05_ess_register_catalog.md": markdown(data, rows, occupied),
     }
     stale = []

@@ -612,7 +612,8 @@
         "SCALE_UNRESOLVED"
       ],
       "notes": "Positive/negative direction documented; two-register width documented; full signed range/negative encoding unresolved.",
-      "choices": null
+      "choices": null,
+      "write_constraint": "Only 0x0024/2 or complete 0x0021/5 reviewed. Typed Position preparation requires established signed range/encoding, scale and active word order; malformed appendix range is not a full int32 guarantee."
     },
     {
       "address": "0x0027",
@@ -781,7 +782,8 @@
         "WORD_ORDER_UNRESOLVED"
       ],
       "notes": "High/low pair documented; omitted from p30 list of configurable-order pairs. Do not silently assume applies.",
-      "choices": null
+      "choices": null,
+      "write_constraint": "Only complete 0x0031/6 reviewed; 0x0035/2 and split FC06 unavailable. Page30 omits this pair and page20 writes zero, so configurable order remains unresolved; negative encoding and scale are also unresolved."
     },
     {
       "address": "0x0037",
@@ -803,7 +805,8 @@
         "SCALE_UNRESOLVED"
       ],
       "notes": "Limit applies only after homing completes.",
-      "choices": null
+      "choices": null,
+      "write_constraint": "No reviewed FC10 window for 0x0037/2; split FC06 unavailable. Configurable word order is documented, but signed encoding, scale and partial application remain unresolved."
     },
     {
       "address": "0x0039",
@@ -825,7 +828,8 @@
         "SCALE_UNRESOLVED"
       ],
       "notes": "Limit applies only after homing completes.",
-      "choices": null
+      "choices": null,
+      "write_constraint": "No reviewed FC10 window for 0x0039/2; split FC06 unavailable. Configurable word order is documented, but signed encoding, scale and partial application remain unresolved."
     },
     {
       "address": "0x003B",
@@ -1722,7 +1726,8 @@
             "SCALE_UNRESOLVED"
           ],
           "notes": "Defaults explicitly listed for first segment only; later instance defaults not independently stated.",
-          "choices": null
+          "choices": null,
+          "write_constraint": "No exact FC10 window is documented for this stored pulse pair or whole position record; split FC06 and spans over the reserved record word are unavailable. Configurable order is documented; signed encoding, scale and partial application remain unresolved."
         },
         {
           "offset": 2,
@@ -3962,5 +3967,43 @@
       "0x003B",
       "0x003C"
     ]
-  }
+  },
+  "write_multiple_windows": [
+    {
+      "start": "0x0024",
+      "count": 2,
+      "pages": [
+        8
+      ],
+      "evidence": "FC10 position-pulse example; payload 0000 1388.",
+      "partial_application": "UNSPECIFIED"
+    },
+    {
+      "start": "0x0021",
+      "count": 5,
+      "pages": [
+        16
+      ],
+      "evidence": "Position acceleration, deceleration, speed and pulse-pair staging example.",
+      "partial_application": "UNSPECIFIED"
+    },
+    {
+      "start": "0x001D",
+      "count": 3,
+      "pages": [
+        18
+      ],
+      "evidence": "Speed, acceleration and deceleration staging example.",
+      "partial_application": "UNSPECIFIED"
+    },
+    {
+      "start": "0x0031",
+      "count": 6,
+      "pages": [
+        20
+      ],
+      "evidence": "Homing method, speed/ramp words and zero offset pair example; does not prove a two-word subset or offset order.",
+      "partial_application": "UNSPECIFIED"
+    }
+  ]
 }

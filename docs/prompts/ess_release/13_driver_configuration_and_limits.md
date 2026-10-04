@@ -7,6 +7,10 @@ Prerequisite: 05–07 configuration/reference ownership, 08 stopped-state action
 
 ## Read and reuse
 
+Read [the prompt 12 per-pair disposition](../../ess_pair_writes.md): both soft-limit
+pairs still lack admissible write windows. Read access and single-word settings
+do not authorize split FC06 or new FC10 spans.
+
 Review ESS direction/subdivision/word-order, over-limit, soft-limit and fixed-length interruption semantics in the original pages and ledger. Reuse typed descriptor validation and operation contexts; communication, save and restore belong to later steps.
 
 ## Implement

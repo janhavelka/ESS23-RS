@@ -279,6 +279,44 @@ RW/S is the vendor notation, with persistence/application unresolved.
 | `0x013E` | `SEGMENT_START_SPEED_15_VALUE` | 1 | RW/S | rpm (documented) | -180 to180 rpm | 0 rpm | 77 | SIGNED_ENCODING_UNRESOLVED |
 | `0x013F` | `SEGMENT_START_SPEED_16_VALUE` | 1 | RW/S | rpm (documented) | -180 to180 rpm | 0 rpm | 77 | SIGNED_ENCODING_UNRESOLVED |
 
+## Reviewed FC10 windows and writable pairs
+
+Only these complete transactions are admitted. Counts are not a device-wide
+maximum; subsets and adjacent fields gain no permission. FC06 rejects every
+paired half. Atomicity and partial-application behavior remain unspecified.
+See the [pair-write handoff](../ess_pair_writes.md) for typed availability
+and the gated qualification experiment.
+
+| Start | Count | Physical PDF pages | Evidence |
+| --- | ---: | --- | --- |
+| `0x0024` | 2 | 8 | FC10 position-pulse example; payload 0000 1388. |
+| `0x0021` | 5 | 16 | Position acceleration, deceleration, speed and pulse-pair staging example. |
+| `0x001D` | 3 | 18 | Speed, acceleration and deceleration staging example. |
+| `0x0031` | 6 | 20 | Homing method, speed/ramp words and zero offset pair example; does not prove a two-word subset or offset order. |
+
+| Writable pair | First word | Source disposition |
+| --- | --- | --- |
+| `POSITION_PULSES` | `0x0024` | Only 0x0024/2 or complete 0x0021/5 reviewed. Typed Position preparation requires established signed range/encoding, scale and active word order; malformed appendix range is not a full int32 guarantee. |
+| `HOMING_OFFSET` | `0x0035` | Only complete 0x0031/6 reviewed; 0x0035/2 and split FC06 unavailable. Page30 omits this pair and page20 writes zero, so configurable order remains unresolved; negative encoding and scale are also unresolved. |
+| `POSITIVE_SOFT_LIMIT` | `0x0037` | No reviewed FC10 window for 0x0037/2; split FC06 unavailable. Configurable word order is documented, but signed encoding, scale and partial application remain unresolved. |
+| `NEGATIVE_SOFT_LIMIT` | `0x0039` | No reviewed FC10 window for 0x0039/2; split FC06 unavailable. Configurable word order is documented, but signed encoding, scale and partial application remain unresolved. |
+| `POSITION_SEGMENT_01_PULSES` | `0x0060` | No exact FC10 window is documented for this stored pulse pair or whole position record; split FC06 and spans over the reserved record word are unavailable. Configurable order is documented; signed encoding, scale and partial application remain unresolved. |
+| `POSITION_SEGMENT_02_PULSES` | `0x0066` | No exact FC10 window is documented for this stored pulse pair or whole position record; split FC06 and spans over the reserved record word are unavailable. Configurable order is documented; signed encoding, scale and partial application remain unresolved. |
+| `POSITION_SEGMENT_03_PULSES` | `0x006C` | No exact FC10 window is documented for this stored pulse pair or whole position record; split FC06 and spans over the reserved record word are unavailable. Configurable order is documented; signed encoding, scale and partial application remain unresolved. |
+| `POSITION_SEGMENT_04_PULSES` | `0x0072` | No exact FC10 window is documented for this stored pulse pair or whole position record; split FC06 and spans over the reserved record word are unavailable. Configurable order is documented; signed encoding, scale and partial application remain unresolved. |
+| `POSITION_SEGMENT_05_PULSES` | `0x0078` | No exact FC10 window is documented for this stored pulse pair or whole position record; split FC06 and spans over the reserved record word are unavailable. Configurable order is documented; signed encoding, scale and partial application remain unresolved. |
+| `POSITION_SEGMENT_06_PULSES` | `0x007E` | No exact FC10 window is documented for this stored pulse pair or whole position record; split FC06 and spans over the reserved record word are unavailable. Configurable order is documented; signed encoding, scale and partial application remain unresolved. |
+| `POSITION_SEGMENT_07_PULSES` | `0x0084` | No exact FC10 window is documented for this stored pulse pair or whole position record; split FC06 and spans over the reserved record word are unavailable. Configurable order is documented; signed encoding, scale and partial application remain unresolved. |
+| `POSITION_SEGMENT_08_PULSES` | `0x008A` | No exact FC10 window is documented for this stored pulse pair or whole position record; split FC06 and spans over the reserved record word are unavailable. Configurable order is documented; signed encoding, scale and partial application remain unresolved. |
+| `POSITION_SEGMENT_09_PULSES` | `0x0090` | No exact FC10 window is documented for this stored pulse pair or whole position record; split FC06 and spans over the reserved record word are unavailable. Configurable order is documented; signed encoding, scale and partial application remain unresolved. |
+| `POSITION_SEGMENT_10_PULSES` | `0x0096` | No exact FC10 window is documented for this stored pulse pair or whole position record; split FC06 and spans over the reserved record word are unavailable. Configurable order is documented; signed encoding, scale and partial application remain unresolved. |
+| `POSITION_SEGMENT_11_PULSES` | `0x009C` | No exact FC10 window is documented for this stored pulse pair or whole position record; split FC06 and spans over the reserved record word are unavailable. Configurable order is documented; signed encoding, scale and partial application remain unresolved. |
+| `POSITION_SEGMENT_12_PULSES` | `0x00A2` | No exact FC10 window is documented for this stored pulse pair or whole position record; split FC06 and spans over the reserved record word are unavailable. Configurable order is documented; signed encoding, scale and partial application remain unresolved. |
+| `POSITION_SEGMENT_13_PULSES` | `0x00A8` | No exact FC10 window is documented for this stored pulse pair or whole position record; split FC06 and spans over the reserved record word are unavailable. Configurable order is documented; signed encoding, scale and partial application remain unresolved. |
+| `POSITION_SEGMENT_14_PULSES` | `0x00AE` | No exact FC10 window is documented for this stored pulse pair or whole position record; split FC06 and spans over the reserved record word are unavailable. Configurable order is documented; signed encoding, scale and partial application remain unresolved. |
+| `POSITION_SEGMENT_15_PULSES` | `0x00B4` | No exact FC10 window is documented for this stored pulse pair or whole position record; split FC06 and spans over the reserved record word are unavailable. Configurable order is documented; signed encoding, scale and partial application remain unresolved. |
+| `POSITION_SEGMENT_16_PULSES` | `0x00BA` | No exact FC10 window is documented for this stored pulse pair or whole position record; split FC06 and spans over the reserved record word are unavailable. Configurable order is documented; signed encoding, scale and partial application remain unresolved. |
+
 ## Undocumented address holes
 
 Within the appendix span 0x0000-0x013F, the following holes have no ESS

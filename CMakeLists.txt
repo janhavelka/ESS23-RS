@@ -53,6 +53,17 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
             endif()
             add_test(NAME ${suite} COMMAND ${suite}_test)
         endforeach()
+        # Link the full codec fixture without the descriptive register catalogue.
+        add_executable(codec_independent_test test/codec_test.cpp src/profiles/ess_rs/Codec.cpp)
+        target_include_directories(codec_independent_test PRIVATE include)
+        set_target_properties(codec_independent_test PROPERTIES
+            CXX_STANDARD 11 CXX_STANDARD_REQUIRED YES CXX_EXTENSIONS OFF)
+        if(MSVC)
+            target_compile_options(codec_independent_test PRIVATE /UNDEBUG /W4)
+        else()
+            target_compile_options(codec_independent_test PRIVATE -UNDEBUG -Wall -Wextra -Wpedantic)
+        endif()
+        add_test(NAME codec_independent COMMAND codec_independent_test)
         target_sources(runner_test PRIVATE examples/common/RtuRunner.cpp)
         target_sources(bus_owner_test PRIVATE examples/common/RtuRunner.cpp
             examples/common/RtuBusOwner.cpp examples/common/EssRtuValidator.cpp)

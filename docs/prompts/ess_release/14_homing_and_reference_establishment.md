@@ -7,6 +7,10 @@ Prerequisite: 08 stop, 09 motion evidence, 12 pair policy and 13 configuration/l
 
 ## Read and reuse
 
+Read [the prompt 12 per-pair disposition](../../ess_pair_writes.md): the reviewed
+`0x0031/6` homing window does not resolve offset word order, negative encoding or
+permit `0x0035/2`. Keep these prerequisites explicit before homing staging.
+
 Read the original ESS method diagrams, search/return speed, offset, limit and collision-homing sections. Reuse operation sequencing, state reads, native ramps and host/device coordinate separation.
 
 ## Implement

@@ -37,5 +37,17 @@ inline bool canWriteSingle(uint16_t address) noexcept {
     return address < sizeof(ACCESS) && (ACCESS[address] & 2) != 0;
 }
 
+// Exact source-reviewed FC10 windows; adjacency does not imply permission.
+inline bool canWriteMultiple(uint16_t start, uint16_t count) noexcept {
+    return (start == 0x0024 && count == 2) ||
+           (start == 0x0021 && count == 5) ||
+           (start == 0x001D && count == 3) ||
+           (start == 0x0031 && count == 6);
+}
+
+inline bool hasWriteMultipleCount(uint16_t count) noexcept {
+    return count == 2 || count == 3 || count == 5 || count == 6;
+}
+
 } // namespace Detail
 }} // namespace MotorControlRS::ESS_RS

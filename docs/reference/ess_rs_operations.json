@@ -650,6 +650,7 @@
     "Source certainty is derived from source-access and issue metadata. No recorded issue is not hardware qualification.",
     "Native and hardware states are independent. Hardware evidence does not resolve unknown model availability or undocumented firmware interpretation.",
     "Prompt09 re-audit enforces readiness through both write budgets and current-time consumed reference validation; docs/reports/ess_release_09_audit_2026-10-04.md records fresh software and read-only evidence. Relative motion/staging hardware dispositions remain NOT_RUN.",
-    "Prompt10 implements absolute/wrapped finite positioning and explicit zero-only device clear through the same owner and public preparation/operation APIs. Motion/clear physical qualification remains NOT_RUN; host arithmetic/read-only checks never replace independent shaft or linear travel evidence."
+    "Prompt10 implements absolute/wrapped finite positioning and explicit zero-only device clear through the same owner and public preparation/operation APIs. Motion/clear physical qualification remains NOT_RUN; host arithmetic/read-only checks never replace independent shaft or linear travel evidence.",
+    "Prompt12 derives pair_write_policy for every writable pair from the same register ledger: exact reviewed FC10 windows, split-FC06 denial and unresolved interpretation/wire-form reasons. This adds no typed-write or hardware credit; see docs/ess_pair_writes.md."
   ]
 }

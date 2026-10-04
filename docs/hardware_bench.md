@@ -2,6 +2,13 @@
 
 ## User report on 2026-10-02
 
+Latest [prompt 12 image and evidence](reports/ess_release_12_2026-10-04.md):
+generated FC10 policy preserves the exact four reviewed windows. The final timer
+image passes 38 read-only frames/358 RX bytes with zero transport/capture errors,
+unchanged raw configuration/state and five zero-TX action gates. Load/monitor
+off, DE released, owner empty. Physical paired writes/readback/restore remain
+NOT RUN pending the recorded timing/source and stopped-state/input prerequisites.
+
 Current [prompt10 image and evidence](reports/ess_release_10_2026-10-04.md) add
 absolute/wrapped/clear software while preserving physical gates. The timer image
 passes28-frame read-only regression plus10 probes; total47 frames/455 RX bytes

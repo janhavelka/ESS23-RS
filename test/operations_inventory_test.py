@@ -14,6 +14,23 @@ LEDGER = json.loads(operations.catalogue.LEDGER.read_text(encoding="utf-8"))
 
 
 class Coverage(unittest.TestCase):
+    def test_pair_write_dispositions_do_not_create_implementation_credit(self):
+        records = {row["id"]: row for row in operations.check(INVENTORY, LEDGER)["records"]}
+        pairs = [row for row in records.values() if "pair_write_policy" in row]
+        self.assertEqual(len(pairs), 20)
+        home = records["HOMING_OFFSET"]
+        self.assertEqual(home["pair_write_policy"]["reviewed_windows"],
+                         [dict(start="0x0031", count=6, pages=[20])])
+        self.assertEqual(home["obligations"]["write"], "NOT_IMPLEMENTED")
+        for row in pairs:
+            policy = row["pair_write_policy"]
+            self.assertTrue(policy["reason"])
+            self.assertEqual(policy["partial_application"], "UNSPECIFIED")
+            self.assertEqual(policy["split_fc06"], "UNAVAILABLE")
+            if row["id"] not in ("POSITION_PULSES", "HOMING_OFFSET"):
+                self.assertEqual(policy["reviewed_windows"], [])
+                self.assertEqual(row["obligations"]["write"], "NOT_IMPLEMENTED")
+
     def rejected(self, change):
         inventory = copy.deepcopy(INVENTORY)
         change(inventory)

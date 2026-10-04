@@ -134,6 +134,68 @@ void testRequestPolicy() {
     }
 }
 
+void testWritePolicyBoundaries() {
+    // Independent admission oracle: these are the four reviewed manual windows,
+    // not a list obtained from the generated production access table. Exhaust
+    // the address domain for every supported count and representative bad counts.
+    const uint16_t counts[] = {0, 1, 2, 3, 4, 5, 6, 7, 16, 123, 0xFFFF};
+    const uint16_t words[6] = {0x1234, 0x5678, 3, 4, 5, 6};
+    for (uint32_t start = 0; start <= 0xFFFF; ++start) {
+        for (uint16_t count : counts) {
+            const bool permitted = (start == 0x0024 && count == 2) ||
+                (start == 0x0021 && count == 5) ||
+                (start == 0x001D && count == 3) ||
+                (start == 0x0031 && count == 6);
+            const Status status = validateWriteMultipleRegistersRequest(1,
+                static_cast<uint16_t>(start), words, count);
+            assert(status.isOk() == permitted);
+            if (!permitted) assert(status.code == Err::UNSUPPORTED);
+        }
+    }
+
+    // FC06 must not become an escape hatch for either half of any paired field.
+    // The first pair is read-only; all remaining entries are documented RW.
+    const uint16_t ordinaryPairs[] = {0x000A, 0x0024, 0x0035, 0x0037, 0x0039};
+    uint8_t output[22];
+    std::memset(output, 0xA5, sizeof(output));
+    for (unsigned index = 0; index < 21; ++index) {
+        const uint16_t start = index < 5 ? ordinaryPairs[index] :
+            static_cast<uint16_t>(0x0060 + (index - 5) * 6);
+        for (uint16_t half = 0; half < 2; ++half) {
+            const uint16_t reg = static_cast<uint16_t>(start + half);
+            assert(validateWriteSingleRegisterRequest(1, reg, 0x1234).code == Err::UNSUPPORTED);
+            assert(buildWriteSingleRegister(1, reg, 0x1234, output, sizeof(output)) == 0);
+            uint8_t echo[] = {1, 6, static_cast<uint8_t>(reg >> 8),
+                static_cast<uint8_t>(reg), 0x12, 0x34, 0, 0};
+            seal(echo, sizeof(echo));
+            FrameError error = FrameError::NONE;
+            assert(parseWriteSingleRegister(echo, sizeof(echo), 1, reg, 0x1234,
+                &error).code == Err::UNSUPPORTED);
+            assert(error == FrameError::ARGUMENT);
+            filled(output, uint8_t(0xA5));
+        }
+        if (start == 0x0024) continue; // The only reviewed standalone pair write.
+        assert(buildWriteMultipleRegisters(1, start, words, 2, output, sizeof(output)) == 0);
+        uint8_t echo[] = {1, 0x10, static_cast<uint8_t>(start >> 8),
+            static_cast<uint8_t>(start), 0, 2, 0, 0};
+        seal(echo, sizeof(echo));
+        FrameError error = FrameError::NONE;
+        assert(parseWriteMultipleRegisters(echo, sizeof(echo), 1, start, 2,
+            &error).code == Err::UNSUPPORTED);
+        assert(error == FrameError::ARGUMENT);
+        filled(output, uint8_t(0xA5));
+    }
+    // Stored records must not admit a whole-record span containing the reserved
+    // final word, or a smaller span merely because all words are documented RW.
+    for (uint16_t index = 0; index < 16; ++index) {
+        const uint16_t start = static_cast<uint16_t>(0x0060 + index * 6);
+        assert(buildWriteMultipleRegisters(1, start, words, 5, output, sizeof(output)) == 0);
+        assert(buildWriteMultipleRegisters(1, start, words, 6, output, sizeof(output)) == 0);
+        assert(buildWriteSingleRegister(1, start + 5, 0, output, sizeof(output)) == 0);
+        filled(output, uint8_t(0xA5));
+    }
+}
+
 void testBuilders() {
     uint8_t output[40];
     std::memset(output, 0xA5, sizeof(output));
@@ -463,16 +525,32 @@ void testBulkWindows() {
         assert(std::memcmp(output, example.request, example.length) == 0);
         assert(output[example.length] == 0xA5);
         assert(parseWriteMultipleRegisters(example.ack, 8, 1, example.start, example.count));
-        uint8_t wrongEcho[8];
-        std::memcpy(wrongEcho, example.ack, 8);
-        wrongEcho[5] ^= 1;
-        seal(wrongEcho, 8);
-        FrameError error;
-        assert(!parseWriteMultipleRegisters(wrongEcho, 8, 1, example.start, example.count, &error));
-        assert(error == FrameError::ECHO);
+        for (unsigned changed = 0; changed < 8; ++changed) {
+            uint8_t damaged[8];
+            std::memcpy(damaged, example.ack, sizeof(damaged));
+            damaged[changed] ^= 1;
+            if (changed < 6) seal(damaged, sizeof(damaged));
+            FrameError error = FrameError::NONE;
+            assert(!parseWriteMultipleRegisters(damaged, sizeof(damaged), 1,
+                example.start, example.count, &error));
+            assert(error == (changed == 0 ? FrameError::ADDRESS :
+                changed == 1 ? FrameError::FUNCTION :
+                changed < 6 ? FrameError::ECHO : FrameError::CRC));
+        }
         // Neighbouring windows and arbitrary subsets were not demonstrated.
-        assert(!validateWriteMultipleRegistersRequest(1, example.start + 1, example.words, example.count));
-        assert(!validateWriteMultipleRegistersRequest(1, example.start, example.words, example.count - 1));
+        const uint16_t forbidden[][2] = {
+            {static_cast<uint16_t>(example.start - 1), example.count},
+            {static_cast<uint16_t>(example.start + 1), example.count},
+            {example.start, static_cast<uint16_t>(example.count - 1)},
+            {example.start, static_cast<uint16_t>(example.count + 1)}
+        };
+        for (const auto& span : forbidden) {
+            std::memset(output, 0xA5, sizeof(output));
+            assert(!validateWriteMultipleRegistersRequest(1, span[0], example.words, span[1]));
+            assert(buildWriteMultipleRegisters(1, span[0], example.words, span[1],
+                output, sizeof(output)) == 0);
+            filled(output, uint8_t(0xA5));
+        }
     }
     // p16 has a valid CRC over an invalid FC10 shape: 11 data bytes, count says10.
     const uint8_t malformed[] = {1, 0x10, 0, 0x21, 0, 5, 10,
@@ -501,7 +579,8 @@ void testWordConversion() {
     const Vector vectors[] = {
         {0, 0, 0, 0}, {1, 1, 0, 1}, {0x12345678u, 305419896, 0x1234, 0x5678},
         {0x7FFFFFFFu, INT32_MAX, 0x7FFF, 0xFFFF},
-        {0x80000000u, INT32_MIN, 0x8000, 0}, {0xFFFFFFFFu, -1, 0xFFFF, 0xFFFF}
+        {0x80000000u, INT32_MIN, 0x8000, 0}, {0xFFFFFFFFu, -1, 0xFFFF, 0xFFFF},
+        {0xFEDCBA99u, -19088743, 0xFEDC, 0xBA99}
     };
     for (std::size_t order = 0; order < 2; ++order) {
         for (std::size_t i = 0; i < sizeof(vectors) / sizeof(vectors[0]); ++i) {
@@ -550,6 +629,7 @@ void testWordConversion() {
 int main() {
     testCrcAndSizes();
     testRequestPolicy();
+    testWritePolicyBoundaries();
     testBuilders();
     testReadResponses();
     testExceptionsAndPrecedence();

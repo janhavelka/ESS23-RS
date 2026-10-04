@@ -7,8 +7,11 @@ future version numbers are not commitments.
 
 The [ESS release prompt set](prompts/ess_release/README.md) turns these stages
 into 30 ordered implementation blocks with tests, independent audits and
-evidence handoffs. Prompts 01–10 have implementation and available verification
-dispositions. [Prompt10](reports/ess_release_10_2026-10-04.md) adds absolute/wrapped
+evidence handoffs. Prompts 01–12 have implementation and available verification
+dispositions. [Prompt12](reports/ess_release_12_2026-10-04.md) consolidates the
+four reviewed FC10 windows into generated policy and records all paired-write
+proof gaps. No new physical write qualification is implied; prompt 13 is next
+when dispatched. [Prompt10](reports/ess_release_10_2026-10-04.md) adds absolute/wrapped
 coordinates and device zero-clear while physical comparisons remain gated.
 Its [fresh audit](reports/ess_release_10_audit_2026-10-04.md) fixes host-reference
 retention and external-motion invalidation, with independent reviews and another
@@ -154,8 +157,8 @@ absolute targets, explicit wrapped paths, shared finite staging/trigger and
 zero-only device clear, with reference invalidation and native/CLI parity.
 Software/package/firmware checks and current read-only COM13 regression pass.
 Equivalent-unit physical motion and independent shaft/origin/clear proof remain
-NOT RUN; linear travel requires a real configured mechanism. Prompt11 is next
-only when separately dispatched, retaining all unresolved ramp/sign/model facts.
+NOT RUN; linear travel requires a real configured mechanism. Prompt 11 retained
+the unresolved ramp/sign/model prerequisites described below.
 
 Prompt 11 implements [finite signed velocity](ess_velocity.md) using shared
 exact preparation, native ramp snapshots and the existing priority stop.
@@ -163,4 +166,8 @@ Its [fresh audit](reports/ess_release_11_audit_2026-10-04.md) fixes strict host
 evidence and safe idle-interruption cleanup, and checks actual C++ console
 outcomes against Python. Native/package/firmware and read-only COM13 checks
 pass; exact firmware speed/ramp semantics and physical stopping remain NOT RUN.
-Prompt 12 remains separately dispatched with those qualification obligations.
+Prompt 12 [reviews every writable pair](ess_pair_writes.md) and generates the
+four-window FC10 policy from the same ledger. No new span or typed setter was
+justified; home-order, limits/stored-record forms and physical writes remain
+open. Native/package/build and read-only regression pass. Prompt 13 is next
+when separately dispatched, with those qualification obligations preserved.

@@ -1,5 +1,22 @@
 # Features implementation tasks and open questions
 
+## Prompt 12 paired-write disposition
+
+- [x] Inventory all 20 writable pairs and preserve unresolved order/sign/range
+  and partial-application reasons in the ledger and derived coverage.
+- [x] Generate the exact four FC10 windows from the same ledger; native exhaustive
+  admission/paired-half tests and a catalogue-independent codec link pass.
+- [x] Independent PDF/access and wire reviews, 27 native suites, installed consumer,
+  four firmware builds and 38 read-only COM13 frames pass.
+- [ ] Establish admissible limit/stored-target write forms and home-offset order;
+  no new typed setters or FC10 spans are justified by current source evidence.
+- [ ] Physical pair write/readback/restore remains NOT RUN behind timing/source
+  and stopped-state/input prerequisites. No device write was attempted.
+
+See [per-pair restrictions and experiment](ess_pair_writes.md) and
+[prompt 12 evidence](reports/ess_release_12_2026-10-04.md). Prompt 13 is next
+when dispatched; independently supported single-word progress remains possible.
+
 This is the working backlog for `MotorControl-RS`. The three-layer architecture
 is accepted; implemented blocks supply units, register metadata and checked
 ESS codecs with a minimal probe. Checked design decisions below remain documentation milestones,

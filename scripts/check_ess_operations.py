@@ -70,6 +70,15 @@ def check(inventory, ledger):
                 "DOCUMENTED_WITH_ISSUES" if row["issues"] else "DOCUMENTED_NO_RECORDED_ISSUES",
             "obligations": obligations, "read_operations": [], "write_operations": [], "action_operations": [], "default_disposition": DEFAULT.copy()
         }
+        if row["words"] == 2 and "write_constraint" in row:
+            first = int(row["address"], 16)
+            windows = [dict(start=window["start"], count=window["count"], pages=window["pages"])
+                       for window in ledger["write_multiple_windows"]
+                       if int(window["start"], 16) <= first and
+                       first + 2 <= int(window["start"], 16) + window["count"]]
+            records[row["name"]]["pair_write_policy"] = {
+                "reviewed_windows": windows, "reason": row["write_constraint"],
+                "partial_application": "UNSPECIFIED", "split_fc06": "UNAVAILABLE"}
 
     choices = {group["name"] + "." + value["name"]: {"id": group["name"] + "." + value["name"],
                 "value": value["value"], "pages": value["pages"], "default_disposition": DEFAULT.copy(),
