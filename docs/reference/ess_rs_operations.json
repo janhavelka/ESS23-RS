@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "register_ledger": "docs/reference/ess_rs_registers.json",
-  "scope": "Typed ESS reads and explicit action choices; complete register and named-choice denominators derive from the authoritative register ledger. Partial action coverage never qualifies the whole command register.",
+  "scope": "Typed ESS reads, bounded actions and finite relative positioning; obligations derive from the authoritative ledger, with independent native and hardware evidence.",
   "default_disposition": {
     "implementation": "NOT_IMPLEMENTED",
     "cli": "NOT_REACHABLE",
@@ -14,10 +14,10 @@
       "ESS23-RS20"
     ],
     "observed_model_raw": "0x4EEA",
-    "exact_model": "UNKNOWN",
+    "exact_model": "ESS23-RS20",
     "firmware_compatibility": "UNKNOWN",
     "qualification": "UNQUALIFIED",
-    "reason": "A checked raw model response does not establish the physical model, firmware mapping or motion compatibility."
+    "reason": "Bench SKU user-confirmed 2026-10-04 (docs/reference/11_ess23_rs20_identity.md); raw 0x4EEA association is observed, not a universal wire-code mapping or firmware/motion qualification."
   },
   "shared_records": [
     "DRIVER_MODEL",
@@ -207,6 +207,80 @@
         ]
       },
       "reason": "Three independent non-consuming blocks; configured algorithm raw3 cannot establish actual/commanded position. Unsigned paired bits are decoded only with matching known word order; speed/position signed encoding and physical units remain unresolved. Communication, alarm, readiness and operation outcomes are separate."
+    },
+    {
+      "api": {
+        "header": "include/MotorControlRS/profiles/ess_rs/Position.h",
+        "symbols": [
+          "prepareMoveRelative",
+          "nextMove",
+          "advanceMove"
+        ]
+      },
+      "cli_commands": [
+        "move relative",
+        "profile ess_rs move-relative"
+      ],
+      "implementation": "IMPLEMENTED",
+      "cli": "REACHABLE",
+      "native": {
+        "state": "PASS",
+        "evidence": [
+          "test/position_test.cpp",
+          "test/move_app_test.cpp"
+        ]
+      },
+      "hardware": {
+        "state": "NOT_RUN",
+        "evidence": [],
+        "reason": "Independent timing, physical stop, sign/basis/ramp/input evidence remain unqualified; production admission fails closed."
+      },
+      "id": "relative_position_staging",
+      "kind": "WRITE",
+      "records": [
+        "POSITION_ACCELERATION_TIME",
+        "POSITION_DECELERATION_TIME",
+        "POSITION_SPEED",
+        "POSITION_PULSES"
+      ],
+      "reason": "Exact five-word relative move staging only, with verified configured raw ramps; no arbitrary paired writes or separate configuration setter."
+    },
+    {
+      "api": {
+        "header": "include/MotorControlRS/profiles/ess_rs/Position.h",
+        "symbols": [
+          "prepareMoveRelative",
+          "nextMove",
+          "advanceMove"
+        ]
+      },
+      "cli_commands": [
+        "move relative",
+        "profile ess_rs move-relative"
+      ],
+      "implementation": "IMPLEMENTED",
+      "cli": "REACHABLE",
+      "native": {
+        "state": "PASS",
+        "evidence": [
+          "test/position_test.cpp",
+          "test/move_app_test.cpp"
+        ]
+      },
+      "hardware": {
+        "state": "NOT_RUN",
+        "evidence": [],
+        "reason": "Independent timing, physical stop, sign/basis/ramp/input evidence remain unqualified; production admission fails closed."
+      },
+      "id": "move_relative",
+      "kind": "ACTION",
+      "records": [
+        "MOTION_COMMAND"
+      ],
+      "choices": [
+        "MotionCommandBit.START_POSITION"
+      ],
+      "reason": "Noninterrupting finite-relative trigger followed by fresh running then arrival/standstill reports; acknowledgement is not physical completion."
     },
     {
       "id": "enable",

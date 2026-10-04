@@ -489,3 +489,13 @@ harness evidence checks. Native/package/four firmware builds and 38 read-only
 COM13 frames pass. New HOLD/partial-TX and interrupted-write-failure regressions
 preserve priority, both outcomes and explicit recovery without replay. Physical
 action gates and the operation coverage denominator remain unchanged.
+
+## Prompt09 finite relative-position disposition
+
+- [x] Exact common/native preparation and verified configured native ramp policy; complete parameter/precondition validation before writes.
+- [x] Reviewed FC10 five-word staging then fixed relative trigger; retained partial setup, acknowledgement/unknown execution and fresh RUNNING then stopped/arrived completion reports.
+- [x] Same application axis reservation, independent producer write adapter, priority stop/cancel/recovery and input/limit configuration invalidation; no duplicate queue or conversion.
+- [x] Explicit-frame CLI, strict Python one-attempt finite scenario and retained cleanup evidence; public installed-core and failure-injection/application tests.
+- [ ] Physical small positive/negative moves, independently observed shaft displacement, ramp/sign/basis/input qualification and dynamic-stop latency: NOT RUN behind the existing independent timing/echo and physical stop gates. Uncertain writes never replay.
+
+See [the contract](ess_position.md) and [prompt09 evidence](reports/ess_release_09_2026-10-04.md). The proposed standalone +/-250-native/60-RPM ceiling is a software limit, not a physically qualified envelope. Prompt10 remains separately dispatched.

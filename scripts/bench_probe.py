@@ -18,6 +18,7 @@ from collections.abc import Callable
 from datetime import datetime, timezone
 import json
 import math
+from fractions import Fraction
 from pathlib import Path
 import re
 import sys
@@ -28,7 +29,7 @@ MAX_LINE = 4096
 MAX_INPUT = 32768
 COMMANDS = frozenset({"version", "config", "probe", "capture-read", "status", "health", "memory", "stats", "load",
                       "drv", "result", "release", "cancel", "recover", "reset", "caps",
-                      "read-identity", "read-config", "read-state", "health-check", "monitor", "axis", "prepare", "enable", "motor-release", "alarm-clear", "stop"})
+                      "read-identity", "read-config", "read-state", "health-check", "monitor", "axis", "prepare", "enable", "motor-release", "alarm-clear", "stop", "move-relative"})
 MAX_COMMANDS = 11  # Eight ordinary operations, recovery, reserved stop and local query.
 MAX_OPERATIONS = 10  # Eight ordinary operations, one recovery and one reserved stop.
 MAX_PROBES = 8
@@ -169,6 +170,7 @@ class Command:
         self.input_bytes = 0
         self.released = False
         self.stop_policy = None
+        self.move_args = None
 
 
 class Console:
@@ -341,6 +343,211 @@ class Console:
                 raise ValueError("wrong request/reply shape")
         except ValueError as exc:
             raise BenchError("capture-read raw frame evidence is inconsistent") from exc
+
+    @staticmethod
+    def _check_move(item: dict, address: int | None, arguments: tuple[str, ...] | None) -> None:
+        """Check staged/triggered execution and fresh running-to-arrival evidence."""
+        def require(condition, text):
+            if not condition:
+                raise BenchError("move " + text)
+        def integer(value, low=0, high=0xFFFFFFFFFFFFFFFF):
+            return type(value) is int and low <= value <= high
+        require(item.get("move_kind") == "relative" and item.get("action_kind") is None and
+                item.get("read_kind") is None and item.get("capture_read") is False and item.get("recovery") is False,
+                "kind is inconsistent")
+        require(integer(item.get("address"), 1, 247) and (address is None or item["address"] == address) and
+                all(Console._operation_id(item.get(key)) for key in ("target", "generation", "configuration_generation")),
+                "target binding is inconsistent")
+        require(item.get("state") == ("succeeded" if item["ok"] else "failed") and
+                item.get("completion") == ("observed" if item["ok"] else "not_observed") and
+                item.get("outcome") in ({"observed"} if item["ok"] else {"reply_error", "transport_error", "cancelled", "deadline",
+                    "timing_unqualified", "unconfirmed_response", "observation_limit"}), "terminal state is inconsistent")
+        require(all(integer(item.get(key)) for key in ("started_us", "deadline_us", "serviced_us", "polls")) and
+                item["started_us"] < item["deadline_us"] and item["serviced_us"] >= item["started_us"] and item["polls"] <= 64,
+                "time or observation bounds are inconsistent")
+        require(item.get("status") in {"OK", "INVALID_CONFIG", "ILLEGAL_VALUE", "UNSUPPORTED", "CRC_ERROR", "FRAME_ERROR", "EXCEPTION"} and
+                integer(item.get("detail"), -2**31, 2**31 - 1) and (not item["ok"] or (item["status"] == "OK" and item["detail"] == 0)),
+                "status is inconsistent")
+        for key in ("staging_applied", "uncertain", "running_observed", "observation_known", "interrupted_by_stop",
+                    "endpoint_known", "zero_displacement", "exact_arithmetic"):
+            require(type(item.get(key)) is bool, "missing " + key)
+        require(integer(item.get("effective_native"), -2**31, 2**31 - 1) and item["effective_native"] != 0 and
+                item.get("displacement_native") == item["effective_native"] and item["zero_displacement"] is False and
+                integer(item.get("endpoint_native"), -2**63, 2**63 - 1), "effective target is invalid")
+        require(integer(item.get("native_rpm"), 1, 3000) and item.get("ramp") == "configured", "speed or ramp is invalid")
+        words = item.get("staging_words")
+        require(isinstance(words, list) and len(words) == 5 and all(integer(word, 0, 65535) for word in words) and
+                words[0] <= 2000 and words[1] <= 2000 and words[2] == item["native_rpm"], "staged parameter words are inconsistent")
+        encoded = item["effective_native"] & 0xFFFFFFFF
+        require(words[3:] in ([encoded >> 16, encoded & 65535], [encoded & 65535, encoded >> 16]), "staged target differs from effective target")
+        prerequisites = item.get("prerequisites")
+        require(isinstance(prerequisites, dict) and all(prerequisites.get(key) == item[key] for key in
+                ("target", "generation", "configuration_generation")), "qualification binding differs")
+        require(all(prerequisites.get(key) is True for key in ("command_units_verified", "relative_basis_verified", "configured_ramp_verified",
+                "serial_inputs_permit", "readiness_qualified", "word_order_known", "start_speed_known")) and
+                type(prerequisites.get("negative_encoding_verified")) is bool and
+                (item["effective_native"] >= 0 or prerequisites["negative_encoding_verified"]), "qualification is missing")
+        require(integer(prerequisites.get("observed_us")) and integer(prerequisites.get("maximum_age_us"), 1) and
+                prerequisites["observed_us"] <= item["started_us"] and
+                item["started_us"] - prerequisites["observed_us"] <= prerequisites["maximum_age_us"] and
+                prerequisites.get("raw_alarm") == 0 and integer(prerequisites.get("raw_motion"), 0, 65535) and
+                not prerequisites["raw_motion"] & 0x7C and integer(prerequisites.get("word_order"), 0, 1) and
+                integer(prerequisites.get("start_speed"), 0, item["native_rpm"]), "readiness or configured speed evidence is inconsistent")
+        expected_words = [encoded >> 16, encoded & 65535]
+        if prerequisites["word_order"] == 1: expected_words.reverse()
+        require(words[3:] == expected_words, "staged target word order differs from qualification")
+        requested = item.get("requested")
+        require(isinstance(requested, dict) and integer(requested.get("numerator"), -2**63, 2**63 - 1) and
+                integer(requested.get("denominator"), 1, 2**64 - 1) and requested.get("unit") in
+                ("steps", "fullsteps", "counts", "turn", "deg", "rad", "mm") and integer(requested.get("frame"), 0, 2) and
+                requested.get("relative") is True and requested.get("basis") == 0 and integer(requested.get("rounding"), 0, 4),
+                "request provenance is invalid")
+        def finite(value):
+            return type(value) in (int, float) and math.isfinite(value)
+        require(type(requested.get("approximate")) is bool and type(requested.get("rational_radians")) is bool and
+                finite(requested.get("maximum_quantization_error")) and requested["maximum_quantization_error"] >= 0 and
+                finite(item.get("rounding_error")) and finite(item.get("approximation_error_bound")) and
+                item["approximation_error_bound"] >= 0 and
+                abs(item["rounding_error"]) <= requested["maximum_quantization_error"], "numerical error provenance is inconsistent")
+        require((requested.get("radians") is None) if requested["unit"] != "rad" or requested["rational_radians"] else
+                finite(requested.get("radians")), "selected radian input is missing")
+        if item["exact_arithmetic"]:
+            require(item["approximation_error_bound"] == 0 and item.get("requested_native_approximate") is None and
+                    requested.get("maximum_approximation_error") is None, "exact preparation contains approximate provenance")
+        else:
+            require(requested["unit"] == "rad" and requested["approximate"] is True and requested["rounding"] != 0 and
+                    finite(requested.get("maximum_approximation_error")) and requested["maximum_approximation_error"] > 0 and
+                    item["approximation_error_bound"] <= requested["maximum_approximation_error"] and
+                    finite(item.get("requested_native_approximate")),
+                    "approximate preparation lost numerical provenance")
+        if requested["rounding"] == 0:
+            require(item["exact_arithmetic"] is True and item["rounding_error"] == 0, "EXACT preparation rounded the target")
+        if arguments is not None:
+            require(requested["rounding"] == 0 and item["exact_arithmetic"] is True and item["rounding_error"] == 0,
+                    "exact CLI preparation lost numerical provenance")
+            try:
+                value, unit, frame, speed, ramp = arguments
+                require(Fraction(value) == Fraction(requested["numerator"], requested["denominator"]) and unit == requested["unit"] and
+                        ("native", "motor", "load")[requested["frame"]] == frame and Fraction(speed) == item["native_rpm"] and ramp == item["ramp"],
+                        "request differs from admitted input")
+            except (ValueError, ZeroDivisionError) as exc:
+                raise BenchError("move request cannot be checked exactly") from exc
+        evidence = {}
+        for name, token, tx_size in (("staging_evidence", 0, 19), ("trigger_evidence", 1, 8),
+                                    ("activity_evidence", None, 8), ("last_observation", None, 8), ("failure_evidence", None, None)):
+            entry = item.get(name)
+            require(isinstance(entry, dict), "missing " + name)
+            require(all(integer(entry.get(key), 0, limit) for key, limit in (("event", 3), ("step", 65),
+                    ("received_length", 0xFFFFFFFF), ("tx_accepted", 19), ("frame_error", 255))), name + " bounds are invalid")
+            require(all(integer(entry.get(key)) for key in ("earliest_us", "latest_us", "delivered_us")) and
+                    all(type(entry.get(key)) is bool for key in ("tx_complete", "response_confirmed", "qualified", "execution_unknown")) and
+                    all(integer(entry.get(key), -2**31, 2**31 - 1) for key in ("detail", "transport_detail")) and
+                    entry.get("status") in {"OK", "INVALID_CONFIG", "ILLEGAL_VALUE", "UNSUPPORTED", "CRC_ERROR", "FRAME_ERROR", "EXCEPTION"},
+                    name + " evidence is malformed")
+            raw = entry.get("raw_hex")
+            require(isinstance(raw, str) and re.fullmatch(r"(?:[0-9a-fA-F]{2}){0,9}", raw) is not None, name + " raw bytes are invalid")
+            raw = bytes.fromhex(raw)
+            require(len(raw) == min(entry["received_length"], 9), name + " retained length differs")
+            empty = all(entry.get(key) == value for key, value in dict(step=0, event=0, raw_hex="", received_length=0,
+                tx_accepted=0, tx_complete=False, response_confirmed=False, qualified=False, execution_unknown=False,
+                earliest_us=0, latest_us=0, delivered_us=0, transport_detail=0, status="OK", detail=0, frame_error=0).items())
+            if not empty:
+                require(token is None or entry["step"] == token, name + " token differs")
+                require(item["started_us"] <= entry["delivered_us"] <= item["serviced_us"], name + " is outside operation lifetime")
+                size = tx_size or (19 if entry["step"] == 0 else 8)
+                require(entry["tx_accepted"] <= size and (not entry["tx_complete"] or entry["tx_accepted"] == size), name + " TX evidence differs")
+                require(entry["event"] == 0 or not entry["response_confirmed"], name + " local event claims a response")
+                if entry["qualified"]:
+                    require(entry["event"] == 0 and entry["tx_complete"] and item["started_us"] <= entry["earliest_us"] <= entry["latest_us"] <= entry["delivered_us"],
+                            name + " timing evidence differs")
+                else:
+                    require(entry["earliest_us"] == entry["latest_us"] == 0, name + " unqualified times are published")
+            evidence[name] = (entry, raw, empty)
+        def confirmed(name, prefix, size):
+            entry, raw, empty = evidence[name]
+            require(not empty and entry["event"] == 0 and entry["qualified"] and entry["response_confirmed"] and entry["tx_complete"] and
+                    entry["status"] == "OK" and entry["detail"] == entry["frame_error"] == 0 and len(raw) == size and
+                    raw[:len(prefix)] == bytes(prefix) and wire_crc(raw) == 0 and
+                    (name in ("staging_evidence", "trigger_evidence") or entry["latest_us"] <= item["deadline_us"]),
+                    name + " lacks a checked response")
+            return entry, raw
+        for execution, name in (("setup_execution", "staging_evidence"), ("execution", "trigger_evidence")):
+            require(item.get(execution) in ("not_transmitted", "acknowledged", "rejected", "unknown"), execution + " is invalid")
+            entry, raw, empty = evidence[name]
+            if item[execution] == "acknowledged":
+                confirmed(name, (item["address"], 16, 0, 0x21, 0, 5) if execution == "setup_execution" else (item["address"], 6, 0, 0x27, 0, 1), 8)
+            elif item[execution] == "rejected":
+                require(not empty and entry["qualified"] and entry["response_confirmed"] and entry["tx_complete"] and
+                        entry["status"] == "EXCEPTION" and entry["frame_error"] == 10 and len(raw) == 5 and
+                        raw[:2] == bytes((item["address"], 0x90 if execution == "setup_execution" else 0x86)) and
+                        1 <= raw[2] <= 7 and raw[2] == entry["detail"] and wire_crc(raw) == 0, name + " rejection is unproven")
+            elif item[execution] == "not_transmitted":
+                require(entry["tx_accepted"] == 0 and not entry["execution_unknown"], name + " contradicts non-transmission")
+            else:
+                require(not empty and (entry["tx_accepted"] > 0 or entry["execution_unknown"]), name + " uncertainty lacks TX")
+                require(not (entry["event"] == 0 and entry["qualified"] and entry["response_confirmed"] and
+                    (entry["status"] == "OK" or (entry["status"] == "EXCEPTION" and 1 <= entry["detail"] <= 7))),
+                    name + " unknown execution contradicts checked acknowledgement/rejection")
+        require(item["staging_applied"] == (item["setup_execution"] == "acknowledged"), "staging validity differs")
+        stage, trigger = evidence["staging_evidence"][0], evidence["trigger_evidence"][0]
+        if not evidence["trigger_evidence"][2]:
+            require(item["staging_applied"] and stage["delivered_us"] < trigger["delivered_us"] and
+                    (not trigger["qualified"] or stage["delivered_us"] < trigger["earliest_us"]), "trigger precedes checked staging")
+        if item["running_observed"]:
+            activity, raw = confirmed("activity_evidence", (item["address"], 3, 4), 9)
+            require(activity["step"] >= 2 and trigger["delivered_us"] < activity["earliest_us"] and bool(int.from_bytes(raw[5:7], "big") & 4),
+                    "activity is stale or lacks RUNNING")
+        else:
+            require(evidence["activity_evidence"][2], "unobserved activity retains a report")
+        if item["observation_known"]:
+            observed, raw = confirmed("last_observation", (item["address"], 3, 4), 9)
+            require(item["execution"] == "acknowledged" and item["polls"] >= 1 and observed["step"] == item["polls"] + 1 and
+                    trigger["delivered_us"] < observed["earliest_us"] and
+                    item.get("raw_alarm") == int.from_bytes(raw[3:5], "big") and item.get("raw_motion") == int.from_bytes(raw[5:7], "big"),
+                    "last report differs from retained RX")
+        else:
+            require(item.get("raw_alarm") is None and item.get("raw_motion") is None and evidence["last_observation"][2], "unknown report publishes values")
+        if item["ok"]:
+            require(item["running_observed"] and item["observation_known"] and item["uncertain"] is False and
+                    activity["delivered_us"] < observed["earliest_us"] and observed["delivered_us"] == item["serviced_us"] and
+                    item["raw_alarm"] == 0 and item["raw_motion"] & 0x7D == 1 and evidence["failure_evidence"][2],
+                    "completion lacks new running-to-arrival evidence")
+        else:
+            require(not evidence["failure_evidence"][2] and evidence["failure_evidence"][0]["delivered_us"] == item["serviced_us"],
+                    "failure lacks terminal evidence")
+            failure, raw, _ = evidence["failure_evidence"]
+            if failure["step"] < 2:
+                require(failure == evidence["staging_evidence" if failure["step"] == 0 else "trigger_evidence"][0],
+                        "failed write differs from retained evidence")
+            else:
+                require(item["execution"] == "acknowledged" and failure["step"] in (item["polls"] + 1, item["polls"] + 2),
+                        "failure token skips an observation")
+                previous = evidence["last_observation"][0] if item["observation_known"] else trigger
+                if failure["step"] == item["polls"] + 1:
+                    require(failure == previous, "terminal observation differs from retained report")
+                else:
+                    require(previous["delivered_us"] <= failure["delivered_us"] and
+                            (not failure["qualified"] or previous["delivered_us"] < failure["earliest_us"]), "failure precedes prior transaction")
+            if failure["event"] != 0:
+                expected = {1: "transport_error", 2: "cancelled", 3: "deadline"}[failure["event"]]
+            elif not failure["qualified"]:
+                expected = "timing_unqualified"
+            elif failure["latest_us"] > item["deadline_us"]:
+                expected = "deadline"
+            elif failure["status"] != "OK":
+                expected = "reply_error"
+            elif not failure["response_confirmed"]:
+                expected = "unconfirmed_response"
+            elif failure["step"] >= 2 and len(raw) == 9 and (int.from_bytes(raw[3:5], "big") or int.from_bytes(raw[5:7], "big") & 0x78):
+                expected = "reply_error"
+            else:
+                require(item["outcome"] in ("deadline", "observation_limit") and
+                        (item["outcome"] != "deadline" or item["serviced_us"] >= item["deadline_us"]) and
+                        (item["outcome"] != "observation_limit" or failure["step"] >= 2), "checked reply does not establish failure")
+                expected = item["outcome"]
+            require(item["outcome"] == expected, "failure outcome contradicts terminal evidence")
+        require(item["uncertain"] == (not item["ok"] and bool(stage["tx_accepted"] or stage["execution_unknown"] or
+                    trigger["tx_accepted"] or trigger["execution_unknown"])), "uncertainty differs from staging/trigger evidence")
 
     @staticmethod
     def _check_action(item: dict, command: str, address: int | None, policy: str | None) -> None:
@@ -963,7 +1170,7 @@ class Console:
         if self.clock() >= handle.deadline:
             raise BenchError("command response deadline expired; command was not replayed")
         self.emit("reply", response=item)
-        asynchronous = handle.command in (*READ_COMMANDS, *ACTION_COMMANDS, "recover")
+        asynchronous = handle.command in (*READ_COMMANDS, *ACTION_COMMANDS, "recover", "move-relative")
         if asynchronous:
             if item.get("type") == "reply" and not handle.accepted:
                 if not item["ok"]:
@@ -971,7 +1178,7 @@ class Console:
                     return
                 if item.get("result") != "accepted":
                     raise BenchError(f"{handle.command} acceptance is not explicit")
-                if handle.command in (*READ_COMMANDS, *ACTION_COMMANDS):
+                if handle.command in (*READ_COMMANDS, *ACTION_COMMANDS, "move-relative"):
                     address = item.get("address")
                     if (type(address) is not int or not 1 <= address <= 247
                             or (handle.address is not None and address != handle.address)):
@@ -995,7 +1202,7 @@ class Console:
                 return
             expected_type = {"probe": "probe", "capture-read": "capture_read", "recover": "recovery",
                              "read-identity": "read", "read-config": "read", "read-state": "read",
-                             **dict.fromkeys(ACTION_COMMANDS, "action")}[handle.command]
+                             **dict.fromkeys(ACTION_COMMANDS, "action"), "move-relative": "move"}[handle.command]
             if item.get("type") != expected_type or not handle.accepted:
                 raise BenchError(f"{handle.command} response sequence is invalid")
             if (not self._operation_id(item.get("operation_id"))
@@ -1010,6 +1217,8 @@ class Console:
                 self._check_typed_read(item, TYPED_READS[handle.command], handle.address)
             elif handle.command in ACTION_COMMANDS:
                 self._check_action(item, handle.command, handle.address, handle.stop_policy)
+            elif handle.command == "move-relative":
+                self._check_move(item, handle.address, handle.move_args)
             else:
                 self._check_recovery(item)
         else:
@@ -1030,7 +1239,12 @@ class Console:
                     capture_read = item.get("capture_read", False)
                     read_kind = item.get("read_kind")
                     action_kind = item.get("action_kind")
+                    move_kind = item.get("move_kind")
                     stop_policy = item.get("stop_policy")
+                    if (move_kind is not None and move_kind != "relative") or (
+                            move_kind is not None and (action_kind is not None or recovery or capture_read or read_kind is not None)) or (
+                            original is not None and (move_kind == "relative") != (original.command == "move-relative")):
+                        raise BenchError("result move kind does not match retained operation")
                     if (action_kind is not None and action_kind not in ACTION_KINDS.values()) or (
                             action_kind == "stop" and stop_policy not in ("normal", "direct")) or (
                             action_kind != "stop" and stop_policy is not None) or (
@@ -1051,6 +1265,8 @@ class Console:
                             raise BenchError("pending result lacks a valid lifecycle")
                         if original is not None and original.terminal is not None:
                             raise BenchError("completed retained operation regressed to pending")
+                    elif move_kind is not None:
+                        self._check_move(item, original.address if original else None, original.move_args if original else None)
                     elif action_kind is not None:
                         action_command = next(name for name, kind in ACTION_KINDS.items() if kind == action_kind)
                         self._check_action(item, action_command, original.address if original else None, stop_policy)
@@ -1104,7 +1320,8 @@ class Console:
     def begin(self, command: str, *, timeout_s: float = 3.0,
               address: int | None = None, load: tuple[int, int, int] | None = None,
               operation_id: int | None = None, monitor: tuple[int, int] | bool | None = None,
-              host_args: tuple[str, ...] | None = None, stop_policy: str | None = None) -> Command:
+              host_args: tuple[str, ...] | None = None, stop_policy: str | None = None,
+              move_args: tuple[str, ...] | None = None) -> Command:
         """Send once and collect admission/local reply; bus completion can stay pending.
 
         Up to eleven handles (eight ordinary operations, recovery, stop and a local query) may be
@@ -1123,6 +1340,14 @@ class Console:
                 raise ValueError("host preparation requires bounded ASCII tokens without whitespace")
         elif command in ("axis", "prepare"):
             raise ValueError("axis/prepare require explicit host-only arguments")
+        if command == "move-relative":
+            if (not isinstance(move_args, tuple) or len(move_args) != 5 or
+                    any(type(token) is not str or not token or any(ord(char) < 33 or ord(char) > 126 for char in token) for token in move_args) or
+                    move_args[1] not in ("steps", "fullsteps", "counts", "turn", "deg", "rad", "mm") or
+                    move_args[2] not in ("native", "motor", "load") or move_args[4] != "configured"):
+                raise ValueError("move requires value/unit/frame/native_rpm/configured tokens")
+        elif move_args is not None:
+            raise ValueError("move arguments are only valid for move-relative")
         health_check = command == "health-check"
         if health_check:
             command = "read-state"  # The wire alias returns canonical read-state records.
@@ -1132,7 +1357,7 @@ class Console:
                  type(monitor[0]) is not int or type(monitor[1]) is not int or
                  not 100 <= monitor[0] <= 60000 or not 1 <= monitor[1] <= 1000)):
                 raise ValueError("monitor requires off or interval 100..60000/count 1..1000")
-        if address is not None and (command not in (*READ_COMMANDS, *ACTION_COMMANDS) or type(address) is not int
+        if address is not None and (command not in (*READ_COMMANDS, *ACTION_COMMANDS, "move-relative") or type(address) is not int
                                     or not 1 <= address <= 247):
             raise ValueError("an ESS probe address must be an integer within 1..247")
         if load is not None:
@@ -1152,6 +1377,8 @@ class Console:
             raise BenchError("request IDs exhausted; start a new inspected session")
         if host_args is not None and len(f"@{self.next_id} {command} {' '.join(host_args)}") >= 128:
             raise ValueError("host command exceeds the console line bound")
+        if move_args is not None and len(f"@{self.next_id} move relative {' '.join(move_args)}" + ("" if address is None else f" {address}")) >= 128:
+            raise ValueError("move command exceeds the console line bound")
         request_id = self.next_id
         self.next_id += 1
         started = self.clock()
@@ -1162,6 +1389,7 @@ class Console:
                 raise BenchError("command deadline expired before transmission")
             handle = Command(self, request_id, command, started, deadline, address, load, operation_id)
             handle.stop_policy = stop_policy
+            handle.move_args = move_args
             self.pending[request_id] = handle
             suffix = "" if address is None else f" {address}"
             if load is not None:
@@ -1174,8 +1402,13 @@ class Console:
                 suffix = " " + " ".join(host_args)
             if stop_policy is not None:
                 suffix = " " + stop_policy + suffix
+            if move_args is not None:
+                suffix = " " + " ".join(move_args) + suffix
             wire_command = "health check" if health_check else "read " + TYPED_READS[command] if command in TYPED_READS else command
+            if command == "move-relative": wire_command = "move relative"
             payload = f"@{request_id} {wire_command}{suffix}\n".encode("ascii")
+            if len(payload) > 128:
+                raise ValueError("command exceeds the console line bound")
             self.emit("send", id=request_id, command=command, address=address,
                       load=load, operation_id=operation_id)
             if self.port.write(payload) != len(payload):
@@ -1231,10 +1464,11 @@ class Console:
     def command(self, command: str, *, timeout_s: float = 3.0,
                 address: int | None = None, load: tuple[int, int, int] | None = None,
                 operation_id: int | None = None, monitor: tuple[int, int] | bool | None = None,
-                host_args: tuple[str, ...] | None = None, stop_policy: str | None = None) -> dict:
+                host_args: tuple[str, ...] | None = None, stop_policy: str | None = None,
+                move_args: tuple[str, ...] | None = None) -> dict:
         """Send once, wait for its terminal, then explicitly release admitted results."""
         handle = self.begin(command, timeout_s=timeout_s, address=address, load=load,
-                            operation_id=operation_id, monitor=monitor, host_args=host_args, stop_policy=stop_policy)
+                            operation_id=operation_id, monitor=monitor, host_args=host_args, stop_policy=stop_policy, move_args=move_args)
         return self.wait(handle, release=True)
 
     def identify(self, *, timeout_s: float = 3.0) -> dict:
@@ -1414,6 +1648,71 @@ def typed_read_campaign(console: Console, *, kind: str, timeout_s: float, addres
                      ok=failure is None and completed == len(kinds), error=failure)
 
 
+def relative_move_campaign(console: Console, *, move_args: tuple[str, ...], cleanup_stop: str,
+                           timeout_s: float, address: int) -> None:
+    """One move attempt, explicit stop, checked final reports and local result release.
+
+    Cleanup never replays the move or converts an uncertain outcome to success.
+    Broken framing prevents further commands and leaves cleanup explicitly unknown.
+    Drive status is not an independent physical shaft observation.
+    """
+    if cleanup_stop not in ("normal", "direct"):
+        raise ValueError("finite move requires an explicit cleanup stop policy")
+    positive(timeout_s, "move timeout")
+    handle = None
+    request_id = console.next_id
+    terminal = inspected = stopped = final_state = final_health = None
+    cleanup = "not_required"
+    failure = None
+    try:
+        handle = console.begin("move-relative", move_args=move_args, address=address, timeout_s=timeout_s)
+        if handle.accepted:
+            cleanup = "unknown"
+        terminal = console.wait(handle)
+        if not terminal["ok"]:
+            raise BenchError("move rejected or failed: " + str(terminal.get("result", terminal.get("outcome"))))
+        inspected = console.command("result", operation_id=handle.operation_id, timeout_s=timeout_s)
+        if not inspected["ok"]:
+            raise BenchError("retained move inspection failed")
+    except BaseException as exc:
+        failure = str(exc) or "interrupted"
+        raise
+    finally:
+        cleanup_error = None
+        if handle is None:
+            handle = console.pending.get(request_id)
+        if handle is not None and (handle.accepted or (handle.terminal is None and not console.synchronized)):
+            cleanup = "unknown"
+            if console.synchronized and handle.accepted:
+                try:
+                    stopped = console.command("stop", stop_policy=cleanup_stop, address=address, timeout_s=timeout_s)
+                    if not stopped["ok"]:
+                        raise BenchError("cleanup stop was rejected or failed")
+                    final_state = console.command("read-state", address=address, timeout_s=timeout_s)
+                    final_health = console.command("health", timeout_s=timeout_s)
+                    if not final_state["ok"] or not final_health["ok"]:
+                        raise BenchError("cleanup state/health read failed")
+                    motion = next((value for value in final_state["state_blocks"] if value["block"] == 0), None)
+                    if motion is None or motion.get("running") is not False:
+                        raise BenchError("cleanup final drive report does not show non-running")
+                    cleanup = "drive_reported_nonrunning"
+                    if handle.terminal is not None and not handle.released:
+                        released = console.command("release", operation_id=handle.operation_id, timeout_s=timeout_s)
+                        if not released["ok"]:
+                            raise BenchError("local move result release failed")
+                except BaseException as exc:
+                    cleanup_error = str(exc) or "cleanup interrupted"
+            else:
+                cleanup_error = "framing unavailable; no cleanup command sent"
+        console.emit("summary", mode="move-relative", moves_attempted=1, move_result=terminal,
+                     retained_inspection=inspected, cleanup_policy=cleanup_stop, cleanup=cleanup,
+                     stop_result=stopped, final_state=final_state, final_health=final_health,
+                     physical_observation="not_supplied", ok=failure is None and cleanup_error is None,
+                     error=failure, cleanup_error=cleanup_error)
+        if failure is None and cleanup_error is not None:
+            raise BenchError(cleanup_error)
+
+
 def state_health_campaign(console: Console, *, count: int, interval_s: float, timeout_s: float, address: int) -> None:
     """Stationary non-consuming checks; no motor setting/action or hidden replay."""
     if type(count) is not int or not 1 <= count <= 1_000_000:
@@ -1508,6 +1807,13 @@ def arguments(argv: list[str] | None) -> argparse.Namespace:
             action.add_argument("stop_policy", choices=("normal", "direct"))
     typed = sub.add_parser("typed-read", help="typed identity/configuration/state reads, retained inspection and release")
     typed.add_argument("--kind", choices=("identity", "config", "state", "both"), default="both")
+    move = sub.add_parser("move-relative", help="one finite exact move with explicit stop cleanup; never replayed")
+    move.add_argument("value", help="exact integer/decimal/fraction displacement")
+    move.add_argument("unit", choices=("steps", "fullsteps", "counts", "turn", "deg", "rad", "mm"))
+    move.add_argument("frame", choices=("native", "motor", "load"))
+    move.add_argument("native_rpm", help="positive exact integer native motor rpm")
+    move.add_argument("ramp", choices=("configured",))
+    move.add_argument("--cleanup-stop", required=True, choices=("normal", "direct"))
     for mode, default_count, default_interval, description in (
         ("stress", 100, 0.1, "explicit repeated probes"),
         ("state-health", 5, 0.1, "stationary state/health refresh, retained checks and passive cache age"),
@@ -1570,6 +1876,9 @@ def main(argv: list[str] | None = None) -> int:
                                              stop_policy=getattr(args, "stop_policy", None))
                     if not result["ok"]:
                         raise BenchError("action rejected or failed: " + str(result.get("result", result.get("outcome"))))
+                elif args.mode == "move-relative":
+                    relative_move_campaign(console, move_args=(args.value, args.unit, args.frame, args.native_rpm, args.ramp),
+                                           cleanup_stop=args.cleanup_stop, timeout_s=args.timeout, address=args.address)
                 else:
                     campaign(console, args.mode, count=args.count, interval_s=args.interval,
                              timeout_s=args.timeout, address=args.address, load=args.load,

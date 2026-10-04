@@ -58,7 +58,7 @@ struct ReadEvent {
     uint64_t earliestUs = 0;
     uint64_t latestUs = 0;
     int32_t transportDetail = 0; ///< Application-defined transport evidence/reason.
-    std::size_t txAccepted = 0; ///< Accepted request prefix, 0..8; not drive acknowledgement.
+    std::size_t txAccepted = 0; ///< Accepted prefix, 0..prepared request length; not drive acknowledgement.
     bool executionUnknown = false; ///< Supplied application uncertainty, retained verbatim.
 };
 

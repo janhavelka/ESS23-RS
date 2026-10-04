@@ -1,5 +1,10 @@
 # MotorControl-RS architecture
 
+Prompt09 implements [finite relative positioning](ess_position.md) with pure
+exact preparation and bounded supplied events. The existing application action
+loop owns staging/trigger reservations and priority stop, with one bus queue.
+Physical motion/dynamic stop remains unqualified.
+
 Prompts 05–06 implement bounded [typed identity/configuration/state reads](ess_reads.md), common/profile routes, passive per-block status/health and finite opt-in polling. The [linked inventory](reference/ess_rs_operations.json) separates read/write/action, native and hardware evidence. Model/firmware compatibility, physical feedback units, readiness and motion remain unqualified; these reads perform no writes.
 
 This is the accepted design baseline for a general, framework-independent

@@ -139,3 +139,10 @@ qualified evidence; they do not lift this hardware gate. Stopped-state actions
 and all dynamic stop/motion claims remain NOT RUN. Prompt 09 can reuse the real
 software path, but live moves require these gates plus its own setup/units and
 independent stop prerequisites.
+
+## Relative-move integration
+
+[Finite relative positioning](ess_position.md) reuses the existing action event,
+observation scheduling and application reservation/stop path. An admitted stop
+settles the current move frame and invalidates unsent staging/trigger/observation
+continuations; retained partial setup/trigger uncertainty stays unchanged.

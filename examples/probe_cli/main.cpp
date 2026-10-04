@@ -8,6 +8,7 @@
 #include "ProbeConsole.h"
 #include "StateCache.h"
 #include <MotorControlRS/profiles/ess_rs/Actions.h>
+#include <MotorControlRS/profiles/ess_rs/Position.h>
 #include "../common/EssRtuValidator.h"
 #include "../common/Esp32S3Uart.h"
 #include "../common/BuildConfig.h"
@@ -71,6 +72,8 @@ struct App {
         ESS::ReadContext read;
         bool actionOperation = false, axisReserved = false, effectsInvalidated = false, interruptedByStop = false;
         ESS::ActionContext action;
+        bool moveOperation = false;
+        ESS::MoveContext move;
     } records[REQUEST_CAPACITY + 2]; // Dedicated monitor and urgent-stop frontend reservations.
     Probe::StateCache stateCache;
     Probe::MonitorSnapshot monitorState;
@@ -91,6 +94,7 @@ struct App {
     ESS::IdentityObservation identity;
     ESS::ConfigObservation configuration;
     MotorControlRS::AxisConfig axis;
+    ESS::MovePrerequisites movePrerequisites; // Supplied commissioning evidence; false until verified.
     uint32_t bindingGeneration = 1;
     uint8_t actionConflicts[32] = {}; ///< Physical address conflicts survive result release and host recovery.
     uint8_t knownTargets[32] = {}; ///< Checked physical addresses, independent of the latest passive observation.
@@ -104,6 +108,12 @@ struct App {
     }
 };
 App* app = nullptr;
+void clearRecord(App::Record& record) {
+    // Construct in its caller-owned PSRAM slot. A value-assignment temporary
+    // would put the complete retained read/action/move contexts on the stack.
+    record.~Record();
+    new (&record) App::Record();
+}
 bool emit(void* context, const char* text, std::size_t size) {
     App& a = *static_cast<App*>(context);
     if (size > Probe::OUTPUT_CAPACITY || a.outputCount == OUTPUT_LINES) { ++a.outputBlocked; return false; }
@@ -127,6 +137,7 @@ App::Record* findRecord(App& a, uint32_t operation) {
     return nullptr;
 }
 bool terminal(const App& a, const App::Record& record) {
+    if (record.moveOperation) return record.move.state != MotorControlRS::ActionState::ACTIVE;
     if (record.actionOperation) return record.action.state != MotorControlRS::ActionState::ACTIVE;
     return record.typedRead ? record.read.state != ReadState::ACTIVE : a.owner.result(record.requestId) != nullptr;
 }
@@ -141,7 +152,7 @@ bool axisReserved(const App& a, uint8_t address = 0) {
 }
 bool acting(const App& a) {
     for (const auto& record : a.records)
-        if (record.actionOperation && !terminal(a, record)) return true;
+        if ((record.actionOperation || record.moveOperation) && !terminal(a, record)) return true;
     return false;
 }
 bool reading(const App& a) {
@@ -157,6 +168,10 @@ void invalidateAxis(App& a) {
     a.axis.originKnown = a.axis.encoderOriginKnown = a.axis.softLimitsKnown = false;
     a.axis.originSource = a.axis.encoderOriginSource = MotorControlRS::ScaleSource::UNKNOWN;
     a.axis.target.generation = a.bindingGeneration;
+    for (auto& record : a.records) if (record.moveOperation && !terminal(a, record)) {
+        record.cancelContinuation = true;
+        if (record.requestId.owner) a.owner.cancelUnsent(record.requestId, nowUs());
+    }
 }
 MotorControlRS::AxisReference axisReference(const App& a) {
     using namespace MotorControlRS;
@@ -361,11 +376,11 @@ Probe::Action startTypedRead(void* context, uint32_t commandId, uint8_t address,
         ESS::prepareState(record->read, target, a.nextOperationId, sampled, sampled + REQUEST_US, serial, configuration) :
         ESS::prepareConfig(record->read, target, a.nextOperationId, sampled, sampled + REQUEST_US, serial);
     if (!prepared || (kind != ESS::ReadKind::IDENTITY && kind != ESS::ReadKind::CONFIG && kind != ESS::ReadKind::STATE)) {
-        *record = App::Record(); return Probe::Action::INVALID;
+        clearRecord(*record); return Probe::Action::INVALID;
     }
     const auto admitted = admitStep(a, *record, sampled);
     if (admitted != Rtu::BusAdmission::ACCEPTED) {
-        *record = App::Record();
+        clearRecord(*record);
         return admitted == Rtu::BusAdmission::QUEUE_FULL ? Probe::Action::QUEUE_FULL :
             admitted == Rtu::BusAdmission::RESULTS_FULL ? Probe::Action::RESULTS_FULL : Probe::Action::FAILED;
     }
@@ -380,8 +395,9 @@ Probe::Action typedRead(void* context, uint32_t commandId, uint8_t address, ESS:
 }
 MotorControlRS::ActionEvent actionEvent(const App::Record& record, ReadEventKind kind) {
     MotorControlRS::ActionEvent event;
-    event.transport.target = record.action.target; event.transport.operationId = record.operationId;
-    event.transport.step = record.action.step; event.transport.kind = kind;
+    event.transport.target = record.moveOperation ? record.move.target : record.action.target;
+    event.transport.operationId = record.operationId;
+    event.transport.step = record.moveOperation ? record.move.step : record.action.step; event.transport.kind = kind;
     return event;
 }
 Rtu::BusAdmission admitActionStep(App& a, App::Record& record, const ESS::PreparedAction& prepared, uint64_t now) {
@@ -422,11 +438,11 @@ Probe::Action startAction(void* context, uint32_t commandId, uint8_t address,
     record->action = preparedContext;
     ESS::PreparedAction work;
     if (!ESS::nextAction(record->action, now, work) || work.kind != ESS::ActionWork::TRANSACTION) {
-        *record = App::Record(); return Probe::Action::FAILED;
+        clearRecord(*record); return Probe::Action::FAILED;
     }
     const auto admitted = admitActionStep(a, *record, work, now);
     if (admitted != Rtu::BusAdmission::ACCEPTED) {
-        *record = App::Record();
+        clearRecord(*record);
         return admitted == Rtu::BusAdmission::QUEUE_FULL ? Probe::Action::QUEUE_FULL :
             admitted == Rtu::BusAdmission::RESULTS_FULL || admitted == Rtu::BusAdmission::URGENT_FULL ?
             Probe::Action::RESULTS_FULL : Probe::Action::FAILED;
@@ -435,12 +451,121 @@ Probe::Action startAction(void* context, uint32_t commandId, uint8_t address,
     record->deadlineUs = preparedContext.deadlineUs; record->actionOperation = record->axisReserved = true;
     operationId = a.latestOperationId = record->operationId;
     if (stop) for (auto& interrupted : a.records) {
-        if (&interrupted == record || !interrupted.actionOperation || interrupted.address != address ||
+        if (&interrupted == record || (!interrupted.actionOperation && !interrupted.moveOperation) || interrupted.address != address ||
             terminal(a, interrupted)) continue;
         interrupted.cancelContinuation = true;
         interrupted.interruptedByStop = true;
         if (interrupted.requestId.owner) a.owner.cancelUnsent(interrupted.requestId, now);
     }
+    return Probe::Action::OK;
+}
+Probe::Action admissionResult(Rtu::BusAdmission result) {
+    switch (result) {
+    case Rtu::BusAdmission::ACCEPTED: return Probe::Action::OK;
+    case Rtu::BusAdmission::QUEUE_FULL: return Probe::Action::QUEUE_FULL;
+    case Rtu::BusAdmission::RESULTS_FULL: return Probe::Action::RESULTS_FULL;
+    case Rtu::BusAdmission::IDS_EXHAUSTED: return Probe::Action::IDS_EXHAUSTED;
+    case Rtu::BusAdmission::RECOVERING: return Probe::Action::RECOVERY_REQUIRED;
+    default: return Probe::Action::INVALID;
+    }
+}
+// Other cooperative producers use this admission adapter for ordinary writes.
+// The operation executor below already owns its same-axis reservation. A raw
+// call to the bus owner cannot substitute for this application policy boundary.
+Probe::Action checkAxisWrite(const App& a, const Rtu::BusRequest& request) {
+    if (!ESS::isValidAddress(request.expected.address) ||
+        (request.expected.function != 6 && request.expected.function != 0x10) ||
+        request.expected.target != request.expected.address ||
+        request.expected.targetGeneration != a.bindingGeneration) return Probe::Action::INVALID;
+    if (!platformReady) return Probe::Action::UNAVAILABLE;
+    if (!actionTimingQualified) return Probe::Action::TIMING_UNQUALIFIED;
+    if (a.owner.needsRecovery() || uart.needsRecovery()) return Probe::Action::RECOVERY_REQUIRED;
+    if (!(a.knownTargets[request.expected.address / 8] & (1U << (request.expected.address % 8))))
+        return Probe::Action::UNAVAILABLE;
+    if (axisReserved(a, request.expected.address)) return Probe::Action::AXIS_CONFLICT;
+    return Probe::Action::OK;
+}
+inline Probe::Action admitAxisWrite(App& a, const Rtu::BusRequest& request, uint64_t now, Rtu::RequestId& id) {
+    const Probe::Action checked = checkAxisWrite(a, request);
+    if (checked != Probe::Action::OK) return checked;
+    const Probe::Action admitted = admissionResult(a.owner.admit(request, now, id));
+    if (admitted == Probe::Action::OK && request.expected.address == a.axis.target.address) {
+        // Even an uncertain independent write can change configuration or state.
+        // Require new reads and qualification before any subsequent move.
+        invalidateAxis(a);
+        a.configuration.operationId = 0;
+        a.movePrerequisites = ESS::MovePrerequisites();
+    }
+    if (admitted == Probe::Action::OK)
+        for (auto& block : a.stateCache.blocks)
+            if (block.value.target.address == request.expected.address) block.invalidatedUs = now;
+    return admitted;
+}
+Probe::Action admitMoveStep(App& a, App::Record& record, const ESS::PreparedMove& prepared, uint64_t now) {
+    Rtu::BusRequest request;
+    request.wire.bytes = prepared.bytes; request.wire.length = prepared.length;
+    request.wire.replyLength = prepared.write ? ESS::WRITE_RESPONSE_LEN : ESS::expectedReadRegistersLen(prepared.count);
+    request.wire.responseTimeoutUs = RESPONSE_US; request.wire.replyGapUs = REPLY_GAP_US;
+    request.wire.deadlineUs = prepared.deadlineUs;
+    request.expected.address = prepared.target.address; request.expected.function = prepared.function;
+    request.expected.target = prepared.target.id; request.expected.targetGeneration = prepared.target.generation;
+    request.expected.first = prepared.reg; request.expected.count = prepared.count;
+    request.expected.value = prepared.value; request.validator = Rtu::essValidator();
+    if (!record.operationId) {
+        const Probe::Action checked = checkAxisWrite(a, request);
+        if (checked != Probe::Action::OK) return checked;
+    }
+    return admissionResult(a.owner.admit(request, now, record.requestId));
+}
+Probe::Action startMove(void* context, uint32_t commandId, uint8_t address,
+                        const MotorControlRS::MoveRequest& supplied, uint32_t& operationId) {
+    using namespace MotorControlRS;
+    App& a = *static_cast<App*>(context);
+    if (!platformReady) return Probe::Action::UNAVAILABLE;
+    if (!ESS::isValidAddress(address) || !supplied.position.relative || !supplied.speedRpm ||
+        supplied.ramp != MoveRamp::VERIFIED_CONFIGURED) return Probe::Action::INVALID;
+    if (!a.nextOperationId) return Probe::Action::IDS_EXHAUSTED;
+    if (!actionTimingQualified) return Probe::Action::TIMING_UNQUALIFIED;
+    if (a.owner.needsRecovery() || uart.needsRecovery()) return Probe::Action::RECOVERY_REQUIRED;
+    if (axisReserved(a, address)) return Probe::Action::AXIS_CONFLICT;
+    // Begin on a quiescent bus so an earlier producer's admitted write cannot
+    // remain queued across our staging reservation. Reads may join afterward.
+    if (a.owner.active() || a.owner.pending()) return Probe::Action::BUSY;
+    if (a.axis.target.address != address || !a.configuration.operationId ||
+        !Probe::sameTarget(a.configuration.target, a.axis.target)) return Probe::Action::UNAVAILABLE;
+    App::Record* record = nullptr;
+    for (std::size_t i = 0; i < REQUEST_CAPACITY; ++i)
+        if (!a.records[i].operationId) { record = &a.records[i]; break; }
+    if (!record) return Probe::Action::RESULTS_FULL;
+    const uint64_t now = uart.sample();
+    ESS::MovePrerequisites prerequisites = a.movePrerequisites;
+    const auto& motion = a.stateCache.blocks[static_cast<uint8_t>(ESS::StateBlock::MOTION)];
+    if (!Probe::fresh(motion, a.axis.target, now, prerequisites.maximumAgeUs)) prerequisites.readinessQualified = false;
+    else {
+        prerequisites.rawAlarm = motion.value.rawAlarm; prerequisites.rawMotion = motion.value.rawMotion;
+        prerequisites.observedUs = motion.observedEarliestUs;
+    }
+    prerequisites.wordOrderKnown = a.configuration.wordOrderKnown;
+    prerequisites.wordOrder = a.configuration.wordOrder;
+    const MoveRequest& request = supplied;
+    const AxisReference reference = axisReference(a);
+    ESS::MoveContext& prepared = record->move;
+    const uint64_t deadline = now + 3000000;
+    ActionOptions options; options.maxPolls = ESS::ACTION_MAX_POLLS; options.pollIntervalUs = 20000;
+    const Status checked = MotorControlRS::prepareMoveRelative(prepared, a.axis,
+        reference.nativeKnown ? &reference : nullptr, a.nextOperationId, request, prerequisites, now, deadline, options);
+    if (!checked) return checked.code == Err::UNSUPPORTED ? Probe::Action::UNSUPPORTED : Probe::Action::INVALID;
+    // Proposed free-shaft software envelope, not a qualified physical envelope.
+    if (prepared.prepared.effectiveNative < -250 || prepared.prepared.effectiveNative > 250 || request.speedRpm > 60) {
+        clearRecord(*record); return Probe::Action::INVALID;
+    }
+    ESS::PreparedMove work;
+    if (!ESS::nextMove(record->move, now, work)) { clearRecord(*record); return Probe::Action::FAILED; }
+    const auto admitted = admitMoveStep(a, *record, work, now);
+    if (admitted != Probe::Action::OK) { clearRecord(*record); return admitted; }
+    record->operationId = a.nextOperationId++; record->commandId = commandId; record->address = address;
+    record->deadlineUs = deadline; record->moveOperation = record->axisReserved = true;
+    operationId = a.latestOperationId = record->operationId;
     return Probe::Action::OK;
 }
 void observeCommunication(App& a, const Rtu::Completion& result) {
@@ -517,27 +642,31 @@ void advanceReads(App& a, uint64_t sampled) {
 }
 void updateActionReservation(App& a, App::Record& record) {
     using namespace MotorControlRS;
-    if (record.action.state == ActionState::ACTIVE) return;
+    if (!terminal(a, record)) return;
     record.axisReserved = false;
     const uint8_t mask = static_cast<uint8_t>(1U << (record.address % 8));
-    if (record.action.execution == ActionExecution::UNKNOWN ||
-        (record.action.execution == ActionExecution::ACKNOWLEDGED && record.action.completion != ActionCompletion::OBSERVED))
+    if (record.moveOperation ? record.move.uncertain :
+        (record.action.execution == ActionExecution::UNKNOWN ||
+        (record.action.execution == ActionExecution::ACKNOWLEDGED && record.action.completion != ActionCompletion::OBSERVED)))
         a.actionConflicts[record.address / 8] |= mask;
-    if (record.action.request.kind == ActionKind::STOP && record.action.completion == ActionCompletion::OBSERVED) {
+    if (!record.moveOperation && record.action.request.kind == ActionKind::STOP && record.action.completion == ActionCompletion::OBSERVED) {
         // A new checked stopped-state report reconciles conflicts; historical
         // interrupted outcomes and their execution uncertainty stay unchanged.
         a.actionConflicts[record.address / 8] &= static_cast<uint8_t>(~mask);
     }
 }
+MotorControlRS::Status advanceOperation(App::Record& record, const MotorControlRS::ActionEvent& event, uint64_t now) {
+    return record.moveOperation ? ESS::advanceMove(record.move, event, now) : ESS::advanceAction(record.action, event, now);
+}
 void advanceActions(App& a, uint64_t now) {
     for (auto& record : a.records) {
-        if (!record.actionOperation || terminal(a, record)) continue;
+        if ((!record.actionOperation && !record.moveOperation) || terminal(a, record)) continue;
         if (record.requestId.owner) {
-            if (!record.effectsInvalidated && record.action.step == 0 && a.owner.txAccepted(record.requestId)) {
+            if (!record.effectsInvalidated && (record.moveOperation ? record.move.step == 0 : record.action.step == 0) && a.owner.txAccepted(record.requestId)) {
                 record.effectsInvalidated = true;
                 for (auto& block : a.stateCache.blocks)
                     if (block.valid && block.value.target.address == record.address) block.invalidatedUs = now;
-                if (record.action.request.kind == MotorControlRS::ActionKind::RELEASE &&
+                if (!record.moveOperation && record.action.request.kind == MotorControlRS::ActionKind::RELEASE &&
                     a.axis.target.address == record.address) invalidateAxis(a);
             }
             const auto* result = a.owner.result(record.requestId); if (!result) continue;
@@ -563,24 +692,31 @@ void advanceActions(App& a, uint64_t now) {
                     event.transport.latestUs = result->transport.closureLatestUs;
                 }
             }
-            if (!ESS::advanceAction(record.action, event, now)) {
+            if (!advanceOperation(record, event, now)) {
                 auto failed = actionEvent(record, ReadEventKind::TRANSPORT_FAILURE);
                 failed.transport.transportDetail = -1;
                 failed.transport.txAccepted = event.transport.txAccepted;
                 failed.transport.executionUnknown = true;
                 failed.transport.frame = event.transport.frame; failed.transport.length = event.transport.length;
                 failed.txComplete = event.txComplete;
-                if (!ESS::advanceAction(record.action, failed, now)) continue;
+                if (!advanceOperation(record, failed, now)) continue;
             }
             observeCommunication(a, *result);
             a.owner.release(record.requestId); record.requestId = Rtu::RequestId();
         }
         if (!terminal(a, record)) {
-            if (record.cancelContinuation || record.action.target.generation != a.bindingGeneration)
-                ESS::advanceAction(record.action, actionEvent(record, ReadEventKind::CANCEL), now);
+            if (record.cancelContinuation || (record.moveOperation ? record.move.target.generation : record.action.target.generation) != a.bindingGeneration ||
+                (record.moveOperation && record.move.prepared.configurationGeneration != a.axis.generation))
+                advanceOperation(record, actionEvent(record, ReadEventKind::CANCEL), now);
             else if (now >= record.deadlineUs)
-                ESS::advanceAction(record.action, actionEvent(record, ReadEventKind::DEADLINE), now);
+                advanceOperation(record, actionEvent(record, ReadEventKind::DEADLINE), now);
             else if (!a.owner.needsRecovery() && !uart.needsRecovery()) {
+                if (record.moveOperation) {
+                    ESS::PreparedMove work;
+                    if (ESS::nextMove(record.move, now, work) && work.kind == ESS::ActionWork::TRANSACTION)
+                        admitMoveStep(a, record, work, now);
+                    continue;
+                }
                 ESS::PreparedAction work;
                 if (ESS::nextAction(record.action, now, work) && work.kind == ESS::ActionWork::TRANSACTION)
                     admitActionStep(a, record, work, now); // Pressure defers unadmitted work, never replays a frame.
@@ -603,10 +739,10 @@ Probe::Action recover(void* context, uint32_t commandId, uint32_t& operationId) 
     for (auto& record : a.records) if (record.operationId && record.typedRead &&
         record.read.state == ReadState::ACTIVE && !record.requestId.owner)
         ESS::advanceRead(record.read, readEvent(record, ReadEventKind::CANCEL), now);
-    for (auto& record : a.records) if (record.actionOperation && !terminal(a, record)) {
+    for (auto& record : a.records) if ((record.actionOperation || record.moveOperation) && !terminal(a, record)) {
         record.cancelContinuation = true;
         if (!record.requestId.owner) {
-            ESS::advanceAction(record.action, actionEvent(record, ReadEventKind::CANCEL), now);
+            advanceOperation(record, actionEvent(record, ReadEventKind::CANCEL), now);
             updateActionReservation(a, record);
         }
     }
@@ -627,6 +763,10 @@ bool lookup(void* context, uint32_t operationId, Probe::ResultView& out) {
     out = Probe::ResultView();
     out.commandId = record->commandId; out.operationId = operationId; out.address = record->address;
     out.captureRead = record->captureRead;
+    if (record->moveOperation) {
+        out.moveContext = &record->move; out.pending = !terminal(a, *record);
+        out.interruptedByStop = record->interruptedByStop; return true;
+    }
     if (record->actionOperation) {
         out.actionContext = &record->action; out.pending = !terminal(a, *record);
         out.interruptedByStop = record->interruptedByStop; return true;
@@ -660,12 +800,12 @@ bool lookup(void* context, uint32_t operationId, Probe::ResultView& out) {
 Probe::Action cancel(void* context, uint32_t operationId) {
     App& a = *static_cast<App*>(context); if (!operationId) operationId = a.latestOperationId;
     auto* record = findRecord(a, operationId); if (!record) return Probe::Action::INVALID;
-    if (record->actionOperation) {
+    if (record->actionOperation || record->moveOperation) {
         if (terminal(a, *record)) return Probe::Action::ALREADY_TERMINAL;
         record->cancelContinuation = true;
         if (record->requestId.owner) a.owner.cancel(record->requestId, uart.sample());
         else {
-            ESS::advanceAction(record->action, actionEvent(*record, ReadEventKind::CANCEL), nowUs());
+            advanceOperation(*record, actionEvent(*record, ReadEventKind::CANCEL), nowUs());
             updateActionReservation(a, *record);
         }
         return Probe::Action::OK;
@@ -691,7 +831,7 @@ Probe::Action release(void* context, uint32_t operationId) {
     }
     auto* record = findRecord(a, operationId); if (!record) return Probe::Action::INVALID;
     if (!record->delivered || (record->requestId.owner && !a.owner.release(record->requestId))) return Probe::Action::BUSY;
-    *record = App::Record(); return Probe::Action::OK;
+    clearRecord(*record); return Probe::Action::OK;
 }
 Probe::Action monitor(void* context, const Probe::MonitorSettings* requested, Probe::MonitorSnapshot& out) {
     App& a = *static_cast<App*>(context);
@@ -756,7 +896,7 @@ Probe::Host host(App* a) {
     Probe::Host h; h.context = a; h.emitLine = emit; h.snapshot = snapshot;
     h.startProbe = probe; h.startCaptureRead = captureRead; h.recover = recover; h.resetStats = reset;
     h.startTypedRead = typedRead;
-    h.startAction = startAction;
+    h.startAction = startAction; h.startMove = startMove;
     h.monitor = monitor;
     h.axis = axisCommand;
     h.result = lookup; h.cancel = cancel; h.release = release;
@@ -773,11 +913,15 @@ void deliver(App& a) {
             // This explicit consumer already harvested each non-consuming block.
             // It owns release and never uses a user command correlation/retention.
             if (record.requestId.owner && !a.owner.release(record.requestId)) continue;
-            record = App::Record(); a.monitorState.operationId = 0;
+            clearRecord(record); a.monitorState.operationId = 0;
             if (!a.monitorState.remaining) a.monitorState.settings.enabled = false;
             continue;
         }
         Probe::ResultView view; if (!lookup(&a, record.operationId, view) || view.pending) continue;
+        if (record.moveOperation) {
+            if (!a.console.reportMove(record.commandId, record.operationId, record.move, record.interruptedByStop)) continue;
+            record.delivered = true; record.deliveredUs = nowUs(); continue;
+        }
         if (record.actionOperation) {
             if (!a.console.reportAction(record.commandId, record.operationId, record.action, record.interruptedByStop)) continue;
             record.delivered = true; record.deliveredUs = nowUs(); continue;
@@ -795,7 +939,10 @@ void deliver(App& a) {
                         if (same &&
                             (old.direction != updated.direction || old.subdivision != updated.subdivision ||
                              old.wordOrder != updated.wordOrder || old.algorithm != updated.algorithm ||
-                             old.encoderResolution != updated.encoderResolution)) invalidateAxis(a);
+                             old.encoderResolution != updated.encoderResolution ||
+                             old.inputPolarity != updated.inputPolarity || old.overLimitStop != updated.overLimitStop ||
+                             old.softLimitEnable != updated.softLimitEnable ||
+                             std::memcmp(old.inputFunctions, updated.inputFunctions, sizeof(old.inputFunctions)) != 0)) invalidateAxis(a);
                     }
                 }
             }

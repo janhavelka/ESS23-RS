@@ -196,6 +196,64 @@ class ActionSerial:
         return Serial.normal(request_id, command, args)
 
 
+def move_terminal(request_id):
+    empty = dict(step=0, event=0, raw_hex="", received_length=0, tx_accepted=0, tx_complete=False,
+        response_confirmed=False, qualified=False, execution_unknown=False, earliest_us=0,
+        latest_us=0, delivered_us=0, transport_detail=0, status="OK", detail=0, frame_error=0)
+    def frame(step, prefix, tx_size, first, last, delivered):
+        raw = bytes(prefix)
+        raw += bench.wire_crc(raw).to_bytes(2, "little")
+        return dict(empty, step=step, raw_hex=raw.hex(), received_length=len(raw), tx_accepted=tx_size,
+            tx_complete=True, response_confirmed=True, qualified=True, earliest_us=first,
+            latest_us=last, delivered_us=delivered)
+    return reply(request_id, "move-relative", type="move", command_id=request_id, operation_id=request_id + 100,
+        move_kind="relative", action_kind=None, read_kind=None, capture_read=False, recovery=False,
+        target=1, address=1, generation=9, configuration_generation=3, state="succeeded", outcome="observed",
+        status="OK", detail=0, setup_execution="acknowledged", execution="acknowledged", completion="observed",
+        staging_applied=True, uncertain=False, running_observed=True, observation_known=True, interrupted_by_stop=False,
+        raw_alarm=0, raw_motion=1, started_us=1000, deadline_us=10000, serviced_us=4300, polls=2,
+        native_rpm=60, ramp="configured", staging_words=[100, 100, 60, 0, 1000],
+        requested=dict(numerator=1000, denominator=1, unit="steps", frame=0, relative=True, basis=0, rounding=0,
+            approximate=False, rational_radians=True, radians=None, maximum_quantization_error=0, maximum_approximation_error=None),
+        effective_native=1000, displacement_native=1000, endpoint_known=False, endpoint_native=0,
+        zero_displacement=False, exact_arithmetic=True, rounding_error=0, approximation_error_bound=0, requested_native_approximate=None,
+        prerequisites=dict(target=1, generation=9, configuration_generation=3, observed_us=900, maximum_age_us=10000,
+            raw_alarm=0, raw_motion=1, command_units_verified=True, relative_basis_verified=True,
+            negative_encoding_verified=False, configured_ramp_verified=True, serial_inputs_permit=True,
+            readiness_qualified=True, word_order_known=True, word_order=0, start_speed_known=True, start_speed=10),
+        staging_evidence=frame(0, [1, 16, 0, 0x21, 0, 5], 19, 1100, 1200, 1250),
+        trigger_evidence=frame(1, [1, 6, 0, 0x27, 0, 1], 8, 2000, 2100, 2150),
+        activity_evidence=frame(2, [1, 3, 4, 0, 0, 0, 4], 8, 3000, 3200, 3300),
+        last_observation=frame(3, [1, 3, 4, 0, 0, 0, 1], 8, 4000, 4200, 4300), failure_evidence=empty)
+
+
+class MoveSerial:
+    def __init__(self, mutate=None, admission_only=False):
+        self.retained = {}
+        self.mutate = mutate
+        self.admission_only = admission_only
+
+    def __call__(self, request_id, command, args):
+        if command == "move":
+            terminal = move_terminal(request_id)
+            if self.mutate: self.mutate(terminal)
+            self.retained[request_id + 100] = terminal
+            accepted = reply(request_id, "move-relative", result="accepted", operation_id=request_id + 100, address=1)
+            return encoded(accepted) + (b"" if self.admission_only else encoded(terminal))
+        if command in bench.ACTION_COMMANDS:
+            terminal = action_terminal(request_id, command, args[0] if command == "stop" else None)
+            self.retained[request_id + 100] = terminal
+            return encoded(reply(request_id, command, result="accepted", operation_id=request_id + 100, address=1)) + encoded(terminal)
+        if command == "read":
+            terminal = typed_terminal(request_id, args[0])
+            self.retained[request_id + 100] = terminal
+            return encoded(reply(request_id, "read-" + args[0], result="accepted", operation_id=request_id + 100, address=1, read_kind=args[0])) + encoded(terminal)
+        if command == "result":
+            return encoded(dict(self.retained[int(args[0])], type="reply", id=request_id, command="result"))
+        if command == "release": self.retained.pop(int(args[0]), None)
+        return Serial.normal(request_id, command, args)
+
+
 class Clock:
     def __init__(self):
         self.now = 0.0
@@ -280,6 +338,139 @@ class Serial:
 
 
 class Framing(unittest.TestCase):
+    MOVE_ARGS = ("1000", "steps", "native", "60", "configured")
+
+    def test_unknown_move_inspections_preserve_api_rounding_and_radian_inputs(self):
+        for rounding in (1, 2, 3, 4):
+            item = move_terminal(2)
+            item["requested"].update(numerator=2001 if rounding != 4 else 1999, denominator=2,
+                rounding=rounding, maximum_quantization_error=0.5)
+            item["rounding_error"] = -0.5 if rounding != 4 else 0.5
+            def handler(request_id, command, args):
+                return encoded(dict(item, type="reply", id=request_id, command="result")) if command == "result" else Serial.normal(request_id, command, args)
+            console = self.session(handler)
+            self.assertEqual(console.command("result", operation_id=102)["requested"]["rounding"], rounding)
+        for rational in (True, False):
+            item = move_terminal(2)
+            item["requested"].update(numerator=1, denominator=1, unit="rad", frame=1, rounding=1,
+                approximate=True, rational_radians=rational, radians=None if rational else 1,
+                maximum_quantization_error=0.5, maximum_approximation_error=1e-9)
+            item.update(exact_arithmetic=False, requested_native_approximate=1000.125,
+                rounding_error=-0.125, approximation_error_bound=1e-11)
+            bench.Console._check_move(item, 1, None)
+            referenced = copy.deepcopy(item)
+            referenced.update(endpoint_known=True, endpoint_native=51000, requested_native_approximate=51000.125)
+            bench.Console._check_move(referenced, 1, None)
+            for mutate in (lambda t: t["requested"].update(maximum_approximation_error=1e-12),
+                           lambda t: t["requested"].update(maximum_quantization_error=0.1),
+                           lambda t: t["requested"].update(approximate=False),
+                           lambda t: t.update(requested_native_approximate=None)):
+                bad = copy.deepcopy(item); mutate(bad)
+                with self.assertRaises(bench.BenchError): bench.Console._check_move(bad, 1, None)
+        item["requested"]["radians"] = None
+        with self.assertRaises(bench.BenchError): bench.Console._check_move(item, 1, None)
+        with self.assertRaises(bench.BenchError): bench.Console._check_move(item, 1, self.MOVE_ARGS)
+
+    def test_move_retained_inspection_and_exact_request_correlation(self):
+        console = self.session(MoveSerial())
+        handle = console.begin("move-relative", address=1, move_args=self.MOVE_ARGS)
+        result = console.wait(handle)
+        self.assertTrue(result["ok"] and result["running_observed"])
+        self.assertEqual(result["effective_native"], 1000)
+        inspected = console.command("result", operation_id=handle.operation_id)
+        self.assertEqual(inspected["staging_evidence"], result["staging_evidence"])
+        console.command("release", operation_id=handle.operation_id)
+        self.assertFalse(console.operations)
+        self.assertEqual(self.port.writes[1], b"@2 move relative 1000 steps native 60 configured 1\n")
+
+    def test_move_corrupted_staging_trigger_completion_and_provenance_fail_without_replay(self):
+        changes = [lambda t: t.update(configuration_generation=4),
+            lambda t: t.update(effective_native=999), lambda t: t["requested"].update(numerator=999),
+            lambda t: t.update(native_rpm=61), lambda t: t["prerequisites"].update(configured_ramp_verified=False),
+            lambda t: t["prerequisites"].update(observed_us=1001), lambda t: t["prerequisites"].update(word_order=1),
+            lambda t: t["staging_evidence"].update(tx_accepted=8), lambda t: t["staging_evidence"].update(response_confirmed=False),
+            lambda t: t["trigger_evidence"].update(earliest_us=1200),
+            lambda t: t["trigger_evidence"].update(raw_hex=t["staging_evidence"]["raw_hex"]),
+            lambda t: t.update(running_observed=False), lambda t: t["activity_evidence"].update(earliest_us=2100),
+            lambda t: t["activity_evidence"].update(raw_hex=t["last_observation"]["raw_hex"]),
+            lambda t: t["last_observation"].update(raw_hex=t["activity_evidence"]["raw_hex"]),
+            lambda t: t["last_observation"].update(earliest_us=3300), lambda t: t.update(uncertain=True),
+            lambda t: t.update(command_id=99), lambda t: t.update(operation_id=99)]
+        for change in changes:
+            with self.subTest(change=change):
+                console = self.session(MoveSerial(change))
+                with self.assertRaises(bench.BenchError): console.command("move-relative", address=1, move_args=self.MOVE_ARGS)
+                self.assertEqual(len(self.port.writes), 2)
+                self.assertFalse(console.synchronized)
+
+    def test_move_staging_timeout_retains_uncertainty_and_never_starts_or_replays(self):
+        def timeout(t):
+            t.update(ok=False, state="failed", outcome="transport_error", status="ILLEGAL_VALUE", detail=17,
+                setup_execution="unknown", execution="not_transmitted", completion="not_observed", staging_applied=False,
+                uncertain=True, running_observed=False, observation_known=False, raw_alarm=None, raw_motion=None, polls=0, serviced_us=1500)
+            empty = t["failure_evidence"]
+            t["trigger_evidence"] = copy.deepcopy(empty)
+            t["activity_evidence"] = copy.deepcopy(empty)
+            t["last_observation"] = copy.deepcopy(empty)
+            t["staging_evidence"] = dict(empty, event=1, tx_accepted=5, execution_unknown=True,
+                delivered_us=1500, status="ILLEGAL_VALUE", detail=17)
+            t["failure_evidence"] = copy.deepcopy(t["staging_evidence"])
+        console = self.session(MoveSerial(timeout))
+        result = console.command("move-relative", address=1, move_args=self.MOVE_ARGS)
+        self.assertFalse(result["ok"])
+        self.assertTrue(result["uncertain"])
+        self.assertEqual(len(self.port.writes), 3)
+        self.assertTrue(console.synchronized)
+
+    def test_move_arguments_are_bounded_before_transmission(self):
+        console = self.session()
+        before = len(self.port.writes)
+        for arguments in (None, (), ("1", "steps", "native", "60", "default"),
+            ("1", "steps", "unknown", "60", "configured"), ("1 2", "steps", "native", "60", "configured"),
+            ("1" * 128, "steps", "native", "60", "configured")):
+            with self.subTest(arguments=arguments):
+                with self.assertRaises(ValueError): console.begin("move-relative", address=1, move_args=arguments)
+                self.assertEqual(len(self.port.writes), before)
+                self.assertTrue(console.synchronized)
+
+    def test_move_campaign_one_attempt_stop_cleanup_and_local_release(self):
+        console = self.session(MoveSerial())
+        events = []; console.emit = lambda event, **data: events.append((event, data))
+        bench.relative_move_campaign(console, move_args=self.MOVE_ARGS, cleanup_stop="normal", timeout_s=3, address=1)
+        commands = [line.decode().split()[1] for line in self.port.writes]
+        self.assertEqual(commands.count("move"), 1)
+        self.assertEqual(commands.count("stop"), 1)
+        self.assertEqual(commands.count("read"), 1)
+        self.assertNotIn("motor-release", commands)
+        self.assertNotIn("recover", commands)
+        self.assertFalse(console.operations)
+        summary = events[-1][1]
+        self.assertEqual(summary["cleanup"], "drive_reported_nonrunning")
+        self.assertEqual(summary["physical_observation"], "not_supplied")
+        self.assertTrue(summary["ok"])
+
+    def test_move_campaign_rejection_sends_no_cleanup_motor_command(self):
+        def rejected(i, command, args):
+            if command == "move": return encoded(reply(i, "move-relative", ok=False, result="timing_unqualified"))
+            return Serial.normal(i, command, args)
+        console = self.session(rejected)
+        events = []; console.emit = lambda event, **data: events.append((event, data))
+        with self.assertRaises(bench.BenchError):
+            bench.relative_move_campaign(console, move_args=self.MOVE_ARGS, cleanup_stop="direct", timeout_s=3, address=1)
+        self.assertEqual(len(self.port.writes), 2)
+        self.assertEqual(events[-1][1]["cleanup"], "not_required")
+        self.assertFalse(events[-1][1]["ok"])
+
+    def test_move_campaign_poisoned_reply_retains_unknown_cleanup(self):
+        console = self.session(MoveSerial(lambda t: t.update(running_observed=False)))
+        events = []; console.emit = lambda event, **data: events.append((event, data))
+        with self.assertRaises(bench.BenchError):
+            bench.relative_move_campaign(console, move_args=self.MOVE_ARGS, cleanup_stop="normal", timeout_s=3, address=1)
+        self.assertEqual(len(self.port.writes), 2)
+        self.assertEqual(events[-1][1]["cleanup"], "unknown")
+        self.assertIn("framing", events[-1][1]["cleanup_error"])
+        self.assertFalse(events[-1][1]["ok"])
+
     def test_action_terminal_and_retained_round_trip(self):
         for command, policy in (("enable", None), ("motor-release", None), ("alarm-clear", None),
                                 ("stop", "normal"), ("stop", "direct")):

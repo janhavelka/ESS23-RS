@@ -7,7 +7,7 @@ each selected drive exposes its complete documented functionality alongside
 the [common axis API](axis_contract.md). The first implementation supplies the
 [ESS register catalogue](reference/05_ess_register_catalog.md), generated C++
 descriptors and native enums. Checked raw ESS codecs and a minimal probe are
-also implemented, with limited read-only bench evidence. Typed identity/configuration/state reads are implemented; action sequencing and broader hardware qualification remain future work.
+also implemented, with limited read-only bench evidence. Typed identity/configuration/state reads, bounded actions and finite relative-position sequencing are implemented; physical action/motion and broader hardware qualification remain open. The installed [relative-position API](ess_position.md) shares common target preparation and the existing action evidence boundary.
 ESS-RS is the first target; Leadshine iEM-RS
 is a contrasting design case whose concrete model and firmware still require
 selection.

@@ -23,6 +23,8 @@ struct Fake {
     unsigned loads = 0, loadChanges = 0;
     unsigned typedReads = 0, monitors = 0, monitorChanges = 0;
     unsigned actions = 0;
+    unsigned moves = 0;
+    MotorControlRS::MoveRequest moveRequest;
     MotorControlRS::ActionRequest actionRequest;
     Probe::Action actionResult = Probe::Action::OK;
     Probe::MonitorSnapshot monitorData;
@@ -78,6 +80,13 @@ struct Fake {
                                     const MotorControlRS::ActionRequest& request, uint32_t& operation) {
         Fake& self = *static_cast<Fake*>(context); ++self.actions;
         self.actionRequest = request; self.id = commandId; self.address = address;
+        if (self.actionResult == Probe::Action::OK) operation = self.nextOperation++;
+        return self.actionResult;
+    }
+    static Probe::Action startMove(void* context, uint32_t commandId, uint8_t address,
+                                  const MotorControlRS::MoveRequest& request, uint32_t& operation) {
+        Fake& self = *static_cast<Fake*>(context); ++self.moves;
+        self.moveRequest = request; self.id = commandId; self.address = address;
         if (self.actionResult == Probe::Action::OK) operation = self.nextOperation++;
         return self.actionResult;
     }
@@ -963,6 +972,110 @@ void testMaximumActionAndInvalidatedCacheFormatting() {
     block.observedEarliestUs = 21; assert(Probe::current(block, block.value.target));
 }
 
+void testMoveRoutesExactParsingAndRetainedReports() {
+    namespace Core = MotorControlRS;
+    for (const char* route : {"move relative", "profile ess_rs move-relative"}) {
+        Fake fake; auto host = fake.host(false, true); host.startMove = Fake::startMove; host.axis = Fake::axis;
+        fake.axisConfig.generation = 17;
+        Probe::Console console(host);
+        send(console, std::string("@42 ") + route + " -12.50 deg load 60 configured 2\n");
+        assert(fake.moves == 1 && fake.address == 2 && fake.id == 42);
+        assert(fake.moveRequest.position.value.numerator == -25 && fake.moveRequest.position.value.denominator == 2);
+        assert(fake.moveRequest.position.unit == Core::PositionUnit::DEGREES && fake.moveRequest.position.frame == Core::CoordinateFrame::LOAD);
+        assert(fake.moveRequest.position.relative && fake.moveRequest.position.rounding == Core::Rounding::EXACT);
+        assert(fake.moveRequest.position.basis == Core::RelativeBasis::ACTUAL && fake.moveRequest.position.configurationGeneration == 17);
+        assert(fake.moveRequest.speedRpm == 60 && fake.moveRequest.ramp == Core::MoveRamp::VERIFIED_CONFIGURED);
+        fake.contains("\"command\":\"move-relative\""); fake.contains("\"result\":\"accepted\"");
+        Ess::MoveContext context; context.operationId = 100; context.request = fake.moveRequest;
+        context.state = Core::ActionState::FAILED; context.outcome = Core::ActionOutcome::CANCELLED;
+        context.prepared.effectiveNative = context.prepared.displacementNative = -25;
+        context.prepared.configurationGeneration = 17; context.execution = Core::ActionExecution::UNKNOWN;
+        context.stagingApplied = context.uncertain = true;
+        context.stagingEvidence.txAccepted = 19; context.triggerEvidence.txAccepted = 3;
+        assert(!console.reportMove(43, 100, context));
+        fake.blocked = true; assert(console.reportMove(42, 100, context, true));
+        assert(console.outputPending() && !console.reportMove(42, 100, context));
+        send(console, "@43 move relative 1 steps native 60 configured\n"); assert(fake.moves == 1);
+        fake.blocked = false; assert(console.serviceOutput()); fake.contains("\"type\":\"move\"");
+        fake.contains("\"uncertain\":true"); fake.contains("\"interrupted_by_stop\":true");
+        fake.contains("\"effective_native\":-25"); fake.contains("\"tx_accepted\":19");
+        assert(!console.reportMove(42, 100, context));
+        fake.view.moveContext = &context; fake.view.commandId = 42; fake.view.operationId = 100;
+        send(console, "@44 result 100\n"); fake.contains("\"command\":\"result\""); fake.contains("\"move_kind\":\"relative\"");
+        context.request.position.rounding = Core::Rounding::NEAREST;
+        context.request.position.maximumQuantizationError = 0.5;
+        context.prepared.roundingError = -0.5;
+        send(console, "@45 result 100\n"); fake.contains("\"rounding\":1");
+        fake.contains("\"maximum_quantization_error\":0.5"); fake.contains("\"rounding_error\":-0.5");
+        context.request.position.unit = Core::PositionUnit::RADIANS;
+        context.request.position.approximate = true; context.request.position.rationalRadians = false;
+        context.request.position.radians = -1; context.request.position.maximumApproximationError = 0.01;
+        context.prepared.exactArithmetic = false; context.prepared.approximateRequestedNative = -25.125;
+        context.prepared.roundingError = 0.125; context.prepared.approximationErrorBound = 0.001;
+        send(console, "@46 result 100\n"); fake.contains("\"radians\":-1");
+        fake.contains("\"rational_radians\":false"); fake.contains("\"requested_native_approximate\":-25.125");
+        fake.view.pending = true; send(console, "@45 result 100\n"); fake.contains("\"result\":\"pending\"");
+        fake.contains("\"move_kind\":\"relative\"");
+    }
+    Fake fake; auto host = fake.host(); host.startMove = Fake::startMove; host.axis = Fake::axis;
+    Probe::Console console(host);
+    for (const char* input : {"move", "move absolute 1 steps native 60 configured", "move relative 1 steps native 0 configured",
+        "move relative 1 steps native -1 configured", "move relative 1 steps native 60.5 configured", "move relative 1 steps native 65536 configured",
+        "move relative 1/2.0 steps native 60 configured", "move relative NaN steps native 60 configured", "move relative 1 deg other 60 configured",
+        "move relative 1 steps native 60 default", "move relative 1 steps native 60 configured 0", "move relative 1 steps native 60 configured 248",
+        "move relative 1 steps native 60 configured 1 2", "profile ess_rs move-relative 1 steps native 60"}) {
+        send(console, std::string(input) + "\n"); fake.contains("\"ok\":false"); assert(fake.moves == 0);
+    }
+    fake.actionResult = Probe::Action::TIMING_UNQUALIFIED;
+    send(console, "move relative 1 steps native 60 configured\n"); fake.contains("timing_unqualified");
+    fake.actionResult = Probe::Action::AXIS_CONFLICT;
+    send(console, "move relative 1 steps native 60 configured\n"); fake.contains("axis_conflict");
+    assert(fake.moves == 2);
+    Fake absent; Probe::Console unavailable(absent.host()); send(unavailable, "help\n");
+    assert(absent.lines.back().find("\"move\"") == std::string::npos);
+}
+
+void testMaximumMoveReportFitsFixedOutput() {
+    namespace Core = MotorControlRS;
+    Fake fake; auto host = fake.host(false, true); host.startMove = Fake::startMove; host.axis = Fake::axis;
+    Probe::Console console(host); fake.nextOperation = UINT32_MAX;
+    send(console, "@4294967295 move relative 1 steps native 3000 configured 247\n");
+    Ess::MoveContext c; c.operationId = UINT32_MAX; c.request = fake.moveRequest;
+    c.target.id = c.target.generation = c.prepared.configurationGeneration = UINT32_MAX; c.target.address = 247;
+    c.state = Core::ActionState::FAILED; c.outcome = Core::ActionOutcome::UNCONFIRMED_RESPONSE;
+    c.setupExecution = c.execution = Core::ActionExecution::ACKNOWLEDGED;
+    c.stagingApplied = c.uncertain = c.runningObserved = c.observationKnown = true;
+    c.rawAlarm = c.rawMotion = UINT16_MAX; c.polls = 64;
+    c.startedUs = c.deadlineUs = c.servicedUs = UINT64_MAX;
+    c.request.position.value = Core::Rational(INT64_MIN, UINT64_MAX);
+    c.request.position.unit = Core::PositionUnit::RADIANS;
+    c.request.position.frame = Core::CoordinateFrame::MOTOR;
+    c.request.position.rounding = Core::Rounding::FLOOR;
+    c.request.position.approximate = true; c.request.position.rationalRadians = false;
+    c.request.position.radians = -1.2345678901234567e+18;
+    c.request.position.maximumQuantizationError = c.request.position.maximumApproximationError = std::numeric_limits<double>::max();
+    c.prepared.exactArithmetic = false;
+    c.prepared.approximateRequestedNative = -2147483647.875;
+    c.prepared.roundingError = -0.125; c.prepared.approximationErrorBound = 3.0517578124998224e-5;
+    c.prerequisites.target.id = c.prerequisites.target.generation = c.prerequisites.configurationGeneration = UINT32_MAX;
+    c.prerequisites.observedUs = c.prerequisites.maximumAgeUs = UINT64_MAX;
+    c.prerequisites.rawAlarm = c.prerequisites.rawMotion = c.prerequisites.startSpeed = UINT16_MAX;
+    c.prepared.effectiveNative = c.prepared.displacementNative = INT32_MIN;
+    c.prepared.endpointKnown = true; c.prepared.endpointNative = INT64_MIN;
+    for (auto& word : c.words) word = UINT16_MAX;
+    for (auto* e : {&c.stagingEvidence, &c.triggerEvidence, &c.activityEvidence, &c.lastObservation, &c.failureEvidence}) {
+        e->step = 65; e->event = Core::ReadEventKind::TRANSPORT_FAILURE;
+        e->length = sizeof(e->raw); e->receivedLength = UINT32_MAX; e->txAccepted = 19;
+        for (auto& byte : e->raw) byte = 255;
+        e->earliestUs = e->latestUs = e->deliveredUs = UINT64_MAX;
+        e->transportDetail = INT32_MIN; e->status = Core::Status(Core::Err::INVALID_CONFIG, INT32_MIN, "not serialized");
+    }
+    assert(console.reportMove(UINT32_MAX, UINT32_MAX, c, true));
+    fake.contains("\"interrupted_by_stop\":true"); fake.contains("FFFFFFFFFFFFFFFFFF");
+    fake.contains("\"requested_native_approximate\":-2147483647.875");
+    std::printf("Maximum-width move line: %zu/%zu bytes\n", fake.lines.back().size(), Probe::OUTPUT_CAPACITY);
+}
+
 } // namespace
 
 int main() {
@@ -990,4 +1103,6 @@ int main() {
     testZeroRadiansAndApproximateCancellationMatchApi();
     testActionRoutesAndStopPressure();
     testMaximumActionAndInvalidatedCacheFormatting();
+    testMoveRoutesExactParsingAndRetainedReports();
+    testMaximumMoveReportFitsFixedOutput();
 }

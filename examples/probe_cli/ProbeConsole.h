@@ -7,6 +7,7 @@
 #include "MotorControlRS/profiles/ess_rs/Codec.h"
 #include "MotorControlRS/profiles/ess_rs/Reads.h"
 #include "MotorControlRS/profiles/ess_rs/Actions.h"
+#include "MotorControlRS/profiles/ess_rs/Position.h"
 
 namespace MotorControlRSExample { namespace Probe {
 
@@ -142,6 +143,7 @@ struct ResultView {
     bool pending = false, recovery = false, captureRead = false;
     const MotorControlRS::ESS_RS::ReadContext* typedRead = nullptr; ///< Borrowed only during formatting.
     const MotorControlRS::ESS_RS::ActionContext* actionContext = nullptr;
+    const MotorControlRS::ESS_RS::MoveContext* moveContext = nullptr; ///< Borrowed only during formatting.
     bool interruptedByStop = false;
     ProbeResult probe;
     Rtu::RecoveryResult recoveryResult;
@@ -179,6 +181,9 @@ struct Host {
                             MotorControlRS::ESS_RS::ReadKind, uint32_t& operationId) = nullptr;
     Action (*startAction)(void*, uint32_t commandId, uint8_t address,
                          const MotorControlRS::ActionRequest&, uint32_t& operationId) = nullptr;
+    /** One finite move admission through the installed preparation API; no request pointer is retained. */
+    Action (*startMove)(void*, uint32_t commandId, uint8_t address,
+                       const MotorControlRS::MoveRequest&, uint32_t& operationId) = nullptr;
     Action (*recover)(void*, uint32_t commandId, uint32_t& operationId) = nullptr;
     void (*resetStats)(void*) = nullptr;
     Action (*load)(void*, const LoadSettings* requested, LoadSnapshot&) = nullptr;
@@ -222,6 +227,8 @@ public:
     bool reportRead(uint32_t id, uint32_t operationId, const MotorControlRS::ESS_RS::ReadContext&) noexcept;
     bool reportAction(uint32_t id, uint32_t operationId, const MotorControlRS::ESS_RS::ActionContext&,
                       bool interruptedByStop = false) noexcept;
+    bool reportMove(uint32_t id, uint32_t operationId, const MotorControlRS::ESS_RS::MoveContext&,
+                    bool interruptedByStop = false) noexcept;
 
 private:
     void dispatch() noexcept;
@@ -239,6 +246,8 @@ private:
                     const MotorControlRS::ESS_RS::ReadContext&, bool inspection) noexcept;
     bool formatAction(uint32_t id, uint32_t commandId, uint32_t operationId,
                       const MotorControlRS::ESS_RS::ActionContext&, bool inspection, bool interruptedByStop) noexcept;
+    bool formatMove(uint32_t id, uint32_t commandId, uint32_t operationId,
+                    const MotorControlRS::ESS_RS::MoveContext&, bool inspection, bool interruptedByStop) noexcept;
 
     Host host_;
     char line_[LINE_CAPACITY] = {};

@@ -26,10 +26,10 @@ class Coverage(unittest.TestCase):
         self.assertEqual((summary["records"], summary["reserved"], summary["unresolved_access"], summary["named_choices"]),
                          (221, 16, 2, 135))
         self.assertEqual(sum(count for state, count in summary["read"].items() if state in operations.IMPLEMENTATION), 201)
-        self.assertEqual(summary["write"]["NOT_IMPLEMENTED"], 191)
+        self.assertEqual(summary["write"]["NOT_IMPLEMENTED"], 187)
         self.assertEqual(summary["action"]["IN_PROGRESS"], 2)
         linked = {record for group in INVENTORY["operations"] for record in group["records"]}
-        self.assertEqual(len(linked), 27)
+        self.assertEqual(len(linked), 31)
         self.assertEqual(len(result["records"]), len({record["id"] for record in result["records"]}))
         self.assertTrue(all(choice["default_disposition"] == operations.DEFAULT for choice in result["named_choices"]))
 
@@ -38,8 +38,8 @@ class Coverage(unittest.TestCase):
         implemented = {choice["id"] for choice in result["named_choices"]
                        if choice["disposition"]["implementation"] == "IMPLEMENTED"}
         self.assertEqual(implemented, {"AuxiliaryCommand.ENABLE", "AuxiliaryCommand.RELEASE",
-            "AuxiliaryCommand.CLEAR_ALARM", "MotionCommandBit.STOP", "MotionCommandBit.EMERGENCY_STOP"})
-        self.assertEqual(result["summary"]["choice_implementation"], {"NOT_IMPLEMENTED": 130, "IMPLEMENTED": 5})
+            "AuxiliaryCommand.CLEAR_ALARM", "MotionCommandBit.STOP", "MotionCommandBit.EMERGENCY_STOP", "MotionCommandBit.START_POSITION"})
+        self.assertEqual(result["summary"]["choice_implementation"], {"NOT_IMPLEMENTED": 129, "IMPLEMENTED": 6})
         for record in result["records"]:
             if record["id"] in ("AUXILIARY_COMMAND", "MOTION_COMMAND"):
                 self.assertEqual(record["obligations"]["write"], "IN_PROGRESS")
@@ -102,7 +102,8 @@ class Coverage(unittest.TestCase):
 
     def test_documented_model_is_not_qualified_hardware(self):
         self.rejected(lambda value: value["model_availability"].update(qualification="QUALIFIED"))
-        self.rejected(lambda value: value["model_availability"].update(exact_model="ESS23-RS20"))
+        self.assertEqual(INVENTORY["model_availability"]["exact_model"], "ESS23-RS20")
+        self.rejected(lambda value: value["model_availability"].update(exact_model="UNREVIEWED_MODEL"))
 
 
 if __name__ == "__main__":

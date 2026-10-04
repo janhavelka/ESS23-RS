@@ -45,7 +45,7 @@ def check(inventory, ledger):
     model = inventory.get("model_availability", {})
     keys(model, "documented_models observed_model_raw exact_model firmware_compatibility qualification reason", "model availability")
     if (set(model.get("documented_models", [])) != set(ledger["qualification"]["models"])
-            or model.get("exact_model") != "UNKNOWN"
+            or model.get("exact_model") not in {"UNKNOWN", *ledger["qualification"]["models"]}
             or model.get("firmware_compatibility") != "UNKNOWN"
             or model.get("qualification") != "UNQUALIFIED" or not model.get("reason")):
         raise ValueError("documented models must not imply exact-model or firmware qualification")
@@ -68,7 +68,7 @@ def check(inventory, ledger):
             "access": row["source_access"], "pages": row["pages"], "issues": row["issues"],
             "source_certainty": "EXPLICIT_RESERVED" if reserved else "UNRESOLVED_ACCESS" if unresolved else
                 "DOCUMENTED_WITH_ISSUES" if row["issues"] else "DOCUMENTED_NO_RECORDED_ISSUES",
-            "obligations": obligations, "read_operations": [], "action_operations": [], "default_disposition": DEFAULT.copy()
+            "obligations": obligations, "read_operations": [], "write_operations": [], "action_operations": [], "default_disposition": DEFAULT.copy()
         }
 
     choices = {group["name"] + "." + value["name"]: {"id": group["name"] + "." + value["name"],
@@ -85,11 +85,11 @@ def check(inventory, ledger):
             raise ValueError("invalid or duplicate operation ID")
         seen.add(op_id)
         kind = operation.get("kind")
-        if kind not in {"READ", "ACTION"}:
+        if kind not in {"READ", "WRITE", "ACTION"}:
             raise ValueError("unsupported operation kind")
         selected = operation.get("choices", [])
-        if kind == "READ" and selected:
-            raise ValueError("a read is not named-choice action coverage")
+        if kind != "ACTION" and selected:
+            raise ValueError("read/write coverage is not named-choice action coverage")
         if kind == "ACTION" and (not selected or len(selected) != len(set(selected))):
             raise ValueError("action requires distinct explicit source choices")
         linked = operation.get("records", [])
@@ -150,10 +150,11 @@ def check(inventory, ledger):
             choices[choice_id]["disposition"] = {"implementation": state, "cli": cli,
                 "native": operation["native"]["state"], "hardware": operation["hardware"]["state"]}
         for record_id in linked:
-            if kind == "READ":
-                current = records[record_id]["obligations"]["read"]
+            if kind in {"READ", "WRITE"}:
+                column = kind.lower()
+                current = records[record_id]["obligations"][column]
                 if state == "IMPLEMENTED" or current != "IMPLEMENTED":
-                    records[record_id]["obligations"]["read"] = state
+                    records[record_id]["obligations"][column] = state
             elif state in {"IMPLEMENTED", "IN_PROGRESS"}:
                 # Partial choice coverage never marks the entire command register implemented.
                 for column in ("write", "action"):

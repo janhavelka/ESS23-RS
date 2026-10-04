@@ -1,0 +1,219 @@
+// SPDX-License-Identifier: MIT
+#include "MotorControlRS/profiles/ess_rs/Position.h"
+#include "MotorControlRS/profiles/ess_rs/Registers.h"
+#include <cstring>
+#include <limits>
+
+namespace MotorControlRS { namespace ESS_RS {
+namespace {
+Status invalid(MoveError reason, const char* message) {
+    return Status(Err::INVALID_CONFIG, static_cast<int32_t>(reason), message);
+}
+Status failed(MoveError reason, const char* message) {
+    return Status(Err::ILLEGAL_VALUE, static_cast<int32_t>(reason), message);
+}
+bool sameTarget(const ReadTarget& a, const ReadTarget& b) {
+    return a.id == b.id && a.address == b.address && a.generation == b.generation;
+}
+constexpr uint16_t RUNNING = static_cast<uint16_t>(MotionStatusBit::RUNNING);
+constexpr uint16_t ARRIVED = static_cast<uint16_t>(MotionStatusBit::IN_POSITION);
+constexpr uint16_t FAULTS = static_cast<uint16_t>(MotionStatusBit::ALARM) |
+    static_cast<uint16_t>(MotionStatusBit::RELEASED) |
+    static_cast<uint16_t>(MotionStatusBit::POSITIVE_SOFT_LIMIT) |
+    static_cast<uint16_t>(MotionStatusBit::NEGATIVE_SOFT_LIMIT);
+std::size_t requestLength(const MoveContext& c) { return c.step == 0 ? MOVE_REQUEST_BYTES : READ_REQUEST_LEN; }
+void finish(MoveContext& c, ActionOutcome outcome, Status status) {
+    c.outcome = outcome; c.status = status;
+    c.state = outcome == ActionOutcome::OBSERVED ? ActionState::SUCCEEDED : ActionState::FAILED;
+    // FC10 has no documented atomic-application guarantee, even on an exception.
+    // A failed operation after any setup TX cannot establish untouched parameters.
+    c.uncertain = c.state == ActionState::FAILED &&
+        (c.stagingEvidence.txAccepted || c.stagingEvidence.executionUnknown ||
+         c.triggerEvidence.txAccepted || c.triggerEvidence.executionUnknown);
+}
+void wait(MoveContext& c, uint64_t nowUs) {
+    ++c.step;
+    const uint64_t remaining = c.deadlineUs - nowUs;
+    c.eligibleUs = c.options.pollIntervalUs >= remaining ? c.deadlineUs : nowUs + c.options.pollIntervalUs;
+}
+ActionExecution execution(const ActionEvidence& evidence) {
+    if (!evidence.txAccepted && !evidence.executionUnknown) return ActionExecution::NOT_TRANSMITTED;
+    if (evidence.event == ReadEventKind::FRAME && evidence.qualified && evidence.responseConfirmed) {
+        if (evidence.status) return ActionExecution::ACKNOWLEDGED;
+        if (evidence.status.code == Err::EXCEPTION && evidence.status.detail >= 1 && evidence.status.detail <= 7)
+            return ActionExecution::REJECTED;
+    }
+    return ActionExecution::UNKNOWN;
+}
+} // namespace
+
+Status prepareMoveRelative(MoveContext& output, const AxisConfig& axis, const AxisReference* reference,
+        uint32_t operationId, const MoveRequest& request, const MovePrerequisites& prerequisites,
+        uint64_t nowUs, uint64_t deadlineUs, const ActionOptions& options) noexcept {
+    if (!axis.target.id || !axis.target.generation || !isValidAddress(axis.target.address))
+        return invalid(MoveError::INVALID_TARGET, "invalid move target");
+    if (!operationId) return invalid(MoveError::INVALID_OPERATION, "zero move id");
+    if (deadlineUs <= nowUs) return invalid(MoveError::INVALID_DEADLINE, "expired move deadline");
+    if (!options.pollIntervalUs || !options.maxPolls || options.maxPolls > ACTION_MAX_POLLS)
+        return invalid(MoveError::INVALID_OPTIONS, "invalid bounded move observation policy");
+    if (!request.position.relative || request.position.basis != RelativeBasis::ACTUAL)
+        return Status(Err::UNSUPPORTED, static_cast<int32_t>(MoveError::UNRESOLVED_BASIS),
+            "ESS finite relative move requires the verified actual-position basis");
+    if (!sameTarget(axis.target, prerequisites.target) ||
+        axis.generation != prerequisites.configurationGeneration)
+        return invalid(MoveError::STALE_CONFIGURATION, "move prerequisite binding mismatch");
+    if (!prerequisites.commandUnitsVerified)
+        return invalid(MoveError::UNRESOLVED_UNITS, "device command increment interpretation is unresolved");
+    if (!prerequisites.relativeBasisVerified)
+        return invalid(MoveError::UNRESOLVED_BASIS, "relative basis is unresolved for this configuration");
+    if (request.ramp != MoveRamp::VERIFIED_CONFIGURED || !prerequisites.configuredRampVerified ||
+        prerequisites.accelerationTime > 2000 || prerequisites.decelerationTime > 2000)
+        return invalid(MoveError::UNRESOLVED_RAMP, "verified configured native ramps are required");
+    if (!request.speedRpm || request.speedRpm > 3000 || !prerequisites.startSpeedKnown ||
+        prerequisites.startSpeed > request.speedRpm)
+        return invalid(MoveError::INVALID_REQUEST, "invalid speed or unresolved configured start speed");
+    if (!prerequisites.wordOrderKnown || prerequisites.wordOrder > WordOrder::LOW_WORD_FIRST)
+        return invalid(MoveError::STALE_CONFIGURATION, "move word order is unresolved");
+    if (!prerequisites.readinessQualified || !prerequisites.serialInputsPermit ||
+        !prerequisites.maximumAgeUs || prerequisites.observedUs > nowUs ||
+        nowUs - prerequisites.observedUs > prerequisites.maximumAgeUs ||
+        prerequisites.rawAlarm || (prerequisites.rawMotion & (FAULTS | RUNNING)))
+        return invalid(MoveError::READINESS, "fresh enabled stationary alarm-free serial readiness is required");
+    MoveContext prepared;
+    const Status arithmetic = preparePosition(request.position, axis, reference, prepared.prepared);
+    if (!arithmetic) return arithmetic;
+    if (prepared.prepared.zeroDisplacement)
+        return failed(MoveError::INVALID_REQUEST, "effective relative displacement is zero");
+    const int64_t native = prepared.prepared.effectiveNative;
+    if (native < std::numeric_limits<int32_t>::min() || native > std::numeric_limits<int32_t>::max())
+        return failed(MoveError::INVALID_REQUEST, "relative target exceeds the supported signed 32-bit subset");
+    if (native < 0 && !prerequisites.negativeTwosComplementVerified)
+        return invalid(MoveError::UNRESOLVED_SIGN, "negative ESS position encoding is unresolved");
+    prepared.words[0] = prerequisites.accelerationTime;
+    prepared.words[1] = prerequisites.decelerationTime;
+    prepared.words[2] = request.speedRpm;
+    const Status pair = encodeInt32(static_cast<int32_t>(native), prerequisites.wordOrder, prepared.words + 3, 2);
+    if (!pair) return pair;
+    const Status access = validateWriteMultipleRegistersRequest(axis.target.address,
+        Registers::POSITION_ACCELERATION_TIME, prepared.words, 5);
+    if (!access) return access;
+    prepared.target = axis.target; prepared.operationId = operationId;
+    prepared.request = request; prepared.prerequisites = prerequisites;
+    prepared.options = options; prepared.state = ActionState::ACTIVE;
+    prepared.startedUs = prepared.servicedUs = prepared.eligibleUs = nowUs;
+    prepared.deadlineUs = deadlineUs;
+    output = prepared;
+    return Ok();
+}
+
+Status nextMove(const MoveContext& c, uint64_t nowUs, PreparedMove& output) noexcept {
+    if (c.state == ActionState::EMPTY) return invalid(MoveError::INVALID_STATE, "move is empty");
+    if (nowUs < c.servicedUs) return invalid(MoveError::CLOCK_ERROR, "move clock moved backwards");
+    PreparedMove next;
+    next.target = c.target; next.operationId = c.operationId; next.step = c.step;
+    next.deadlineUs = c.deadlineUs; next.eligibleUs = c.eligibleUs;
+    if (c.state != ActionState::ACTIVE) { output = next; return Ok(); }
+    if (nowUs >= c.deadlineUs) return failed(MoveError::DEADLINE_EXPIRED, "move deadline expired");
+    if (nowUs < c.eligibleUs) { next.kind = ActionWork::WAIT; output = next; return Ok(); }
+    next.kind = ActionWork::TRANSACTION; next.write = c.step < 2;
+    if (c.step == 0) {
+        next.function = 16; next.reg = Registers::POSITION_ACCELERATION_TIME; next.count = 5;
+        next.length = buildWriteMultipleRegisters(c.target.address, next.reg, c.words, next.count,
+            next.bytes, sizeof(next.bytes));
+    } else if (c.step == 1) {
+        next.function = 6; next.reg = Registers::MOTION_COMMAND;
+        next.value = static_cast<uint16_t>(MotionCommandBit::START_POSITION); next.count = 1;
+        next.length = buildWriteSingleRegister(c.target.address, next.reg, next.value, next.bytes, sizeof(next.bytes));
+    } else {
+        next.function = 3; next.reg = Registers::ERROR_CODE; next.count = 2;
+        next.length = buildReadRegisters(c.target.address, next.reg, next.count, next.bytes, sizeof(next.bytes));
+    }
+    if (!next.length) return invalid(MoveError::INVALID_STATE, "invalid move frame");
+    output = next;
+    return Ok();
+}
+
+Status advanceMove(MoveContext& c, const ActionEvent& supplied, uint64_t nowUs) noexcept {
+    const ReadEvent& event = supplied.transport;
+    if (c.state != ActionState::ACTIVE) return invalid(MoveError::INVALID_STATE, "move is not active");
+    if (!sameTarget(c.target, event.target) || c.operationId != event.operationId || c.step != event.step)
+        return invalid(MoveError::WRONG_CORRELATION, "move event correlation mismatch");
+    if (nowUs < c.servicedUs) return invalid(MoveError::CLOCK_ERROR, "move clock moved backwards");
+    const std::size_t expectedTx = requestLength(c);
+    if (event.kind > ReadEventKind::DEADLINE || event.txAccepted > expectedTx ||
+        (supplied.txComplete && event.txAccepted != expectedTx))
+        return invalid(MoveError::INVALID_EVENT, "invalid move transport envelope");
+    if (event.kind == ReadEventKind::FRAME) {
+        if (!event.frame || event.txAccepted != expectedTx || !supplied.txComplete ||
+            (event.qualified && (event.earliestUs < c.eligibleUs || event.earliestUs > event.latestUs || event.latestUs > nowUs)) ||
+            (!event.qualified && (event.earliestUs || event.latestUs)))
+            return invalid(MoveError::INVALID_EVENT, "invalid move frame envelope");
+    } else if ((!event.frame && event.length) || event.qualified || event.earliestUs || event.latestUs ||
+        supplied.responseConfirmed || (event.kind == ReadEventKind::DEADLINE && nowUs < c.deadlineUs))
+        return invalid(MoveError::INVALID_EVENT, "invalid local move event envelope");
+    ActionEvidence evidence;
+    evidence.step = c.step; evidence.event = event.kind; evidence.txAccepted = event.txAccepted;
+    evidence.txComplete = supplied.txComplete; evidence.responseConfirmed = supplied.responseConfirmed;
+    evidence.executionUnknown = event.executionUnknown; evidence.qualified = event.qualified;
+    evidence.earliestUs = event.earliestUs; evidence.latestUs = event.latestUs;
+    evidence.deliveredUs = nowUs; evidence.transportDetail = event.transportDetail;
+    evidence.receivedLength = event.length;
+    evidence.length = event.length < ACTION_MAX_REPLY_BYTES ? event.length : ACTION_MAX_REPLY_BYTES;
+    if (evidence.length) std::memcpy(evidence.raw, event.frame, evidence.length);
+    uint16_t words[2] = {}; std::size_t count = 0;
+    if (event.kind == ReadEventKind::FRAME) {
+        if (c.step == 0) evidence.status = parseWriteMultipleRegisters(event.frame, event.length, c.target.address,
+            Registers::POSITION_ACCELERATION_TIME, 5, &evidence.frameError);
+        else if (c.step == 1) evidence.status = parseWriteSingleRegister(event.frame, event.length, c.target.address,
+            Registers::MOTION_COMMAND, static_cast<uint16_t>(MotionCommandBit::START_POSITION), &evidence.frameError);
+        else evidence.status = parseRegisters(event.frame, event.length, c.target.address, 2,
+            words, 2, count, &evidence.frameError);
+    } else if (event.kind == ReadEventKind::CANCEL)
+        evidence.status = failed(MoveError::CANCELLED, "move locally cancelled");
+    else if (event.kind == ReadEventKind::DEADLINE)
+        evidence.status = failed(MoveError::DEADLINE_EXPIRED, "move deadline expired");
+    else evidence.status = failed(MoveError::TRANSPORT_FAILURE, "move transport failed");
+    if (c.step == 0) {
+        c.stagingEvidence = evidence; c.setupExecution = execution(evidence);
+        c.stagingApplied = c.setupExecution == ActionExecution::ACKNOWLEDGED;
+    } else if (c.step == 1) { c.triggerEvidence = evidence; c.execution = execution(evidence); }
+    c.servicedUs = nowUs;
+    if (event.kind == ReadEventKind::CANCEL) finish(c, ActionOutcome::CANCELLED, evidence.status);
+    else if (event.kind == ReadEventKind::DEADLINE) finish(c, ActionOutcome::DEADLINE, evidence.status);
+    else if (event.kind == ReadEventKind::TRANSPORT_FAILURE) finish(c, ActionOutcome::TRANSPORT_ERROR, evidence.status);
+    else if (!event.qualified) finish(c, ActionOutcome::TIMING_UNQUALIFIED,
+        failed(MoveError::TIMING_UNQUALIFIED, "move closure timing is unqualified"));
+    else if (event.latestUs > c.deadlineUs) finish(c, ActionOutcome::DEADLINE,
+        failed(MoveError::DEADLINE_EXPIRED, "move closure exceeds deadline"));
+    else if (!evidence.status) finish(c, ActionOutcome::REPLY_ERROR, evidence.status);
+    else if (!supplied.responseConfirmed) finish(c, ActionOutcome::UNCONFIRMED_RESPONSE,
+        failed(MoveError::UNCONFIRMED_RESPONSE, "frame source is not confirmed as the drive"));
+    else if (c.step < 2) {
+        if (nowUs >= c.deadlineUs) finish(c, ActionOutcome::DEADLINE,
+            failed(MoveError::DEADLINE_EXPIRED, "no budget for the next move step"));
+        else if (c.step == 0) { ++c.step; c.eligibleUs = nowUs; }
+        else wait(c, nowUs);
+    } else {
+        ++c.polls; c.lastObservation = evidence; c.observationKnown = true;
+        c.rawAlarm = words[0]; c.rawMotion = words[1];
+        if (words[0] || (words[1] & FAULTS)) finish(c, ActionOutcome::REPLY_ERROR,
+            failed(MoveError::DRIVE_FAULT, "drive alarm, release or limit interrupted the move"));
+        else if (words[1] & RUNNING) {
+            if (!c.runningObserved) c.activityEvidence = evidence;
+            c.runningObserved = true;
+        } else if (c.runningObserved && (words[1] & ARRIVED)) {
+            c.completion = ActionCompletion::OBSERVED;
+            finish(c, ActionOutcome::OBSERVED, Ok());
+        }
+        if (c.state == ActionState::ACTIVE) {
+            if (c.polls >= c.options.maxPolls) finish(c, ActionOutcome::OBSERVATION_LIMIT,
+                failed(MoveError::OBSERVATION_LIMIT, "fresh move completion was not observed"));
+            else if (nowUs >= c.deadlineUs) finish(c, ActionOutcome::DEADLINE,
+                failed(MoveError::DEADLINE_EXPIRED, "no budget for another move observation"));
+            else wait(c, nowUs);
+        }
+    }
+    if (c.state == ActionState::FAILED) c.failureEvidence = evidence;
+    return Ok();
+}
+}} // namespace MotorControlRS::ESS_RS

@@ -23,6 +23,10 @@ Prompt 08 adds [bounded actions and priority stop](ess_actions.md), application
 axis reservations, explicit uncertainty and console routes. Physical action
 testing remains gated by independent TX/RX/DE and FC06 echo qualification.
 
+Prompt09 adds [finite relative positioning](ess_position.md): exact common/native
+preparation, checked staging/trigger, new activity/completion evidence and priority
+stop interruption. Physical movement remains gated; software/API paths are real.
+
 Implemented blocks include exact target preparation, typed non-changing reads, pure unit conversion, an ESS register catalogue,
 checked wire codecs with a minimal probe and standalone build foundations.
 The standalone RTU runner and ESP32-S3 adapter have native fake tests. The read-only

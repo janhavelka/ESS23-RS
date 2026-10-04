@@ -171,3 +171,11 @@ backup/restore information, measured intervals, memory and qualification limits.
 Track subsequent work in [the backlog](backlog.md). This dated setup note is
 the starting point; update it with observations instead of silently treating
 old settings as current measurements.
+
+Prompt09 [finite-position evidence](reports/ess_release_09_2026-10-04.md) uploaded
+the recorded final timer image and passed38 read-only frames plus zero-TX move
+and action gates. A whole-record stack-temporary regression was diagnosed and
+fixed; the original campaign rerun restored owner stack headroom from36 to3636
+bytes. Load/monitor remain off, DE released, no pending/retained work or recovery
+requirement. Physical moves and dynamic stopping remain NOT RUN behind the
+documented timing/sign/basis/ramp/input qualification gates.

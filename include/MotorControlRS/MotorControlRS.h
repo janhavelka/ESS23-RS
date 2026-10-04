@@ -10,4 +10,5 @@
 #include "Axis.h"
 #include "ReadOperation.h"
 #include "ActionOperation.h"
+#include "MoveOperation.h"
 #include "Version.h"

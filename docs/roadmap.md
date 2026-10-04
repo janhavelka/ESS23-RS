@@ -7,8 +7,8 @@ future version numbers are not commitments.
 
 The [ESS release prompt set](prompts/ess_release/README.md) turns these stages
 into 30 ordered implementation blocks with tests, independent audits and
-evidence handoffs. Prompts 01–08 have implementation and available verification
-dispositions; prompt 09 is next when dispatched. The [action/stop handoff](reports/ess_release_08_2026-10-04.md)
+evidence handoffs. Prompts 01–09 have implementation and available verification
+dispositions; prompt 10 remains separately dispatched. The [relative-position handoff](reports/ess_release_09_2026-10-04.md) supplies finite staging/trigger/completion APIs while physical moves remain gated. The [action/stop handoff](reports/ess_release_08_2026-10-04.md)
 has native reservations, uncertainty and priority stop, plus read-only COM13 and
 zero-TX gate evidence. Physical actions and motion require independent timing/echo
 qualification; no live move or dynamic-stop claim is made.
@@ -136,3 +136,5 @@ The [fresh07 audit](reports/ess_release_07_audit_2026-10-04.md) corrects numeric
 and exact-parser boundary defects and repeats software/package/build and read-only
 host API checks. Requested relative displacement and endpoint limits remain
 independent; zero radians retain exact integer references without approximation.
+
+Prompt09 [relative-position contract](ess_position.md) and [handoff](reports/ess_release_09_2026-10-04.md) implement the staging/trigger/observation chain with retained uncertainty and same-axis stop interruption. Hardware movement remains gated; independent electrical/physical evidence is not replaced by native tests.

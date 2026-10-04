@@ -10,7 +10,7 @@
 namespace MotorControlRSExample { namespace Probe {
 namespace {
 
-enum class Command : uint8_t { HELP, VERSION, CONFIG, STATUS, HEALTH, STATS, PROBE, CAPTURE_READ, RECOVER, RESET, MEMORY, LOAD, DRV, RESULT, CANCEL, RELEASE, READ, PROFILE, CAPS, READ_IDENTITY, READ_CONFIG, READ_STATE, HEALTH_CHECK, MONITOR, AXIS, PREPARE, ENABLE, MOTOR_RELEASE, ALARM_CLEAR, STOP };
+enum class Command : uint8_t { HELP, VERSION, CONFIG, STATUS, HEALTH, STATS, PROBE, CAPTURE_READ, RECOVER, RESET, MEMORY, LOAD, DRV, RESULT, CANCEL, RELEASE, READ, PROFILE, CAPS, READ_IDENTITY, READ_CONFIG, READ_STATE, HEALTH_CHECK, MONITOR, AXIS, PREPARE, ENABLE, MOTOR_RELEASE, ALARM_CLEAR, STOP, MOVE };
 struct Entry { const char* name; Command command; const char* syntax; const char* effect; bool bus; };
 const Entry COMMANDS[] = {
     {"help", Command::HELP, "help [command]", "show_callable_commands", false},
@@ -25,11 +25,12 @@ const Entry COMMANDS[] = {
     {"ping", Command::PROBE, "ping [address]", "read_model_word_only", true},
     {"capture-read", Command::CAPTURE_READ, "capture-read [address]", "read_0x0130_16_words_for_capture_qualification", true},
     {"read", Command::READ, "read identity|config|state [address]", "checked_nonchanging_read", true},
-    {"profile", Command::PROFILE, "profile ess_rs identity|config|state|enable|release|clear-alarm|normal-stop|emergency-stop [address] | profile ess_rs caps", "public_profile_operations", true},
+    {"profile", Command::PROFILE, "profile ess_rs identity|config|state|enable|release|clear-alarm|normal-stop|emergency-stop [address] | profile ess_rs move-relative value unit frame native_rpm configured [address] | profile ess_rs caps", "public_profile_operations", true},
     {"enable", Command::ENABLE, "enable [address]", "request_enable_then_observe_flags", true},
     {"motor-release", Command::MOTOR_RELEASE, "motor-release [address]", "request_release_then_observe_flags", true},
     {"alarm-clear", Command::ALARM_CLEAR, "alarm-clear [address]", "request_clear_resettable_alarm_then_observe_flags", true},
     {"stop", Command::STOP, "stop normal|direct [address]", "priority_stop_with_explicit_policy_then_observe_flags", true},
+    {"move", Command::MOVE, "move relative value unit native|motor|load native_rpm configured [address]", "finite_relative_move_with_exact_target_and_configured_ramp", true},
     {"monitor", Command::MONITOR, "monitor [off | interval_ms count]", "finite_nonconsuming_state_polling", false},
     {"caps", Command::CAPS, "caps", "show_public_read_capabilities", false},
     {"axis", Command::AXIS, "axis config [set field value [maximum]] | axis origin exact_native", "configure_host_coordinates_only", false},
@@ -452,7 +453,7 @@ void Console::error(uint32_t id, const char* command, const char* reason) noexce
 
 void Console::action(uint32_t id, const char* command, Action result, uint8_t address, uint32_t operationId) noexcept {
     const bool typed = std::strcmp(command, "read-identity") == 0 || std::strcmp(command, "read-config") == 0 || std::strcmp(command, "read-state") == 0;
-    const bool motor = std::strcmp(command, "enable") == 0 || std::strcmp(command, "motor-release") == 0 || std::strcmp(command, "alarm-clear") == 0 || std::strcmp(command, "stop") == 0;
+    const bool motor = std::strcmp(command, "enable") == 0 || std::strcmp(command, "motor-release") == 0 || std::strcmp(command, "alarm-clear") == 0 || std::strcmp(command, "stop") == 0 || std::strcmp(command, "move-relative") == 0;
     std::snprintf(output_, sizeof(output_),
         "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"%s\",\"ok\":%s,\"result\":\"%s\",\"address\":%u,\"operation_id\":%lu%s}",
         static_cast<unsigned long>(id), command, boolean(result == Action::OK),
@@ -503,6 +504,36 @@ void Console::dispatch() noexcept {
     if (outstanding(id)) { error(id, "input", "duplicate_id"); return; }
     const Entry* entry = find(tokens[first]);
     if (!entry) { error(id, "unknown", "unknown_command"); return; }
+    const bool nativeMove = entry->command == Command::PROFILE && count > first + 2 &&
+        std::strcmp(tokens[first + 1], "ess_rs") == 0 && std::strcmp(tokens[first + 2], "move-relative") == 0;
+    if (entry->command == Command::MOVE || nativeMove) {
+        if (outputPending()) { ++inputDropped_; return; }
+        if (!host_.startMove || !host_.snapshot || !host_.axis) { error(id, "move-relative", "unavailable"); return; }
+        const std::size_t args = first + (nativeMove ? 3 : 2);
+        if ((!nativeMove && (count <= first + 1 || std::strcmp(tokens[first + 1], "relative") != 0)) ||
+            (count != args + 5 && count != args + 6)) { error(id, "move-relative", "invalid_arguments"); return; }
+        Core::MoveRequest move;
+        Core::Rational speed;
+        if (!Core::parseExactNumber(tokens[args], move.position.value) ||
+            !positionUnit(tokens[args + 1], move.position.unit) || !coordinateFrame(tokens[args + 2], move.position.frame) ||
+            !Core::parseExactNumber(tokens[args + 3], speed) || speed.denominator != 1 || speed.numerator <= 0 || speed.numerator > UINT16_MAX ||
+            std::strcmp(tokens[args + 4], "configured") != 0) { error(id, "move-relative", "invalid_arguments"); return; }
+        move.speedRpm = static_cast<uint16_t>(speed.numerator); move.ramp = Core::MoveRamp::VERIFIED_CONFIGURED;
+        Snapshot snapshot; host_.snapshot(host_.context, snapshot);
+        uint32_t address = snapshot.address;
+        if (count == args + 6 && !number(tokens[args + 5], address)) { error(id, "move-relative", "invalid_address"); return; }
+        if (address < 1 || address > 247) { error(id, "move-relative", "invalid_address"); return; }
+        AxisCommand query; AxisView axis;
+        if (!host_.axis(host_.context, query, axis)) { error(id, "move-relative", "invalid_axis_configuration"); return; }
+        move.position.configurationGeneration = axis.configuration.generation;
+        bool available = false;
+        for (std::size_t i = 0; i < OUTSTANDING_CAPACITY - 1; ++i) available = available || !outstanding_[i].commandId;
+        uint32_t operationId = 0;
+        const Action result = available ? host_.startMove(host_.context, id, static_cast<uint8_t>(address), move, operationId) : Action::BUSY;
+        if (result == Action::OK) track(id, operationId);
+        action(id, "move-relative", result, static_cast<uint8_t>(address), result == Action::OK ? operationId : 0);
+        return;
+    }
     Core::ActionRequest request;
     const char* actionCommand = nullptr;
     std::size_t actionArgs = first + 1;
@@ -653,7 +684,8 @@ void Console::dispatch() noexcept {
         case Command::LOAD: return host_.load != nullptr;
         case Command::CAPTURE_READ: return host_.startCaptureRead != nullptr;
         case Command::ENABLE: case Command::MOTOR_RELEASE: case Command::ALARM_CLEAR: case Command::STOP: return host_.startAction != nullptr;
-        case Command::PROFILE: return host_.startTypedRead != nullptr || host_.startAction != nullptr;
+        case Command::MOVE: return host_.startMove != nullptr;
+        case Command::PROFILE: return host_.startTypedRead != nullptr || host_.startAction != nullptr || host_.startMove != nullptr;
         case Command::READ: case Command::READ_IDENTITY: case Command::READ_CONFIG: case Command::READ_STATE: case Command::HEALTH_CHECK: return host_.startTypedRead != nullptr;
         case Command::RESULT: return host_.result != nullptr;
         case Command::CANCEL: return host_.cancel != nullptr;
@@ -698,9 +730,9 @@ void Console::dispatch() noexcept {
         const auto caps = Ess::readCapabilities();
         Snapshot snapshot; host_.snapshot(host_.context, snapshot);
         std::snprintf(output_, sizeof(output_),
-            "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"caps\",\"ok\":true,\"probe\":%s,\"identity\":%s,\"config\":%s,\"state\":%s,\"max_steps\":%u,\"max_reply_bytes\":%u,\"writes\":true,\"motion\":false,\"actions_qualified\":%s,\"axis_reserved\":%s,\"actions\":[\"enable\",\"release\",\"clear_alarm\",\"stop_normal\",\"stop_direct\"],\"device_queue_guarantee\":false}",
+            "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"caps\",\"ok\":true,\"probe\":%s,\"identity\":%s,\"config\":%s,\"state\":%s,\"max_steps\":%u,\"max_reply_bytes\":%u,\"writes\":true,\"motion\":%s,\"actions_qualified\":%s,\"axis_reserved\":%s,\"actions\":[\"enable\",\"release\",\"clear_alarm\",\"stop_normal\",\"stop_direct\"],\"device_queue_guarantee\":false}",
             static_cast<unsigned long>(id), boolean(caps.probe), boolean(caps.identity), boolean(caps.config), boolean(caps.state), caps.maxSteps, caps.maxReplyBytes,
-            boolean(snapshot.actionsQualified), boolean(snapshot.axisReserved));
+            boolean(host_.startMove != nullptr), boolean(snapshot.actionsQualified), boolean(snapshot.axisReserved));
         emit(); return;
     }
     if (entry->command == Command::RESET || (entry->command == Command::STATS && arg)) {
@@ -723,14 +755,15 @@ void Console::dispatch() noexcept {
         if (!host_.result(host_.context, operationId, view)) { error(id, entry->name, "unavailable"); return; }
         if (view.pending) {
             std::snprintf(output_, sizeof(output_),
-                "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"result\",\"command_id\":%lu,\"operation_id\":%lu,\"ok\":true,\"result\":\"pending\",\"recovery\":%s,\"capture_read\":%s,\"read_kind\":%s,\"action_kind\":%s,\"stop_policy\":%s}",
+                "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"result\",\"command_id\":%lu,\"operation_id\":%lu,\"ok\":true,\"result\":\"pending\",\"recovery\":%s,\"capture_read\":%s,\"read_kind\":%s,\"action_kind\":%s,\"stop_policy\":%s,\"move_kind\":%s}",
                 static_cast<unsigned long>(id), static_cast<unsigned long>(view.commandId),
                 static_cast<unsigned long>(view.operationId), boolean(view.recovery), boolean(view.captureRead),
                 !view.typedRead ? "null" : view.typedRead->kind == Ess::ReadKind::IDENTITY ? "\"identity\"" : view.typedRead->kind == Ess::ReadKind::CONFIG ? "\"config\"" : "\"state\"",
                 !view.actionContext ? "null" : view.actionContext->request.kind == Core::ActionKind::ENABLE ? "\"enable\"" : view.actionContext->request.kind == Core::ActionKind::RELEASE ? "\"release\"" : view.actionContext->request.kind == Core::ActionKind::CLEAR_ALARM ? "\"clear_alarm\"" : "\"stop\"",
-                view.actionContext ? stopPolicy(view.actionContext->request) : "null");
+                view.actionContext ? stopPolicy(view.actionContext->request) : "null", view.moveContext ? "\"relative\"" : "null");
             emit();
-        } else if (view.actionContext) formatAction(id, view.commandId, view.operationId, *view.actionContext, true, view.interruptedByStop);
+        } else if (view.moveContext) formatMove(id, view.commandId, view.operationId, *view.moveContext, true, view.interruptedByStop);
+        else if (view.actionContext) formatAction(id, view.commandId, view.operationId, *view.actionContext, true, view.interruptedByStop);
         else if (view.typedRead) formatRead(id, view.commandId, view.operationId, *view.typedRead, true);
         else if (view.recovery) formatRecovery(id, view.commandId, view.operationId, view.recoveryResult, true);
         else formatProbe(id, view.commandId, view.address, view.operationId, view.probe, true);
@@ -989,6 +1022,68 @@ bool Console::reportRead(uint32_t id, uint32_t operationId, const Ess::ReadConte
         return formatRead(id, id, operationId, context, false);
     }
     return false;
+}
+
+bool Console::reportMove(uint32_t id, uint32_t operationId, const Ess::MoveContext& context,
+                         bool interruptedByStop) noexcept {
+    if (outputPending() || context.operationId != operationId ||
+        (context.state != Core::ActionState::SUCCEEDED && context.state != Core::ActionState::FAILED)) return false;
+    for (auto& item : outstanding_) if (item.commandId == id && item.operationId == operationId && !item.transferred) {
+        if (!formatMove(id, id, operationId, context, false, interruptedByStop)) return false;
+        if (item.operationId == operationId) item.transferred = true;
+        return true;
+    }
+    return false;
+}
+
+bool Console::formatMove(uint32_t id, uint32_t commandId, uint32_t operationId,
+                         const Ess::MoveContext& c, bool inspection, bool interruptedByStop) noexcept {
+    std::size_t used = 0;
+    const bool ok = c.state == Core::ActionState::SUCCEEDED && c.completion == Core::ActionCompletion::OBSERVED;
+    const auto& p = c.prepared;
+    const auto& r = c.request.position;
+    char alarm[8] = "null", motion[8] = "null";
+    if (c.observationKnown) {
+        std::snprintf(alarm, sizeof(alarm), "%u", c.rawAlarm);
+        std::snprintf(motion, sizeof(motion), "%u", c.rawMotion);
+    }
+    char radians[32] = "null", approximateNative[32] = "null", approximationLimit[32] = "null";
+    if (r.unit == Core::PositionUnit::RADIANS && !r.rationalRadians)
+        std::snprintf(radians, sizeof(radians), "%.17g", r.radians);
+    if (!p.exactArithmetic) {
+        std::snprintf(approximateNative, sizeof(approximateNative), "%.17g", p.approximateRequestedNative);
+        std::snprintf(approximationLimit, sizeof(approximationLimit), "%.17g", r.maximumApproximationError);
+    }
+    bool fits = append(output_, sizeof(output_), used,
+        "{\"type\":\"%s\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"%s\",\"command_id\":%lu,\"operation_id\":%lu,\"move_kind\":\"relative\",\"read_kind\":null,\"action_kind\":null,\"capture_read\":false,\"recovery\":false,\"ok\":%s,\"state\":\"%s\",\"outcome\":\"%s\",\"status\":\"%s\",\"detail\":%ld,\"setup_execution\":\"%s\",\"execution\":\"%s\",\"completion\":\"%s\",\"target\":%lu,\"address\":%u,\"generation\":%lu,\"configuration_generation\":%lu,\"started_us\":%llu,\"deadline_us\":%llu,\"serviced_us\":%llu,\"polls\":%u,\"staging_applied\":%s,\"uncertain\":%s,\"running_observed\":%s,\"observation_known\":%s,\"raw_alarm\":%s,\"raw_motion\":%s,\"native_rpm\":%u,\"ramp\":\"configured\",\"staging_words\":[%u,%u,%u,%u,%u],\"requested\":{\"numerator\":%lld,\"denominator\":%llu,\"unit\":\"%s\",\"frame\":%u,\"relative\":true,\"basis\":%u,\"rounding\":%u,\"approximate\":%s,\"rational_radians\":%s,\"radians\":%s,\"maximum_quantization_error\":%.17g,\"maximum_approximation_error\":%s},\"effective_native\":%lld,\"endpoint_known\":%s,\"endpoint_native\":%lld,\"displacement_native\":%lld,\"zero_displacement\":%s,\"rounding_error\":%.17g,\"approximation_error_bound\":%.17g,\"exact_arithmetic\":%s,\"requested_native_approximate\":%s,\"staging_evidence\":",
+        inspection ? "reply" : "move", static_cast<unsigned long>(id), inspection ? "result" : "move-relative",
+        static_cast<unsigned long>(commandId), static_cast<unsigned long>(operationId), boolean(ok),
+        c.state == Core::ActionState::SUCCEEDED ? "succeeded" : "failed", motorOutcome(c.outcome), Core::errToString(c.status.code), static_cast<long>(c.status.detail),
+        executionName(c.setupExecution), executionName(c.execution), c.completion == Core::ActionCompletion::OBSERVED ? "observed" : "not_observed",
+        static_cast<unsigned long>(c.target.id), c.target.address, static_cast<unsigned long>(c.target.generation), static_cast<unsigned long>(p.configurationGeneration),
+        static_cast<unsigned long long>(c.startedUs), static_cast<unsigned long long>(c.deadlineUs), static_cast<unsigned long long>(c.servicedUs), c.polls,
+        boolean(c.stagingApplied), boolean(c.uncertain), boolean(c.runningObserved), boolean(c.observationKnown), alarm, motion,
+        c.request.speedRpm, c.words[0], c.words[1], c.words[2], c.words[3], c.words[4],
+        static_cast<long long>(r.value.numerator), static_cast<unsigned long long>(r.value.denominator), unitName(r.unit),
+        static_cast<unsigned>(r.frame), static_cast<unsigned>(r.basis), static_cast<unsigned>(r.rounding), boolean(r.approximate), boolean(r.rationalRadians), radians, r.maximumQuantizationError, approximationLimit,
+        static_cast<long long>(p.effectiveNative), boolean(p.endpointKnown), static_cast<long long>(p.endpointNative),
+        static_cast<long long>(p.displacementNative), boolean(p.zeroDisplacement), p.roundingError, p.approximationErrorBound, boolean(p.exactArithmetic), approximateNative) &&
+        actionEvidence(output_, sizeof(output_), used, c.stagingEvidence) && append(output_, sizeof(output_), used, ",\"trigger_evidence\":") &&
+        actionEvidence(output_, sizeof(output_), used, c.triggerEvidence) && append(output_, sizeof(output_), used, ",\"activity_evidence\":") &&
+        actionEvidence(output_, sizeof(output_), used, c.activityEvidence) && append(output_, sizeof(output_), used, ",\"last_observation\":") &&
+        actionEvidence(output_, sizeof(output_), used, c.lastObservation) && append(output_, sizeof(output_), used, ",\"failure_evidence\":") &&
+        actionEvidence(output_, sizeof(output_), used, c.failureEvidence) && append(output_, sizeof(output_), used,
+        ",\"prerequisites\":{\"target\":%lu,\"generation\":%lu,\"configuration_generation\":%lu,\"observed_us\":%llu,\"maximum_age_us\":%llu,\"raw_alarm\":%u,\"raw_motion\":%u,\"command_units_verified\":%s,\"relative_basis_verified\":%s,\"negative_encoding_verified\":%s,\"configured_ramp_verified\":%s,\"serial_inputs_permit\":%s,\"readiness_qualified\":%s,\"word_order_known\":%s,\"word_order\":%u,\"start_speed_known\":%s,\"start_speed\":%u},\"interrupted_by_stop\":%s}",
+        static_cast<unsigned long>(c.prerequisites.target.id), static_cast<unsigned long>(c.prerequisites.target.generation),
+        static_cast<unsigned long>(c.prerequisites.configurationGeneration), static_cast<unsigned long long>(c.prerequisites.observedUs),
+        static_cast<unsigned long long>(c.prerequisites.maximumAgeUs), c.prerequisites.rawAlarm, c.prerequisites.rawMotion,
+        boolean(c.prerequisites.commandUnitsVerified), boolean(c.prerequisites.relativeBasisVerified), boolean(c.prerequisites.negativeTwosComplementVerified),
+        boolean(c.prerequisites.configuredRampVerified), boolean(c.prerequisites.serialInputsPermit), boolean(c.prerequisites.readinessQualified),
+        boolean(c.prerequisites.wordOrderKnown), static_cast<unsigned>(c.prerequisites.wordOrder), boolean(c.prerequisites.startSpeedKnown),
+        c.prerequisites.startSpeed, boolean(interruptedByStop));
+    if (!fits) return false;
+    emit(inspection ? 0 : operationId);
+    return true;
 }
 
 bool Console::formatRead(uint32_t id, uint32_t commandId, uint32_t operationId,

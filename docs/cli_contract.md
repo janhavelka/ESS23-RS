@@ -1,5 +1,11 @@
 # MotorControl-RS standalone CLI contract
 
+Prompt09 implements `move relative <value> <unit> <native|motor|load> <native_rpm>
+configured [address]` and `profile ess_rs move-relative` through the same public
+preparation/sequence. Accepted and retained terminal evidence remains distinct;
+see [finite relative positioning](ess_position.md). Current bench physical writes
+remain blocked by qualification gates; there is no CLI bypass.
+
 
 Prompt 07 adds [host axis configuration and pure target previews](axis_preparation.md)
 through the same installed public API; these commands generate no motor traffic.

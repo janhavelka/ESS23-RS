@@ -4,6 +4,7 @@
 #include <MotorControlRS/Axis.h>
 #include <MotorControlRS/profiles/ess_rs/Reads.h>
 #include <MotorControlRS/profiles/ess_rs/Actions.h>
+#include <MotorControlRS/profiles/ess_rs/Position.h>
 
 int main() {
     using namespace MotorControlRS;
@@ -65,5 +66,21 @@ int main() {
     evidence.transport.step = action.step; evidence.transport.kind = ReadEventKind::CANCEL;
     if (!advanceAction(action, evidence, 1400) || action.outcome != ActionOutcome::CANCELLED ||
         action.execution != ActionExecution::ACKNOWLEDGED) return 20;
+    MovePrerequisites prerequisites; prerequisites.target = target;
+    prerequisites.configurationGeneration = axis.generation;
+    prerequisites.commandUnitsVerified = prerequisites.relativeBasisVerified = true;
+    prerequisites.configuredRampVerified = prerequisites.serialInputsPermit = prerequisites.readinessQualified = true;
+    prerequisites.wordOrderKnown = prerequisites.startSpeedKnown = true;
+    prerequisites.accelerationTime = prerequisites.decelerationTime = 100;
+    prerequisites.startSpeed = 10; prerequisites.observedUs = 1900; prerequisites.maximumAgeUs = 1000;
+    MoveRequest move; move.position.configurationGeneration = axis.generation;
+    move.position.value = Rational(20); move.speedRpm = 60; move.ramp = MoveRamp::VERIFIED_CONFIGURED;
+    MoveContext moving;
+    if (!MotorControlRS::prepareMoveRelative(moving, axis, nullptr, 7, move, prerequisites, 2000, 100000)) return 21;
+    PreparedMove stage;
+    if (!nextMove(moving, 2000, stage) || stage.length != 19 || stage.function != 16 || stage.count != 5) return 22;
+    evidence = ActionEvent(); evidence.transport.target = target; evidence.transport.operationId = 7;
+    evidence.transport.kind = ReadEventKind::CANCEL;
+    if (!advanceMove(moving, evidence, 2100) || moving.outcome != ActionOutcome::CANCELLED || moving.uncertain) return 23;
     return 0;
 }
