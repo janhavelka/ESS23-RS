@@ -1,7 +1,7 @@
 """Short, explicitly selected free-shaft experiment phases; never replay writes.
 
 Prepare/print the complete phase before opening COM13. Uses the public console
-operations, checked host harness, and an explicit functional firmware image.
+operations, checked host harness, and the regular firmware image.
 No persistence, power control, continuous velocity or endurance loop is included.
 """
 import argparse
@@ -15,26 +15,27 @@ from bench_probe import BenchError, Console, Evidence, open_port
 def phase_plan(phase):
     common = ['version', 'host', 'config', 'stats', 'load', 'read-config 1', 'read-state 1']
     steps = {
-        'inspect': ['read-identity 1', 'motion-bench read', 'motion-bench inspect'],
+        'inspect': ['read-identity 1', 'motion-profile read', 'motion-profile inspect'],
         'actions': ['stop normal 1', 'read-state 1', 'stop direct 1', 'read-state 1',
                     'motor-release 1', 'read-state 1', 'stop direct 1',
                     'enable 1', 'read-state 1', 'stop direct 1', 'read-state 1'],
-        'forward': ['motion-bench read', 'read-state 1', 'move relative 100 steps native 60 configured 1', 'read-state 1',
+        'forward': ['motion-profile read', 'read-state 1', 'move relative 100 steps native 60 configured 1', 'read-state 1',
                     'stop direct 1', 'read-state 1'],
-        'return': ['motion-bench read', 'read-state 1', 'move absolute 0 steps native 60 configured 1', 'read-state 1',
+        'absolute': ['motion-profile read', 'read-state 1', 'move absolute 100 steps native 60 configured 1', 'read-state 1', 'stop direct 1', 'read-state 1'],
+        'return': ['motion-profile read', 'read-state 1', 'move absolute 0 steps native 60 configured 1', 'read-state 1',
                    'stop direct 1', 'read-state 1'],
-        'stop-normal': ['motion-bench read', 'read-state 1', 'move relative 250 steps native 60 configured 1',
+        'stop-normal': ['motion-profile read', 'read-state 1', 'move relative 250 steps native 60 configured 1',
                         'read-state 1 until new running report (at most 32 reads)',
                         'stop normal 1', 'inspect interrupted move result', 'read-state 1'],
-        'stop-direct': ['motion-bench read', 'read-state 1', 'move relative 250 steps native 60 configured 1',
+        'stop-direct': ['motion-profile read', 'read-state 1', 'move relative 250 steps native 60 configured 1',
                         'read-state 1 until new running report (at most 32 reads)',
                         'stop direct 1', 'inspect interrupted move result', 'read-state 1'],
-        'restore': ['stop direct 1', 'read-state 1', 'motion-bench restore',
-                    'motion-bench inspect until settled (at most 100 reads)', 'probe 1'],
-        'status': ['motion-bench inspect', 'probe 1'],
+        'restore': ['stop direct 1', 'read-state 1', 'motion-profile restore',
+                    'motion-profile inspect until settled (at most 100 reads)', 'probe 1'],
+        'status': ['motion-profile inspect', 'probe 1'],
     }
-    cleanup = ['on failed accepted finite move: one direct stop only if no stop was attempted and framing remains synchronized; then read-state 1'] if phase in ('forward', 'return', 'stop-normal', 'stop-direct') else []
-    settling = ['after motion/stop: read-state 1 up to ten times, 50ms apart, until not running and raw speed zero'] if phase in ('forward', 'return', 'stop-normal', 'stop-direct') else []
+    cleanup = ['on failed accepted finite move: one direct stop only if no stop was attempted and framing remains synchronized; then read-state 1'] if phase in ('forward', 'absolute', 'return', 'stop-normal', 'stop-direct') else []
+    settling = ['after motion/stop: read-state 1 up to ten times, 50ms apart, until not running and raw speed zero'] if phase in ('forward', 'absolute', 'return', 'stop-normal', 'stop-direct') else []
     return common + steps[phase] + settling + cleanup + ['stats', 'load', 'drv', 'memory', 'host']
 
 
@@ -75,17 +76,18 @@ def run_phase(console, phase, record):
         raise BenchError('zero-speed observation bound exhausted')
 
     def fixture(action):
-        result = command('motion-bench', host_args=(action,))
+        result = command('motion-profile', host_args=(action,))
         for _ in range(100):
             if not result['pending']:
                 if not result['session_ok']:
                     raise BenchError('motion snapshot/restoration failed: ' + result['error'])
                 return result
             time.sleep(.01)
-            result = command('motion-bench', host_args=('inspect',))
+            result = command('motion-profile', host_args=('inspect',))
         raise BenchError('motion snapshot/restoration observation bound exhausted')
 
     record['version'] = console.identify()
+    record['sniff'] = command('sniff', host_args=(record.get('sniff_mode', 'off'),))
     record['host'] = command('host')
     if record['host']['active'] != dict(baud=115200, format='8N1') or record['host']['blocked']:
         raise BenchError('unexpected host tuple; no automatic reconfiguration')
@@ -111,15 +113,15 @@ def run_phase(console, phase, record):
             if state()[0]['released']:
                 raise BenchError('enable transition was not reported')
             stop('direct'); state()
-        elif phase in ('forward', 'return', 'stop-normal', 'stop-direct'):
+        elif phase in ('forward', 'absolute', 'return', 'stop-normal', 'stop-direct'):
             # Reading the fixture refreshes current profile/provenance but keeps
             # the original saved words. It sends no setting write.
             record['profile'] = fixture('read')
             before_move = state()
             if not 0 <= before_move[2]['raw_position'] <= 250:
                 raise BenchError('experiment requires bounded native position report 0..250')
-            value = '0' if phase == 'return' else '100' if phase == 'forward' else '250'
-            kind = 'move-absolute' if phase == 'return' else 'move-relative'
+            value = '0' if phase == 'return' else '100' if phase in ('forward', 'absolute') else '250'
+            kind = 'move-absolute' if phase in ('return', 'absolute') else 'move-relative'
             stop_attempted = False
             move = console.begin(kind, move_args=(value, 'steps', 'native', '60', 'configured'), address=1, timeout_s=5)
             record['move_admission'] = dict(accepted=move.accepted, operation_id=move.operation_id)
@@ -157,7 +159,7 @@ def run_phase(console, phase, record):
                 raise BenchError('exact motion profile restoration not established')
             command('probe', address=1)
         else:
-            record['profile'] = command('motion-bench', host_args=('inspect',))
+            record['profile'] = command('motion-profile', host_args=('inspect',))
             command('probe', address=1)
     except BaseException as phase_error:
         record['phase_error'] = str(phase_error)
@@ -172,7 +174,7 @@ def run_phase(console, phase, record):
         raise
     finally:
         if console.synchronized:
-            for name in ('stats', 'load', 'drv', 'memory', 'host'):
+            for name in ('stats', 'load', 'drv', 'memory', 'host', 'sniff'):
                 try:
                     record['ending_' + name] = command(name)
                 except BaseException as error:
@@ -183,11 +185,15 @@ def run_phase(console, phase, record):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--port', default='COM13')
-    parser.add_argument('--phase', required=True, choices=('inspect', 'actions', 'forward', 'return', 'stop-normal', 'stop-direct', 'restore', 'status'))
+    parser.add_argument('--sniff', choices=('off', 'raw', 'decoded'), default='off')
+    parser.add_argument('--phase', required=True, choices=('inspect', 'actions', 'forward', 'absolute', 'return', 'stop-normal', 'stop-direct', 'restore', 'status'))
     parser.add_argument('--out', required=True, type=Path, help='new evidence filename prefix; existing files are never overwritten')
     parser.add_argument('--plan-only', action='store_true')
     args = parser.parse_args()
-    record = dict(phase=args.phase, plan=phase_plan(args.phase), physical_shaft_observation='unmeasured',
+    plan = phase_plan(args.phase)
+    plan.insert(1, 'sniff ' + args.sniff)
+    plan.append('sniff')
+    record = dict(phase=args.phase, sniff_mode=args.sniff, plan=plan, physical_shaft_observation='unmeasured',
                   electrical_timing='unmeasured', automatic_write_replay=False, hours_soak='NOT RUN')
     print(json.dumps(record, indent=2), flush=True)
     if args.plan_only:

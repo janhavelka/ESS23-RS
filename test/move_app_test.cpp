@@ -14,7 +14,7 @@ using namespace MotorControlRS;
 void fresh() {
     if (app) { app->~App(); std::free(app); app = nullptr; }
     uart.~Esp32S3Uart(); new (&uart) Esp32S3Uart;
-    resetHardware(); Serial = FakeSerial(); platformReady = false; actionTimingQualified = false;
+    resetHardware(); Serial = FakeSerial(); platformReady = false; writeResponseConfirmed = false;
     setup();
     assert(app && uart.ready() && app->owner.valid() && hardware.writes == 0);
     hardware.txCharacterUs = 87;
@@ -79,7 +79,7 @@ MoveRequest request() {
 void qualify() {
     // Deliberately simulated qualifications. Production has no corresponding
     // console control and starts with every verification flag false.
-    actionTimingQualified = true;
+    writeResponseConfirmed = true;
     app->knownTargets[0] |= 2;
     app->axis.nativeMinimum = -1000; app->axis.nativeMaximum = 1000;
     app->axis.supportedRelativeBases = 1;
@@ -138,7 +138,7 @@ void testProductionGateAndImmutableAdmission() {
 void testIndependentWritesRespectQualificationAndMoveStartup() {
     fresh(); uint8_t bytes[8] = {}; Rtu::RequestId write;
     const auto unqualified = configurationWrite(bytes, sizeof(bytes));
-    assert(admitAxisWrite(*app, unqualified, nowUs(), write) == Probe::Action::TIMING_UNQUALIFIED);
+    assert(admitAxisWrite(*app, unqualified, nowUs(), write) == Probe::Action::UNAVAILABLE);
     assert(!write.owner && hardware.writes == 0 && !app->owner.pending());
     qualify(); const auto configured = configurationWrite(bytes, sizeof(bytes));
     auto& unrelated = app->stateCache.blocks[static_cast<uint8_t>(ESS::StateBlock::FEEDBACK)];

@@ -9,6 +9,11 @@ Prerequisite: actual API/CLI behavior and correlation from earlier steps. Reuse 
 
 Inspect `scripts/bench_probe.py`, `test/bench_probe_test.py`, the current console inventory and native fake serial scenarios. Preserve one port owner, bounded input and exclusive evidence files.
 
+Reuse `scripts/bench_motion.py` and its campaign tests. Its `--sniff` option
+exercises normal firmware while the harness validates asynchronous traffic
+events separately from ordinary replies; do not reintroduce a special motion
+mode or mistake diagnostic display drops for lost protocol data.
+
 ## Implement
 
 - Consolidate finite scenarios for probes, observations, configuration, position/angle, velocity, stop, homing prerequisites, native operations and discovery. Share connection, framing/correlation, evidence and settings snapshot helpers.

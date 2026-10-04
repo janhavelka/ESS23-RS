@@ -1,9 +1,9 @@
 # ESP32-S3 read-only probe bench
 
-The explicitly selected [functional bench image](functional_bench.md) also
-supports short unattended enable/release, finite-motion and stop experiments.
-Ordinary builds retain their existing qualification gates. See the linked
-procedure for saved settings, prepared commands and retained unknown outcomes.
+The ordinary firmware exposes [actions and motion checks](functional_bench.md)
+and [passive raw/decoded sniffing](traffic.md). No separate functional image or
+analyzer admission flag exists. The user owns the declared wiring; firmware
+checks command prerequisites and software transport evidence.
 
 Prompt19 adds [host-only serial selection](host_serial.md), `host caps`,
 `host set RATE FORMAT` and `host restore`, with retained tuple/generation
@@ -35,7 +35,7 @@ remain separate from those checked register paths.
 Prompt17 adds [control settings](ess_control_settings.md) and the Python `control read|set` scenario. [Implementation-image evidence](reports/ess_release_17_2026-10-04.md) records66frames, all-field readback and delay200-to201-to200 restoration; mode/encoder/current effects and electrical FC06 source remain unqualified.
 
 
-Prompt14 adds [homing API/console routes](ess_homing.md) and `home methods`. Real execution remains behind method/native/auxiliary/reference and electrical-source qualifications; the current-image checks are [read-only and zero-TX evidence](reports/ess_release_14_2026-10-04.md).
+Prompt14 adds [homing API/console routes](ess_homing.md) and `home methods`. Real execution remains behind method/native/auxiliary/reference prerequisites; the current-image checks are [read-only and zero-TX evidence](reports/ess_release_14_2026-10-04.md).
 
 Prompt11 adds [finite serial velocity](ess_velocity.md) and a bounded Python
 velocity scenario; production action/ramp/sign gates remain closed. See the
@@ -46,13 +46,13 @@ host harness and updated help image, with repeated read-only checks.
 
 Prompt10 adds shared relative/absolute/wrapped-angle console and Python routes
 and zero-only device position clear; see [finite positioning](ess_position.md).
-They remain gated on this bench. [Current evidence](reports/ess_release_10_2026-10-04.md)
+Their original [historical evidence](reports/ess_release_10_2026-10-04.md)
 records read-only regression, pure step/degree/radian equivalence and zero-TX gates.
 
 Prompt 08 adds [typed actions and priority stop](ess_actions.md) to this console.
-The application exposes `actions_qualified:false` and rejects physical action
-admission before TX until independent timing/echo qualification is available.
-Read-only campaigns retain their existing scope.
+The ordinary application uses the configured echo/receive contract for checked
+acknowledgements; observed completion remains separate. No analyzer admission
+gate or test-mode flag is required.
 
 Prompt 07 adds [host axis configuration and pure target previews](axis_preparation.md)
 through the same installed public API; these commands generate no motor traffic.
@@ -60,7 +60,7 @@ through the same installed public API; these commands generate no motor traffic.
 Prompts 05–06 implement bounded [typed identity/configuration/state reads](ess_reads.md), common/profile routes, passive per-block status/health and finite opt-in observation polling. The [linked inventory](reference/ess_rs_operations.json) keeps native/hardware evidence and read/write/action obligations separate. Model/firmware compatibility, units, readiness and motion remain unqualified; these reads perform no writes.
 
 This example connects the ESS codecs, application BusOwner, standalone runner and a dedicated
-ESP32-S3 UART adapter. Its motor commands are documented non-changing model/identity/configuration/state reads and a fixed sixteen-word capture qualification read. It provides a small console and finite Python campaigns
+ESP32-S3 UART adapter. It supports documented reads and explicit typed motor operations through the regular library API. It provides a small console and finite Python campaigns
 for developing and checking that path before adding motion.
 
 The adapter records bounded timing observations. It does not claim exact UART

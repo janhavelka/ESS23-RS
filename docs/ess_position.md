@@ -1,9 +1,9 @@
 # Finite ESS positioning
 
-The [short functional bench](functional_bench.md) adds an explicit bounded native
-experiment and retains uncertain FC06 execution separately from drive-reported
-activity/completion. Its evidence does not establish physical angle, calibrated
-feedback, electrical timing or the full positioning family.
+The regular API and firmware implement these operations without a functional
+mode. [Short motion checks](functional_bench.md) use the same preparations as
+applications. Activity/completion reports remain separate from acknowledgement,
+calibrated feedback and independent electrical/shaft measurement.
 
 Prompt09 adds the installed common intent in
 [MoveOperation.h](../include/MotorControlRS/MoveOperation.h) and the concrete ESS
@@ -29,16 +29,13 @@ cannot authorize a stale endpoint. Unestablished optional feedback remains
 irrelevant to native displacement preparation without endpoint limits.
 
 Finite absolute-move preparation preserves the complete target: `720 deg` and `2 turn`
-mean two turns from the selected host origin. It requires a fresh stationary
-actual-position reference whose command-coordinate relation is established.
-The admitted `MoveContext` owns a copy of that reference. Native absolute steps
-need no host origin; absolute motor/load engineering coordinates use the
-configured host origin. Commanded and queued relative bases remain unsupported
-by this ESS operation; their observability cannot be inferred from feedback.
-The pure `preparePosition` arithmetic preview may calculate an ordinary
-absolute endpoint without current-position evidence when its conversion and
-limits need none. Such a preview does not establish displacement or authorize
-the finite move, whose preparation requires the fresh actual reference.
+mean two turns from the selected host origin. Native absolute steps need no host
+origin or current-position reference when conversion and applicable limits need
+neither. The endpoint is known while displacement remains unknown in that case.
+A supplied established reference must be fresh and stationary; the admitted
+context retains it. Engineering coordinates still require their applicable
+origin/scales, and wrapped paths require a fresh native reference. Commanded and
+queued relative bases remain unsupported by this ESS operation.
 
 Wrapped preparation sets `PositionRequest::wrapped` and uses the same public
 `preparePosition` arithmetic. It accepts motor/load turns, degrees or radians,
@@ -165,11 +162,14 @@ quantization and copied reference provenance are retained. Context lookup is
 non-consuming. Maximum output is 4608 bytes, including bounded reference and
 numerical provenance.
 
-The standalone proposed free-shaft software ceiling is ±250 native increments of displacement,
-at most60 RPM, a3-second absolute deadline and at most64 observations spaced
-20ms apart. This is not a qualified physical test envelope. Production
-`actionTimingQualified` remains false; command/sign/basis/ramp/input verification
-flags also remain false. There is no CLI bypass or implicit motor commissioning.
+The standalone free-shaft software ceiling remains250 native increments of
+relative displacement, at most60 in the native speed field, a3-second deadline
+and64 observations spaced20ms apart. Unreferenced native absolute targets0..250
+are admitted only from fresh stopped, zero-speed raw feedback within0..250;
+displacement stays unknown. This example envelope does not limit the library.
+Read `motion-profile` and current state first. Configuration, active inputs,
+negative encoding and conversion prerequisites remain real checks; there is no
+analyzer admission flag or implicit motor commissioning.
 
 Python `move-relative`, `move-absolute` and `move-angle` with explicit
 `--cleanup-stop normal|direct` perform one attempt,
@@ -184,5 +184,7 @@ See [the fresh prompt09 audit](reports/ess_release_09_audit_2026-10-04.md) and
 actual image/bench evidence and outstanding physical gates.
 Prompt10 software and current read-only/gate evidence are recorded separately in
 [its report](reports/ess_release_10_2026-10-04.md). Physical absolute/wrapped
-motion, equivalent-unit shaft comparisons and linear travel remain NOT RUN;
+motion had not run in that historical image; the later short campaign records
+native absolute returns. Equivalent-unit shaft comparisons and linear travel
+remain NOT RUN;
 free-shaft arithmetic is not machine-travel qualification.

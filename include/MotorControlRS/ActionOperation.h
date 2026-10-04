@@ -24,18 +24,15 @@ struct ActionRequest {
     bool positionClearQualified = false; ///< Caller verified clear semantics, target and stopped-state prerequisites.
 };
 /** Finite observation scheduling, supplied by the application. The interval is
- * a polling policy, not a vendor-guaranteed action or stop latency. */
+ * a polling policy, not a vendor-guaranteed action or stop latency. ESS actions
+ * and finite positioning permit read-only observations after a checked FC06
+ * frame even when its source remains unconfirmed; execution stays UNKNOWN.
+ * Read observations and FC10 staging still require confirmed response evidence.
+ * No policy infers acknowledgement from identical bytes or replays a write. */
 struct ActionOptions {
     uint32_t pollIntervalUs = 10000;
     uint8_t maxPolls = 20;
-    /** Explicit functional-bench policy for ESS actions and finite positioning:
-     * after a valid, timely FC06 echo with complete physical TX, permit only
-     * read-only observation when its source remains unconfirmed. Execution
-     * stays UNKNOWN and the original responseConfirmed remains false, even
-     * after observed completion. FC03 observations still require confirmed
-     * sources; FC10 staging and other sequencers retain their strict policy.
-     * This does not qualify electrical timing or authorize a write replay. */
-    bool allowUnconfirmedWriteObservation = false;
+
 };
 /** Response storage is borrowed only for advanceAction. responseConfirmed must
  * mean the application excluded local echo/foreign/late-response ambiguity;

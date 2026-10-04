@@ -5,13 +5,13 @@ Read [the sequence index](README.md); all prerequisite dispositions must be curr
 
 Prerequisite: 07 target checks, 08 implemented stop/action path, 05–06 configuration and state. Live movement requires reviewed transport evidence from 04, resolved units/sign/ramp prerequisites and a recorded small free-shaft test envelope.
 
-Use the execution contract's authorized unattended functional-test policy:
+Use the execution contract's authorized unattended functional acceptance policy:
 no analyzer or human presence is required for short finite free-shaft tests.
 Prepare the complete command/stop/restoration procedure before movement. Defer
 the several-hour test. If negative wire encoding remains unresolved, exercise
 reverse direction with a bounded documented absolute return after establishing
-the command/feedback relation, or the explicitly reviewed literal native-zero
-experiment with unknown displacement retained. Do not encode an unproven
+the command/feedback relation, or a documented native absolute target
+whose displacement remains explicitly unknown when no reference is needed. Do not encode an unproven
 negative target or promote raw feedback to a calibrated coordinate reference.
 
 ## Read and reuse

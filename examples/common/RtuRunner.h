@@ -3,6 +3,7 @@
 
 #include <cstddef>
 #include <stdint.h>
+#include "MotorControlRS/Traffic.h"
 
 namespace MotorControlRSExample { namespace Rtu {
 
@@ -214,6 +215,10 @@ public:
     void clearStats() noexcept { stats_ = Stats(); } ///< Does not clear outcome/interlock.
     std::size_t traceSize() const noexcept { return traceSize_; }
     const Trace* traceAt(std::size_t index) const noexcept; ///< Oldest first; no I/O.
+    /** Optional single-owner diagnostic copies. Never reads the UART or changes
+     * transaction results. Keep recorder/storage alive and separate from transport
+     * buffers; attach/detach only while idle. False leaves the attachment unchanged. */
+    bool setTrafficCapture(MotorControlRS::TrafficCapture* capture) noexcept;
 
 private:
     bool valid() const noexcept;
@@ -239,6 +244,7 @@ private:
     Timing timing_;
     Result result_;
     Stats stats_;
+    MotorControlRS::TrafficCapture* traffic_ = nullptr;
     Phase phase_ = Phase::IDLE;
     Echo echo_ = Echo::NONE;
     Reason pending_ = Reason::NONE;

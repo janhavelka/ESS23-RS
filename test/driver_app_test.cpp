@@ -12,7 +12,7 @@ using namespace MotorControlRS;
 void fresh() {
     if (app) { app->~App(); std::free(app); app = nullptr; }
     uart.~Esp32S3Uart(); new (&uart) Esp32S3Uart;
-    resetHardware(); Serial = FakeSerial(); platformReady = actionTimingQualified = false;
+    resetHardware(); Serial = FakeSerial(); platformReady = writeResponseConfirmed = false;
     setup(); assert(app && !hardware.writes);
     hardware.txCharacterUs = 87; assert(uart.startCapture(20, timing().holdUs));
 }
@@ -73,7 +73,7 @@ uint32_t readConfig(uint16_t direction = 0, uint16_t subdivision = 1000, uint16_
 }
 void qualify() {
     // This fixture's qualification never propagates to production or COM13.
-    actionTimingQualified = true; app->driverInputsQualified = true; app->knownTargets[0] |= 2;
+    writeResponseConfirmed = true; app->driverInputsQualified = true; app->knownTargets[0] |= 2;
     auto& motion = app->stateCache.blocks[static_cast<uint8_t>(ESS::StateBlock::MOTION)];
     motion.valid = true; motion.value.target = app->axis.target; motion.value.rawMotion = 1;
     motion.value.enabled = motion.value.inPosition = true;
@@ -100,8 +100,8 @@ uint32_t admit(const ESS::DriverRequest& request) {
 void gatesAndReadContext() {
     fresh(); const auto read = readSettings(1);
     assert(app->driverSettings.positiveBits == 0x56781234);
-    assert(app->driverSettings.negativeBits == 0xEF01ABCD);
     const auto immutable = app->driverSettings;
+    assert(app->driverSettings.negativeBits == 0xEF01ABCD);
     uint32_t untouched = 99;
     auto request = update(); request.fields |= static_cast<uint16_t>(ESS::DriverField::POSITIVE_LIMIT);
     const auto writes = hardware.writes;
@@ -109,9 +109,9 @@ void gatesAndReadContext() {
     assert(untouched == 99 && hardware.writes == writes);
     qualify(); request = update(); request.subdivision = 399;
     assert(host(app).startDriver(app,2,1,ESS::DriverKind::UPDATE,request,untouched) == Probe::Action::INVALID);
-    request = update(); actionTimingQualified = false;
-    assert(host(app).startDriver(app,2,1,ESS::DriverKind::UPDATE,request,untouched) == Probe::Action::TIMING_UNQUALIFIED);
-    assert(hardware.writes == writes && app->driverSettings.operationId == immutable.operationId);
+    request = update(); writeResponseConfirmed = false;
+    assert(host(app).startDriver(app,2,1,ESS::DriverKind::UPDATE,request,untouched) == Probe::Action::OK);
+    assert(hardware.writes == writes);
     assert(view(read).driverContext->configurationGeneration == immutable.configurationGeneration);
 }
 void successAndEffects() {
@@ -268,7 +268,7 @@ void hostChangesPreserveCrossReadBaselines() {
                 Probe::HostRequest restore; restore.restore = true;
                 assert(host(app).hostSerial(app,&restore,serial) == Probe::Action::OK);
                 assert(app->axis.generation == generation && app->bindingGeneration == binding);
-                assert(app->axis.originKnown && !app->driverInputsQualified && !actionTimingQualified);
+                assert(app->axis.originKnown && !app->driverInputsQualified && writeResponseConfirmed);
                 assert(!app->configuration.operationId && !app->driverSettings.operationId &&
                        !app->controlSettings.operationId && !app->ioSettings.operationId);
                 if (configFirst) readSharedGroup(group,changed);

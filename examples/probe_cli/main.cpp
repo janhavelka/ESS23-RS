@@ -37,12 +37,12 @@ Esp32Load loadFixture;
 bool fixtureReady = false;
 uint64_t nextServiceUs = 0;
 #endif
-#ifndef MOTORCONTROLRS_FUNCTIONAL_BENCH
-#define MOTORCONTROLRS_FUNCTIONAL_BENCH 0
-#endif
 bool platformReady = false;
-// Physical TX/RX/DE and local-echo exclusion remain unqualified on this bench.
-bool actionTimingQualified = false;
+// Declared board topology plus the runner's physical-TX/DE/RX interval checks
+// excludes local transmit echo. This is a wiring contract, not an independently
+// measured electrical timing qualification. Alternate topologies may retain
+// UNKNOWN FC06 execution and still use read-only action/move observations.
+bool writeResponseConfirmed = Board::kRs485ReceiverDisabledDuringTransmit;
 uint64_t nowUs() { return static_cast<uint64_t>(esp_timer_get_time()); }
 Rtu::Storage storage(uint8_t* tx, uint8_t* rx, Rtu::Trace* trace) {
     Rtu::Storage s; s.tx = tx; s.txCapacity = 32; s.rx = rx; s.rxCapacity = 64;
@@ -134,11 +134,16 @@ struct App {
     bool commandPolarityKnown = true; // Host declaration; invalidated by possible device-direction changes.
     MotorControlRS::AxisReference coordinateReference; // Qualified command-coordinate evidence; never inferred from an unsigned/raw zero.
     bool positionClearQualified = false; // Supplied commissioning semantics, independent of electrical qualification.
-    Probe::FunctionalView functional;
-    ESS::RawConfig functionalConfig;
-    Rtu::RequestId functionalRequest;
-    uint32_t functionalBinding = 0;
-    uint64_t functionalDeadline = 0;
+    MotorControlRS::TrafficRecord sniffRecords[16], sniffRequest, sniffScratch;
+    MotorControlRS::TrafficCapture traffic{sniffRecords,16};
+    Probe::SniffSnapshot sniffState;
+    bool sniffRequestKnown = false;
+    uint64_t sniffCursor = 0;
+    Probe::MotionProfileView motionProfile;
+    ESS::RawConfig motionProfileConfig;
+    Rtu::RequestId motionProfileRequest;
+    uint32_t motionProfileBinding = 0;
+    uint64_t motionProfileDeadline = 0;
     ESS::MovePrerequisites movePrerequisites; // Supplied commissioning evidence; false until verified.
     ESS::HomePrerequisites homePrerequisites; // Explicit method/active-auxiliary/native/reference qualification.
     ESS::VelocityPrerequisites velocityPrerequisites; // Independent commissioning evidence, initially unqualified.
@@ -167,7 +172,7 @@ struct App {
             }
         }
         axis.target.id = axis.target.address = 1; axis.target.generation = bindingGeneration;
-        if (MOTORCONTROLRS_FUNCTIONAL_BENCH) axis.supportedRelativeBases = 1;
+        axis.supportedRelativeBases = 1;
         // Application bench declaration: only power/RS485, no terminal wiring.
         for (auto& wiring : inputWiring) wiring = MotorControlRS::InputWiring::UNCONNECTED;
         for (auto& wiring : outputWiring) wiring = MotorControlRS::InputWiring::UNCONNECTED;
@@ -211,7 +216,7 @@ bool terminal(const App& a, const App::Record& record) {
     return record.typedRead ? record.read.state != ReadState::ACTIVE : a.owner.result(record.requestId) != nullptr;
 }
 bool axisReserved(const App& a, uint8_t address = 0) {
-    if (a.functional.pending && (!address || a.functional.address == address)) return true;
+    if (a.motionProfile.pending && (!address || a.motionProfile.address == address)) return true;
     // Recovery changes correlation generation, not the physical target's uncertainty.
     if (address) {
         if (a.actionConflicts[address / 8] & (1U << (address % 8))) return true;
@@ -371,8 +376,7 @@ void snapshot(void* context, Probe::Snapshot& s) {
     s.serial = a.serial;
     s.replyGapUs = a.serial.timing.replyGapUs; s.gap15Us = a.serial.timing.runner.gap15Us; s.gap35Us = a.serial.timing.runner.gap35Us;
     s.uptimeMs = nowUs() / 1000; s.ready = platformReady && a.serial.activeKnown && !a.serial.blocked; s.timingQualified = false;
-    s.functionalBench = MOTORCONTROLRS_FUNCTIONAL_BENCH;
-    s.actionsQualified = actionTimingQualified; s.axisReserved = axisReserved(a);
+    s.writeResponseConfirmed = writeResponseConfirmed; s.axisReserved = axisReserved(a);
     s.busy = a.owner.commissioningOwned() || a.owner.active() || a.owner.pending() || a.owner.recovering() || reading(a) || acting(a);
     s.recoveryRequired = a.serial.blocked || a.owner.needsRecovery() || uart.needsRecovery();
     s.phase = a.runner.phase(); s.transport = a.runner.result().reason; s.transmitEnabled = a.runner.transmitEnabled();
@@ -544,7 +548,7 @@ Rtu::BusAdmission admitActionStep(App& a, App::Record& record, const ESS::Prepar
     return record.action.request.kind == MotorControlRS::ActionKind::STOP ?
         a.owner.admitUrgent(request, now, record.requestId) : a.owner.admit(request, now, record.requestId);
 }
-#include "FunctionalBenchApp.h"
+#include "MotionProfileApp.h"
 
 Probe::Action startAction(void* context, uint32_t commandId, uint8_t address,
                           const MotorControlRS::ActionRequest& request, uint32_t& operationId) {
@@ -559,7 +563,6 @@ Probe::Action startAction(void* context, uint32_t commandId, uint8_t address,
     uint64_t deadline = now + REQUEST_US;
     if (request.kind == ActionKind::CLEAR_POSITION) {
         if (request.devicePosition != 0) return Probe::Action::UNSUPPORTED;
-        if (!actionTimingQualified && !functionalActionAllowed(request)) return Probe::Action::TIMING_UNQUALIFIED;
         if (!a.positionClearQualified) return Probe::Action::UNAVAILABLE;
         const auto& motion = a.stateCache.blocks[static_cast<uint8_t>(ESS::StateBlock::MOTION)];
         const uint64_t age = 5000000;
@@ -573,9 +576,8 @@ Probe::Action startAction(void* context, uint32_t commandId, uint8_t address,
     }
     ReadTarget target; target.id = address; target.address = address; target.generation = a.bindingGeneration;
     ESS::ActionContext preparedContext;
-    const Status prepared = ESS::prepareAction(preparedContext, target, a.nextOperationId, admittedRequest, now, deadline, functionalActionOptions(request));
+    const Status prepared = ESS::prepareAction(preparedContext, target, a.nextOperationId, admittedRequest, now, deadline);
     if (!prepared) return prepared.code == Err::UNSUPPORTED ? Probe::Action::UNSUPPORTED : Probe::Action::INVALID;
-    if (!actionTimingQualified && !functionalActionAllowed(request)) return Probe::Action::TIMING_UNQUALIFIED;
     if (a.owner.needsRecovery() || uart.needsRecovery()) return Probe::Action::RECOVERY_REQUIRED;
     if (!(a.knownTargets[address / 8] & (1U << (address % 8)))) return Probe::Action::UNAVAILABLE;
     const bool stop = request.kind == ActionKind::STOP;
@@ -632,7 +634,6 @@ Probe::Action checkAxisWrite(const App& a, const Rtu::BusRequest& request) {
         request.expected.targetGeneration != a.bindingGeneration) return Probe::Action::INVALID;
     if (!platformReady) return Probe::Action::UNAVAILABLE;
     if (a.serial.blocked || a.serial.configuring || a.owner.configurationOwned()) return Probe::Action::RECOVERY_REQUIRED;
-    if (!actionTimingQualified) return Probe::Action::TIMING_UNQUALIFIED;
     if (a.owner.needsRecovery() || uart.needsRecovery()) return Probe::Action::RECOVERY_REQUIRED;
     if (!(a.knownTargets[request.expected.address / 8] & (1U << (request.expected.address % 8))))
         return Probe::Action::UNAVAILABLE;
@@ -667,7 +668,7 @@ Probe::Action admitMoveStep(App& a, App::Record& record, const ESS::PreparedMove
     request.expected.target = prepared.target.id; request.expected.targetGeneration = prepared.target.generation;
     request.expected.first = prepared.reg; request.expected.count = prepared.count;
     request.expected.value = prepared.value; request.validator = Rtu::essValidator();
-    if (!record.operationId && !(MOTORCONTROLRS_FUNCTIONAL_BENCH && record.move.options.allowUnconfirmedWriteObservation)) {
+    if (!record.operationId) {
         const Probe::Action checked = checkAxisWrite(a, request);
         if (checked != Probe::Action::OK) return checked;
     }
@@ -685,7 +686,6 @@ Probe::Action startMove(void* context, uint32_t commandId, uint8_t address,
     if (!a.commandPolarityKnown && supplied.position.frame != CoordinateFrame::NATIVE)
         return Probe::Action::UNAVAILABLE;
     if (!a.nextOperationId) return Probe::Action::IDS_EXHAUSTED;
-    if (!actionTimingQualified && !MOTORCONTROLRS_FUNCTIONAL_BENCH) return Probe::Action::TIMING_UNQUALIFIED;
     if (a.owner.needsRecovery() || uart.needsRecovery()) return Probe::Action::RECOVERY_REQUIRED;
     if (axisReserved(a, address)) return Probe::Action::AXIS_CONFLICT;
     // Begin on a quiescent bus so an earlier producer's admitted write cannot
@@ -699,7 +699,7 @@ Probe::Action startMove(void* context, uint32_t commandId, uint8_t address,
     if (!record) return Probe::Action::RESULTS_FULL;
     const uint64_t now = uart.sample();
     ESS::MovePrerequisites prerequisites = a.movePrerequisites;
-    if (!actionTimingQualified && !functionalMovePrerequisites(a, supplied, now, prerequisites)) return Probe::Action::UNAVAILABLE;
+    if (!prerequisites.commandUnitsVerified && !moveRequirements(a, supplied, now, prerequisites)) return Probe::Action::UNAVAILABLE;
     const auto& motion = a.stateCache.blocks[static_cast<uint8_t>(ESS::StateBlock::MOTION)];
     if (!Probe::fresh(motion, a.axis.target, now, prerequisites.maximumAgeUs)) prerequisites.readinessQualified = false;
     else {
@@ -712,14 +712,14 @@ Probe::Action startMove(void* context, uint32_t commandId, uint8_t address,
     AxisReference reference = axisReference(a);
     ESS::MoveContext& prepared = record->move;
     const uint64_t deadline = now + 3000000;
-    ActionOptions options; options.allowUnconfirmedWriteObservation = MOTORCONTROLRS_FUNCTIONAL_BENCH && !actionTimingQualified; options.maxPolls = ESS::ACTION_MAX_POLLS; options.pollIntervalUs = 20000;
+    ActionOptions options; options.maxPolls = ESS::ACTION_MAX_POLLS; options.pollIntervalUs = 20000;
     const auto prepare = request.position.wrapped ? ESS::prepareMoveAngle :
         request.position.relative ? ESS::prepareMoveRelative : ESS::prepareMoveAbsolute;
     const Status checked = prepare(prepared, a.axis, reference.nativeKnown ? &reference : nullptr,
         a.nextOperationId, request, prerequisites, now, deadline, options);
     if (!checked) return checked.code == Err::UNSUPPORTED ? Probe::Action::UNSUPPORTED : Probe::Action::INVALID;
     // Proposed free-shaft software envelope, not a qualified physical envelope.
-    if ((!prepared.prepared.displacementKnown && !prerequisites.nativeZeroEnvelopeVerified) || prepared.prepared.displacementNative < -250 ||
+    if ((!prepared.prepared.displacementKnown && !absoluteMoveInEnvelope(a, request, now)) || prepared.prepared.displacementNative < -250 ||
         prepared.prepared.displacementNative > 250 || request.speedRpm > 60) {
         clearRecord(*record); return Probe::Action::INVALID;
     }
@@ -762,7 +762,6 @@ Probe::Action startVelocity(void* context, uint32_t commandId, uint8_t address,
     if (supplied.ramp == VelocityRamp::ACCELERATION || supplied.acceleration || supplied.deceleration ||
         supplied.jerk || supplied.blending || supplied.liveUpdate) return Probe::Action::UNSUPPORTED;
     if (!a.nextOperationId) return Probe::Action::IDS_EXHAUSTED;
-    if (!actionTimingQualified) return Probe::Action::TIMING_UNQUALIFIED;
     if (a.owner.needsRecovery() || uart.needsRecovery()) return Probe::Action::RECOVERY_REQUIRED;
     if (axisReserved(a, address)) return Probe::Action::AXIS_CONFLICT;
     if (a.owner.active() || a.owner.pending()) return Probe::Action::BUSY;
@@ -828,7 +827,6 @@ Probe::Action startHome(void* context, uint32_t commandId, uint8_t address,
     if (!method || supplied.offset != 0) return Probe::Action::UNSUPPORTED;
     if (method->support != ESS::HomeSupport::IMPLEMENTED) return Probe::Action::UNSUPPORTED;
     if (!a.nextOperationId) return Probe::Action::IDS_EXHAUSTED;
-    if (!actionTimingQualified) return Probe::Action::TIMING_UNQUALIFIED;
     if (a.owner.needsRecovery() || uart.needsRecovery()) return Probe::Action::RECOVERY_REQUIRED;
     if (axisReserved(a, address)) return Probe::Action::AXIS_CONFLICT;
     if (a.owner.active() || a.owner.pending()) return Probe::Action::BUSY;
@@ -1448,11 +1446,14 @@ void advanceActions(App& a, uint64_t now) {
             event.transport.frame = result->transport.rxLength ? result->raw : nullptr;
             event.transport.length = result->transport.rxLength;
             event.txComplete = result->transport.txComplete;
+            // Checked FC03/FC10 replies have distinct request/response wire forms.
+            // FC06 retains uncertain source evidence unless the adapter/user
+            // explicitly established echo exclusion. Analyzer qualification is
+            // independent of admission and never fabricated here.
             event.responseConfirmed = kind == ReadEventKind::FRAME &&
-                (actionTimingQualified || (MOTORCONTROLRS_FUNCTIONAL_BENCH &&
-                    ((record.moveOperation && record.move.options.allowUnconfirmedWriteObservation && result->expected.function != 6) ||
-                     (record.actionOperation && record.action.options.allowUnconfirmedWriteObservation && result->expected.function == 3))) || (record.driverOperation && (record.driver.kind == ESS::DriverKind::READ ||
-                    (record.driver.group != ESS::DriverGroup::DRIVE && (record.driver.step % 2) == 1))));
+                (result->outcome == Rtu::Outcome::SUCCESS || result->outcome == Rtu::Outcome::DEVICE_REJECTED) &&
+                result->transport.closureQualified &&
+                result->transport.txComplete && (writeResponseConfirmed || result->expected.function != 6);
             if (kind == ReadEventKind::FRAME) {
                 event.transport.qualified = result->transport.closureQualified;
                 if (event.transport.qualified) {
@@ -1725,7 +1726,6 @@ void invalidateSerialConfidence(App& a, uint64_t now) {
     a.movePrerequisites.readinessQualified = false;
     a.velocityPrerequisites.readinessQualified = false;
     a.homePrerequisites.readinessQualified = false;
-    actionTimingQualified = false;
     // Endpoint/configuration generations and physical uncertainty do not belong
     // to a temporary UART selection. Historical records and host origins survive.
 }
@@ -1779,12 +1779,13 @@ Probe::Action hostSerial(void* context, const Probe::HostRequest* requested, Pro
 }
 #include "CommunicationApp.h"
 
+#include "SniffApp.h"
 Probe::Host host(App* a) {
     Probe::Host h; h.context = a; h.emitLine = emit; h.snapshot = snapshot;
     h.startProbe = probe; h.startCaptureRead = captureRead; h.recover = recover; h.resetStats = reset;
     h.startTypedRead = typedRead;
     h.startAction = startAction; h.startMove = startMove; h.startVelocity = startVelocity; h.startDriver = startDriver; h.startHome = startHome;
-    h.monitor = monitor; h.functional = functionalCommand;
+    h.monitor = monitor; h.motionProfile = motionProfileCommand; h.sniff = sniffCommand;
     h.axis = axisCommand; h.hostSerial = hostSerial; h.communication = communication;
     h.result = lookup; h.cancel = cancel; h.release = release;
 #if MOTORCONTROLRS_LOAD_FIXTURE
@@ -1918,6 +1919,7 @@ void setup() {
     fixtureReady = loadFixture.begin(); platformReady = platformReady && fixtureReady;
 #endif
     app = new (memory) App;
+    app->runner.setTrafficCapture(&app->traffic);
 }
 void loop() {
     if (!app) { delay(10); return; }
@@ -1949,7 +1951,7 @@ void loop() {
         a.modelOperationId = a.recovery.operationId;
         a.observedEarliestUs = a.observedLatestUs = a.deliveredUs = 0;
     }
-    serviceFunctional(a, nowUs());
+    serviceMotionProfile(a, nowUs());
     serviceCommissioning(a, nowUs());
     advanceReads(a, nowUs());
     advanceActions(a, nowUs());
@@ -1967,6 +1969,7 @@ void loop() {
         if (loadFixture.takeLine(text, sizeof(text), size)) emit(&a, text, size);
     }
 #endif
+    serviceSniff(a);
     drainOutput(a);
     if (!a.owner.active() || !serviceDue) delay(1);
 }

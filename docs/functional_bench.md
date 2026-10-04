@@ -1,61 +1,60 @@
-# Short unattended functional bench
+# Short unattended motion checks
 
-The user's 2026-10-04 direction permits short unattended tests on the secured,
-uncoupled ESS23-RS20. A person at the bench and a logic analyzer are not admission
-requirements for these tests. Drive reports establish functional observations;
-they do not establish independent shaft displacement or electrical timing.
-The several-hour soak is explicitly omitted.
+Supported operations use the regular library API and ordinary firmware. There is
+no functional-test mode, special firmware image or analyzer admission flag.
+The user owns correct wiring/electrical installation; firmware owns commands,
+sequencing, framing, software timing and retained outcomes. HIL diagnostics and
+independent physical measurements are separate from ordinary operation.
 
-Build/upload the explicit `bench_s3_functional` environment. Ordinary builds keep
-their qualification gates. This image does nothing to the bus at startup and
-admits only enable, release, explicit stops and the narrow finite position
-experiment. It does not enable continuous velocity, homing, position clear,
-persistence or communication changes. Existing inputs, algorithm and ramp words
-are preserved. Read the current bench report before reusing any command.
+Build/upload `bench_s3_load_timer` for the existing COM13 setup; the probe and
+polling builds expose the same library and console operations. Startup sends no
+motor commands. The short test procedure uses finite positioning, enable/release
+and normal/direct stop; it does not start continuous velocity, home the motor,
+change inputs, save settings or restart the drive. The several-hour soak remains
+omitted by user request.
 
-`motion-bench read` saves the original six words at `0x0020..0x0025` and refreshes
-the current configuration/endpoint binding. `motion-bench inspect` shows retained
-evidence without bus traffic. `motion-bench restore` explicitly restores the five
-saved writable profile words with the reviewed FC10 window and verifies all six
-words by FC03. It never triggers motion or automatically retries a write.
-The saved original survives subsequent reads but not a host restart: restore
-and archive it before changing firmware.
+`motion-profile read` saves the six native words at `0x0020..0x0025` and refreshes
+current endpoint/configuration binding. `motion-profile inspect` reads retained
+state without bus traffic. `motion-profile restore` explicitly restores the five
+saved writable words through the typed `ESS_RS::PositionProfile` builder and
+verifies all six by readback. It never triggers motion or retries a write.
+Original values survive subsequent reads, but not a host restart; restore and
+archive them before changing firmware.
 
-The app requires fresh stopped/alarm-free reports, zero reported speed for the
-return, known word order, subdivision1000, disabled software limits, inactive
-assigned inputs and the inspected start/ramp values. Individual positive native
-moves are at most250 increments, speed at most60 in the documented native speed
-field, with a three-second operation bound. Physical angle, encoder scaling and
-ramp-time calibration remain unresolved for the observed algorithm value3.
+The regular API accepts native relative displacements without an unrelated host
+origin. An ordinary unwrapped absolute target needs a current-position reference
+only when conversion, path selection or applicable limits need it. Without that
+reference its endpoint can be known while displacement remains unknown; raw
+feedback is not silently promoted to calibrated command coordinates. The example
+retains its small free-shaft limits; those are not library-wide motion limits.
+Unknown algorithms, negative wire encoding and physical-unit assumptions remain
+explicit metadata, rather than a reason to add a second execution path.
 
-The only unreferenced absolute experiment is the literal native target zero.
-`ESS_RS::MovePrerequisites::nativeZeroEnvelopeVerified` explicitly admits it
-without a supplied reference, host origins or soft limits. The app requires a
-fresh positive raw position no greater than250 and zero reported speed. The
-result keeps `reference.native_known=false` and `displacement_known=false`;
-it does not turn raw feedback into calibrated command coordinates. All other
-absolute/angle preparations retain their established-reference requirement.
+The board configuration declares combined DE/~RE with its receiver disabled
+while transmitting. The runner rejects bytes before physical TX completion,
+DE release and the configured response gap. Under this user-supplied wiring
+contract, a checked FC06 response is an acknowledgement; it still is not proof
+of completion. Applications without confirmed response provenance may supply
+`responseConfirmed=false`: actions and finite positioning retain UNKNOWN
+execution while following a fully transmitted, valid, timely FC06 frame with
+read-only observations. Short TX, invalid frames and timing ambiguity still fail.
 
-`ActionOptions::allowUnconfirmedWriteObservation` defaults false. The functional
-image explicitly opts in for these selected operations. A fully transmitted,
-timely, checked FC06-shaped frame may be followed by checked read observations,
-while its execution remains UNKNOWN and `responseConfirmed` remains false.
-The option never accepts bad CRC, short transmission, ambiguous timing or an
-invalid event envelope. FC10 staging still requires confirmed response evidence.
+Prepare a phase with `python scripts/bench_motion.py --phase PHASE --sniff decoded
+--out build/bench/NEW_PREFIX --plan-only`, then run without `--plan-only`.
+Phases are inspect, actions, forward, absolute, return, stop-normal, stop-direct, restore
+and status. Inspect each outcome before the next physical action. The tool
+reserves new evidence files, records all traffic and never replays a motion
+write. After an accepted failed move it may send one prepared direct stop if
+no stop was already attempted and the console remains usable.
 
-Prepare each phase with `python scripts/bench_functional_motion.py --phase PHASE
---out build/bench/NEW_PREFIX --plan-only`, then run it without `--plan-only`.
-Supported phases are inspect, actions, forward, return, stop-normal, stop-direct,
-restore and status. Execute phases individually and inspect their evidence before
-the next physical action. The tool reserves new JSON/JSONL files before opening
-the port, retains every read and write outcome, and never replays a motion write.
-After an accepted failed move it may send one preplanned direct stop if no stop
-was already attempted and console framing is usable.
+ARRIVED/RUNNING and raw speed remain separate reports. The host observes at most
+ten fresh state reads, 50ms apart, for zero reported speed and retains transient
+values. Moving-stop tests require new RUNNING evidence before stop, retain the
+interrupted result and separately verify stopped/zero-speed reports. Software
+intervals are not independent physical stop-latency measurements.
 
-ARRIVED/RUNNING and raw speed are separate reports. Completion of the position
-sequence does not promise immediate zero speed or exact feedback-target equality.
-The host observes up to ten fresh state reads, 50ms apart, to establish reported
-zero speed; it preserves intermediate nonzero reports. It fails if that bound is
-exhausted. Dynamic-stop tests require a new RUNNING report before sending stop,
-retain the interrupted result and separately check stopped/zero-speed reports.
-No host-measured interval is advertised as electrical or physical stop latency.
+[Passive traffic observation](traffic.md) works during these operations and
+ordinary application traffic. Raw and decoded displays consume only diagnostic
+copies; display pressure cannot consume protocol bytes or delay the bus owner.
+The earlier [functional campaign](reports/functional_motion_2026-10-04.md) remains
+historical evidence for the superseded image, not instructions to rebuild it.

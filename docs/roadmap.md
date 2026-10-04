@@ -1,5 +1,12 @@
 # Roadmap to a supported ESS release
 
+The [regular API and sniff integration](reports/regular_api_sniff_2026-10-04.md)
+removes the functional-test image and flags. Standard firmware performs the
+reviewed actions and finite motion; passive raw/decoded traffic display runs
+alongside them with bounded diagnostic storage and loss counters. Wiring is the
+user's responsibility; command sequencing and software timing remain firmware
+responsibilities. HIL diagnostics do not gate ordinary operation.
+
 The [short unattended functional campaign](reports/functional_motion_2026-10-04.md)
 now records drive-reported positive/reverse finite motion, enable/release and both
 normal/direct stops during motion. Final-image310/310 frames passed, settings
@@ -72,8 +79,9 @@ retention and external-motion invalidation, with independent reviews and another
 38 read-only frames on the corrected image. Physical motion/clear remains NOT RUN.
 The [relative-position handoff](reports/ess_release_09_2026-10-04.md) supplies finite staging/trigger/completion APIs while physical moves remain gated. The [action/stop handoff](reports/ess_release_08_2026-10-04.md)
 has native reservations, uncertainty and priority stop, plus read-only COM13 and
-zero-TX gate evidence. Physical actions and motion require independent timing/echo
-qualification; no live move or dynamic-stop claim is made.
+zero-TX gate evidence. Those historical reports predate the subsequent live finite-motion and moving-stop
+checks. The regular API now uses declared wiring and software timing checks;
+independent electrical measurements remain separate.
 The [fresh prompt 08 audit](reports/ess_release_08_audit_2026-10-04.md) preserves
 uncertainty for undocumented exceptions, checks action evidence chronology and
 adds stop HOLD/partial-TX/late-fault regressions. Native/package/build and 38-frame

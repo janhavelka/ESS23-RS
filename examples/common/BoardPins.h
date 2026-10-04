@@ -22,6 +22,11 @@ struct Esp32S3BenchBoard {
   static constexpr int kRs485DeRePin = 21;
   /// @brief Bench transceiver wiring: high transmits, low receives.
   static constexpr bool kRs485DeReActiveHigh = true;
+  /// @brief Wiring contract: combined DE/~RE disables the receiver during TX.
+  /// The application rejects RX before physical TX completion and DE release.
+  /// Set false for wiring whose local echo cannot be excluded; no analyzer is
+  /// required to use this declared topology, and it is not measured timing.
+  static constexpr bool kRs485ReceiverDisabledDuringTransmit = true;
 };
 
 /// @brief Explicit example bench selection; not part of the reusable library.

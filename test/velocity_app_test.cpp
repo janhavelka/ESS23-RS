@@ -14,7 +14,7 @@ using namespace MotorControlRS;
 void fresh() {
     if (app) { app->~App(); std::free(app); app = nullptr; }
     uart.~Esp32S3Uart(); new (&uart) Esp32S3Uart;
-    resetHardware(); Serial = FakeSerial(); platformReady = false; actionTimingQualified = false;
+    resetHardware(); Serial = FakeSerial(); platformReady = false; writeResponseConfirmed = false;
     setup();
     assert(app && uart.ready() && app->owner.valid() && hardware.writes == 0);
     hardware.txCharacterUs = 87;
@@ -80,7 +80,7 @@ VelocityRequest request() {
 void qualify() {
     // Deliberately simulated qualifications. Production has no corresponding
     // console control and starts with every verification flag false.
-    actionTimingQualified = true;
+    writeResponseConfirmed = true;
     app->knownTargets[0] |= 2;
     app->axis.nativeMinimum = -1000; app->axis.nativeMaximum = 1000;
     app->axis.supportedRelativeBases = 1;

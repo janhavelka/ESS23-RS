@@ -1,5 +1,11 @@
 # Motor bench and testing authorization
 
+[Latest regular-firmware evidence](reports/regular_api_sniff_2026-10-04.md):
+finite relative and nonzero absolute moves, returns, enable/release and both
+moving stops passed while raw/decoded sniffing was active. Original profile and
+configuration restored; final alarm0/motion1/speed0/position0. No separate
+functional image or analyzer admission flag remains.
+
 [Current functional evidence](reports/functional_motion_2026-10-04.md): short
 enable/release, positive/return finite moves and normal/direct moving stops PASS
 by drive reports. Final310/310 checked frames have zero errors. Original motion
@@ -137,8 +143,9 @@ Latest prompt08 check: [fresh action/stop audit](reports/ess_release_08_audit_20
 Audited timer image passes 28-frame read-only regression, ten further probes and
 five action-admission rejections with zero TX. Final totals are 38 frames/358 RX
 bytes, zero transport/capture errors; configuration and raw state unchanged.
-Load/monitor off, DE released, owner empty. Physical enable/release/alarm-clear/stop
-remain NOT RUN pending independent timing/echo evidence. The earlier
+Load/monitor off, DE released, owner empty. Physical actions were NOT RUN on that historical image. Subsequent finite-motion
+and action evidence appears at the top of this document; the regular firmware
+uses its declared wiring and software timing contract. The earlier
 [implementation report](reports/ess_release_08_2026-10-04.md) retains its separate
 image, counters and report-script correction.
 

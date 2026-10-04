@@ -18,7 +18,7 @@ void fresh() {
     loadFixture.~Esp32Load(); new (&loadFixture) Esp32Load;
     fixtureReady = false; nextServiceUs = 0;
 #endif
-    resetHardware(); Serial = FakeSerial(); platformReady = false; actionTimingQualified = false;
+    resetHardware(); Serial = FakeSerial(); platformReady = false; writeResponseConfirmed = false;
     setup();
     assert(app && uart.ready() && app->owner.valid() && hardware.writes == 0);
     assert(Serial.txTimeoutMs == 0);
@@ -482,7 +482,7 @@ std::vector<uint8_t> registerReply(std::initializer_list<uint16_t> words) {
     bytes.push_back(static_cast<uint8_t>(crc)); bytes.push_back(static_cast<uint8_t>(crc >> 8)); return bytes;
 }
 void qualifyActions(uint8_t address = 1) {
-    actionTimingQualified = true; app->communicationKnown = true;
+    writeResponseConfirmed = true; app->communicationKnown = true;
     app->knownTargets[address / 8] |= static_cast<uint8_t>(1U << (address % 8));
     app->communicationTarget.id = app->communicationTarget.address = address;
     app->communicationTarget.generation = app->bindingGeneration;
@@ -513,7 +513,7 @@ void actionStep(uint32_t operation, const std::vector<uint8_t>& bytes = {}) {
 void testActionGateAndSeparateAcknowledgement() {
     using namespace MotorControlRS;
     fresh(); timerCapture(); ActionRequest request; uint32_t id = 123;
-    assert(startAction(app, 1, 1, request, id) == Probe::Action::TIMING_UNQUALIFIED);
+    assert(startAction(app, 1, 1, request, id) == Probe::Action::UNAVAILABLE);
     assert(id == 123 && hardware.writes == 0 && app->owner.pending() == 0);
     qualifyActions(); const uint32_t operation = actionAdmission(ActionKind::ENABLE);
     assert(axisReserved(*app, 1));
@@ -1292,7 +1292,7 @@ void testSegmentRoutesStoredSettlementAndNoImplicitTrigger() {
     assert(hardware.writes == before + 4 && !app->owner.needsRecovery());
     const auto retained = record->driver.observations[0].deliveredUs;
     command("@7 result\n"); assert(record->driver.observations[0].deliveredUs == retained);
-    assert(!actionTimingQualified && app->ioSettings.operationId == 0);
+    assert(!writeResponseConfirmed && app->ioSettings.operationId == 0);
 }
 void testSegmentIndexCancellationAndTriggerPolicy() {
     fresh(); timerCapture();

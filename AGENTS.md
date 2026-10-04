@@ -104,6 +104,14 @@ restart-dependent communication/persistence experiments; no remote power control
 is implied. Do not replace finite position tests with unbounded velocity or
 moving link-loss experiments.
 
+Latest user direction: supported motor behavior belongs in the regular library
+API and ordinary firmware, with no separate functional-test mode or analyzer
+admission flag. The user owns correct wiring/electrical installation; firmware
+owns documented commands, sequencing, framing, timing and evidence handling.
+HIL-specific diagnostics may measure software timing. Passive raw/decoded RS485
+observation must copy owner traffic without consuming bytes from normal protocol
+processing or blocking transactions under observer/console pressure.
+
 ## Read before implementing
 
 1. `README.md` and `docs/README.md`.

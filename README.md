@@ -1,5 +1,10 @@
 # MotorControl-RS
 
+The regular API and firmware support actions and finite positioning without a
+special test mode. [Passive RS485 sniffing](docs/traffic.md) displays raw or
+decoded copies while normal communication continues. Applications can use the
+installed `TrafficCapture` and ESS decoder with their own transport.
+
 [Drive communication commissioning](docs/ess_communication.md) now provides
 typed address/baud/format operations, exclusive ownership and retained recovery
 candidates. Native/build and read-only regression checks pass; physical setting
@@ -50,10 +55,11 @@ is recorded in [prompt 06](docs/reports/ess_release_06_2026-10-04.md).
 [Exact target preparation](docs/axis_preparation.md) preserves native integers and
 rational quantities, with frames, references, quantization and host-only configuration.
 The console exposes pure previews and [bounded enable/release, alarm-clear and
-priority stop operations](docs/ess_actions.md). Physical actions remain gated by
-independent timing/echo qualification. Finite relative/absolute/wrapped-angle
+priority stop operations](docs/ess_actions.md). Regular firmware admits actions under the configured receive/echo contract;
+electrical measurements are separate. Finite relative/absolute/wrapped-angle
 motion and zero-only device position-clear software are implemented through
-shared APIs; physical movement and clear remain unqualified and gated.
+shared APIs; native finite motion and moving stops have drive-reported bench evidence;
+clear and broader motion semantics retain their own prerequisites.
 [Finite signed serial velocity](docs/ess_velocity.md) adds shared exact rate preparation,
 configured native ramp snapshots, bounded activity/stop observation and finite
 Python cleanup. Acceleration mapping and physical velocity/stop remain unqualified.
@@ -177,8 +183,8 @@ selected stopped-state setting changes use the installed
 implements finite relative/absolute motion and wrapped orientations. The installed
 [action API](docs/ess_actions.md) prepares bounded enable/release, alarm-clear
 and explicit normal/direct stop operations. It separates acknowledgement from
-reported completion; physical action admission on the current bench remains
-gated by independent timing/echo qualification.
+reported completion; physical action admission checks actual operation and transport prerequisites,
+without requiring an analyzer or a special firmware mode.
 
 The probe reads the read-only model word at `0x0000`; no consuming side effect is
 documented. Its successful reply is seven bytes. Pure 32-bit helpers require an
@@ -273,4 +279,4 @@ owners' rights and are excluded from the distributed source package.
 
 Typed identity and motion-prerequisite configuration reads are implemented through the installed public [read API](docs/ess_reads.md). The standalone console exposes `read identity`, `read config`, `caps` and matching ESS profile routes. These are non-changing reads; exact-model, state and motion qualification remain separate.
 
-Finite relative positioning is implemented in [Position.h](include/MotorControlRS/profiles/ess_rs/Position.h), with common intent in [MoveOperation.h](include/MotorControlRS/MoveOperation.h). `prepareMoveRelative`, `nextMove` and `advanceMove` reuse exact host preparation, checked staging/trigger and fresh motion observations without performing I/O. The standalone console calls these same APIs; physical motion and dynamic-stop qualification remain gated. See [the current contract](docs/ess_position.md).
+Finite relative positioning is implemented in [Position.h](include/MotorControlRS/profiles/ess_rs/Position.h), with common intent in [MoveOperation.h](include/MotorControlRS/MoveOperation.h). `prepareMoveRelative`, `nextMove` and `advanceMove` reuse exact host preparation, checked staging/trigger and fresh motion observations without performing I/O. The standalone console calls these same APIs; short native finite motion and dynamic stops have drive-reported evidence. See [the current contract](docs/ess_position.md).

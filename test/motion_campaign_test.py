@@ -7,7 +7,7 @@ import unittest
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-import bench_functional_motion as campaign
+import bench_motion as campaign
 
 
 class FakeConsole:
@@ -38,7 +38,7 @@ class FakeConsole:
             return dict(ok=True, active=dict(baud=115200, format="8N1"), blocked=False)
         if name == "load":
             return dict(ok=True, workload_us=0, owner_delay_us=0, console_bytes=0)
-        if name == "motion-bench":
+        if name == "motion-profile":
             return dict(ok=True, pending=False, session_ok=True, error="none",
                         restored=True, original=[30, 100, 100, 60, 0, 0],
                         current=[30, 100, 100, 60, 0, 0])
@@ -149,6 +149,15 @@ class FunctionalCampaignTest(unittest.TestCase):
         self.assertEqual([c["stop_policy"] for c in console.commands("stop")], ["direct"])
         self.assertEqual(record["move"]["execution"], 3)  # Never promote UNKNOWN to acknowledged.
         self.assertNotIn("failure_cleanup_stop", record)
+
+    def test_nonzero_absolute_uses_regular_operation_once(self):
+        console = FakeConsole()
+        record = {}
+        campaign.run_phase(console, "absolute", record)
+        self.assertEqual(console.commands("move-absolute")[0]["move_args"],
+                         ("100", "steps", "native", "60", "configured"))
+        self.assertEqual(len(console.commands("move-absolute")), 1)
+        self.assertEqual(len(console.commands("stop")), 1)
 
     def test_dynamic_stop_requires_running_before_stop(self):
         for phase in ("stop-normal", "stop-direct"):

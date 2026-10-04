@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 #include "ProbeConsole.h"
 #include "MotorControlRS/Version.h"
+#include "MotorControlRS/profiles/ess_rs/Traffic.h"
+#include "MotorControlRS/profiles/ess_rs/Registers.h"
 #include "MotorControlRS/profiles/ess_rs/Segments.h"
 #include "MotorControlRS/profiles/ess_rs/ControlSettings.h"
 #include "MotorControlRS/profiles/ess_rs/Tuning.h"
@@ -13,10 +15,11 @@
 namespace MotorControlRSExample { namespace Probe {
 namespace {
 
-enum class Command : uint8_t { HELP, VERSION, CONFIG, STATUS, HEALTH, STATS, PROBE, CAPTURE_READ, RECOVER, RESET, MEMORY, LOAD, DRV, RESULT, CANCEL, RELEASE, READ, PROFILE, CAPS, READ_IDENTITY, READ_CONFIG, READ_STATE, HEALTH_CHECK, MONITOR, AXIS, PREPARE, ENABLE, MOTOR_RELEASE, ALARM_CLEAR, STOP, MOVE, POSITION_CLEAR, VELOCITY, DRIVER, IO, HOME, SEGMENT, CONTROL, TUNING, HOST, COMMUNICATION, FUNCTIONAL };
+enum class Command : uint8_t { HELP, VERSION, CONFIG, STATUS, HEALTH, STATS, PROBE, CAPTURE_READ, RECOVER, RESET, MEMORY, LOAD, DRV, RESULT, CANCEL, RELEASE, READ, PROFILE, CAPS, READ_IDENTITY, READ_CONFIG, READ_STATE, HEALTH_CHECK, MONITOR, AXIS, PREPARE, ENABLE, MOTOR_RELEASE, ALARM_CLEAR, STOP, MOVE, POSITION_CLEAR, VELOCITY, DRIVER, IO, HOME, SEGMENT, CONTROL, TUNING, HOST, COMMUNICATION, MOTION_PROFILE, SNIFF };
 struct Entry { const char* name; Command command; const char* syntax; const char* effect; bool bus; };
 const Entry COMMANDS[] = {
-    {"motion-bench", Command::FUNCTIONAL, "motion-bench read|inspect|restore", "explicit_bounded_free_shaft_fixture_only", true},
+    {"sniff", Command::SNIFF, "sniff [off|raw|decoded]", "nonconsuming_traffic_observation", false},
+    {"motion-profile", Command::MOTION_PROFILE, "motion-profile read|inspect|restore", "snapshot_position_parameters_and_restore_exact_original", true},
     {"help", Command::HELP, "help [command]", "show_callable_commands", false},
     {"version", Command::VERSION, "version", "show_build", false},
     {"ver", Command::VERSION, "ver", "show_build", false},
@@ -545,6 +548,45 @@ const char* cancellationName(Rtu::Cancellation value) {
 
 } // namespace
 
+bool Console::reportSniff(const Core::TrafficRecord& record, SniffMode mode,
+                          const Core::TrafficRecord* request) noexcept {
+    if (mode==SniffMode::OFF || mode>SniffMode::DECODED || outputPending() || !host_.emitLine ||
+        record.length>Core::TRAFFIC_MAX_BYTES) return false;
+    char raw[Core::TRAFFIC_MAX_BYTES*2+1], expected[Core::TRAFFIC_MAX_BYTES*2+1];
+    hex(record.bytes,record.length,raw,sizeof(raw));
+    const bool matching=request && request->transaction==record.transaction && request->length<=Core::TRAFFIC_MAX_BYTES;
+    hex(matching?request->bytes:nullptr,matching?request->length:0,expected,sizeof(expected));
+    std::size_t used=0;
+    if (!append(output_,sizeof(output_),used,
+        "{\"type\":\"traffic\",\"profile\":\"ess_rs\",\"mode\":\"%s\",\"sequence\":%llu,\"transaction\":%llu,\"kind\":\"%s\",\"at_us\":%llu,\"start_us\":%llu,\"end_us\":%llu,\"uncertainty_us\":%lu,\"length\":%u,\"code\":%u,\"complete\":%s,\"raw_hex\":\"%s\",\"expected_request_hex\":\"%s\",\"expected_request_sequence\":%llu,\"decode_status\":",
+        mode==SniffMode::RAW?"raw":"decoded",static_cast<unsigned long long>(record.sequence),
+        static_cast<unsigned long long>(record.transaction),Core::trafficKindName(record.kind),
+        static_cast<unsigned long long>(record.atUs),static_cast<unsigned long long>(record.startUs),
+        static_cast<unsigned long long>(record.endUs),static_cast<unsigned long>(record.uncertaintyUs),
+        record.length,record.code,boolean(record.complete),raw,mode==SniffMode::DECODED && record.kind==Core::TrafficKind::RX?expected:"",static_cast<unsigned long long>(mode==SniffMode::DECODED && record.kind==Core::TrafficKind::RX && matching?request->sequence:0))) return false;
+    if (mode==SniffMode::DECODED && (record.kind==Core::TrafficKind::TX || record.kind==Core::TrafficKind::RX)) {
+        Ess::TrafficDecoded decoded; Ess::FrameError frameError=Ess::FrameError::NONE;
+        const auto status=Ess::decodeTraffic(record,matching?request:nullptr,decoded,&frameError);
+        if (!append(output_,sizeof(output_),used,"\"%s\",\"decode_detail\":%ld,\"frame_error\":%u,\"decoded\":",Core::errToString(status.code),static_cast<long>(status.detail),static_cast<unsigned>(frameError))) return false;
+        if (status || (status.code==Core::Err::EXCEPTION && decoded.isException)) {
+            if (!append(output_,sizeof(output_),used,"{\"address\":%u,\"function\":%u,\"register_start\":%u,\"register_count\":%u,\"exception\":%s,\"exception_code\":%u,\"words\":[",decoded.address,decoded.function,decoded.start,decoded.count,boolean(decoded.isException),decoded.exceptionCode)) return false;
+            for (std::size_t i=0;i<decoded.wordCount;++i)
+                if (!append(output_,sizeof(output_),used,"%s%u",i?",":"",decoded.words[i])) return false;
+            if (!append(output_,sizeof(output_),used,"],\"function_name\":\"%s\",\"register_names\":[",decoded.function==3?"read_registers":decoded.function==6?"write_register":"write_registers")) return false;
+            for (std::size_t i=0;i<decoded.count;++i) {
+                const auto* descriptor=Ess::findRegister(static_cast<uint16_t>(decoded.start+i));
+                if (descriptor) {
+                    if (!append(output_,sizeof(output_),used,"%s\"%s\"",i?",":"",descriptor->name)) return false;
+                } else if (!append(output_,sizeof(output_),used,"%snull",i?",":"")) return false;
+            }
+            if (!append(output_,sizeof(output_),used,"]}")) return false;
+        } else if (!append(output_,sizeof(output_),used,"null")) return false;
+    } else if (!append(output_,sizeof(output_),used,"null,\"decode_detail\":0,\"frame_error\":0,\"decoded\":null")) return false;
+    if (!append(output_,sizeof(output_),used,"}")) return false;
+    // Direct, nonblocking, best-effort delivery. No pending-output reservation.
+    return host_.emitLine(host_.context,output_,used);
+}
+
 bool Console::outstanding(uint32_t id) const noexcept {
     if (stopReply_.pending && stopReply_.id == id) return true;
     for (const auto& item : outstanding_) if (item.commandId == id) return true;
@@ -697,24 +739,50 @@ void Console::dispatch() noexcept {
         error(id, capability, "unsupported"); return;
     }
     if (!entry) { error(id, "unknown", "unknown_command"); return; }
-    if (entry->command == Command::FUNCTIONAL) {
+    if (entry->command == Command::SNIFF) {
+        if (!host_.sniff) { error(id,"sniff","unavailable"); return; }
+        SniffMode mode=SniffMode::OFF; bool change=count==first+2;
+        if (count<first+1 || count>first+2) { error(id,"sniff","invalid_arguments"); return; }
+        if (change) {
+            if (!std::strcmp(tokens[first+1],"raw")) mode=SniffMode::RAW;
+            else if (!std::strcmp(tokens[first+1],"decoded")) mode=SniffMode::DECODED;
+            else if (std::strcmp(tokens[first+1],"off")) { error(id,"sniff","invalid_arguments"); return; }
+        }
+        if (outputPending() && (!change || mode!=SniffMode::OFF)) { ++inputDropped_; return; }
+        SniffSnapshot view;
+        const auto result=host_.sniff(host_.context,change?&mode:nullptr,view);
+        // Disabling remains possible under pressure; an existing ordinary reply
+        // keeps its ownership and the diagnostic reply may be dropped.
         if (outputPending()) { ++inputDropped_; return; }
-        if (!host_.functional) { error(id, "motion-bench", "unavailable"); return; }
-        if (count != first + 2) { error(id, "motion-bench", "invalid_arguments"); return; }
-        FunctionalCommand command;
-        if (!std::strcmp(tokens[first + 1], "inspect")) command = FunctionalCommand::INSPECT;
-        else if (!std::strcmp(tokens[first + 1], "read")) command = FunctionalCommand::SNAPSHOT;
-        else if (!std::strcmp(tokens[first + 1], "restore")) command = FunctionalCommand::RESTORE;
-        else { error(id, "motion-bench", "invalid_arguments"); return; }
-        FunctionalView v;
-        const Action result = host_.functional(host_.context, command, v);
+        std::size_t used=0;
+        if (append(output_,sizeof(output_),used,
+            "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"sniff\",\"ok\":%s,\"result\":\"%s\",\"mode\":\"%s\",\"observed\":%llu,\"emitted\":%llu,\"dropped\":%llu,\"cursor\":%llu,\"overwritten\":%lu,\"capture_dropped\":%lu,\"retained\":%u,\"capacity\":%u}",
+            static_cast<unsigned long>(id),boolean(result==Action::OK),actionName(result),
+            view.mode==SniffMode::RAW?"raw":view.mode==SniffMode::DECODED?"decoded":"off",
+            static_cast<unsigned long long>(view.observed),static_cast<unsigned long long>(view.emitted),
+            static_cast<unsigned long long>(view.dropped),static_cast<unsigned long long>(view.cursor),
+            static_cast<unsigned long>(view.overwritten),static_cast<unsigned long>(view.captureDropped),static_cast<unsigned>(view.retained),static_cast<unsigned>(view.capacity))) emit();
+        else error(id,"sniff","output_capacity");
+        return;
+    }
+    if (entry->command == Command::MOTION_PROFILE) {
+        if (outputPending()) { ++inputDropped_; return; }
+        if (!host_.motionProfile) { error(id, "motion-profile", "unavailable"); return; }
+        if (count != first + 2) { error(id, "motion-profile", "invalid_arguments"); return; }
+        MotionProfileCommand command;
+        if (!std::strcmp(tokens[first + 1], "inspect")) command = MotionProfileCommand::INSPECT;
+        else if (!std::strcmp(tokens[first + 1], "read")) command = MotionProfileCommand::SNAPSHOT;
+        else if (!std::strcmp(tokens[first + 1], "restore")) command = MotionProfileCommand::RESTORE;
+        else { error(id, "motion-profile", "invalid_arguments"); return; }
+        MotionProfileView v;
+        const Action result = host_.motionProfile(host_.context, command, v);
         char tx[39], rx[129], write[17], writeTx[39];
         hex(v.tx,v.txLength,tx,sizeof(tx)); hex(v.rx,v.rxLength,rx,sizeof(rx));
         hex(v.writeReply,v.writeReplyLength,write,sizeof(write)); hex(v.writeTx,v.writeTxLength,writeTx,sizeof(writeTx));
         std::size_t used=0;
         if (append(output_,sizeof(output_),used,
-            "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"motion-bench\",\"ok\":%s,\"result\":\"%s\",\"enabled\":%s,\"electrical_qualified\":false,\"pending\":%s,\"saved\":%s,\"restored\":%s,\"session_ok\":%s,\"phase\":%u,\"address\":%u,\"configuration_generation\":%lu,\"serial_generation\":%lu,\"original\":[%u,%u,%u,%u,%u,%u],\"current\":[%u,%u,%u,%u,%u,%u],\"tx_hex\":\"%s\",\"rx_hex\":\"%s\",\"write_reply_hex\":\"%s\",\"tx_accepted\":%llu,\"closure_qualified\":%s,\"closure_earliest_us\":%llu,\"closure_latest_us\":%llu,\"execution_unknown\":%s,\"error\":\"%s\"}",
-            static_cast<unsigned long>(id),boolean(result==Action::OK),actionName(result),boolean(v.enabled),boolean(v.pending),boolean(v.saved),boolean(v.restored),boolean(v.ok),v.phase,v.address,
+            "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"motion-profile\",\"ok\":%s,\"result\":\"%s\",\"pending\":%s,\"saved\":%s,\"restored\":%s,\"session_ok\":%s,\"phase\":%u,\"address\":%u,\"configuration_generation\":%lu,\"serial_generation\":%lu,\"original\":[%u,%u,%u,%u,%u,%u],\"current\":[%u,%u,%u,%u,%u,%u],\"tx_hex\":\"%s\",\"rx_hex\":\"%s\",\"write_reply_hex\":\"%s\",\"tx_accepted\":%llu,\"closure_qualified\":%s,\"closure_earliest_us\":%llu,\"closure_latest_us\":%llu,\"execution_unknown\":%s,\"error\":\"%s\"}",
+            static_cast<unsigned long>(id),boolean(result==Action::OK),actionName(result),boolean(v.pending),boolean(v.saved),boolean(v.restored),boolean(v.ok),v.phase,v.address,
             static_cast<unsigned long>(v.generation),static_cast<unsigned long>(v.serialGeneration),
             v.original[0],v.original[1],v.original[2],v.original[3],v.original[4],v.original[5],
             v.current[0],v.current[1],v.current[2],v.current[3],v.current[4],v.current[5],tx,rx,write,
@@ -722,9 +790,9 @@ void Console::dispatch() noexcept {
             --used;
             if (append(output_,sizeof(output_),used,",\"request\":\"%s\",\"tx_complete\":%s,\"write_tx_complete\":%s,\"deadline_us\":%llu,\"delivered_us\":%llu,\"write_tx_hex\":\"%s\",\"write_tx_accepted\":%llu,\"write_closure_qualified\":%s,\"write_closure_earliest_us\":%llu,\"write_closure_latest_us\":%llu,\"write_delivered_us\":%llu,\"write_execution_unknown\":%s}",
                 tokens[first+1],boolean(v.txComplete),boolean(v.writeTxComplete),static_cast<unsigned long long>(v.deadlineUs),static_cast<unsigned long long>(v.deliveredUs),writeTx,static_cast<unsigned long long>(v.writeTxAccepted),boolean(v.writeQualified),static_cast<unsigned long long>(v.writeEarliestUs),static_cast<unsigned long long>(v.writeLatestUs),static_cast<unsigned long long>(v.writeDeliveredUs),boolean(v.writeExecutionUnknown))) emit();
-            else error(id,"motion-bench","output_capacity");
+            else error(id,"motion-profile","output_capacity");
         }
-        else error(id,"motion-bench","output_capacity");
+        else error(id,"motion-profile","output_capacity");
         return;
     }
     if (entry->command == Command::HOST) {
@@ -1315,9 +1383,9 @@ void Console::dispatch() noexcept {
         const auto caps = Ess::readCapabilities();
         Snapshot snapshot; host_.snapshot(host_.context, snapshot);
         std::snprintf(output_, sizeof(output_),
-            "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"caps\",\"ok\":true,\"probe\":%s,\"identity\":%s,\"config\":%s,\"state\":%s,\"max_steps\":%u,\"max_reply_bytes\":%u,\"writes\":true,\"motion\":%s,\"actions_qualified\":%s,\"axis_reserved\":%s,\"actions\":[\"enable\",\"release\",\"clear_alarm\",\"clear_position\",\"stop_normal\",\"stop_direct\"],\"device_queue_guarantee\":false,\"velocity\":%s,\"configured_ramp_policy\":true,\"acceleration_mapping\":false,\"velocity_unsupported\":[\"jerk\",\"blending\",\"live_updates\",\"torque\",\"current\",\"external_jog\"],\"driver_settings\":%s,\"limit_pair_writes\":false,\"home\":%s,\"home_methods\":[33,34,35],\"home_physical_qualified\":false,\"io_settings\":%s,\"input_terminals\":4,\"output_terminals\":2,\"no_function\":0,\"input_function_codes\":[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17],\"output_function_codes\":[0,1,2,3,4,5,9,10],\"output_function_11\":\"unresolved\",\"input_mask\":15,\"output_mask\":3,\"external_enable_precedence\":\"unknown\",\"electrical_output_state_known\":false,\"segment_storage\":16,\"maximum_input_selections\":8,\"segment_execution\":\"external_input\",\"segment_pulse_writes\":false,\"negative_segment_speed_encoding\":\"unresolved\",\"control_settings\":%s,\"control_algorithm_codes\":[1,2],\"configured_encoder_is_identification\":false,\"current_percent_base\":\"unresolved\",\"effective_current_limit_from_peak\":false,\"tuning\":%s,\"tuning_groups\":[\"filters\",\"current-loop\",\"la\",\"collision\"],\"tuning_physical_scaling_known\":false,\"collision_003b_003c_access\":\"unresolved\"}",
+            "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"caps\",\"ok\":true,\"probe\":%s,\"identity\":%s,\"config\":%s,\"state\":%s,\"max_steps\":%u,\"max_reply_bytes\":%u,\"writes\":true,\"motion\":%s,\"write_response_confirmed\":%s,\"axis_reserved\":%s,\"actions\":[\"enable\",\"release\",\"clear_alarm\",\"clear_position\",\"stop_normal\",\"stop_direct\"],\"device_queue_guarantee\":false,\"velocity\":%s,\"configured_ramp_policy\":true,\"acceleration_mapping\":false,\"velocity_unsupported\":[\"jerk\",\"blending\",\"live_updates\",\"torque\",\"current\",\"external_jog\"],\"driver_settings\":%s,\"limit_pair_writes\":false,\"home\":%s,\"home_methods\":[33,34,35],\"home_physical_qualified\":false,\"io_settings\":%s,\"input_terminals\":4,\"output_terminals\":2,\"no_function\":0,\"input_function_codes\":[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17],\"output_function_codes\":[0,1,2,3,4,5,9,10],\"output_function_11\":\"unresolved\",\"input_mask\":15,\"output_mask\":3,\"external_enable_precedence\":\"unknown\",\"electrical_output_state_known\":false,\"segment_storage\":16,\"maximum_input_selections\":8,\"segment_execution\":\"external_input\",\"segment_pulse_writes\":false,\"negative_segment_speed_encoding\":\"unresolved\",\"control_settings\":%s,\"control_algorithm_codes\":[1,2],\"configured_encoder_is_identification\":false,\"current_percent_base\":\"unresolved\",\"effective_current_limit_from_peak\":false,\"tuning\":%s,\"tuning_groups\":[\"filters\",\"current-loop\",\"la\",\"collision\"],\"tuning_physical_scaling_known\":false,\"collision_003b_003c_access\":\"unresolved\"}",
             static_cast<unsigned long>(id), boolean(caps.probe), boolean(caps.identity), boolean(caps.config), boolean(caps.state), caps.maxSteps, caps.maxReplyBytes,
-            boolean(host_.startMove && host_.snapshot && host_.axis), boolean(snapshot.actionsQualified), boolean(snapshot.axisReserved), boolean(host_.startVelocity && host_.snapshot && host_.axis), boolean(host_.startDriver && host_.snapshot), boolean(host_.startHome && host_.snapshot && host_.axis), boolean(host_.startDriver && host_.snapshot), boolean(host_.startDriver && host_.snapshot), boolean(host_.startDriver && host_.snapshot));
+            boolean(host_.startMove && host_.snapshot && host_.axis), boolean(snapshot.writeResponseConfirmed), boolean(snapshot.axisReserved), boolean(host_.startVelocity && host_.snapshot && host_.axis), boolean(host_.startDriver && host_.snapshot), boolean(host_.startHome && host_.snapshot && host_.axis), boolean(host_.startDriver && host_.snapshot), boolean(host_.startDriver && host_.snapshot), boolean(host_.startDriver && host_.snapshot));
         emit(); return;
     }
     if (entry->command == Command::RESET || (entry->command == Command::STATS && arg)) {
@@ -1445,12 +1513,12 @@ void Console::dispatch() noexcept {
     }
     case Command::CONFIG:
         std::snprintf(output_, sizeof(output_),
-            "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"%s\",\"ok\":true,\"address\":%u,\"baud\":%lu,\"format\":\"%s\",\"response_timeout_us\":%lu,\"reply_gap_us\":%lu,\"gap15_us\":%lu,\"gap35_us\":%lu,\"stale_after_ms\":%lu,\"ready\":%s,\"timing_qualified\":%s,\"functional_bench\":%s,\"device_settings\":\"%s\",\"cache_off_supported\":%s,\"sample_gap_limit_us\":%lu,\"cached_identity_id\":%lu,\"cached_identity_address\":%u,\"cached_identity_generation\":%lu,\"cached_config_id\":%lu,\"cached_config_address\":%u,\"cached_config_generation\":%lu,\"binding_generation\":%lu}",
+            "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"%s\",\"ok\":true,\"address\":%u,\"baud\":%lu,\"format\":\"%s\",\"response_timeout_us\":%lu,\"reply_gap_us\":%lu,\"gap15_us\":%lu,\"gap35_us\":%lu,\"stale_after_ms\":%lu,\"ready\":%s,\"timing_qualified\":%s,\"device_settings\":\"%s\",\"cache_off_supported\":%s,\"sample_gap_limit_us\":%lu,\"cached_identity_id\":%lu,\"cached_identity_address\":%u,\"cached_identity_generation\":%lu,\"cached_config_id\":%lu,\"cached_config_address\":%u,\"cached_config_generation\":%lu,\"binding_generation\":%lu}",
             static_cast<unsigned long>(id), entry->name, data.address, static_cast<unsigned long>(data.baud),
             host_.hostSerial ? (data.serial.activeKnown ? formatName(data.serial.active.format) : "unknown") : "8N1",
             static_cast<unsigned long>(data.responseTimeoutUs), static_cast<unsigned long>(data.replyGapUs),
             static_cast<unsigned long>(data.gap15Us), static_cast<unsigned long>(data.gap35Us),
-            static_cast<unsigned long>(data.staleAfterMs), boolean(data.ready), boolean(data.timingQualified), boolean(data.functionalBench),
+            static_cast<unsigned long>(data.staleAfterMs), boolean(data.ready), boolean(data.timingQualified),
             data.cachedConfigId ? "cached" : "unknown", boolean(data.cacheOffSupported), static_cast<unsigned long>(data.sampleGapLimitUs),
             static_cast<unsigned long>(data.cachedIdentityId), data.cachedIdentityAddress, static_cast<unsigned long>(data.cachedIdentityGeneration),
             static_cast<unsigned long>(data.cachedConfigId), data.cachedConfigAddress, static_cast<unsigned long>(data.cachedConfigGeneration),
@@ -1458,8 +1526,8 @@ void Console::dispatch() noexcept {
         break;
     case Command::STATUS:
         std::snprintf(output_, sizeof(output_),
-            "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"status\",\"ok\":true,\"uptime_ms\":%llu,\"ready\":%s,\"timing_qualified\":%s,\"functional_bench\":%s,\"busy\":%s,\"transmit_enabled\":%s,\"recovery_required\":%s,\"phase\":\"%s\",\"transport\":\"%s\",\"codec\":\"%s\",\"detail\":%ld,\"frame_error\":%u,\"last_probe_known\":%s,\"last_probe_ok\":%s,\"probe_address\":%s,\"model_address\":%s,\"raw_model\":%s,\"age_ms\":%s,\"stale_after_ms\":%lu}",
-            static_cast<unsigned long>(id), static_cast<unsigned long long>(data.uptimeMs), boolean(data.ready), boolean(data.timingQualified), boolean(data.functionalBench),
+            "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"status\",\"ok\":true,\"uptime_ms\":%llu,\"ready\":%s,\"timing_qualified\":%s,\"busy\":%s,\"transmit_enabled\":%s,\"recovery_required\":%s,\"phase\":\"%s\",\"transport\":\"%s\",\"codec\":\"%s\",\"detail\":%ld,\"frame_error\":%u,\"last_probe_known\":%s,\"last_probe_ok\":%s,\"probe_address\":%s,\"model_address\":%s,\"raw_model\":%s,\"age_ms\":%s,\"stale_after_ms\":%lu}",
+            static_cast<unsigned long>(id), static_cast<unsigned long long>(data.uptimeMs), boolean(data.ready), boolean(data.timingQualified),
             boolean(data.busy), boolean(data.transmitEnabled), boolean(data.recoveryRequired), Rtu::phaseName(data.phase), Rtu::reasonName(data.transport),
             data.codecChecked ? MotorControlRS::errToString(data.codec.code) : "NOT_CHECKED",
             data.codecChecked ? static_cast<long>(data.codec.detail) : 0L,
@@ -1728,8 +1796,6 @@ bool Console::formatAction(uint32_t id, uint32_t commandId, uint32_t operationId
     fits = fits && append(output_, sizeof(output_), used, "}");
     if (!fits) return false; // Keep the complete host result available; never publish partial JSON.
     if (!appendReportSerial(used)) return false;
-    --used;
-    if (!append(output_,sizeof(output_),used,",\"allow_unconfirmed_write_observation\":%s}", boolean(context.options.allowUnconfirmedWriteObservation))) return false;
     emit(inspection ? 0 : operationId);
     return true;
 }
@@ -1839,11 +1905,11 @@ bool Console::formatMove(uint32_t id, uint32_t commandId, uint32_t operationId,
         actionEvidence(output_, sizeof(output_), used, c.activityEvidence) && append(output_, sizeof(output_), used, ",\"last_observation\":") &&
         actionEvidence(output_, sizeof(output_), used, c.lastObservation) && append(output_, sizeof(output_), used, ",\"failure_evidence\":") &&
         actionEvidence(output_, sizeof(output_), used, c.failureEvidence) && append(output_, sizeof(output_), used,
-        ",\"prerequisites\":{\"target\":%lu,\"generation\":%lu,\"configuration_generation\":%lu,\"observed_us\":%llu,\"maximum_age_us\":%llu,\"raw_alarm\":%u,\"raw_motion\":%u,\"command_units_verified\":%s,\"relative_basis_verified\":%s,\"negative_encoding_verified\":%s,\"native_zero_envelope_verified\":%s,\"configured_ramp_verified\":%s,\"serial_inputs_permit\":%s,\"readiness_qualified\":%s,\"word_order_known\":%s,\"word_order\":%u,\"start_speed_known\":%s,\"start_speed\":%u},\"interrupted_by_stop\":%s",
+        ",\"prerequisites\":{\"target\":%lu,\"generation\":%lu,\"configuration_generation\":%lu,\"observed_us\":%llu,\"maximum_age_us\":%llu,\"raw_alarm\":%u,\"raw_motion\":%u,\"command_units_verified\":%s,\"relative_basis_verified\":%s,\"negative_encoding_verified\":%s,\"configured_ramp_verified\":%s,\"serial_inputs_permit\":%s,\"readiness_qualified\":%s,\"word_order_known\":%s,\"word_order\":%u,\"start_speed_known\":%s,\"start_speed\":%u},\"interrupted_by_stop\":%s",
         static_cast<unsigned long>(c.prerequisites.target.id), static_cast<unsigned long>(c.prerequisites.target.generation),
         static_cast<unsigned long>(c.prerequisites.configurationGeneration), static_cast<unsigned long long>(c.prerequisites.observedUs),
         static_cast<unsigned long long>(c.prerequisites.maximumAgeUs), c.prerequisites.rawAlarm, c.prerequisites.rawMotion,
-        boolean(c.prerequisites.commandUnitsVerified), boolean(c.prerequisites.relativeBasisVerified), boolean(c.prerequisites.negativeTwosComplementVerified), boolean(c.prerequisites.nativeZeroEnvelopeVerified),
+        boolean(c.prerequisites.commandUnitsVerified), boolean(c.prerequisites.relativeBasisVerified), boolean(c.prerequisites.negativeTwosComplementVerified),
         boolean(c.prerequisites.configuredRampVerified), boolean(c.prerequisites.serialInputsPermit), boolean(c.prerequisites.readinessQualified),
         boolean(c.prerequisites.wordOrderKnown), static_cast<unsigned>(c.prerequisites.wordOrder), boolean(c.prerequisites.startSpeedKnown),
         c.prerequisites.startSpeed, boolean(interruptedByStop)) && append(output_, sizeof(output_), used,
@@ -1853,8 +1919,6 @@ bool Console::formatMove(uint32_t id, uint32_t commandId, uint32_t operationId,
         static_cast<unsigned>(c.reference.basis), static_cast<unsigned>(c.reference.source),
         static_cast<unsigned long long>(c.reference.observedUs), static_cast<unsigned long long>(c.reference.maximumAgeUs)) && append(output_, sizeof(output_), used, "}");
     if (!fits || !appendReportSerial(used)) return false;
-    --used;
-    if (!append(output_,sizeof(output_),used,",\"allow_unconfirmed_write_observation\":%s}", boolean(c.options.allowUnconfirmedWriteObservation))) return false;
     emit(inspection ? 0 : operationId);
     return true;
 }

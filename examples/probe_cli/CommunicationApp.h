@@ -110,7 +110,7 @@ Probe::Action communication(void* context, const Probe::CommunicationCommand* co
         if (!a.owner.beginCommissioning(now, a.commissioningLease)) return Probe::Action::BUSY;
         a.commissioning = a.commissioningPrepared; ++a.nextOperationId;
         a.commissioningInvalidated = false; a.commissioningConfirmedGeneration = 0;
-        a.commissioningResponseQualified = actionTimingQualified;
+        a.commissioningResponseQualified = writeResponseConfirmed;
         const auto admitted = submitCommunication(a, now); communicationView(a, out); return admitted;
     }
     if (!a.owner.commissioningOwned()) return Probe::Action::INVALID;

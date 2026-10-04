@@ -12,7 +12,7 @@ using namespace MotorControlRS;
 void fresh() {
     if (app) { app->~App(); std::free(app); app = nullptr; }
     uart.~Esp32S3Uart(); new (&uart) Esp32S3Uart;
-    resetHardware(); Serial = FakeSerial(); platformReady = actionTimingQualified = false;
+    resetHardware(); Serial = FakeSerial(); platformReady = writeResponseConfirmed = false;
     setup(); assert(app && !hardware.writes);
     hardware.txCharacterUs = 87; assert(uart.startCapture(20, timing().holdUs));
 }
@@ -93,7 +93,7 @@ uint32_t start(const ESS::DriverRequest& r) {
 }
 void safeDelayAndGuards() {
     fresh(); const auto old = readControl(); readIdentity(); stationary();
-    assert(!actionTimingQualified);
+    assert(!writeResponseConfirmed);
     ESS::ControlObservation decoded;
     assert(ESS::getControl(*view(old).driverContext,decoded));
     assert(!decoded.algorithmKnown && decoded.raw[0] == 3 && !decoded.percentBaseKnown);

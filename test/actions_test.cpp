@@ -32,11 +32,10 @@ std::vector<uint8_t> motion(uint16_t alarm, uint16_t flags) {
         static_cast<uint8_t>(flags >> 8), static_cast<uint8_t>(flags)};
     crc(b); return b;
 }
-Ess::ActionContext action(ActionKind kind = ActionKind::STOP, uint64_t deadline = 10000, bool allowUnconfirmed = false) {
+Ess::ActionContext action(ActionKind kind = ActionKind::STOP, uint64_t deadline = 10000) {
     Ess::ActionContext c; ActionRequest request; request.kind = kind;
     if (kind == ActionKind::STOP) request.stop.behavior = StopBehavior::CONFIGURED_DECELERATION;
     ActionOptions options; options.pollIntervalUs = 100; options.maxPolls = 3;
-    options.allowUnconfirmedWriteObservation = allowUnconfirmed;
     assert(Ess::prepareAction(c, target(), 12, request, 100, deadline, options)); return c;
 }
 ActionEvent event(const Ess::ActionContext& c, ReadEventKind kind) {
@@ -110,7 +109,7 @@ void testEchoAcknowledgementAndReportedCompletionAreSeparate() {
     auto echo = action(ActionKind::ENABLE);
     auto e = frame(echo, ENABLE, sizeof(ENABLE), 200); e.responseConfirmed = false;
     assert(Ess::advanceAction(echo, e, 220));
-    assert(echo.state == ActionState::FAILED && echo.outcome == ActionOutcome::UNCONFIRMED_RESPONSE);
+    assert(echo.state == ActionState::ACTIVE && echo.step == 1);
     assert(echo.execution == ActionExecution::UNKNOWN && echo.completion == ActionCompletion::NOT_OBSERVED);
     assert(echo.writeEvidence.txComplete && echo.writeEvidence.txAccepted == 8);
     for (ActionKind kind : {ActionKind::ENABLE, ActionKind::RELEASE, ActionKind::CLEAR_ALARM, ActionKind::STOP}) {
@@ -130,9 +129,9 @@ void testEchoAcknowledgementAndReportedCompletionAreSeparate() {
         assert(Ess::nextAction(c, c.servicedUs, p) && p.kind == Ess::ActionWork::DONE && p.length == 0);
     }
 }
-void testOptedInObservationRetainsUnknownExecution() {
+void testObservationRetainsUnknownExecution() {
     for (ActionKind kind : {ActionKind::ENABLE, ActionKind::RELEASE, ActionKind::CLEAR_ALARM, ActionKind::STOP}) {
-        auto c = action(kind, 10000, true);
+        auto c = action(kind, 10000);
         Ess::PreparedAction work; assert(Ess::nextAction(c, 100, work));
         auto e = frame(c, work.bytes, work.length, 200); e.responseConfirmed = false;
         assert(Ess::advanceAction(c, e, 220));
@@ -147,7 +146,7 @@ void testOptedInObservationRetainsUnknownExecution() {
         assert(Ess::nextAction(c, c.servicedUs, work) && work.kind == Ess::ActionWork::DONE);
     }
     // An unconfirmed FC03 cannot turn a possible local echo into an observation.
-    auto c = action(ActionKind::STOP, 10000, true);
+    auto c = action(ActionKind::STOP, 10000);
     auto e = frame(c, NORMAL, sizeof(NORMAL), 200); e.responseConfirmed = false;
     assert(Ess::advanceAction(c, e, 220));
     const auto bytes = motion(0, 0);
@@ -156,9 +155,9 @@ void testOptedInObservationRetainsUnknownExecution() {
     assert(c.outcome == ActionOutcome::UNCONFIRMED_RESPONSE && !c.observationKnown);
     assert(c.execution == ActionExecution::UNKNOWN && c.completion == ActionCompletion::NOT_OBSERVED);
 }
-void testOptedInObservationPreservesWriteFailures() {
+void testObservationPreservesWriteFailures() {
     for (unsigned fault = 0; fault < 8; ++fault) {
-        auto c = action(ActionKind::STOP, 1000, true);
+        auto c = action(ActionKind::STOP, 1000);
         std::vector<uint8_t> bytes(NORMAL, NORMAL + sizeof(NORMAL));
         if (fault == 0) bytes.back() ^= 1;
         if (fault == 1) bytes.assign(ENABLE, ENABLE + sizeof(ENABLE));
@@ -362,7 +361,7 @@ void testZeroOnlyDeviceClearNeedsQualifiedFreshReadback() {
 }
 } // namespace
 int main() {
-    testOptedInObservationRetainsUnknownExecution(); testOptedInObservationPreservesWriteFailures();
+    testObservationRetainsUnknownExecution(); testObservationPreservesWriteFailures();
     testExactCommandsAndCommonNativeParity(); testPolicyRejectionPreservesPreparedOperation();
     testEchoAcknowledgementAndReportedCompletionAreSeparate(); testInvalidEnvelopesAndDuplicatesDoNotMutate();
     testFailuresRetainUncertaintyAndNeverReplay(); testBadRepliesAndExceptionPreserveEvidence();

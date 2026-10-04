@@ -1,9 +1,10 @@
 # ESS bounded actions and priority stop
 
-The explicit [functional bench](functional_bench.md) can follow a checked but
-source-unconfirmed FC06 frame with read-only observations. This opt-in preserves
-UNKNOWN execution and does not establish electrical qualification. Default
-operation policy still requires confirmed response evidence.
+The regular API follows a fully transmitted, valid, timely FC06 frame with
+read-only observations even when the caller cannot confirm its source. That
+case retains UNKNOWN execution. The ordinary board uses its declared combined
+DE/~RE wiring and checked post-release receive intervals for acknowledgement;
+no analyzer or special firmware mode is required. See [motion checks](functional_bench.md).
 
 Prompt 08 implements the installed `ActionOperation.h` and
 `profiles/ess_rs/Actions.h` contract. Applications own `ActionContext`, the
@@ -168,15 +169,12 @@ effects if their reserved output slot is still occupied.
 The Python harness offers explicit one-attempt action commands and strict
 terminal validation. It does not add actions to read/load campaigns or retry
 writes. `caps` distinguishes implemented write preparations from
-`actions_qualified` on the actual application.
+the configured response-source contract on the actual application.
 
-The bench application currently sets `actionTimingQualified=false`: independent
-TX/RX/DE timing and FC06 echo-source qualification are missing. Physical action
-admission returns `timing_unqualified` before TX. Native fake tests can supply
-qualified evidence; they do not lift this hardware gate. Stopped-state actions
-and all dynamic stop/motion claims remain NOT RUN. Prompt 09 can reuse the real
-software path, but live moves require these gates plus its own setup/units and
-independent stop prerequisites.
+There is no analyzer admission gate. Actual framing, configuration, readiness
+and operation-specific requirements still apply. The short motion campaign
+records enable/release and moving-stop behavior separately from electrical
+measurement and independent shaft observation.
 
 Device position clear hardware remains NOT RUN, independently of its native
 tests and zero-TX admission gates. It is never added to read/load campaigns;

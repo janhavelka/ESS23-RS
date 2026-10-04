@@ -121,11 +121,12 @@ motor-compatibility claim accompanies this review.
 
 ## Narrow future firmware experiment
 
-Physical paired writes are **NOT RUN**: independent timing/echo qualification
-and the necessary stopped-state/input prerequisites are absent. A future
+The unexpanded paired-write families remain **NOT RUN** where admissible wire
+forms or stopped-state/input prerequisites remain unresolved. An analyzer is
+not an admission requirement. A future
 experiment may examine only the already reviewed `0x0024/2` parameter on the
-identified firmware, with exclusive bus ownership, qualified TX/RX/DE timing
-and response provenance, fresh stopped/alarm-free observations, understood
+identified firmware, with exclusive bus ownership, checked software TX/RX/DE timing
+and the configured response provenance, fresh stopped/alarm-free observations, understood
 active inputs and independently prevented external triggers. No assignment or
 polarity is silently rewritten to obtain those conditions.
 

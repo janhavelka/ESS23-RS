@@ -25,6 +25,8 @@ struct Fake {
     unsigned loads = 0, loadChanges = 0;
     unsigned typedReads = 0, monitors = 0, monitorChanges = 0;
     unsigned actions = 0;
+    unsigned sniffCalls = 0;
+    Probe::SniffSnapshot sniffState;
     unsigned moves = 0;
     unsigned velocities = 0;
     MotorControlRS::VelocityRequest velocityRequest;
@@ -60,6 +62,11 @@ struct Fake {
         Fake& self = *static_cast<Fake*>(context);
         ++self.snapshots;
         output = self.data;
+    }
+    static Probe::Action sniff(void* context, const Probe::SniffMode* mode, Probe::SniffSnapshot& out) {
+        Fake& self=*static_cast<Fake*>(context); ++self.sniffCalls;
+        if (mode) self.sniffState.mode=*mode;
+        self.sniffState.capacity=16; out=self.sniffState; return Probe::Action::OK;
     }
     static Probe::Action probe(void* context, uint32_t id, uint8_t address, uint32_t& operation) {
         Fake& self = *static_cast<Fake*>(context);
@@ -176,6 +183,54 @@ struct Fake {
 
 void send(Probe::Console& console, const std::string& input) {
     for (char c : input) console.feed(c);
+}
+
+void sniffFixtures() {
+    Fake fake; auto host=fake.host(); Probe::Console console(host);
+    MotorControlRS::TrafficRecord tx; tx.kind=MotorControlRS::TrafficKind::TX;
+    tx.sequence=1; tx.transaction=1; tx.atUs=100; tx.complete=true;
+    tx.length=static_cast<uint16_t>(Ess::buildReadRegisters(1,0,1,tx.bytes,sizeof(tx.bytes)));
+    assert(console.reportSniff(tx,Probe::SniffMode::DECODED));
+    auto rx=tx; rx.kind=MotorControlRS::TrafficKind::RX; rx.sequence=2; rx.atUs=rx.endUs=200; rx.startUs=150;
+    rx.bytes[0]=1; rx.bytes[1]=3; rx.bytes[2]=2; rx.bytes[3]=0x4E; rx.bytes[4]=0xEA; rx.length=7;
+    const auto crc=Ess::calcCrc16(rx.bytes,5); rx.bytes[5]=crc; rx.bytes[6]=crc>>8;
+    assert(console.reportSniff(rx,Probe::SniffMode::DECODED,&tx));
+    rx.sequence=3; rx.bytes[6]^=1;
+    assert(console.reportSniff(rx,Probe::SniffMode::DECODED,&tx));
+    rx.sequence=4; rx.complete=false; rx.length=3;
+    assert(console.reportSniff(rx,Probe::SniffMode::RAW));
+    MotorControlRS::TrafficRecord end; end.kind=MotorControlRS::TrafficKind::END;
+    end.sequence=5; end.transaction=1; end.atUs=300; end.code=1;
+    assert(console.reportSniff(end,Probe::SniffMode::DECODED));
+    for (const auto& line:fake.lines) std::puts(line.c_str());
+}
+
+void testSniffTranslationAndOutputIsolation() {
+    Fake fake; auto host=fake.host(); host.sniff=Fake::sniff; Probe::Console console(host);
+    send(console,"@1 sniff decoded\n"); fake.contains("\"mode\":\"decoded\"");
+    assert(fake.sniffCalls==1 && fake.sniffState.mode==Probe::SniffMode::DECODED);
+    MotorControlRS::TrafficRecord tx; tx.kind=MotorControlRS::TrafficKind::TX;
+    tx.sequence=1; tx.transaction=1; tx.atUs=100; tx.complete=true;
+    tx.length=static_cast<uint16_t>(Ess::buildReadRegisters(1,0,1,tx.bytes,sizeof(tx.bytes)));
+    assert(console.reportSniff(tx,Probe::SniffMode::DECODED));
+    fake.contains("\"function_name\":\"read_registers\""); fake.contains("\"register_names\":[\"DRIVER_MODEL\"]");
+    auto rx=tx; rx.kind=MotorControlRS::TrafficKind::RX; rx.sequence=2; rx.atUs=rx.endUs=200; rx.startUs=150;
+    rx.bytes[0]=1; rx.bytes[1]=3; rx.bytes[2]=2; rx.bytes[3]=0x4E; rx.bytes[4]=0xEA; rx.length=7;
+    const auto crc=Ess::calcCrc16(rx.bytes,5); rx.bytes[5]=crc; rx.bytes[6]=crc>>8;
+    assert(console.reportSniff(rx,Probe::SniffMode::DECODED,&tx)); fake.contains("\"words\":[20202]");
+    rx.complete=false; rx.length=3;
+    assert(console.reportSniff(rx,Probe::SniffMode::DECODED,&tx)); fake.contains("\"decoded\":null");
+    assert(console.reportSniff(rx,Probe::SniffMode::RAW,&tx)); fake.contains("\"raw_hex\":\"010302\"");
+    fake.contains("\"decode_status\":null");
+    fake.blocked=true;
+    assert(!console.reportSniff(tx,Probe::SniffMode::RAW)); assert(!console.outputPending());
+    send(console,"@2 status\n"); assert(console.outputPending());
+    assert(!console.reportSniff(tx,Probe::SniffMode::DECODED));
+    send(console,"@3 sniff off\n"); assert(fake.sniffState.mode==Probe::SniffMode::OFF && console.outputPending());
+    fake.blocked=false; assert(console.serviceOutput()); fake.contains("\"id\":2"); fake.contains("\"command\":\"status\"");
+    assert(!console.reportSniff(tx,Probe::SniffMode::OFF));
+    send(console,"@4 sniff invalid\n"); fake.contains("invalid_arguments"); assert(fake.sniffCalls==2);
+    fake.untouched();
 }
 
 void report(Probe::Console& console, Fake& fake, uint32_t id, uint8_t address,
@@ -1924,6 +1979,7 @@ void testSegmentGrammarAndCorrelation() {
     assert(f.drivers == 3);
 }
 int main(int argc, char** argv) {
+    if (argc==2 && !std::strcmp(argv[1],"--sniff-fixtures")) { sniffFixtures(); return 0; }
     if (argc == 2 && !std::strcmp(argv[1], "--tuning-fixtures")) { tuningFixtures(); return 0; }
     if (argc == 2 && !std::strcmp(argv[1], "--control-fixtures")) { controlFixtures(); return 0; }
     if (argc == 2 && !std::strcmp(argv[1], "--segment-fixtures")) { segmentFixtures(); return 0; }
@@ -1935,6 +1991,7 @@ int main(int argc, char** argv) {
     }
     if (argc == 2 && std::strcmp(argv[1], "--home-fixtures") == 0) { homeFixtures(); return 0; }
     if (argc == 2 && std::strcmp(argv[1], "--io-fixtures") == 0) { driverFixtures(true); return 0; }
+    testSniffTranslationAndOutputIsolation();
     testSegmentGrammarAndCorrelation();
     testControlRoutes();
     testTuningRoutes();

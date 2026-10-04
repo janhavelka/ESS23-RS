@@ -87,8 +87,24 @@ bool Runner::busy() const noexcept {
     return phase_ != Phase::IDLE && phase_ != Phase::DONE && phase_ != Phase::FAULT;
 }
 
+bool Runner::setTrafficCapture(MotorControlRS::TrafficCapture* capture) noexcept {
+    if (busy()) return false;
+    traffic_ = capture;
+    return true;
+}
+
 void Runner::record(Event event, uint64_t atUs, uint8_t byte, uint16_t count,
                     uint64_t wireStartUs, uint32_t uncertaintyUs) noexcept {
+    if (traffic_) {
+        using MotorControlRS::TrafficKind;
+        if (event == Event::START) traffic_->begin(atUs);
+        else if (event == Event::TX_DONE) traffic_->event(TrafficKind::TX_END, atUs, count, uncertaintyUs);
+        else if (event == Event::DIRECTION) traffic_->event(TrafficKind::DIRECTION, atUs, byte, uncertaintyUs);
+        else if (event == Event::END) {
+            traffic_->flushReceived(result_.reason == Reason::FRAME, atUs, result_.rxLength);
+            traffic_->event(TrafficKind::END, atUs, static_cast<uint16_t>(result_.reason));
+        }
+    }
     if (!storage_.traceCapacity) return;
     Trace& trace = storage_.trace[traceHead_];
     trace.atUs = atUs;
@@ -195,6 +211,8 @@ DrainResult Runner::discard(uint64_t nowUs) noexcept {
     for (unsigned i = 0; i < READ_BUDGET; ++i) {
         RxByte byte; uint64_t through = 0;
         const ReadState state = port_.read(port_.context, nowUs, byte, through);
+        if (traffic_ && state == ReadState::BYTE)
+            traffic_->received(byte.value, byte.startUs, byte.endUs, byte.uncertaintyUs, nowUs);
         if (state == ReadState::PENDING) return output;
         if (state == ReadState::EMPTY && through <= nowUs &&
             (!observed_ || through >= observedUs_) && (!haveRx_ || through >= lastRxEndUs_)) {
@@ -202,6 +220,7 @@ DrainResult Runner::discard(uint64_t nowUs) noexcept {
             observedUs_ = through;
             output.state = state;
             output.throughUs = through;
+            if (traffic_) traffic_->flushReceived(false, nowUs);
             return output;
         }
         if (state == ReadState::BYTE && byte.startUs < byte.endUs && byte.endUs <= nowUs &&
@@ -221,6 +240,7 @@ DrainResult Runner::discard(uint64_t nowUs) noexcept {
         output.state = ReadState::ERROR;
         output.reason = state == ReadState::EMPTY || state == ReadState::BYTE ?
             Reason::CLOCK_ERROR : Reason::RX_ERROR;
+        if (traffic_) traffic_->flushReceived(false, nowUs);
         return output;
     }
     return output; // Budget exhaustion is not EMPTY evidence.
@@ -310,6 +330,14 @@ void Runner::completedFrame(uint64_t latestUs, uint32_t uncertaintyUs) noexcept 
 }
 
 bool Runner::onByte(const RxByte& byte, uint64_t nowUs) noexcept {
+    if (traffic_) {
+        // Split copied traffic at an observed idle gap. The original parser below
+        // remains the sole authority for framing; this observation performs no reads.
+        if (haveRx_ && byte.startUs >= lastRxEndUs_ &&
+            byte.startUs - lastRxEndUs_ >= timing_.gap35Us)
+            traffic_->flushReceived(false, nowUs);
+        traffic_->received(byte.value, byte.startUs, byte.endUs, byte.uncertaintyUs, nowUs);
+    }
     // Retain every observed byte in the optional trace, including rejected bytes.
     record(Event::RX, byte.endUs, byte.value, result_.rxLength, byte.startUs,
            byte.uncertaintyUs);
@@ -361,6 +389,7 @@ bool Runner::onByte(const RxByte& byte, uint64_t nowUs) noexcept {
         ++result_.echoBytes;
         increment(stats_.echoBytes);
         record(Event::ECHO, byte.endUs, byte.value, result_.echoBytes);
+        if (traffic_ && result_.echoBytes == txLength_) traffic_->flushReceived(false, nowUs);
         return true;
     }
     if (phase_ != Phase::RECEIVE || startLatest < releasedUs_ - releaseUncertaintyUs_ ||
@@ -507,6 +536,8 @@ void Runner::poll(uint64_t nowUs) noexcept {
         queuedUs_ = nowUs;
         const WriteResult sent = port_.write(port_.context, storage_.tx, txLength_);
         result_.txAccepted = static_cast<uint16_t>(sent.accepted <= txLength_ ? sent.accepted : txLength_);
+        if (traffic_) traffic_->transmitted(storage_.tx, result_.txAccepted,
+            !sent.error && sent.accepted == txLength_, nowUs);
         record(Event::TX, nowUs, 0, result_.txAccepted);
         if (sent.error || sent.accepted != txLength_) pending_ = Reason::TX_ERROR;
         phase(Phase::DRAIN, nowUs);

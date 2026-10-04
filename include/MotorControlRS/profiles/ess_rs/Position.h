@@ -8,6 +8,23 @@
 
 namespace MotorControlRS { namespace ESS_RS {
 constexpr std::size_t MOVE_REQUEST_BYTES = 19;
+/** Stored native finite-position profile, read from 0x0020/6. Ramp words are
+ * device encodings, not physical acceleration. targetBits preserves the full
+ * existing pair for explicit restoration without interpreting signed motion. */
+struct PositionProfile {
+    uint16_t startSpeed = 0, accelerationTime = 0, decelerationTime = 0, speed = 0;
+    uint32_t targetBits = 0;
+};
+/** Fixed non-consuming read; no operation, trigger or persistence side effects. */
+std::size_t buildReadPositionProfile(uint8_t address, uint8_t*, std::size_t) noexcept;
+/** Checked response; output remains unchanged on every failure. */
+Status parsePositionProfile(const uint8_t*, std::size_t, uint8_t address,
+                            WordOrder, PositionProfile&) noexcept;
+/** Stage only the reviewed 0x0021/5 profile. Does not change start speed or
+ * trigger motion. Caller owns stationary admission, saved values and readback.
+ * Returns zero without changing the buffer for invalid values/order/capacity. */
+std::size_t buildWritePositionProfile(uint8_t address, const PositionProfile&,
+                                     WordOrder, uint8_t*, std::size_t) noexcept;
 /** Exact target/configuration binding and caller-qualified prerequisites.
  * Configured ramp words are preserved verbatim in the reviewed FC10 window;
  * their names do not claim a physical acceleration. Qualification must include
@@ -18,12 +35,6 @@ struct MovePrerequisites {
     uint32_t configurationGeneration = 0;
     bool commandUnitsVerified = false, relativeBasisVerified = false;
     bool negativeTwosComplementVerified = false;
-    /** Explicit caller-verified envelope for an unreferenced native-zero
-     * experiment: only unwrapped absolute NATIVE/STEPS zero, without supplied
-     * reference, host origins or soft limits. Does not establish a feedback-to-
-     * command relation; prepared displacement remains unknown. Ordinary
-     * absolute positioning still requires an established native reference. */
-    bool nativeZeroEnvelopeVerified = false;
     bool configuredRampVerified = false, serialInputsPermit = false;
     bool readinessQualified = false;
     uint16_t accelerationTime = 0, decelerationTime = 0;
@@ -82,10 +93,11 @@ Status prepareMoveRelative(MoveContext&, const AxisConfig&, const AxisReference*
                            uint32_t operationId, const MoveRequest&, const MovePrerequisites&,
                            uint64_t nowUs, uint64_t deadlineUs,
                            const ActionOptions& = ActionOptions()) noexcept;
-/** Preserve a multi-turn absolute target. Requires a fresh, established actual
- * command-coordinate reference covering both write budgets, except the explicit
- * nativeZeroEnvelopeVerified experiment whose displacement remains unknown. No normalization.
- * Unsupported/unresolved preparation leaves output unchanged and yields no I/O. */
+/** Preserve a multi-turn absolute target without normalization. An unwrapped
+ * native target does not require a current-position reference; its displacement
+ * remains unknown. Conversions, wrapped paths and applicable limits retain their
+ * required metadata. A supplied reference must be fresh and stationary and cover
+ * both write budgets. Unsupported preparation leaves output unchanged. */
 Status prepareMoveAbsolute(MoveContext&, const AxisConfig&, const AxisReference*,
                            uint32_t operationId, const MoveRequest&, const MovePrerequisites&,
                            uint64_t nowUs, uint64_t deadlineUs,

@@ -187,13 +187,29 @@ class TypedSerial:
         return Serial.normal(request_id, command, args)
 
 
-def motion_bench_reply(request_id, action="inspect", restored=False, pending=False):
+def traffic_record(sequence=1, kind="TX", mode="decoded"):
+    def frame(prefix):
+        return (prefix + bench.wire_crc(prefix).to_bytes(2, "little")).hex()
+    request = frame(bytes((1,3,0,0,0,1)))
+    response = frame(bytes((1,3,2,0x4e,0xea)))
+    rx = kind == "RX"
+    return dict(type="traffic", profile="ess_rs", mode=mode, sequence=sequence, transaction=1,
+        kind=kind, at_us=200 if rx else 100, start_us=150 if rx else 0, end_us=190 if rx else 0,
+        uncertainty_us=2 if rx else 0, length=7 if rx else 8, code=0, complete=True,
+        raw_hex=response if rx else request, expected_request_hex=request if rx and mode=="decoded" else "",
+        expected_request_sequence=1 if rx and mode=="decoded" else 0,
+        decode_status="OK" if mode=="decoded" else None, decode_detail=0, frame_error=0,
+        decoded=dict(address=1,function=3,register_start=0,register_count=1,exception=False,exception_code=0,
+            words=[20202] if rx else [],function_name="read_registers",register_names=["DRIVER_MODEL"]) if mode=="decoded" else None)
+
+
+def motion_profile_reply(request_id, action="inspect", restored=False, pending=False):
     words = [30, 50, 50, 60, 0, 5000]
     def frame(prefix):
         return (prefix + bench.wire_crc(prefix).to_bytes(2, "little")).hex()
     read_tx = frame(bytes((1, 3, 0, 0x20, 0, 6)))
     write_tx = frame(bytes((1, 16, 0, 0x21, 0, 5, 10)) + b"".join(x.to_bytes(2, "big") for x in words[1:]))
-    data = reply(request_id, "motion-bench", request=action, result="ok", enabled=True, electrical_qualified=False,
+    data = reply(request_id, "motion-profile", request=action, result="ok",
         pending=pending, saved=True, restored=restored and not pending, session_ok=not pending,
         phase=(2 if pending else 3) if restored else 1, address=1, configuration_generation=3, serial_generation=1,
         original=list(words), current=list(words), tx_hex=write_tx if restored and pending else read_tx,
@@ -915,12 +931,11 @@ class Framing(unittest.TestCase):
         wrong["write_evidence"]["raw_hex"] = (raw + bench.wire_crc(raw).to_bytes(2, "little")).hex()
         with self.assertRaises(bench.BenchError): bench.Console._check_action(wrong, "position-clear", 1, None)
 
-    def test_native_zero_envelope_keeps_displacement_and_reference_unknown(self):
+    def test_unreferenced_absolute_keeps_displacement_and_reference_unknown(self):
         item = move_terminal(2)
         item.update(command="move-absolute", move_kind="absolute", effective_native=0, endpoint_native=0,
             endpoint_known=True, displacement_known=False, displacement_native=0,
-            allow_unconfirmed_write_observation=True, execution="unknown")
-        item["prerequisites"]["native_zero_envelope_verified"] = True
+            execution="unknown")
         item["staging_words"][3:] = [0, 0]
         item["requested"].update(relative=False, numerator=0)
         raw = bytes((1, 6, 0, 0x27, 0, 5))
@@ -928,10 +943,7 @@ class Framing(unittest.TestCase):
                                         response_confirmed=False)
         arguments = ("0", "steps", "native", "60", "configured")
         bench.Console._check_move(item, 1, arguments, "absolute")
-        mutations = [lambda t: t["prerequisites"].pop("native_zero_envelope_verified"),
-            lambda t: t["prerequisites"].update(native_zero_envelope_verified=False),
-            lambda t: t["prerequisites"].update(native_zero_envelope_verified=1),
-            lambda t: t.pop("displacement_known"), lambda t: t.update(displacement_known=True),
+        mutations = [lambda t: t.pop("displacement_known"), lambda t: t.update(displacement_known=True),
             lambda t: t.update(displacement_known=0), lambda t: t.update(displacement_native=-99),
             lambda t: t.update(endpoint_known=False), lambda t: t.update(zero_displacement=True),
             lambda t: t.update(effective_native=1), lambda t: t.update(endpoint_native=1),
@@ -945,7 +957,7 @@ class Framing(unittest.TestCase):
         for mutate in mutations:
             bad = copy.deepcopy(item); mutate(bad)
             with self.subTest(mutation=mutate):
-                with self.assertRaises(bench.BenchError): bench.Console._check_move(bad, 1, None, "absolute")
+                with self.assertRaises(bench.BenchError): bench.Console._check_move(bad, 1, arguments, "absolute")
         for kind in ("relative", "angle"):
             with self.assertRaises(bench.BenchError): bench.Console._check_move(item, 1, None, kind)
         ordinary = move_terminal(2); ordinary["displacement_known"] = False
@@ -1248,25 +1260,112 @@ class Framing(unittest.TestCase):
         self.assertIn("framing", events[-1][1]["cleanup_error"])
         self.assertFalse(events[-1][1]["ok"])
 
-    def test_motion_bench_commands_retain_snapshot_and_restore_proof(self):
+    def test_sniff_commands_and_nonconsuming_interleaved_frames(self):
+        mode="off"
+        def handler(request_id, command, args):
+            nonlocal mode
+            if command=="sniff":
+                if args: mode=args[0]
+                return encoded(reply(request_id,"sniff",mode=mode,observed=2,emitted=2,dropped=0,cursor=2,
+                    overwritten=0,capture_dropped=0,retained=2,capacity=16))
+            normal=Serial.normal(request_id,command,args)
+            if command=="probe":
+                accepted,terminal=normal.splitlines(keepends=True)
+                return accepted+encoded(traffic_record())+encoded(traffic_record(2,"RX"))+terminal
+            return normal
+        console=self.session(handler,fragment=17)
+        self.assertEqual(console.command("sniff",host_args=("decoded",))["mode"],"decoded")
+        result=console.command("probe",address=1)
+        self.assertTrue(result["ok"])
+        self.assertEqual(len([e for e in self.events if e["event"]=="traffic"]),2)
+        self.assertFalse(console.operations)
+        self.assertEqual(console.command("sniff",host_args=())["mode"],"decoded")
+        self.assertEqual(console.command("sniff",host_args=("off",))["mode"],"off")
+        before=len(self.port.writes)
+        for args in (("invalid",),("raw","off"),["raw"],("decoded\n",)):
+            with self.assertRaises(ValueError): console.command("sniff",host_args=args)
+        self.assertEqual(len(self.port.writes),before)
+
+    def test_sniff_invalid_translation_cannot_publish_invented_values(self):
+        good=traffic_record(2,"RX")
+        for mutate in (lambda x:x.update(raw_hex=x["raw_hex"][:-4]+"0000"),
+                lambda x:x.update(expected_request_hex=""),lambda x:x.update(expected_request_sequence=2),
+                lambda x:x.update(complete=False),lambda x:x.update(length=8),
+                lambda x:x.update(sequence=0),lambda x:x.update(id=1),
+                lambda x:x.update(mode="off"),lambda x:x.update(decode_detail=1),
+                lambda x:x["decoded"].update(words=[99]),lambda x:x["decoded"].update(register_start=1),
+                lambda x:x["decoded"].update(function_name="write_register")):
+            console=self.session(); bad=copy.deepcopy(good); mutate(bad)
+            with self.subTest(mutation=mutate):
+                with self.assertRaises(bench.BenchError): console._dispatch(bad)
+        console=self.session()
+        bad=copy.deepcopy(good); bad.update(raw_hex=bad["raw_hex"][:-4]+"0000",decode_status="CRC_ERROR",decoded=None,frame_error=7)
+        console._dispatch(bad)
+        self.assertEqual(self.events[-1]["response"]["raw_hex"],bad["raw_hex"])
+        with self.assertRaises(bench.BenchError): console._dispatch(bad)
+
+    def test_sniff_noise_budget_is_separate_from_command_response(self):
+        def handler(request_id,command,args):
+            normal=Serial.normal(request_id,command,args)
+            if command!="probe": return normal
+            accepted,terminal=normal.splitlines(keepends=True)
+            records=[]
+            for sequence in range(1,61):
+                item=traffic_record(sequence,mode="raw")
+                item.update(complete=False,length=256,raw_hex="ff"*256)
+                records.append(encoded(item))
+            self.assertGreater(sum(map(len,records)),bench.MAX_INPUT)
+            return accepted+b"".join(records)+terminal
+        console=self.session(handler)
+        result=console.command("probe",address=1)
+        self.assertTrue(result["ok"])
+        self.assertEqual(len([e for e in self.events if e["event"]=="traffic"]),60)
+        self.assertFalse(console.operations)
+
+    def test_partial_traffic_line_is_completed_before_next_command(self):
+        console=self.session()
+        raw=encoded(traffic_record(mode="raw"))
+        split=60
+        console.buffer.extend(raw[:split])
+        original_sleep=self.clock.sleep
+        sent=False
+        def sleep(delay):
+            nonlocal sent
+            original_sleep(delay)
+            if not sent:
+                self.port.input.extend(raw[split:]); sent=True
+        console.sleep=sleep
+        result=console.command("probe",address=1,timeout_s=.1)
+        self.assertTrue(result["ok"] and console.synchronized)
+        self.assertEqual(console.traffic_sequence,1)
+        self.assertEqual(len([e for e in self.events if e["event"]=="traffic"]),1)
+
+    def test_sniff_counter_regression_rejected_across_mode_changes(self):
+        def handler(request_id,command,args):
+            if command!="sniff": return Serial.normal(request_id,command,args)
+            return encoded(reply(request_id,"sniff",mode=args[0],observed=2 if args[0]=="raw" else 1,
+                emitted=1,dropped=0,cursor=2,overwritten=0,capture_dropped=0,retained=2,capacity=16))
+        console=self.session(handler)
+        console.command("sniff",host_args=("raw",))
+        with self.assertRaises(bench.BenchError): console.command("sniff",host_args=("off",))
+
+    def test_motion_profile_commands_retain_snapshot_and_restore_proof(self):
         restored = False
         def handler(request_id, command, args):
             nonlocal restored
-            if command != "motion-bench": return Serial.normal(request_id, command, args)
+            if command != "motion-profile": return Serial.normal(request_id, command, args)
             if args[0] == "restore": restored = True
-            return encoded(motion_bench_reply(request_id, args[0], restored, args[0] != "inspect"))
+            return encoded(motion_profile_reply(request_id, args[0], restored, args[0] != "inspect"))
         console = self.session(handler)
         for action in ("read", "inspect", "restore", "inspect"):
-            result = console.command("motion-bench", host_args=(action,))
+            result = console.command("motion-profile", host_args=(action,))
             self.assertEqual(result["pending"], action != "inspect")
         self.assertTrue(result["restored"])
-        self.assertFalse(result["electrical_qualified"])
         self.assertEqual([line.decode().split()[1:] for line in self.port.writes][1:],
-                         [["motion-bench", x] for x in ("read", "inspect", "restore", "inspect")])
+                         [["motion-profile", x] for x in ("read", "inspect", "restore", "inspect")])
 
-    def test_motion_bench_rejects_false_success_and_malformed_evidence(self):
-        mutations = [lambda x: x.update(electrical_qualified=True),
-            lambda x: x.update(request="read"), lambda x: x.update(tx_complete=False),
+    def test_motion_profile_rejects_false_success_and_malformed_evidence(self):
+        mutations = [lambda x: x.update(request="read"), lambda x: x.update(tx_complete=False),
             lambda x: x.update(tx_accepted=7), lambda x: x.update(session_ok=1),
             lambda x: x.update(pending=True), lambda x: x.update(phase=2),
             lambda x: x.update(rx_hex=x["rx_hex"][:-4] + "0000"),
@@ -1279,30 +1378,27 @@ class Framing(unittest.TestCase):
             lambda x: x.update(closure_earliest_us=1200)]
         for mutate in mutations:
             def handler(request_id, command, args):
-                if command != "motion-bench": return Serial.normal(request_id, command, args)
-                item = motion_bench_reply(request_id, restored=True); mutate(item); return encoded(item)
+                if command != "motion-profile": return Serial.normal(request_id, command, args)
+                item = motion_profile_reply(request_id, restored=True); mutate(item); return encoded(item)
             console = self.session(handler)
             with self.subTest(mutation=mutate):
-                with self.assertRaises(bench.BenchError): console.command("motion-bench", host_args=("inspect",))
+                with self.assertRaises(bench.BenchError): console.command("motion-profile", host_args=("inspect",))
                 self.assertFalse(console.synchronized)
 
-    def test_motion_bench_grammar_rejects_before_transmission(self):
+    def test_motion_profile_grammar_rejects_before_transmission(self):
         console = self.session()
         before = len(self.port.writes)
         for tokens in (None, (), ("read", "1"), ("write",), ("restore\n",), ["read"]):
-            with self.assertRaises(ValueError): console.command("motion-bench", host_args=tokens)
+            with self.assertRaises(ValueError): console.command("motion-profile", host_args=tokens)
         self.assertEqual(before, len(self.port.writes))
 
-    def test_functional_action_requires_explicit_policy_and_checked_echo(self):
+    def test_action_observation_requires_checked_echo(self):
         for command, policy in (("enable", None), ("motor-release", None), ("stop", "normal"), ("stop", "direct")):
             good = action_terminal(1, command, policy)
-            good.update(allow_unconfirmed_write_observation=True, execution="unknown")
+            good.update(execution="unknown")
             good["write_evidence"]["response_confirmed"] = False
             bench.Console._check_action(good, command, 1, policy)
-            mutations = [lambda x: x.pop("allow_unconfirmed_write_observation"),
-                lambda x: x.update(allow_unconfirmed_write_observation=1),
-                lambda x: x.update(allow_unconfirmed_write_observation=False),
-                lambda x: x["write_evidence"].update(raw_hex="0106002D00120000"),
+            mutations = [lambda x: x["write_evidence"].update(raw_hex="0106002D00120000"),
                 lambda x: x["write_evidence"].update(tx_accepted=7, tx_complete=False),
                 lambda x: x["write_evidence"].update(event=1),
                 lambda x: x["write_evidence"].update(qualified=False, earliest_us=0, latest_us=0),
@@ -1314,15 +1410,12 @@ class Framing(unittest.TestCase):
                 with self.subTest(command=command, mutation=mutate):
                     with self.assertRaises(bench.BenchError): bench.Console._check_action(bad, command, 1, policy)
 
-    def test_functional_move_keeps_confirmed_staging_and_fresh_completion(self):
+    def test_unconfirmed_move_keeps_confirmed_staging_and_fresh_completion(self):
         good = move_terminal(1)
-        good.update(allow_unconfirmed_write_observation=True, execution="unknown")
+        good.update(execution="unknown")
         good["trigger_evidence"]["response_confirmed"] = False
         bench.Console._check_move(good, 1, self.MOVE_ARGS)
-        mutations = [lambda x: x.pop("allow_unconfirmed_write_observation"),
-            lambda x: x.update(allow_unconfirmed_write_observation="true"),
-            lambda x: x.update(allow_unconfirmed_write_observation=False),
-            lambda x: x["trigger_evidence"].update(raw_hex="0106002700010000"),
+        mutations = [lambda x: x["trigger_evidence"].update(raw_hex="0106002700010000"),
             lambda x: x["trigger_evidence"].update(tx_accepted=7, tx_complete=False),
             lambda x: x["trigger_evidence"].update(event=1),
             lambda x: x["trigger_evidence"].update(qualified=False, earliest_us=0, latest_us=0),
@@ -1336,9 +1429,9 @@ class Framing(unittest.TestCase):
             with self.subTest(mutation=mutate):
                 with self.assertRaises(bench.BenchError): bench.Console._check_move(bad, 1, self.MOVE_ARGS)
 
-    def test_functional_echo_late_delivery_retains_deadline_without_observation(self):
+    def test_unconfirmed_echo_late_delivery_retains_deadline_without_observation(self):
         action = action_terminal(1, "enable")
-        action.update(allow_unconfirmed_write_observation=True, execution="unknown", ok=False,
+        action.update(execution="unknown", ok=False,
             state="failed", completion="not_observed", outcome="deadline", observation_known=False,
             raw_alarm=None, raw_motion=None, polls=0, serviced_us=10000)
         empty = copy.deepcopy(action["failure_evidence"])
@@ -1348,7 +1441,7 @@ class Framing(unittest.TestCase):
         bench.Console._check_action(action, "enable", 1, None)
         move = move_terminal(1)
         empty = copy.deepcopy(move["failure_evidence"])
-        move.update(allow_unconfirmed_write_observation=True, execution="unknown", ok=False,
+        move.update(execution="unknown", ok=False,
             state="failed", completion="not_observed", outcome="deadline", status="ILLEGAL_VALUE", detail=10,
             observation_known=False, running_observed=False, uncertain=True,
             raw_alarm=None, raw_motion=None, polls=0, serviced_us=10000)

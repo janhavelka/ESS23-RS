@@ -12,7 +12,7 @@ using Kind = Probe::CommunicationCommandKind;
 void fresh() {
     if (app) { app->~App(); std::free(app); app = nullptr; }
     uart.~Esp32S3Uart(); new (&uart) Esp32S3Uart;
-    resetHardware(); Serial = FakeSerial(); platformReady = actionTimingQualified = false;
+    resetHardware(); Serial = FakeSerial(); platformReady = writeResponseConfirmed = false;
     setup(); assert(app && !hardware.writes);
     hardware.txCharacterUs = 87; assert(uart.startCapture(20, timing().holdUs));
 }
@@ -53,7 +53,7 @@ void qualify(const ESS::CommunicationRequest& request) {
     auto& p = app->commissioningPrerequisites;
     p.maxAgeUs = 5000000; p.stationaryQualified = p.effectsQualified = p.routeBackQualified = true;
     p.addressDipOffQualified = true; p.qualifiedRequest = request;
-    actionTimingQualified = true; // Simulated source/timing qualification, not hardware evidence.
+    writeResponseConfirmed = true; // Simulated source/timing qualification, not hardware evidence.
 }
 Probe::Action command(Kind kind, const ESS::CommunicationRequest& request = baudRequest()) {
     Probe::CommunicationCommand supplied; supplied.kind = kind; supplied.request = request;

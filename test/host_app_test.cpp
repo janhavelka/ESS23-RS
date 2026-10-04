@@ -12,7 +12,7 @@ namespace {
 void fresh() {
     if (app) { app->~App(); std::free(app); app = nullptr; }
     uart.~Esp32S3Uart(); new (&uart) Esp32S3Uart;
-    resetHardware(); Serial = FakeSerial(); platformReady = actionTimingQualified = false;
+    resetHardware(); Serial = FakeSerial(); platformReady = writeResponseConfirmed = false;
     setup(); assert(app && uart.ready() && app->owner.valid() && !hardware.writes);
     hardware.txCharacterUs = 87;
     assert(uart.startCapture(20, timing().holdUs));

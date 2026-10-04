@@ -8,10 +8,15 @@ do not rebuild them from an old prompt as if they were missing.
 
 Read [the execution contract](execution_contract.md) before every prompt.
 
+[Regular API/sniff integration](../../reports/regular_api_sniff_2026-10-04.md)
+removes the special functional image and flags, adds passive raw/decoded traffic
+copies and verifies ordinary motion with observation enabled. Prompts23/24 must
+reuse those paths; this work does not execute the remaining numbered prompts.
+
 The later [short functional campaign](../../reports/functional_motion_2026-10-04.md)
 adds drive-reported enable/release, positive/return motion and moving normal/direct
-stop evidence to08-10. Its explicit functional mode and native-zero experiment
-do not qualify calibrated units, exact feedback or electrical timing. Historical
+stop evidence to08-10. The later regular-API integration removes its special firmware mode;
+functional evidence does not qualify calibrated units, exact feedback or electrical timing. Historical
 NOT RUN dispositions below remain historical; several-hour testing was omitted.
 The [roadmap](../../roadmap.md), [backlog](../../backlog.md) and current
 [architecture](../../architecture.md), [axis](../../axis_contract.md),
@@ -79,7 +84,7 @@ Never mark all preceding physical work qualified just because code compiles.
 ## Dependency and qualification rules
 
 The user's 2026-10-04 instruction adds the execution contract's short unattended
-functional-test policy. Analyzer/human shaft observation is not an admission
+functional acceptance policy. Analyzer/human shaft observation is not an admission
 prerequisite for that finite free-shaft subset. Keep checked drive-report
 acceptance separate from unmeasured electrical/shaft evidence, prepare all
 stop/restoration commands in advance, and defer the several-hour campaign.

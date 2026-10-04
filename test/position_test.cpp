@@ -40,9 +40,9 @@ Ess::MovePrerequisites prerequisites() {
     p.observedUs = 80; p.maximumAgeUs = 1000; p.rawMotion = 1; return p;
 }
 ActionOptions options() { ActionOptions o; o.pollIntervalUs = 100; o.maxPolls = 4; return o; }
-Ess::MoveContext move(uint64_t deadline = 10000, bool allowUnconfirmed = false) {
+Ess::MoveContext move(uint64_t deadline = 10000) {
     Ess::MoveContext c;
-    auto o = options(); o.allowUnconfirmedWriteObservation = allowUnconfirmed;
+    auto o = options();
     assert(Ess::prepareMoveRelative(c, axis(), nullptr, 12, request(), prerequisites(), 100, deadline, o));
     return c;
 }
@@ -103,17 +103,13 @@ void testExactStageTriggerAndCommonParity() {
     assert(!c.uncertain && c.activityEvidence.step == activity.step && c.activityEvidence.latestUs < c.lastObservation.earliestUs);
     noMoreWork(c);
 }
-void testOptedInTriggerObservationKeepsUnknownExecution() {
-    for (bool enabled : {false, true}) {
-        auto c = move(10000, enabled); consume(c);
+void testTriggerObservationKeepsUnknownExecution() {
+    {
+        auto c = move(10000); consume(c);
         const auto bytes = reply(c);
         auto e = frame(c, bytes, c.eligibleUs + 20); e.responseConfirmed = false;
         assert(Ess::advanceMove(c, e, c.eligibleUs + 40));
         assert(c.execution == ActionExecution::UNKNOWN && !c.triggerEvidence.responseConfirmed);
-        if (!enabled) {
-            assert(c.state == ActionState::FAILED && c.outcome == ActionOutcome::UNCONFIRMED_RESPONSE);
-            noMoreWork(c); continue;
-        }
         assert(c.state == ActionState::ACTIVE && c.step == 2);
         const Saved<Ess::ActionEvidence> original(c.triggerEvidence);
         Ess::PreparedMove work; assert(Ess::nextMove(c, c.eligibleUs, work));
@@ -126,15 +122,15 @@ void testOptedInTriggerObservationKeepsUnknownExecution() {
         assert(c.execution == ActionExecution::UNKNOWN && c.lastObservation.responseConfirmed);
         original.check(c.triggerEvidence); noMoreWork(c);
     }
-    // FC10 staging still needs a confirmed source, including in bench mode.
-    auto stage = move(10000, true); const auto staged = reply(stage);
+    // FC10 staging still needs a confirmed source, before any trigger.
+    auto stage = move(10000); const auto staged = reply(stage);
     auto e = frame(stage, staged, 120); e.responseConfirmed = false;
     assert(Ess::advanceMove(stage, e, 140));
     assert(stage.outcome == ActionOutcome::UNCONFIRMED_RESPONSE && stage.step == 0);
     assert(!stage.stagingApplied && stage.setupExecution == ActionExecution::UNKNOWN);
     noMoreWork(stage);
     // Unconfirmed status cannot establish activity or completion.
-    auto c = move(10000, true); consume(c);
+    auto c = move(10000); consume(c);
     auto bytes = reply(c); e = frame(c, bytes, c.eligibleUs + 20); e.responseConfirmed = false;
     assert(Ess::advanceMove(c, e, c.eligibleUs + 40));
     bytes = reply(c, 4); e = frame(c, bytes, c.eligibleUs); e.responseConfirmed = false;
@@ -142,7 +138,7 @@ void testOptedInTriggerObservationKeepsUnknownExecution() {
     assert(c.outcome == ActionOutcome::UNCONFIRMED_RESPONSE && !c.runningObserved && !c.observationKnown);
     assert(c.execution == ActionExecution::UNKNOWN); noMoreWork(c);
     // A finite move that is missed between polls stays unobserved.
-    c = move(10000, true); consume(c);
+    c = move(10000); consume(c);
     bytes = reply(c); e = frame(c, bytes, c.eligibleUs + 20); e.responseConfirmed = false;
     assert(Ess::advanceMove(c, e, c.eligibleUs + 40));
     for (unsigned i = 0; i < c.options.maxPolls; ++i) consume(c, 1);
@@ -150,9 +146,9 @@ void testOptedInTriggerObservationKeepsUnknownExecution() {
     assert(c.execution == ActionExecution::UNKNOWN && c.completion == ActionCompletion::NOT_OBSERVED);
     noMoreWork(c);
 }
-void testOptedInTriggerPreservesFailures() {
+void testTriggerPreservesFailures() {
     for (unsigned fault = 0; fault < 8; ++fault) {
-        auto c = move(1000, true); consume(c);
+        auto c = move(1000); consume(c);
         auto bytes = reply(c);
         if (fault == 0) bytes.back() ^= 1;
         if (fault == 1) { bytes = {1, 6, 0, 0x27, 0, 5}; crc(bytes); }
@@ -536,12 +532,10 @@ void testAbsoluteAndAngleReuseSequenceAndRetainReference() {
     assert(c.state == ActionState::FAILED && c.execution == ActionExecution::UNKNOWN && c.uncertain);
     noMoreWork(c);
 }
-void testExplicitNativeZeroEnvelopeDoesNotInventDisplacement() {
+void testNativeAbsoluteDoesNotInventDisplacement() {
     auto a = axis(); auto r = request(0); r.position.relative = false;
-    auto p = prerequisites(); auto o = options(); o.allowUnconfirmedWriteObservation = true;
+    auto p = prerequisites(); auto o = options();
     Ess::MoveContext c;
-    assert(!Ess::prepareMoveAbsolute(c, a, nullptr, 12, r, p, 100, 10000, o));
-    p.nativeZeroEnvelopeVerified = true;
     assert(Ess::prepareMoveAbsolute(c, a, nullptr, 12, r, p, 100, 10000, o));
     assert(c.prepared.endpointKnown && c.prepared.endpointNative == 0 && c.prepared.effectiveNative == 0);
     assert(!c.prepared.displacementKnown && !c.prepared.zeroDisplacement && !c.reference.nativeKnown);
@@ -557,36 +551,62 @@ void testExplicitNativeZeroEnvelopeDoesNotInventDisplacement() {
     assert(c.state == ActionState::SUCCEEDED && c.execution == ActionExecution::UNKNOWN);
     assert(!c.prepared.displacementKnown && !c.triggerEvidence.responseConfirmed);
 }
-void testNativeZeroEnvelopeCannotBroadenOtherRequestsOrReadiness() {
-    auto c = move(); const Saved<Ess::MoveContext> saved(c);
-    for (unsigned fault = 0; fault < 19; ++fault) {
-        auto a = axis(); auto r = request(0); r.position.relative = false;
-        auto p = prerequisites(); p.nativeZeroEnvelopeVerified = true;
-        AxisReference ref; const AxisReference* supplied = nullptr;
-        switch (fault) {
-        case 0: r.position.value = Rational(1); break;
-        case 1: r.position.value = Rational(-1); break;
-        case 2: r.position.relative = true; break;
-        case 3: r.position.wrapped = true; break;
-        case 4: r.position.frame = CoordinateFrame::MOTOR; break;
-        case 5: r.position.unit = PositionUnit::DEGREES; break;
-        case 6: r.position.basis = RelativeBasis::COMMANDED; break;
-        case 7: a.originKnown = true; break;
-        case 8: a.encoderOriginKnown = true; break;
-        case 9: a.softLimitsKnown = true; a.softMaximum = 100; break;
-        case 10: supplied = &ref; break;
-        case 11: r.position.value.denominator = 0; break;
-        case 12: p.readinessQualified = false; break;
-        case 13: p.commandUnitsVerified = false; break;
-        case 14: p.configuredRampVerified = false; break;
-        case 15: p.maximumAgeUs = 1; break;
-        case 16: ++r.position.configurationGeneration; break;
-        case 17: a.nativeMinimum = 1; break;
-        case 18: p.serialInputsPermit = false; break;
+void testTypedPositionProfile() {
+    for (auto order : {Ess::WordOrder::HIGH_WORD_FIRST,Ess::WordOrder::LOW_WORD_FIRST}) {
+        uint8_t frame[32]; std::memset(frame,0xA5,sizeof(frame));
+        Ess::PositionProfile profile; profile.startSpeed=30; profile.accelerationTime=100;
+        profile.decelerationTime=200; profile.speed=60; profile.targetBits=0xFEDC1234;
+        assert(Ess::buildReadPositionProfile(1,frame,sizeof(frame))==8 && frame[3]==0x20 && frame[5]==6);
+        assert(Ess::buildWritePositionProfile(1,profile,order,frame,sizeof(frame))==19);
+        assert(frame[1]==16 && frame[3]==0x21 && frame[5]==5 && frame[6]==10);
+        uint16_t target[2]; assert(Ess::encodeUint32(profile.targetBits,order,target,2));
+        std::vector<uint8_t> bytes={1,3,12,0,30,0,100,0,200,0,60,
+            uint8_t(target[0]>>8),uint8_t(target[0]),uint8_t(target[1]>>8),uint8_t(target[1])}; crc(bytes);
+        Ess::PositionProfile parsed; assert(Ess::parsePositionProfile(bytes.data(),bytes.size(),1,order,parsed));
+        assert(parsed.startSpeed==30 && parsed.accelerationTime==100 && parsed.decelerationTime==200 &&
+            parsed.speed==60 && parsed.targetBits==profile.targetBits);
+        const Saved<Ess::PositionProfile> saved(parsed);
+        bytes.back()^=1; assert(!Ess::parsePositionProfile(bytes.data(),bytes.size(),1,order,parsed)); saved.check(parsed);
+        bytes.back()^=1; assert(!Ess::parsePositionProfile(bytes.data(),bytes.size(),2,order,parsed)); saved.check(parsed);
+        assert(!Ess::parsePositionProfile(bytes.data(),bytes.size(),1,static_cast<Ess::WordOrder>(2),parsed)); saved.check(parsed);
+        for (unsigned fault=0;fault<5;++fault) {
+            auto bad=profile; auto wordOrder=order; std::size_t capacity=sizeof(frame);
+            if(fault==0) bad.accelerationTime=2001;
+            if(fault==1) bad.decelerationTime=2001;
+            if(fault==2) bad.speed=3001;
+            if(fault==3) wordOrder=static_cast<Ess::WordOrder>(2);
+            if(fault==4) capacity=18;
+            uint8_t unchanged[32]; std::memcpy(unchanged,frame,sizeof(frame));
+            assert(!Ess::buildWritePositionProfile(1,bad,wordOrder,frame,capacity));
+            assert(!std::memcmp(unchanged,frame,sizeof(frame)));
         }
-        assert(!Ess::prepareMoveAbsolute(c, a, supplied, 12, r, p, 100, 10000, options()));
-        saved.check(c);
     }
+}
+void testNativeAbsoluteTargetsAndReadiness() {
+    for (int64_t target : {int64_t(0), int64_t(1), int64_t(2147483647)}) {
+        auto a=axis(); auto r=request(target); r.position.relative=false;
+        Ess::MoveContext c;
+        assert(Ess::prepareMoveAbsolute(c,a,nullptr,12,r,prerequisites(),100,10000));
+        assert(c.prepared.endpointKnown && c.prepared.endpointNative==target && !c.prepared.displacementKnown);
+    }
+    auto c=move(); const Saved<Ess::MoveContext> saved(c);
+    for (unsigned fault=0;fault<8;++fault) {
+        auto a=axis(); auto r=request(0); r.position.relative=false; auto p=prerequisites();
+        switch(fault) {
+        case 0:r.position.value.denominator=0;break;
+        case 1:p.readinessQualified=false;break;
+        case 2:p.commandUnitsVerified=false;break;
+        case 3:p.configuredRampVerified=false;break;
+        case 4:p.maximumAgeUs=1;break;
+        case 5:++r.position.configurationGeneration;break;
+        case 6:a.nativeMinimum=1;break;
+        case 7:p.serialInputsPermit=false;break;
+        }
+        assert(!Ess::prepareMoveAbsolute(c,a,nullptr,12,r,p,100,10000)); saved.check(c);
+    }
+    auto a=axis(); a.softLimitsKnown=true; a.softMinimum=0; a.softMaximum=100;
+    auto r=request(101); r.position.relative=false;
+    assert(!Ess::prepareMoveAbsolute(c,a,nullptr,12,r,prerequisites(),100,10000)); saved.check(c);
 }
 void testAbsoluteReferenceAndZeroGatesPreserveOutput() {
     auto a = axis(); a.originKnown = true; a.originSource = ScaleSource::QUALIFIED;
@@ -612,12 +632,13 @@ void testAbsoluteReferenceAndZeroGatesPreserveOutput() {
         }
         assert(!Ess::prepareMoveAbsolute(c, config, &bad, 12, req, prerequisites(), 100, 10000, options())); saved.check(c);
     }
-    assert(!Ess::prepareMoveAbsolute(c, a, nullptr, 12, r, prerequisites(), 100, 10000)); saved.check(c);
+    assert(Ess::prepareMoveAbsolute(c, a, nullptr, 12, r, prerequisites(), 100, 10000));
+    assert(!c.prepared.displacementKnown);
 }
 } // namespace
 int main() {
-    testExplicitNativeZeroEnvelopeDoesNotInventDisplacement(); testNativeZeroEnvelopeCannotBroadenOtherRequestsOrReadiness();
-    testOptedInTriggerObservationKeepsUnknownExecution(); testOptedInTriggerPreservesFailures();
+    testTypedPositionProfile(); testNativeAbsoluteDoesNotInventDisplacement(); testNativeAbsoluteTargetsAndReadiness();
+    testTriggerObservationKeepsUnknownExecution(); testTriggerPreservesFailures();
     testExactStageTriggerAndCommonParity(); testAllPreparationGatesLeaveOutputUnchanged();
     testSignWordOrderAndRange(); testAdmittedPrerequisitesAreCopied(); testCancelFailureAndDeadlineAtEveryBoundary();
     testBadRepliesAndNoAutomaticReplay(); testEnvelopeCorrelationAndCopiedEvidence();

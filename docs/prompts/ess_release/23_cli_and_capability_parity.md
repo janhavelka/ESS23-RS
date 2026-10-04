@@ -9,6 +9,11 @@ Prerequisite: 05–22 have recorded implementation and qualification disposition
 
 Read the full axis/profile/CLI/discovery contracts and operation coverage inventory. Trace every public operation to its implementation, console entry, help text and test. Reuse passive status/diagnostic conventions from the existing console.
 
+Reuse the installed `TrafficCapture`/ESS traffic decoder and ordinary
+`sniff off|raw|decoded` and `motion-profile` routes. No functional-test firmware
+mode remains. Diagnostic copies and display-loss counters must stay independent
+of protocol bytes, command correlation and retained operation results.
+
 ## Work
 
 - Reconcile all common modes and native families with one bounded command inventory reused for dispatch/help/effect descriptions where practical. Keep short consistent names and exact numeric parsing.

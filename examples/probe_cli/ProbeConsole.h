@@ -2,6 +2,7 @@
 #pragma once
 
 #include "../common/RtuBusOwner.h"
+#include "MotorControlRS/Traffic.h"
 #include "../common/HostSerial.h"
 #include "StateCache.h"
 #include "AxisConsole.h"
@@ -29,10 +30,18 @@ enum class Action : uint8_t { OK, BUSY, RECOVERY_REQUIRED, UNAVAILABLE, FAILED,
     QUEUE_FULL, RESULTS_FULL, IDS_EXHAUSTED, INVALID, ALREADY_TERMINAL,
     TIMING_UNQUALIFIED, UNSUPPORTED, AXIS_CONFLICT };
 
-enum class FunctionalCommand : uint8_t { INSPECT, SNAPSHOT, RESTORE };
-/** Explicit free-shaft fixture session, never electrical qualification. */
-struct FunctionalView {
-    bool enabled = false, pending = false, saved = false, restored = false, ok = false;
+enum class SniffMode : uint8_t { OFF, RAW, DECODED };
+struct SniffSnapshot {
+    SniffMode mode = SniffMode::OFF;
+    uint64_t observed = 0, emitted = 0, dropped = 0, cursor = 0;
+    uint32_t overwritten = 0, captureDropped = 0;
+    std::size_t retained = 0, capacity = 0;
+};
+
+enum class MotionProfileCommand : uint8_t { INSPECT, SNAPSHOT, RESTORE };
+/** Explicit position-parameter snapshot and checked restoration. */
+struct MotionProfileView {
+    bool pending = false, saved = false, restored = false, ok = false;
     uint8_t phase = 0, address = 0;
     uint32_t generation = 0, serialGeneration = 0;
     uint16_t original[6] = {}, current[6] = {};
@@ -122,8 +131,7 @@ struct Snapshot {
     uint64_t uptimeMs = 0;
     bool ready = false;
     bool timingQualified = false;
-    bool functionalBench = false;
-    bool actionsQualified = false, axisReserved = false;
+    bool writeResponseConfirmed = false, axisReserved = false;
     bool busy = false;
     bool transmitEnabled = false; ///< Asserted or uncertain DE, including fault cleanup.
     bool recoveryRequired = false;
@@ -263,7 +271,8 @@ struct Host {
      * command, retry or automatic recovery. Request is consumed during the call. */
     Action (*hostSerial)(void*, const HostRequest* requested, HostSnapshot&) = nullptr;
     Action (*communication)(void*, const CommunicationCommand*, CommunicationView&) = nullptr;
-    Action (*functional)(void*, FunctionalCommand, FunctionalView&) = nullptr;
+    Action (*sniff)(void*, const SniffMode* requested, SniffSnapshot&) = nullptr;
+    Action (*motionProfile)(void*, MotionProfileCommand, MotionProfileView&) = nullptr;
     bool (*result)(void*, uint32_t operationId, ResultView&) = nullptr; ///< Zero selects latest.
     Action (*cancel)(void*, uint32_t operationId) = nullptr; ///< Local only; zero selects latest.
     Action (*release)(void*, uint32_t operationId) = nullptr; ///< Explicit terminal retention release.
@@ -287,6 +296,10 @@ struct Host {
 class Console {
 public:
     explicit Console(const Host& host) noexcept : host_(host) {}
+    /** Best-effort diagnostic copy. Never reserves pending output or touches any
+     * command correlation; false drops this display record only. */
+    bool reportSniff(const MotorControlRS::TrafficRecord&, SniffMode,
+                     const MotorControlRS::TrafficRecord* request = nullptr) noexcept;
     /** Consume one character. Under output pressure local cancel, monitor off
      * and one reserved stop can dispatch. Other commands are counted and discarded. */
     void feed(char value) noexcept;

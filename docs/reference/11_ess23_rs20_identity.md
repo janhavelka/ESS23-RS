@@ -42,4 +42,7 @@ This correction changes documentation only. No motor setting, firmware, host
 axis configuration or generated descriptor was changed; no new hardware run
 was performed. Prompt08 was not executed by this documentation correction;
 its subsequent [action/stop disposition](../reports/ess_release_08_2026-10-04.md)
-retains the independent timing/echo and physical-action gates.
+recorded the then-current timing/echo gates. Later
+[regular-API integration](../reports/regular_api_sniff_2026-10-04.md) replaces
+those admission gates with the declared wiring and checked software receive
+contract; this does not change the identity-source facts above.

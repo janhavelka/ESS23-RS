@@ -213,7 +213,7 @@ Status advanceAction(ActionContext& c, const ActionEvent& supplied, uint64_t now
     else if (event.latestUs > c.deadlineUs) finish(c, ActionOutcome::DEADLINE,
         failed(ActionError::DEADLINE_EXPIRED, "action closure exceeds deadline"));
     else if (!evidence.status) finish(c, ActionOutcome::REPLY_ERROR, evidence.status);
-    else if (!supplied.responseConfirmed && !(c.step == 0 && c.options.allowUnconfirmedWriteObservation))
+    else if (!supplied.responseConfirmed && c.step != 0)
         finish(c, ActionOutcome::UNCONFIRMED_RESPONSE,
         failed(ActionError::UNCONFIRMED_RESPONSE, "frame source is not confirmed as the drive"));
     else if (c.step == 0) {

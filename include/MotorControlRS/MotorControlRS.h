@@ -11,4 +11,5 @@
 #include "ReadOperation.h"
 #include "ActionOperation.h"
 #include "MoveOperation.h"
+#include "Traffic.h"
 #include "Version.h"

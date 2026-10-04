@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: MIT
-#define MOTORCONTROLRS_FUNCTIONAL_BENCH 1
 #include "../examples/probe_cli/main.cpp"
 #include <cassert>
 #include <cstdlib>
@@ -32,28 +31,43 @@ void reply(const Rtu::RequestId& id, const std::vector<uint8_t>& bytes) {
     scheduleReply(std::max(hardware.writeStarted+hardware.tx.size()*87+1000,hardware.time+1000),bytes);
 }
 void fixtureReply(const std::vector<uint8_t>& bytes) {
-    const auto phase=app->functional.phase; reply(app->functionalRequest,bytes);
-    for (unsigned i=0;i<25000 && app->functional.pending && app->functional.phase==phase;++i) step();
-    assert(!app->functional.pending || app->functional.phase!=phase);
+    const auto phase=app->motionProfile.phase; reply(app->motionProfileRequest,bytes);
+    for (unsigned i=0;i<25000 && app->motionProfile.pending && app->motionProfile.phase==phase;++i) step();
+    assert(!app->motionProfile.pending || app->motionProfile.phase!=phase);
 }
 }
 int main() {
+    writeResponseConfirmed=false; // Alternate unknown-echo topology exercises normal API observation.
     resetHardware(); setup(); assert(app); hardware.txCharacterUs=87;
     assert(uart.startCapture(20,timing().holdUs)); refresh();
-    Probe::FunctionalView v;
-    assert(functionalCommand(app,Probe::FunctionalCommand::SNAPSHOT,v)==Probe::Action::OK && v.pending);
+    Probe::MotionProfileView v;
+    assert(motionProfileCommand(app,Probe::MotionProfileCommand::SNAPSHOT,v)==Probe::Action::OK && v.pending);
     fixtureReply(words({10,100,100,30,0,7}));
-    assert(app->functional.saved && app->functional.ok && !actionTimingQualified);
+    assert(app->motionProfile.saved && app->motionProfile.ok && !writeResponseConfirmed);
     auto request=MoveRequest(); request.position.value=Rational(100); request.position.configurationGeneration=app->axis.generation;
     request.speedRpm=60; request.ramp=MoveRamp::VERIFIED_CONFIGURED;
     ESS::MovePrerequisites p;
-    assert(functionalMovePrerequisites(*app,request,hardware.time,p) && !p.negativeTwosComplementVerified);
-    request.position.value=Rational(-100); assert(!functionalMovePrerequisites(*app,request,hardware.time,p));
+    assert(moveRequirements(*app,request,hardware.time,p) && !p.negativeTwosComplementVerified);
+    request.position.value=Rational(-100); assert(!moveRequirements(*app,request,hardware.time,p));
     request.position.value=Rational(100); app->stateCache.blocks[1].value.inputs[1]=true;
-    assert(!functionalMovePrerequisites(*app,request,hardware.time,p)); app->stateCache.blocks[1].value.inputs[1]=false;
+    assert(!moveRequirements(*app,request,hardware.time,p)); app->stateCache.blocks[1].value.inputs[1]=false;
     uint32_t operation=0;
     assert(startMove(app,2,1,request,operation)==Probe::Action::OK);
-    auto* r=findRecord(*app,operation); assert(r && r->move.options.allowUnconfirmedWriteObservation);
+    auto* r=findRecord(*app,operation); assert(r);
+    // A copied-traffic observer under full console pressure cannot consume or
+    // mutate the admitted move, its result or its bus queue.
+    Probe::SniffSnapshot sniff; Probe::SniffMode mode=Probe::SniffMode::RAW;
+    assert(sniffCommand(app,&mode,sniff)==Probe::Action::OK);
+    const auto queued=app->owner.pending(); const auto originalRequest=r->requestId;
+    const auto outputCount=app->outputCount; const bool pendingOutput=app->console.outputPending();
+    const auto dropped=app->sniffState.dropped;
+    const uint8_t diagnostic[]={1,3,0,0,0,1,0x84,0x0A};
+    app->traffic.begin(hardware.time); app->traffic.transmitted(diagnostic,sizeof(diagnostic),true,hardware.time);
+    app->outputCount=OUTPUT_LINES-2; serviceSniff(*app); app->outputCount=outputCount;
+    assert(app->sniffState.dropped==dropped+1 && app->owner.pending()==queued);
+    assert(r->requestId.owner==originalRequest.owner && r->requestId.generation==originalRequest.generation && r->requestId.slot==originalRequest.slot);
+    assert(app->owner.result(r->requestId)==nullptr && app->console.outputPending()==pendingOutput);
+
     reply(r->requestId,crc({1,16,0,0x21,0,5}));
     for (unsigned i=0;i<25000 && r->move.step==0;++i) step();
     assert(r->move.step==1);
@@ -78,37 +92,43 @@ int main() {
     assert(release(app,operation)==Probe::Action::OK); assert(release(app,stopped)==Probe::Action::OK);
     refresh();
     app->stateCache.blocks[2].value.rawPosition=99;
-    assert(functionalZeroEnvelope(*app,hardware.time));
     request.position.relative=false; request.position.value=Rational(0);
-    assert(functionalMovePrerequisites(*app,request,hardware.time,p) && p.nativeZeroEnvelopeVerified);
+    assert(absoluteMoveInEnvelope(*app,request,hardware.time));
+    assert(moveRequirements(*app,request,hardware.time,p));
     app->stateCache.blocks[2].value.rawSpeed=23;
-    assert(!functionalZeroEnvelope(*app,hardware.time));
+    assert(!absoluteMoveInEnvelope(*app,request,hardware.time));
     app->stateCache.blocks[2].value.rawSpeed=0;
     app->stateCache.blocks[2].value.rawPosition=0;
-    assert(!functionalZeroEnvelope(*app,hardware.time));
+    assert(absoluteMoveInEnvelope(*app,request,hardware.time));
     app->stateCache.blocks[2].value.rawPosition=251;
-    assert(!functionalZeroEnvelope(*app,hardware.time));
+    assert(!absoluteMoveInEnvelope(*app,request,hardware.time));
     app->stateCache.blocks[2].value.rawPosition=99;
+    request.position.value=Rational(251);
+    assert(!absoluteMoveInEnvelope(*app,request,hardware.time));
     uint32_t returning=0;
+    assert(startMove(app,4,1,request,returning)==Probe::Action::UNAVAILABLE && returning==0);
+    request.position.value=Rational(501,2);
+    assert(!absoluteMoveInEnvelope(*app,request,hardware.time));
+    request.position.value=Rational(100);
+    assert(absoluteMoveInEnvelope(*app,request,hardware.time));
     assert(startMove(app,4,1,request,returning)==Probe::Action::OK);
     assert(!findRecord(*app,returning)->move.prepared.displacementKnown);
     assert(!findRecord(*app,returning)->move.reference.nativeKnown);
-    assert(findRecord(*app,returning)->move.prepared.effectiveNative==0);
+    assert(findRecord(*app,returning)->move.prepared.effectiveNative==100);
     assert(cancel(app,returning)==Probe::Action::OK);
     for (unsigned i=0;i<1000 && !terminal(*app,*findRecord(*app,returning));++i) step();
     findRecord(*app,returning)->delivered=true;
     assert(release(app,returning)==Probe::Action::OK);
-    assert(functionalCommand(app,Probe::FunctionalCommand::RESTORE,v)==Probe::Action::OK);
-    fixtureReply(crc({1,16,0,0x21,0,5})); assert(app->functional.phase==3);
-    fixtureReply(words({10,100,100,30,0,7})); assert(app->functional.restored && app->functional.ok);
+    assert(motionProfileCommand(app,Probe::MotionProfileCommand::RESTORE,v)==Probe::Action::OK);
+    fixtureReply(crc({1,16,0,0x21,0,5})); assert(app->motionProfile.phase==3);
+    fixtureReply(words({10,100,100,30,0,7})); assert(app->motionProfile.restored && app->motionProfile.ok);
     // Refresh preserves originals; a second profile read cannot overwrite them.
-    assert(functionalCommand(app,Probe::FunctionalCommand::SNAPSHOT,v)==Probe::Action::OK);
-    fixtureReply(words({10,100,100,60,0,100})); assert(app->functional.original[3]==30 && app->functional.current[3]==60);
-    assert(functionalCommand(app,Probe::FunctionalCommand::RESTORE,v)==Probe::Action::OK);
+    assert(motionProfileCommand(app,Probe::MotionProfileCommand::SNAPSHOT,v)==Probe::Action::OK);
+    fixtureReply(words({10,100,100,60,0,100})); assert(app->motionProfile.original[3]==30 && app->motionProfile.current[3]==60);
+    assert(motionProfileCommand(app,Probe::MotionProfileCommand::RESTORE,v)==Probe::Action::OK);
     fixtureReply(crc({1,16,0,0x21,0,5})); fixtureReply(words({10,100,100,60,0,100}));
-    assert(!app->functional.ok && !app->functional.restored && !std::strcmp(app->functional.error,"readback_mismatch"));
-    Serial.input="@99 motion-bench inspect\n";
+    assert(!app->motionProfile.ok && !app->motionProfile.restored && !std::strcmp(app->motionProfile.error,"readback_mismatch"));
+    Serial.input="@99 motion-profile inspect\n";
     for (unsigned i=0;i<1000;++i) step();
-    assert(Serial.output.find("\"command\":\"motion-bench\"")!=std::string::npos);
-    assert(Serial.output.find("\"electrical_qualified\":false")!=std::string::npos);
+    assert(Serial.output.find("\"command\":\"motion-profile\"")!=std::string::npos);
 }

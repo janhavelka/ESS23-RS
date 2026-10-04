@@ -1,7 +1,8 @@
 # MotorControl-RS documentation
 
-The [short functional bench](functional_bench.md) supports explicitly selected
-unattended finite-motion tests. [Recorded results](reports/functional_motion_2026-10-04.md)
+The [ordinary motion procedure](functional_bench.md) uses regular APIs and
+firmware. [Passive raw/decoded sniffing](traffic.md) copies traffic without
+consuming protocol bytes. Earlier [recorded results](reports/functional_motion_2026-10-04.md)
 include drive-reported forward/return motion, moving stops and exact restoration;
 independent shaft/electrical measurements and the omitted soak remain separate.
 

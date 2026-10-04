@@ -12,7 +12,7 @@ using namespace MotorControlRS;
 void fresh() {
     if (app) { app->~App(); std::free(app); app = nullptr; }
     uart.~Esp32S3Uart(); new (&uart) Esp32S3Uart;
-    resetHardware(); Serial = FakeSerial(); platformReady = actionTimingQualified = false;
+    resetHardware(); Serial = FakeSerial(); platformReady = writeResponseConfirmed = false;
     setup(); assert(app && !hardware.writes);
     hardware.txCharacterUs = 87; assert(uart.startCapture(20, timing().holdUs));
 }
@@ -75,7 +75,7 @@ uint32_t update(const ESS::DriverRequest& request) {
     return id;
 }
 void safeDisableAndReadback() {
-    fresh(); assert(!actionTimingQualified); const auto old = readIo(); stateEvidence();
+    fresh(); assert(!writeResponseConfirmed); const auto old = readIo(); stateEvidence();
     app->axis.originKnown = true; app->coordinateReference.nativeKnown = true;
     app->coordinateReference.target = app->axis.target;
     app->coordinateReference.configurationGeneration = app->axis.generation;
@@ -220,7 +220,7 @@ void consoleAdmissionAndTerminalCorrelation() {
 }
 
 void optionalInputsAreNotGlobalPrerequisites() {
-    fresh(); stateEvidence(); actionTimingQualified = true;
+    fresh(); stateEvidence(); writeResponseConfirmed = true;
     app->axis.nativeMinimum = -1000; app->axis.nativeMaximum = 1000; app->axis.supportedRelativeBases = 1;
     app->configuration.target = app->axis.target; app->configuration.operationId = 99;
     app->configuration.wordOrderKnown = true;
@@ -240,7 +240,7 @@ void optionalInputsAreNotGlobalPrerequisites() {
     assert(host(app).cancel(app,id) == Probe::Action::OK);
     for (unsigned i = 0; i < 100 && view(id).pending; ++i) step();
     assert(!hardware.writes && app->configuration.raw.inputFunctions[0] == 1);
-    fresh(); stateEvidence(); actionTimingQualified = true;
+    fresh(); stateEvidence(); writeResponseConfirmed = true;
     app->configuration.target = app->axis.target; app->configuration.operationId = 99;
     ESS::HomeRequest home; home.method = ESS::HomingMethod::METHOD_24; home.configurationGeneration = app->axis.generation;
     uint32_t unchanged = 77;

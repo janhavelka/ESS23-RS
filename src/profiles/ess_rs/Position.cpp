@@ -63,6 +63,30 @@ ActionExecution execution(const ActionEvidence& evidence) {
 }
 } // namespace
 
+std::size_t buildReadPositionProfile(uint8_t address, uint8_t* out, std::size_t capacity) noexcept {
+    return buildReadRegisters(address, Registers::POSITION_START_SPEED, 6, out, capacity);
+}
+Status parsePositionProfile(const uint8_t* frame, std::size_t length, uint8_t address,
+                            WordOrder order, PositionProfile& output) noexcept {
+    uint16_t words[6] = {}; std::size_t count = 0;
+    Status status = parseRegisters(frame, length, address, 6, words, 6, count);
+    if (!status) return status;
+    PositionProfile parsed;
+    parsed.startSpeed = words[0]; parsed.accelerationTime = words[1];
+    parsed.decelerationTime = words[2]; parsed.speed = words[3];
+    status = decodeUint32(words + 4, 2, order, parsed.targetBits);
+    if (!status) return status;
+    output = parsed; return Ok();
+}
+std::size_t buildWritePositionProfile(uint8_t address, const PositionProfile& profile,
+                                     WordOrder order, uint8_t* out, std::size_t capacity) noexcept {
+    if (profile.accelerationTime > 2000 || profile.decelerationTime > 2000 || profile.speed > 3000)
+        return 0;
+    uint16_t words[5] = {profile.accelerationTime, profile.decelerationTime, profile.speed, 0, 0};
+    if (!encodeUint32(profile.targetBits, order, words + 3, 2)) return 0;
+    return buildWriteMultipleRegisters(address, Registers::POSITION_ACCELERATION_TIME, words, 5, out, capacity);
+}
+
 static Status prepareMove(MoveContext& output, const AxisConfig& axis, const AxisReference* reference,
         uint32_t operationId, const MoveRequest& request, const MovePrerequisites& prerequisites,
         uint64_t nowUs, uint64_t deadlineUs, const ActionOptions& options) noexcept {
@@ -82,15 +106,11 @@ static Status prepareMove(MoveContext& output, const AxisConfig& axis, const Axi
         return invalid(MoveError::UNRESOLVED_UNITS, "device command increment interpretation is unresolved");
     if (request.position.relative && !prerequisites.relativeBasisVerified)
         return invalid(MoveError::UNRESOLVED_BASIS, "relative basis is unresolved for this configuration");
-    const bool nativeZero = prerequisites.nativeZeroEnvelopeVerified;
-    if (nativeZero && (request.position.relative || request.position.wrapped ||
-        request.position.frame != CoordinateFrame::NATIVE || request.position.unit != PositionUnit::STEPS ||
-        request.position.value.numerator != 0 || request.position.basis != RelativeBasis::ACTUAL ||
-        reference || axis.originKnown || axis.encoderOriginKnown || axis.softLimitsKnown))
-        return invalid(MoveError::INVALID_REQUEST, "native-zero envelope permits only an unreferenced native absolute zero");
-    if (!request.position.relative && !nativeZero && (!reference || !reference->nativeKnown ||
-        reference->basis != RelativeBasis::ACTUAL || !reference->stationary))
-        return invalid(MoveError::READINESS, "absolute positioning needs established stationary actual command coordinates");
+    // An unwrapped absolute device-native target needs no current-position
+    // reference. Arithmetic/limits decide when metadata is actually required;
+    // absent reference leaves displacement unknown rather than inventing one.
+    if (!request.position.relative && reference && (!reference->nativeKnown || reference->basis != RelativeBasis::ACTUAL || !reference->stationary))
+        return invalid(MoveError::READINESS, "supplied move reference must be stationary actual command coordinates");
     if (request.ramp != MoveRamp::VERIFIED_CONFIGURED || !prerequisites.configuredRampVerified ||
         prerequisites.accelerationTime > 2000 || prerequisites.decelerationTime > 2000)
         return invalid(MoveError::UNRESOLVED_RAMP, "verified configured native ramps are required");
@@ -249,7 +269,7 @@ Status advanceMove(MoveContext& c, const ActionEvent& supplied, uint64_t nowUs) 
         failed(MoveError::TIMING_UNQUALIFIED, "move closure timing is unqualified"));
     else if (event.latestUs > stepDeadline(c)) finish(c, ActionOutcome::DEADLINE, expiredStep(c));
     else if (!evidence.status) finish(c, ActionOutcome::REPLY_ERROR, evidence.status);
-    else if (!supplied.responseConfirmed && !(c.step == 1 && c.options.allowUnconfirmedWriteObservation))
+    else if (!supplied.responseConfirmed && c.step != 1)
         finish(c, ActionOutcome::UNCONFIRMED_RESPONSE,
         failed(MoveError::UNCONFIRMED_RESPONSE, "frame source is not confirmed as the drive"));
     else if (c.step < 2) {

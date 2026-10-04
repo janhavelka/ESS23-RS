@@ -10,7 +10,7 @@ using namespace MotorControlRS;
 void fresh() {
     if (app) { app->~App(); std::free(app); app = nullptr; }
     uart.~Esp32S3Uart(); new (&uart) Esp32S3Uart;
-    resetHardware(); Serial = FakeSerial(); platformReady = actionTimingQualified = false;
+    resetHardware(); Serial = FakeSerial(); platformReady = writeResponseConfirmed = false;
     setup(); assert(app && !hardware.writes);
     hardware.txCharacterUs = 87; assert(uart.startCapture(20, timing().holdUs));
 }
@@ -40,7 +40,7 @@ ESS::HomeRequest request(int method = 35) {
     ESS::HomeRequest r; r.method = static_cast<ESS::HomingMethod>(method); r.configurationGeneration = app->axis.generation; return r;
 }
 void qualify(bool oldHomed = false) {
-    actionTimingQualified = true; app->knownTargets[0] |= 2;
+    writeResponseConfirmed = true; app->knownTargets[0] |= 2;
     app->configuration.target = app->axis.target; app->configuration.operationId = 99;
     auto& p = app->homePrerequisites; p.target = app->axis.target; p.configurationGeneration = app->axis.generation;
     // Fixture authority is independent of the subsequently admitted request.

@@ -418,9 +418,10 @@ Prompt 08 implements the [bounded action routes](ess_actions.md): `enable`,
 spellings. `release operation_id` continues to release a host result. Stop
 admission has reserved correlation/output capacity and never substitutes another
 stop policy. Terminal evidence exposes accepted-stop interruption separately
-from actual write acknowledgement and checked completion. The current bench
-reports actions unqualified and rejects before TX pending independent timing/echo
-evidence.
+from actual write acknowledgement and checked completion. Normal firmware uses the configured wiring/receive contract for checked
+acknowledgements, without an analyzer admission flag. Passive `sniff
+[off|raw|decoded]` shows copied traffic without taking protocol bytes or result
+capacity. `motion-profile read|inspect|restore` uses typed profile helpers.
 
 Standalone operation has no dependency on FieldCore queues, settings, headers
 or CLI registry. A future FieldCore adapter uses its existing bus owner and

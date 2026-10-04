@@ -1,8 +1,16 @@
 # Features implementation tasks and open questions
 
+## Regular API and passive traffic observation
+
+- [x] Removed the separate functional firmware/flags; regular preparations and console routes handle actions and native finite positioning.
+- [x] Typed position-profile snapshot/staging/restoration; native absolute targets retain unknown displacement when a reference is unnecessary.
+- [x] Installed caller-owned TrafficCapture and checked ESS translation; console `sniff off|raw|decoded`, independent reader cursors and explicit diagnostic loss.
+- [x] Observer on/off/overflow native equivalence; ordinary firmware motion/stop/readback with raw/decoded display. [Evidence](reports/regular_api_sniff_2026-10-04.md).
+
+
 ## Short unattended functional campaign (2026-10-04)
 
-- [x] Explicit functional image and prepared bounded host phases; no analyzer or person-at-bench prerequisite for this scope.
+- [x] Prepared bounded host phases (now exercised through the regular firmware API); no analyzer or person-at-bench prerequisite for this scope.
 - [x] Drive-reported release/enable, finite positive/reverse activity and normal/direct stops during motion; exact profile restoration and ten-probe regression. [Evidence](reports/functional_motion_2026-10-04.md).
 - [x] Preserve UNKNOWN FC06 execution and observed completion separately; literal native-zero experiment keeps displacement unknown; bounded read-only speed settling retains transient values.
 - [ ] Independent shaft/electrical measurements, algorithm3 and feedback/arrival precision remain unresolved; no calibrated displacement claim. Several-hour soak intentionally NOT RUN.
@@ -646,7 +654,7 @@ action gates and the operation coverage denominator remain unchanged.
 - [x] Reviewed FC10 five-word staging then fixed relative trigger; retained partial setup, acknowledgement/unknown execution and fresh RUNNING then stopped/arrived completion reports.
 - [x] Same application axis reservation, independent producer write adapter, priority stop/cancel/recovery and input/limit configuration invalidation; no duplicate queue or conversion.
 - [x] Explicit-frame CLI, strict Python one-attempt finite scenario and retained cleanup evidence; public installed-core and failure-injection/application tests.
-- [ ] Physical small positive/negative moves, independently observed shaft displacement, ramp/sign/basis/input qualification and dynamic-stop latency: NOT RUN behind the existing independent timing/echo and physical stop gates. Uncertain writes never replay.
+- [ ] Independent shaft displacement, calibrated ramp/sign semantics and physical stop latency remain unmeasured. Short native positive/absolute-return motion and drive-reported moving stops now have evidence; no analyzer admission gate remains. Uncertain writes never replay.
 
 See [the contract](ess_position.md) and [prompt09 evidence](reports/ess_release_09_2026-10-04.md). The proposed standalone +/-250-native/60-RPM ceiling is a software limit, not a physically qualified envelope. Prompt10 extends the same executor.
 

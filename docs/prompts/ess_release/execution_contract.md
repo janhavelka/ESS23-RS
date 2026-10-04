@@ -127,7 +127,7 @@ secured, free, uncoupled ESS23-RS20 shaft. A logic analyzer, a person watching t
 shaft and an operator standing by at motor power are not admission requirements
 for this bounded test scope. Several-hour/endurance testing is deferred.
 
-Use an explicit functional-test policy, reviewed finite position commands and
+Use the regular library API and firmware, reviewed finite position commands and
 small distance/speed bounds. Prepare stop, status, failure handling and exact
 parameter restoration commands before the first move. Begin with stopped-state
 actions, then one finite move at a time and a stop during a finite move. Do not
@@ -141,7 +141,11 @@ Electrical timing and independently observed shaft motion remain separate,
 unmeasured evidence; they do not block this functional subset. An FC06 echo
 remains source-unconfirmed: an explicit observation policy may follow it with
 read-only verification without relabelling it an acknowledged write. Preserve
-all framing, overflow, stale evidence and no-replay guards. Resolve or bound
+all framing, overflow, stale evidence and no-replay guards. The user owns correct
+wiring/electrical installation; firmware owns documented commands, sequencing
+and software timing. Do not add a special functional mode or analyzer admission
+flag. HIL timing measurements and passive traffic display remain diagnostics.
+Resolve or bound
 actual command semantics; do not promote unknown encoding into a safe command.
 
 ### Verification workflow
