@@ -37,6 +37,12 @@ class FakeConsole:
         self.calls.append(("version", {}))
         return dict(ok=True)
 
+    def clock(self):
+        return campaign.time.monotonic()
+
+    def sleep(self, duration):
+        campaign.time.sleep(duration)
+
     def command(self, name, **kwargs):
         self.calls.append((name, kwargs))
         if name == "debug":
@@ -85,6 +91,135 @@ class FakeConsole:
 
 
 class FunctionalCampaignTest(unittest.TestCase):
+    def test_unknown_phase_fails_before_any_io(self):
+        console = FakeConsole()
+        with self.assertRaisesRegex(ValueError, 'unknown finite experiment'):
+            campaign.run_phase(console, 'typo', {})
+        self.assertEqual(console.calls, [])
+
+    def test_actions_refuse_initially_released_drive_without_state_changes(self):
+        console = FakeConsole()
+        console.released = True
+        with self.assertRaisesRegex(campaign.BenchError, 'initially enabled stationary'):
+            campaign.run_phase(console, 'actions', {})
+        self.assertTrue(console.released)
+        for command in ('stop', 'enable', 'motor-release'):
+            self.assertEqual(console.commands(command), [])
+
+    def test_modifying_phases_restore_in_same_connection_after_stop(self):
+        for phase in campaign.MOTION_PHASES:
+            with self.subTest(phase=phase):
+                console = FakeConsole(states=(False, False, True) if phase.startswith('stop-') else (),
+                                      move_ok=not phase.startswith('stop-'))
+                record = {}
+                campaign.run_phase(console, phase, record)
+                self.assertEqual([args['host_args'] for args in console.commands('motion-profile')],
+                                 [('read',), ('restore',)])
+                self.assertEqual(record['cleanup'], 'stopped_and_restored')
+                restored_at = next(i for i, (name, args) in enumerate(console.calls)
+                                   if name == 'motion-profile' and args['host_args'] == ('restore',))
+                self.assertTrue(any(name == 'stop' for name, _ in console.calls[:restored_at]))
+                self.assertTrue(record['restoration']['restored'])
+
+    def test_uncertain_move_stays_failed_after_successful_restoration(self):
+        console = FakeConsole(move_ok=False)
+        record = {}
+        with self.assertRaisesRegex(campaign.BenchError, 'finite move did not'):
+            campaign.run_phase(console, 'forward', record)
+        self.assertEqual(record['cleanup'], 'stopped_and_restored')
+        self.assertFalse(record['move']['ok'])
+        self.assertEqual(len(console.commands('move-relative')), 1)
+
+    def test_unknown_stop_never_restores_or_replays(self):
+        console = FakeConsole(stop_ok=False)
+        record = {}
+        with self.assertRaisesRegex(campaign.BenchError, 'stop refused/failed'):
+            campaign.run_phase(console, 'forward', record)
+        self.assertEqual([args['host_args'] for args in console.commands('motion-profile')], [('read',)])
+        self.assertEqual(record['cleanup'], 'unknown')
+        self.assertEqual(len(console.commands('stop')), 1)
+
+    def test_lost_admission_retains_unknown_without_commands_after_framing_failure(self):
+        class LostAdmission(FakeConsole):
+            next_id = 42
+            def begin(self, name, **kwargs):
+                handle = super().begin(name, **kwargs)
+                handle.accepted = False
+                self.pending = {42: handle}
+                self.synchronized = False
+                raise campaign.BenchError('admission line lost')
+        console = LostAdmission()
+        record = {}
+        with self.assertRaisesRegex(campaign.BenchError, 'admission line lost'):
+            campaign.run_phase(console, 'forward', record)
+        self.assertEqual(record['cleanup'], 'unknown')
+        self.assertEqual([args['host_args'] for args in console.commands('motion-profile')], [('read',)])
+        self.assertEqual(console.commands('stop'), [])
+        self.assertNotIn('ending_stats', record)
+
+    def test_snapshot_pending_inspection_budget_cannot_replay_restore(self):
+        class Pending(FakeConsole):
+            def command(self, name, **kwargs):
+                result = super().command(name, **kwargs)
+                if name == 'motion-profile':
+                    result['pending'] = True
+                return result
+        console = Pending()
+        with patch.object(campaign.time, 'sleep'):
+            with self.assertRaisesRegex(campaign.BenchError, 'observation bound exhausted'):
+                campaign.restore_profile(console)
+        self.assertEqual([args['host_args'] for args in console.commands('motion-profile')],
+                         [('restore',)] + [('inspect',)] * 100)
+
+    def test_snapshot_invalid_action_or_deadline_does_no_io(self):
+        for action, timeout in [('forget', 5), ('restore', 0), ('read', float('nan')), ('read', 61)]:
+            console = FakeConsole()
+            with self.assertRaises(ValueError):
+                campaign.profile_snapshot(console, action, timeout)
+            self.assertEqual(console.calls, [])
+
+    def test_uncertain_restore_is_failed_and_attempted_once(self):
+        class UnknownRestore(FakeConsole):
+            def command(self, name, **kwargs):
+                result = super().command(name, **kwargs)
+                if name == 'motion-profile' and kwargs.get('host_args') == ('restore',):
+                    result.update(session_ok=False, restored=False, error='transaction',
+                                  restore_unsettled=True)
+                return result
+        console = UnknownRestore()
+        record = {}
+        with self.assertRaisesRegex(campaign.BenchError, 'restoration failed: transaction'):
+            campaign.run_phase(console, 'forward', record)
+        self.assertEqual([args['host_args'] for args in console.commands('motion-profile')],
+                         [('read',), ('restore',)])
+        self.assertEqual(record['cleanup'], 'drive_reported_stopped')
+        self.assertIn('transaction', record['failure_cleanup_error'])
+        self.assertEqual(len(console.commands('move-relative')), 1)
+
+    def test_restore_mismatch_is_not_cleanup_success(self):
+        class Mismatch(FakeConsole):
+            def command(self, name, **kwargs):
+                result = super().command(name, **kwargs)
+                if name == 'motion-profile' and kwargs.get('host_args') == ('restore',):
+                    result['current'] = [30, 100, 100, 60, 0, 250]
+                return result
+        record = {}
+        with self.assertRaisesRegex(campaign.BenchError, 'exact motion profile restoration'):
+            campaign.run_phase(Mismatch(), 'forward', record)
+        self.assertNotEqual(record['cleanup'], 'stopped_and_restored')
+
+    def test_polled_events_stream_incrementally_with_bounded_tail(self):
+        console = FakeConsole(move_ok=False)
+        record = {}
+        with self.assertRaisesRegex(campaign.BenchError, 'dynamic stop NOT RUN'):
+            campaign.run_phase(console, 'stop-normal', record)
+        streamed = [fields for event, fields in console.events if event == 'phase_command']
+        self.assertGreater(len(streamed), campaign.EVENT_TAIL)
+        self.assertEqual(record['event_count'], len(streamed))
+        self.assertEqual(len(record['events']), campaign.EVENT_TAIL)
+        self.assertEqual(record['events'], [{k: v for k, v in event.items() if k != 'phase'}
+                                          for event in streamed[-campaign.EVENT_TAIL:]])
+
     def test_selected_debug_observes_regular_phase_and_restores_mode(self):
         console=FakeConsole(); console.debug_mode="raw"
         record=dict(debug_mode="decoded")
@@ -170,7 +305,7 @@ class FunctionalCampaignTest(unittest.TestCase):
         console = FakeConsole(raw_position=99, speeds=[0, 0] + [23] * 10 + [0])
         record = {}
         with patch.object(campaign.time, "sleep"):
-            with self.assertRaisesRegex(campaign.BenchError, "zero-speed observation bound exhausted"):
+            with self.assertRaisesRegex(campaign.BenchError, "zero-speed/non-running observation bound exhausted"):
                 campaign.run_phase(console, "forward", record)
         self.assertEqual(len(console.commands("read-state")), 13)
         self.assertEqual(len(console.commands("move-relative")), 1)
@@ -178,14 +313,14 @@ class FunctionalCampaignTest(unittest.TestCase):
         self.assertIn("failure_cleanup_state", record)
         self.assertNotIn("state_after_move", record)
         self.assertTrue(record["move"]["ok"])  # ARRIVED remains distinct from zero speed.
-        self.assertIn("zero-speed observation bound exhausted", record["phase_error"])
+        self.assertIn("zero-speed/non-running observation bound exhausted", record["phase_error"])
 
     def test_nonzero_speed_after_dynamic_stop_never_repeats_the_stop(self):
         console = FakeConsole(states=(False, False, True), speeds=[0, 0, 60] + [23] * 10,
                               move_ok=False)
         record = {}
         with patch.object(campaign.time, "sleep"):
-            with self.assertRaisesRegex(campaign.BenchError, "zero-speed observation bound exhausted"):
+            with self.assertRaisesRegex(campaign.BenchError, "zero-speed/non-running observation bound exhausted"):
                 campaign.run_phase(console, "stop-normal", record)
         self.assertEqual(len(console.commands("read-state")), 13)
         self.assertEqual(len(console.commands("move-relative")), 1)

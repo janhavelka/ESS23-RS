@@ -206,6 +206,21 @@ class DiscoveryTests(unittest.TestCase):
         campaign=Campaign(phase=4)
         with self.assertRaises(bench.BenchError):bench.discovery_campaign(campaign,tokens=(),timeout_s=1)
         self.assertEqual(campaign.calls,[()])
+    def test_restored_incomplete_scans_fail_without_erasing_partial_findings(self):
+        for outcome in range(2,10):
+            campaign=Campaign()
+            original=campaign.command
+            def command(name,**kwargs):
+                result=original(name,**kwargs)
+                result["scan"]["outcome"]=outcome
+                return result
+            campaign.command=command
+            with self.subTest(outcome=outcome),self.assertRaisesRegex(bench.BenchError,"did not complete"):
+                bench.discovery_campaign(campaign,tokens=(),timeout_s=1)
+            self.assertEqual(campaign.calls,[()])
+            self.assertFalse(campaign.events[-1][1]["ok"])
+            self.assertTrue(campaign.events[-1][1]["restored"])
+            self.assertEqual(campaign.events[-1][1]["scan"]["outcome"],outcome)
     def test_poll_budget_requests_cancel_once_without_probe_replay(self):
         campaign=Campaign(phase=1)
         with self.assertRaises(bench.BenchError):bench.discovery_campaign(campaign,tokens=("overall-ms","1"),timeout_s=.01)

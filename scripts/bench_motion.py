@@ -9,10 +9,57 @@ import json
 from pathlib import Path
 import time
 
-from bench_probe import BenchError, Console, Evidence, debug_session, open_port
+from bench_probe import (BenchError, debug_session,
+                         drive_reported_stopped, observe_stopped)
+from bench_session import run_recorded
+
+PHASES = ('inspect', 'actions', 'forward', 'absolute', 'return', 'stop-normal', 'stop-direct', 'restore', 'status')
+MOTION_PHASES = ('forward', 'absolute', 'return', 'stop-normal', 'stop-direct')
+EVENT_TAIL = 32
+
+
+def profile_snapshot(console, action='read', timeout_s=5, on_command=None):
+    """One explicit read/restore attempt and bounded passive settlement.
+
+    The original snapshot belongs to this open console/firmware session. A
+    failed restore never triggers another write or implicit recovery.
+    """
+    if action not in ('read', 'restore') or not 0 < timeout_s <= 60:
+        raise ValueError('profile snapshot requires read/restore and a 0..60s deadline')
+    clock = getattr(console, 'clock', time.monotonic)
+    sleep = getattr(console, 'sleep', time.sleep)
+    deadline = clock() + timeout_s
+    tokens = (action,)
+    for _ in range(101):
+        remaining = deadline - clock()
+        if remaining <= 0:
+            break
+        kwargs = dict(host_args=tokens)
+        result = console.command('motion-profile', timeout_s=remaining, **kwargs)
+        if on_command is not None:
+            on_command('motion-profile', kwargs, result)
+        if not result['ok']:
+            raise BenchError('motion-profile refused/failed: ' + str(result.get('result')))
+        if not result['pending']:
+            if not result['session_ok']:
+                raise BenchError('motion snapshot/restoration failed: ' + result['error'])
+            return result
+        sleep(min(.01, max(0, deadline - clock())))
+        tokens = ('inspect',)
+    raise BenchError('motion snapshot/restoration observation bound exhausted')
+
+
+def restore_profile(console, timeout_s=5, on_command=None):
+    """Restore once after the caller's explicit stop/standstill cleanup."""
+    result = profile_snapshot(console, 'restore', timeout_s, on_command)
+    if not result['restored'] or result['original'] != result['current']:
+        raise BenchError('exact motion profile restoration not established')
+    return result
 
 
 def phase_plan(phase):
+    if phase not in PHASES:
+        raise ValueError('unknown finite experiment phase')
     common = ['version', 'host', 'config', 'stats', 'load', 'read-config 1', 'read-state 1']
     steps = {
         'inspect': ['read-identity 1', 'motion-profile read', 'motion-profile inspect'],
@@ -36,10 +83,13 @@ def phase_plan(phase):
     }
     cleanup = ['on failed accepted finite move: one direct stop only if no stop was attempted and framing remains synchronized; then read-state 1'] if phase in ('forward', 'absolute', 'return', 'stop-normal', 'stop-direct') else []
     settling = ['after motion/stop: read-state 1 up to ten times, 50ms apart, until not running and raw speed zero'] if phase in ('forward', 'absolute', 'return', 'stop-normal', 'stop-direct') else []
-    return common + steps[phase] + settling + cleanup + ['stats', 'load', 'drv', 'memory', 'host']
+    restoration = ['before closing this same connection: restore the saved original motion profile once, only after successful stop and fresh non-running/zero-speed evidence; verify exact readback',
+                   'on failed/unknown stop or broken framing: no restore write; retain backup and unknown cleanup'] if phase in MOTION_PHASES else []
+    return common + steps[phase] + settling + cleanup + restoration + ['stats', 'load', 'drv', 'memory', 'host']
 
 
 def run_phase(console, phase, record):
+    phase_plan(phase)  # Validate even direct callers before version/debug or device I/O.
     record['version'] = console.identify()
     with debug_session(console, record.get('debug_mode'), 5) as diagnostics:
         record['debug'] = diagnostics
@@ -49,49 +99,63 @@ def run_phase(console, phase, record):
 def _run_phase(console, phase, record):
     record['events'] = []
     move = None
+    move_request_id = None
     stop_attempted = False
+    stop_confirmed = False
+    standing = None
+    settlement_failed = False
+    record['event_count'] = 0
+
+    def retain_command(name, kwargs, result):
+        event = dict(command=name, arguments=kwargs, result=result)
+        console.emit('phase_command', phase=phase, **event)
+        record['event_count'] += 1
+        record['events'].append(event)
+        if len(record['events']) > EVENT_TAIL:
+            del record['events'][0]
 
     def command(name, **kwargs):
         result = console.command(name, timeout_s=5, **kwargs)
-        record['events'].append(dict(command=name, arguments=kwargs, result=result))
+        retain_command(name, kwargs, result)
         if not result['ok']:
             raise BenchError(f'{name} refused/failed: {result.get("result", result.get("outcome"))}')
         return result
 
-    def state(require_stopped=True):
-        result = command('read-state', address=1)
+    def state_blocks(result, require_stopped=True):
         blocks = {b['block']: b for b in result['state_blocks']}
         if blocks[0]['raw_alarm'] or blocks[0]['alarm_flag']:
             raise BenchError('drive reports an alarm; no subsequent move')
-        if require_stopped and (blocks[0]['running'] or blocks[2]['raw_speed'] != 0):
+        if require_stopped and not drive_reported_stopped(result):
             raise BenchError('drive does not report stopped and zero raw speed')
         return blocks
 
+    def state(require_stopped=True):
+        return state_blocks(command('read-state', address=1), require_stopped)
+
     def stop(policy):
-        nonlocal stop_attempted
+        nonlocal stop_attempted, stop_confirmed, standing, settlement_failed
         stop_attempted = True
-        return command('stop', stop_policy=policy, address=1)
+        result = command('stop', stop_policy=policy, address=1)
+        stop_confirmed = True
+        standing = None  # A report preceding this stop does not settle this command.
+        settlement_failed = False
+        return result
 
     def settled():
-        # ARRIVED/RUNNING and speed are distinct drive reports. Preserve every
-        # sample; observe at most ten times without repeating a motion write.
-        for _ in range(10):
-            observed = state(False)
-            if not observed[0]['running'] and observed[2]['raw_speed'] == 0:
-                return observed
-            time.sleep(.05)
-        raise BenchError('zero-speed observation bound exhausted')
+        nonlocal standing, settlement_failed
+        def sample(result):
+            retain_command('read-state', dict(address=1), result)
+            state_blocks(result, False)
+        try:
+            result = observe_stopped(console, address=1, timeout_s=5, on_sample=sample)
+            standing = state_blocks(result)
+            return standing
+        except BaseException:
+            settlement_failed = True
+            raise
 
     def fixture(action):
-        result = command('motion-profile', host_args=(action,))
-        for _ in range(100):
-            if not result['pending']:
-                if not result['session_ok']:
-                    raise BenchError('motion snapshot/restoration failed: ' + result['error'])
-                return result
-            time.sleep(.01)
-            result = command('motion-profile', host_args=('inspect',))
-        raise BenchError('motion snapshot/restoration observation bound exhausted')
+        return profile_snapshot(console, action, on_command=retain_command)
 
     record['host'] = command('host')
     if record['host']['active'] != dict(baud=115200, format='8N1') or record['host']['blocked']:
@@ -108,6 +172,8 @@ def _run_phase(console, phase, record):
             record['identity'] = command('read-identity', address=1)
             record['profile'] = fixture('read')
         elif phase == 'actions':
+            if record['state_before'][0]['released']:
+                raise BenchError('action experiment requires initially enabled stationary drive; no action write')
             stop('normal'); state()
             stop('direct'); state()
             command('motor-release', address=1)
@@ -131,6 +197,7 @@ def _run_phase(console, phase, record):
             value = '0' if phase == 'return' else '100' if phase in ('forward', 'absolute') else '250'
             kind = 'move-absolute' if phase in ('return', 'absolute') else 'move-relative'
             stop_attempted = False
+            move_request_id = getattr(console, 'next_id', None)
             move = console.begin(kind, move_args=(value, 'steps', 'native', '60', 'configured'), address=1, timeout_s=5)
             record['move_admission'] = dict(accepted=move.accepted, operation_id=move.operation_id)
             if not move.accepted:
@@ -162,41 +229,59 @@ def _run_phase(console, phase, record):
             record['state_after'] = settled()
         elif phase == 'restore':
             stop('direct'); state()
-            record['restore'] = fixture('restore')
-            if not record['restore']['restored'] or record['restore']['original'] != record['restore']['current']:
-                raise BenchError('exact motion profile restoration not established')
+            record['restore'] = restore_profile(console, on_command=retain_command)
             command('probe', address=1)
         else:
             record['profile'] = command('motion-profile', host_args=('inspect',))
             command('probe', address=1)
     except BaseException as phase_error:
         record['phase_error'] = str(phase_error)
-        # A different, preplanned stop may be sent once after a failed finite
-        # attempt if console framing remains usable. Never repeat a failed stop.
-        if move is not None and move.accepted and not stop_attempted and console.synchronized:
-            try:
-                record['failure_cleanup_stop'] = stop('direct')
-                record['failure_cleanup_state'] = state()
-            except BaseException as error:
-                record['failure_cleanup_error'] = str(error)
         raise
     finally:
+        cleanup_error = None
+        if move is None and move_request_id is not None:
+            move = console.pending.get(move_request_id)
+        if phase in MOTION_PHASES and move is not None and (move.accepted or
+                (move.terminal is None and not console.synchronized)):
+            record['cleanup'] = 'unknown'
+            try:
+                if not console.synchronized:
+                    raise BenchError('framing unavailable; no stop or restoration command sent')
+                if not stop_attempted:
+                    record['failure_cleanup_stop'] = stop('direct')
+                if not stop_confirmed:
+                    raise BenchError('stop outcome unknown; no restoration command sent')
+                if settlement_failed:
+                    raise BenchError('standstill observation failed; no restoration command sent')
+                if standing is None:
+                    standing = state()
+                    record['failure_cleanup_state'] = standing
+                record['cleanup'] = 'drive_reported_stopped'
+                record['restoration'] = restore_profile(console, on_command=retain_command)
+                record['cleanup'] = 'stopped_and_restored'
+            except BaseException as error:
+                cleanup_error = error
+                record['failure_cleanup_error'] = str(error) or 'cleanup interrupted'
+                console.emit('phase_cleanup_failure', phase=phase, cleanup=record['cleanup'],
+                             error=record['failure_cleanup_error'])
         if console.synchronized:
             for name in ('stats', 'load', 'drv', 'memory', 'host'):
                 try:
                     record['ending_' + name] = command(name)
                 except BaseException as error:
                     record['ending_error'] = str(error)
-                    if 'phase_error' not in record:
+                    if 'phase_error' not in record and cleanup_error is None:
                         raise
                     break
+        if cleanup_error is not None and 'phase_error' not in record:
+            raise cleanup_error
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--port', default='COM13')
     parser.add_argument('--debug', choices=('off', 'raw', 'decoded'), default=None)
-    parser.add_argument('--phase', required=True, choices=('inspect', 'actions', 'forward', 'absolute', 'return', 'stop-normal', 'stop-direct', 'restore', 'status'))
+    parser.add_argument('--phase', required=True, choices=PHASES)
     parser.add_argument('--out', required=True, type=Path, help='new evidence filename prefix; existing files are never overwritten')
     parser.add_argument('--plan-only', action='store_true')
     args = parser.parse_args()
@@ -209,21 +294,16 @@ def main():
     print(json.dumps(record, indent=2), flush=True)
     if args.plan_only:
         return
-    args.out.parent.mkdir(parents=True, exist_ok=True)
-    path = args.out.with_suffix('.json')
-    # Reserve both artifacts before any device command.
-    with path.open('x', encoding='utf-8') as summary, args.out.with_suffix('.jsonl').open('x', encoding='utf-8') as log:
-        try:
-            with open_port(args.port, 115200, 5) as port:
-                console = Console(port, on_event=Evidence(log))
-                console.drain_startup(.3)
-                run_phase(console, args.phase, record)
-            record['ok'] = True
-        except BaseException as error:
-            record.update(ok=False, error=str(error))
-            raise
-        finally:
-            summary.write(json.dumps(record, indent=2) + '\n')
+    def run(console, summary):
+        # Shared session owns debug selection, connection and artifacts. The
+        # same reusable phase receives no second debug-mode selection.
+        details = dict(phase=args.phase, plan=plan)
+        summary['motion'] = details
+        run_phase(console, args.phase, details)
+        summary['workload_verified'] = True
+    run_recorded(port=args.port, out=args.out, scenario='motion-' + args.phase,
+                 inputs=dict(phase=args.phase, debug=args.debug, plan=plan), run=run,
+                 debug=args.debug)
 
 
 if __name__ == '__main__':

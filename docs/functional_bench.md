@@ -56,6 +56,13 @@ reserves new evidence files, records all traffic and never replays a motion
 write. After an accepted failed move it may send one prepared direct stop if
 no stop was already attempted and the console remains usable.
 
+Motion phases now keep the same connection until stop, fresh standstill and
+exact original profile restoration finish. Failed/unknown cleanup remains
+failed and retains the backup; closing/reconnecting is not restoration.
+[Named scenarios](bench_scenarios.md) share this session/evidence owner and the
+existing strict parser. Their printed plan also includes fixed before/after
+diagnostics and typed baselines, with no implicit setting change.
+
 ARRIVED/RUNNING and raw speed remain separate reports. The host observes at most
 ten fresh state reads, 50ms apart, for zero reported speed and retains transient
 values. Moving-stop tests require new RUNNING evidence before stop, retain the

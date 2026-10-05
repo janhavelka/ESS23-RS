@@ -413,6 +413,15 @@ def check_load_reply(response: dict, settings: tuple[int, int, int] | None) -> N
             or response.get("capture_mode") not in ("poll", "timer")):
         raise BenchError("load fixture is not ready or capture mode is unknown")
     check_counts(response, LOAD_COUNTERS, "load")
+    if type(response.get("cpu_valid")) is not bool:
+        raise BenchError("load reply lacks CPU measurement availability")
+    for field in ("cpu0_busy_pct", "cpu1_busy_pct"):
+        value = response.get(field)
+        if response["cpu_valid"]:
+            if type(value) is not int or not 0 <= value <= 100:
+                raise BenchError("load CPU measurement exceeds percentage bounds")
+        elif field not in response or value is not None:
+            raise BenchError("unavailable load CPU measurement must be null")
     if type(response.get("sample_gap_exceeded")) is not bool:
         raise BenchError("load reply lacks a valid sample_gap_exceeded")
     if response["timer_callbacks"] > response["capture_samples"]:
@@ -479,20 +488,57 @@ def _reply_status(raw: bytes, received: int, address: int, function: int,
 class Evidence:
     """Stream evidence to an exclusive new file; do not retain a growing list."""
 
-    def __init__(self, stream, clock: Callable[[], float] = time.monotonic):
+    def __init__(self, stream, clock: Callable[[], float] = time.monotonic, *,
+                 max_records: int = 200000, max_bytes: int = 64 * 1024 * 1024,
+                 max_record_bytes: int = 1024 * 1024):
+        if (type(max_records) is not int or max_records < 2 or
+                type(max_bytes) is not int or max_bytes < 512 or
+                type(max_record_bytes) is not int or max_record_bytes < 256):
+            raise ValueError("evidence requires finite record/byte capacities")
         self.stream = stream
         self.clock = clock
         self.started = clock()
+        self.max_records, self.max_bytes = max_records, max_bytes
+        self.max_record_bytes = max_record_bytes
+        self.records = self.bytes = 0
+        self.exhausted = False
+
+    def _write(self, line: str) -> None:
+        try:
+            if self.stream.write(line) != len(line):
+                raise BenchError("short evidence write; no further work permitted")
+            self.stream.flush()
+        except BaseException:
+            # This can fail outside Console.begin/wait (for example while
+            # streaming a campaign summary). Latch it before cleanup can send
+            # another command into an experiment whose evidence was lost.
+            self.exhausted = True
+            raise
 
     def __call__(self, event: str, **fields) -> None:
+        if self.exhausted:
+            raise BenchError("evidence capacity exhausted; new work must stop")
         record = {
             "event": event,
             "utc": datetime.now(timezone.utc).isoformat(timespec="milliseconds"),
             "elapsed_s": round(self.clock() - self.started, 6),
             **fields,
         }
-        self.stream.write(json.dumps(record, ensure_ascii=True, allow_nan=False) + "\n")
-        self.stream.flush()
+        line = json.dumps(record, ensure_ascii=True, allow_nan=False) + "\n"
+        # Reserve one small terminal record. Do not silently drop experiment
+        # evidence or continue issuing writes after its finite budget is full.
+        if (self.records >= self.max_records - 1 or len(line) > self.max_record_bytes or
+                self.bytes + len(line) > self.max_bytes - 256):
+            self.exhausted = True
+            limit = json.dumps(dict(event="evidence_limit", ok=False,
+                records=self.records, bytes=self.bytes, rejected_event=event[:64])) + "\n"
+            self._write(limit)
+            self.records += 1
+            self.bytes += len(limit)
+            raise BenchError("evidence capacity exhausted; new work must stop")
+        self._write(line)
+        self.records += 1
+        self.bytes += len(line)
 
 
 def move_arguments(kind: str, arguments: tuple[str, ...]) -> dict:
@@ -3847,10 +3893,14 @@ def campaign(
         if mode == "load" and latest_load is not None:
             if (load[0] or load[2]) and not latest_load["work_iterations"]:
                 raise BenchError("load window contained no competing task iterations")
+            if load[0] and not latest_load["work_us"]:
+                raise BenchError("requested CPU workload performed no measured work")
             if load[2] and not latest_load["console_lines"]:
                 raise BenchError("console workload produced no complete lines")
-    except Exception as exc:
-        failure = str(exc)
+            if load[1] and latest_load["owner_gap_max_us"] < load[1]:
+                raise BenchError("requested owner delay was not observed during active service")
+    except BaseException as exc:
+        failure = str(exc) or "interrupted"
         raise
     finally:
         console.emit("summary", mode=mode, read_command=read_command, iterations=completed, requested_count=count,
@@ -3900,8 +3950,8 @@ def typed_read_campaign(console: Console, *, kind: str, timeout_s: float, addres
             completed += 1
         for command in ("status", "health", "memory", "drv", "stats"):
             successful(console, command, timeout_s)
-    except Exception as exc:
-        failure = str(exc)
+    except BaseException as exc:
+        failure = str(exc) or "interrupted"
         raise
     finally:
         console.emit("summary", mode="typed-read", read_kind=kind, reads_attempted=attempted,
@@ -4151,23 +4201,62 @@ def driver_read_campaign(console: Console, *, timeout_s: float, address: int, co
         terminal = console.wait(handle)
         if handle.accepted:
             inspected = console.command("result", operation_id=handle.operation_id, timeout_s=timeout_s)
+            if not inspected["ok"]:
+                raise BenchError("driver retained result inspection failed")
         if not terminal["ok"]:
             raise BenchError("driver read rejected or failed: " + str(terminal.get("result", terminal.get("outcome"))))
     except BaseException as exc:
         failure = str(exc) or "interrupted"
         raise
     finally:
+        release_error = None
         try:
             if handle is not None and handle.accepted and handle.terminal is not None and not handle.released and console.synchronized:
                 release = console.command("release", operation_id=handle.operation_id, timeout_s=timeout_s)
                 if not release["ok"]: raise BenchError("driver result release rejected")
         except BaseException as exc:
-            if failure is None: failure = str(exc) or "interrupted"; raise
+            release_error = str(exc) or "interrupted"
+            if failure is None: failure = release_error; raise
         finally:
             console.emit("summary", mode=command + ("-set" if candidate else "-read"),
                          reads_attempted=0 if candidate else 1, settings_fields_requested=len(candidate), ok=failure is None,
                          driver_result=terminal, inspected_result=inspected,
-                         motor_writes=(sum(row[3] and row[7] > 0 for row in terminal.get("evidence", [])) if candidate and terminal else None if candidate else 0), error=failure)
+                         motor_writes=(sum(row[3] and row[7] > 0 for row in terminal.get("evidence", [])) if candidate and terminal else None if candidate else 0), error=failure,
+                         release_error=release_error)
+
+
+def drive_reported_stopped(state: dict) -> bool:
+    """Checked drive reports, not an independent shaft or exact sample time."""
+    blocks = {block.get("block"): block for block in state.get("state_blocks", [])}
+    motion, feedback = blocks.get(0, {}), blocks.get(2, {})
+    return (state.get("ok") is True and motion.get("running") is False and
+            motion.get("raw_alarm") == 0 and motion.get("alarm_flag") is False and
+            type(feedback.get("raw_speed")) is int and feedback["raw_speed"] == 0)
+
+
+def observe_stopped(console: Console, *, address: int, timeout_s: float,
+                    attempts: int = 10, interval_s: float = .05, on_sample=None) -> dict:
+    """Bounded read-only settlement; never repeat a motor stop or motion write."""
+    if type(attempts) is not int or not 1 <= attempts <= 10:
+        raise ValueError("standstill observation budget must be within 1..10")
+    if not math.isfinite(interval_s) or not 0 <= interval_s <= .05:
+        raise ValueError("standstill observation interval must be within 0...05s")
+    positive(timeout_s, "standstill observation timeout")
+    deadline = console.clock() + timeout_s
+    for index in range(attempts):
+        remaining = deadline - console.clock()
+        if remaining <= 0:
+            break
+        state = console.command("read-state", address=address, timeout_s=remaining)
+        if on_sample is not None:
+            on_sample(state)
+        if not state["ok"]:
+            raise BenchError("standstill observation was rejected or failed")
+        if drive_reported_stopped(state):
+            return state
+        if index + 1 < attempts:
+            console.sleep(min(interval_s, max(0, deadline - console.clock())))
+    raise BenchError("zero-speed/non-running observation bound exhausted")
 
 
 def move_campaign(console: Console, *, move_args: tuple[str, ...] | None, cleanup_stop: str,
@@ -4212,14 +4301,11 @@ def move_campaign(console: Console, *, move_args: tuple[str, ...] | None, cleanu
                     stopped = console.command("stop", stop_policy=cleanup_stop, address=address, timeout_s=timeout_s)
                     if not stopped["ok"]:
                         raise BenchError("cleanup stop was rejected or failed")
-                    final_state = console.command("read-state", address=address, timeout_s=timeout_s)
+                    final_state = observe_stopped(console, address=address, timeout_s=timeout_s)
                     final_health = console.command("health", timeout_s=timeout_s)
                     if not final_state["ok"] or not final_health["ok"]:
                         raise BenchError("cleanup state/health read failed")
-                    motion = next((value for value in final_state["state_blocks"] if value["block"] == 0), None)
-                    if motion is None or motion.get("running") is not False:
-                        raise BenchError("cleanup final drive report does not show non-running")
-                    cleanup = "drive_reported_nonrunning"
+                    cleanup = "drive_reported_standstill"
                     if handle.terminal is not None and not handle.released:
                         released = console.command("release", operation_id=handle.operation_id, timeout_s=timeout_s)
                         if not released["ok"]:
@@ -4307,8 +4393,8 @@ def state_health_campaign(console: Console, *, count: int, interval_s: float, ti
             passed += 1
             if index + 1 < count:
                 console.sleep(interval_s)
-    except Exception as exc:
-        failure = str(exc)
+    except BaseException as exc:
+        failure = str(exc) or "interrupted"
         raise
     finally:
         console.emit("summary", mode="state-health", checks_attempted=passed + (failure is not None),
@@ -4340,9 +4426,12 @@ def discovery_campaign(console, *, tokens: tuple[str, ...], timeout_s: float) ->
             raise BenchError("discovery inspection failed")
         scan = result["scan"]
         scans += 1
-    console.emit("discovery_summary", scan=scan, inspections=scans, restored=scan["restored"], interlocked=scan["phase"] == 4)
+    console.emit("discovery_summary", scan=scan, inspections=scans, restored=scan["restored"],
+                 interlocked=scan["phase"] == 4, ok=scan["phase"] == 5 and scan["outcome"] == 1)
     if scan["phase"] == 4:
         raise BenchError("discovery stopped with retained partial results and host/transport interlock; explicit repair required")
+    if scan["outcome"] != 1:
+        raise BenchError("discovery did not complete its requested candidates; partial findings retained: " + str(scan["outcome"]))
     finished = console.command("discover", host_args=("finish",), timeout_s=timeout_s)
     if not finished["ok"]:
         raise BenchError("discovery findings release refused")

@@ -55,6 +55,7 @@ def load_reply(request_id, settings=(0, 0, 0), **fields):
     return reply(request_id, "load", **dict(zip(bench.LOAD_FIELDS, settings)),
                  ready=True, capture_mode="timer", elapsed_us=20000,
                  work_us=4000, work_iterations=2, console_lines=2,
+                 cpu_valid=False, cpu0_busy_pct=None, cpu1_busy_pct=None,
                  console_dropped=0, capture_us=800, capture_samples=200,
                  timer_callbacks=180, sample_gap_limit_us=85,
                  sample_gap_exceeded=False, capture_high_water=7,
@@ -342,6 +343,12 @@ class MoveSerial:
             return encoded(reply(request_id, command, result="accepted", operation_id=request_id + 100, address=1)) + encoded(terminal)
         if command == "read":
             terminal = typed_terminal(request_id, args[0])
+            if args[0] == "state":
+                # Campaign cleanup must prove zero speed separately from the
+                # non-running flag; the generic raw-decoder vector is 0xFFFF.
+                prefix = bytes.fromhex(terminal["steps"][2]["rx"])[:7] + b"\0\0"
+                terminal["steps"][2]["rx"] = (prefix + bench.wire_crc(prefix).to_bytes(2, "little")).hex()
+                terminal["state_blocks"][2]["raw_speed"] = 0
             self.retained[request_id + 100] = terminal
             return encoded(reply(request_id, "read-" + args[0], result="accepted", operation_id=request_id + 100, address=1, read_kind=args[0])) + encoded(terminal)
         if command == "result":
@@ -509,6 +516,193 @@ class Serial:
 class Framing(unittest.TestCase):
     HOME_ARGS = ("35", "60", "30", "100", "zero")
 
+    def test_evidence_limits_stop_with_one_retained_failure_record(self):
+        for options, fields in ((dict(max_records=2), {}),
+                                (dict(max_bytes=512), dict(text="x" * 512)),
+                                (dict(max_record_bytes=256), dict(text="x" * 512))):
+            with self.subTest(options=options):
+                stream = io.StringIO()
+                evidence = bench.Evidence(stream, Clock(), **options)
+                evidence("first")
+                with self.assertRaisesRegex(bench.BenchError, "capacity exhausted"):
+                    evidence("second", **fields)
+                before = stream.getvalue()
+                with self.assertRaises(bench.BenchError): evidence("retry")
+                self.assertEqual(stream.getvalue(), before)
+                records = [json.loads(line) for line in before.splitlines()]
+                self.assertEqual(records[-1]["event"], "evidence_limit")
+                self.assertFalse(records[-1]["ok"])
+                self.assertEqual(len(records), evidence.records)
+                self.assertEqual(len(before), evidence.bytes)
+                self.assertLessEqual(evidence.records, evidence.max_records)
+                self.assertLessEqual(evidence.bytes, evidence.max_bytes)
+
+    def test_evidence_output_failure_outside_console_forbids_later_send(self):
+        for failure in ("write", "flush", "short"):
+            class FailingStream(io.StringIO):
+                writes = 0
+                flushes = 0
+                def write(self, text):
+                    self.writes += 1
+                    if self.writes == 1 and failure == "write":
+                        raise OSError("evidence disk unavailable")
+                    if self.writes == 1 and failure == "short":
+                        return super().write(text[:-1])
+                    return super().write(text)
+                def flush(self):
+                    self.flushes += 1
+                    if self.flushes == 1 and failure == "flush":
+                        raise OSError("evidence flush unavailable")
+                    return super().flush()
+            console = self.session()
+            stream = FailingStream()
+            evidence = bench.Evidence(stream, self.clock)
+            console.emit = evidence
+            with self.subTest(failure=failure):
+                with self.assertRaises((OSError, bench.BenchError)):
+                    evidence("phase_command", result={"ok": True})
+                self.assertTrue(evidence.exhausted)
+                # The stream would recover, but the experiment must not.
+                before = stream.getvalue()
+                with self.assertRaisesRegex(bench.BenchError, "capacity exhausted"):
+                    console.command("stats", timeout_s=.1)
+                self.assertFalse(console.synchronized)
+                self.assertEqual(self.port.writes, [b"@1 version\n"])
+                self.assertEqual(stream.getvalue(), before)
+                self.assertEqual(stream.writes, 1)
+
+    def test_cpu_evidence_preserves_available_bounds_or_explicit_unknown(self):
+        for change in ({}, {"cpu_valid": True, "cpu0_busy_pct": 0, "cpu1_busy_pct": 100}):
+            item = load_reply(1)
+            item.update(change)
+            bench.check_load_reply(item, (0, 0, 0))
+        for change in ({"cpu_valid": None}, {"cpu_valid": 1},
+                       {"cpu_valid": True, "cpu0_busy_pct": 0, "cpu1_busy_pct": None},
+                       {"cpu_valid": True, "cpu0_busy_pct": -1, "cpu1_busy_pct": 100},
+                       {"cpu_valid": True, "cpu0_busy_pct": 101, "cpu1_busy_pct": 0},
+                       {"cpu_valid": True, "cpu0_busy_pct": True, "cpu1_busy_pct": 0},
+                       {"cpu_valid": True, "cpu0_busy_pct": 50.0, "cpu1_busy_pct": 0},
+                       {"cpu0_busy_pct": 0}):
+            item = load_reply(1)
+            item.update(change)
+            with self.subTest(change=change), self.assertRaisesRegex(bench.BenchError, "CPU"):
+                bench.check_load_reply(item, (0, 0, 0))
+        for field in ("cpu_valid", "cpu0_busy_pct", "cpu1_busy_pct"):
+            item = load_reply(1)
+            del item[field]
+            with self.subTest(missing=field), self.assertRaisesRegex(bench.BenchError, "CPU"):
+                bench.check_load_reply(item, (0, 0, 0))
+
+    def test_disconnect_read_or_write_poison_session_without_recovery(self):
+        for stage in ("write", "read", "terminal"):
+            with self.subTest(stage=stage):
+                console = self.session()
+                def disconnected(*_): raise OSError("USB disconnected")
+                if stage == "write": self.port.write = disconnected
+                elif stage == "read": self.port.read = disconnected
+                else:
+                    self.port.handler = lambda i, cmd, _: encoded(reply(i, cmd, result="accepted", address=1))
+                    handle = console.begin("probe", timeout_s=.1)
+                    self.assertTrue(handle.accepted)
+                    self.port.read = disconnected
+                with self.assertRaisesRegex(OSError, "USB disconnected"):
+                    console.wait(handle) if stage == "terminal" else console.command("probe", timeout_s=.1)
+                self.assertFalse(console.synchronized)
+                before = len(self.port.writes)
+                with self.assertRaisesRegex(bench.BenchError, "cannot be reused"):
+                    console.command("recover", timeout_s=.1)
+                self.assertEqual(len(self.port.writes), before)
+
+    def test_single_byte_serial_fragments_keep_original_correlation(self):
+        console = self.session()
+        self.port.fragment = 1
+        result = console.command("probe", address=1, timeout_s=.1)
+        self.assertEqual((result["command_id"], result["operation_id"]), (2, 102))
+        self.assertTrue(console.synchronized)
+        self.assertEqual(self.port.writes, [b"@1 version\n", b"@2 probe 1\n", b"@3 release 102\n"])
+
+    def test_interrupt_during_final_diagnostics_cannot_publish_pass(self):
+        console = self.session()
+        original = self.port.handler
+        stats = 0
+        def handler(i, command, args):
+            nonlocal stats
+            if command == "stats":
+                stats += 1
+                if stats == 2: raise KeyboardInterrupt()
+            return original(i, command, args)
+        self.port.handler = handler
+        with self.assertRaises(KeyboardInterrupt):
+            bench.campaign(console, "stress", count=1, interval_s=0, timeout_s=.1)
+        self.assertFalse(self.events[-1]["ok"])
+        self.assertEqual(self.events[-1]["iterations"], 1)
+        self.assertEqual(self.events[-1]["error"], "interrupted")
+
+    def test_requested_work_or_owner_delay_must_actually_run(self):
+        for field, value, error in (("work_us", 0, "no measured work"),
+                                    ("owner_gap_max_us", 4999, "not observed")):
+            console = self.load_session()
+            normal = self.port.handler
+            def inactive(i, command, args):
+                response = normal(i, command, args)
+                if command == "load": response = encoded({**json.loads(response), field: value})
+                return response
+            self.port.handler = inactive
+            with self.subTest(field=field), self.assertRaisesRegex(bench.BenchError, error):
+                bench.campaign(console, "load", count=2, interval_s=0, timeout_s=.1, load=(2000,5000,128))
+            self.assertFalse(self.events[-1]["ok"])
+            self.assertEqual(self.events[-1]["probes_passed"], 2)
+
+    def test_nonrunning_with_nonzero_speed_never_counts_as_cleanup(self):
+        for speeds, passes, reads in (((25, 0), True, 2), ((25,) * 10, False, 10)):
+            device = MoveSerial()
+            original = device.__call__
+            samples = iter(speeds)
+            def handler(i, command, args):
+                response = original(i, command, args)
+                if command == "read" and args[0] == "state":
+                    accepted, terminal = map(json.loads, response.splitlines())
+                    speed = next(samples)
+                    prefix = bytes.fromhex(terminal["steps"][2]["rx"])[:7] + speed.to_bytes(2, "big")
+                    terminal["steps"][2]["rx"] = (prefix + bench.wire_crc(prefix).to_bytes(2, "little")).hex()
+                    terminal["state_blocks"][2]["raw_speed"] = speed
+                    device.retained[terminal["operation_id"]] = terminal
+                    response = encoded(accepted) + encoded(terminal)
+                return response
+            console = self.session(handler)
+            with self.subTest(passes=passes):
+                if passes:
+                    bench.move_campaign(console, move_args=self.MOVE_ARGS, cleanup_stop="direct", timeout_s=3, address=1)
+                else:
+                    with self.assertRaisesRegex(bench.BenchError, "observation bound"):
+                        bench.move_campaign(console, move_args=self.MOVE_ARGS, cleanup_stop="direct", timeout_s=3, address=1)
+                commands = [line.decode().split()[1] for line in self.port.writes]
+                self.assertEqual(commands.count("move"), 1)
+                self.assertEqual(commands.count("stop"), 1)
+                self.assertEqual(commands.count("read"), reads)
+                self.assertEqual(self.events[-1]["ok"], passes)
+                self.assertEqual(self.events[-1]["cleanup"], "drive_reported_standstill" if passes else "unknown")
+
+    def test_native_inspection_and_release_failures_are_both_retained(self):
+        def handler(i, command, args):
+            if command == "profile":
+                terminal = driver_terminal(i)
+                return encoded(reply(i, "driver", result="accepted", address=1, operation_id=i + 100)) + encoded(terminal)
+            if command in ("result", "release"):
+                return encoded(reply(i, command, ok=False, result="busy"))
+            return Serial.normal(i, command, args)
+        console = self.session(handler)
+        with self.assertRaisesRegex(bench.BenchError, "inspection failed"):
+            bench.driver_read_campaign(console, timeout_s=.1, address=1)
+        commands = [line.decode().split()[1] for line in self.port.writes]
+        self.assertEqual(commands, ["version", "profile", "result", "release"])
+        summary = self.events[-1]
+        self.assertFalse(summary["ok"])
+        self.assertEqual(summary["error"], "driver retained result inspection failed")
+        self.assertEqual(summary["release_error"], "driver result release rejected")
+        self.assertTrue(console.synchronized)
+        self.assertEqual(len(console.operations), 1)
+
     def test_home_exact_native_arguments_never_send_on_rejection(self):
         console = self.session()
         for tokens in (("3.5", *self.HOME_ARGS[1:]), ("35", "4", "30", "100", "zero"),
@@ -570,7 +764,7 @@ class Framing(unittest.TestCase):
         commands = [line.decode().split()[1] for line in self.port.writes]
         self.assertEqual(commands.count("home"), 1); self.assertEqual(commands.count("stop"), 1)
         self.assertNotIn("recover", commands); self.assertFalse(console.operations)
-        self.assertEqual(self.events[-1]["cleanup"], "drive_reported_nonrunning")
+        self.assertEqual(self.events[-1]["cleanup"], "drive_reported_standstill")
         self.assertEqual(self.events[-1]["physical_observation"], "not_supplied")
 
     def test_home_malformed_completion_keeps_unknown_cleanup_without_replay(self):
@@ -713,7 +907,7 @@ class Framing(unittest.TestCase):
         commands = [line.decode().split()[1] for line in self.port.writes]
         self.assertEqual(commands.count("velocity"), 1); self.assertEqual(commands.count("stop"), 1)
         self.assertNotIn("recover", commands); self.assertFalse(console.operations)
-        self.assertEqual(events[-1][1]["cleanup"], "drive_reported_nonrunning")
+        self.assertEqual(events[-1][1]["cleanup"], "drive_reported_standstill")
         self.assertEqual(events[-1][1]["physical_observation"], "not_supplied")
         self.assertEqual(events[-1][1]["velocities_attempted"], 1)
 
@@ -835,7 +1029,7 @@ class Framing(unittest.TestCase):
         self.assertTrue(console.synchronized)
         self.assertFalse(console.operations)
         summary = self.events[-1]
-        self.assertEqual(summary["cleanup"], "drive_reported_nonrunning")
+        self.assertEqual(summary["cleanup"], "drive_reported_standstill")
         self.assertEqual(summary["velocity_result"]["operation_id"], 102)
         self.assertEqual(summary["error"], "interrupted")
         self.assertFalse(summary["ok"])
@@ -1108,7 +1302,7 @@ class Framing(unittest.TestCase):
         commands = [line.decode().split()[1] for line in self.port.writes]
         self.assertEqual(commands.count("move"), 1)
         self.assertEqual(commands.count("stop"), 1)
-        self.assertEqual(events[-1][1]["cleanup"], "drive_reported_nonrunning")
+        self.assertEqual(events[-1][1]["cleanup"], "drive_reported_standstill")
         self.assertTrue(events[-1][1]["move_result"]["uncertain"])
 
     def test_move_write_readiness_deadlines_and_delayed_delivery(self):
@@ -1282,7 +1476,7 @@ class Framing(unittest.TestCase):
         self.assertNotIn("recover", commands)
         self.assertFalse(console.operations)
         summary = events[-1][1]
-        self.assertEqual(summary["cleanup"], "drive_reported_nonrunning")
+        self.assertEqual(summary["cleanup"], "drive_reported_standstill")
         self.assertEqual(summary["physical_observation"], "not_supplied")
         self.assertTrue(summary["ok"])
 

@@ -1,5 +1,16 @@
 # Features implementation tasks and open questions
 
+## Prompt24 automated scenarios
+
+- [x] Fifteen named finite scenarios; default quick read-only, explicit settings/motion/persistence selection, shared strict Console and one connection owner.
+- [x] Incremental capped evidence, exclusive files, bounded summaries and complete failure accounting; disk/flush/short-write failures prevent further traffic.
+- [x] Actual workload/CPU validation, cached-only failure diagnostics, stop/zero-speed settlement and exact same-session motion/settings restoration.
+- [x] Native serial/session/cleanup failure tests, all65 CTest suites and three required firmware builds; COM13 read-only/finite motion/stop/filter/scan checks with461 new checked frames and retained failures.
+- [x] Filter experiment root cause corrected by reading changed native settings before rebuilding invalidated I/O/stationary prerequisites; no weakened firmware gate or replay.
+- [ ] Autonomous velocity, unavailable homing fixtures, physical persistence/restart, independent shaft/electrical measurements and endurance remain unqualified; eight earlier native-family gaps retain their owners.
+
+See [scenario contract](bench_scenarios.md) and [verification/evidence](reports/ess_release_24_2026-10-05.md).
+
 ## Prompt23 API/CLI integration
 
 - [x] One bounded command metadata table; typed group aliases, callback-aware help/caps and exact parser parity.

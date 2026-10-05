@@ -1,5 +1,12 @@
 # Roadmap to a supported ESS release
 
+Prompt24 implements [named finite scenarios](bench_scenarios.md), one strict
+serial/session owner, capped incremental evidence and explicit cleanup.
+[Verification](reports/ess_release_24_2026-10-05.md) passes65 native suites and
+461 new checked COM13 frames, including current-session profile restoration,
+finite motion/stop and corrected filter restoration. IDF/parity and endurance
+remain later gates; earlier native-family gaps remain in the denominator.
+
 Prompt23 reconciles [installed API and CLI coverage](ess_api_cli_coverage.md), local target selection, retained host controls and capability dispositions. [Verification](reports/ess_release_23_2026-10-05.md) and the [fresh audit](reports/ess_release_23_audit_2026-10-05.md) separate integration from eight named prerequisite gaps, including arbitrary archived profile staging. The audit preserves uncertain restoration evidence, adds explicit local wiring declarations and closes ownership/reporting defects. Prompts24–26 inherit the actual command/result contract; full native-family and release completion remain open.
 
 The [fresh prompt22 audit](reports/ess_release_22_audit_2026-10-05.md) verifies

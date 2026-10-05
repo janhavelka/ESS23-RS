@@ -1,5 +1,14 @@
 # Motor bench and testing authorization
 
+[Prompt24 checks](reports/ess_release_24_2026-10-05.md) add461 checked frames on
+the unchanged ordinary timer image, finite relative motion and normal moving
+stop with exact current-session profile restoration. Filter2→3→2 restoration
+passes after fixing harness prerequisite refresh/order; every failed attempt
+and explicit known-value repair is retained. Final alarm0/motion0/speed0, raw
+position1654; host1152008N1, original/current profile `[30,100,100,60,0,250]`,
+debug/load/monitor off, DE released and owner/results empty. No independent
+physical/electrical or endurance qualification is claimed.
+
 The [fresh prompt23 audit](reports/ess_release_23_audit_2026-10-05.md) passes
 229 checked frames on its final image, finite relative motion and normal stop
 during finite motion with bounded task/console load. Local wiring declarations

@@ -1,5 +1,11 @@
 # MotorControl-RS
 
+Prompt24 adds [finite Python scenarios](docs/bench_scenarios.md) with a read-only
+default, shared session/evidence ownership and same-session motion/settings
+cleanup. [Verification](docs/reports/ess_release_24_2026-10-05.md) records native
+failure tests and461 new checked COM13 frames, including finite motion/stop,
+exact restoration and retained failed attempts. Broader qualification stays open.
+
 Prompt23 delivers the [actual API/CLI coverage handoff](docs/ess_api_cli_coverage.md) and [verified integration](docs/reports/ess_release_23_2026-10-05.md). Typed commands, local target selection and retained results share one owner. Named native-family gaps remain explicit; this is not a full-release completion claim.
 
 Prompt22 adds [bounded ESS discovery](docs/ess_discovery.md), minimal public probes and retained

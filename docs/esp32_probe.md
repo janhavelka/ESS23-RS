@@ -1,5 +1,11 @@
 # ESP32-S3 standalone motor bench
 
+Use [finite named Python scenarios](bench_scenarios.md) for repeatable checks.
+Default quick is read-only; selected motion/settings retain one connection
+through stop, standstill and restoration. [Prompt24 evidence](reports/ess_release_24_2026-10-05.md)
+records strict parser/failure coverage and461 new checked frames on the unchanged
+ordinary timer image, retaining every failed experiment.
+
 Prompt23 adds callback-aware help/capabilities, callable typed group aliases, local `useaddr`, fault-independent monitor control and explicit `motion-profile forget`. [The final command/result handoff](ess_api_cli_coverage.md) and [current verification](reports/ess_release_23_2026-10-05.md) supersede earlier probe-only capability descriptions below. Historical measurements remain dated evidence, not current exclusions.
 
 The [fresh23 audit](reports/ess_release_23_audit_2026-10-05.md) adds local

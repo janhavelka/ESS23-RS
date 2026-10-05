@@ -1,5 +1,11 @@
 # MotorControl-RS standalone CLI contract
 
+[Named Python scenarios](bench_scenarios.md) reuse this console's strict
+correlation, typed operations and runtime debug events. Default regression
+sends only motor reads; motion/settings/persistence require explicit selection.
+One port session retains snapshots through cleanup, with bounded evidence and
+unknown outcomes preserved on framing/stop/restoration failure.
+
 Prompt23 reconciles callable help, shared typed parameter aliases, target
 selection, capability states and local polling controls. The complete
 [API/CLI coverage handoff](ess_api_cli_coverage.md) records exact implemented

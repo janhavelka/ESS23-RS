@@ -1,5 +1,9 @@
 # MotorControl-RS documentation
 
+Prompt24 delivers [repeatable finite Python scenarios](bench_scenarios.md),
+bounded incremental evidence and same-session cleanup. [Verification](reports/ess_release_24_2026-10-05.md)
+separates read-only/finite functional PASS from remaining fixtures and native gaps.
+
 Prompt23 delivers the [actual API/CLI coverage handoff](ess_api_cli_coverage.md) and [verified integration](reports/ess_release_23_2026-10-05.md). Typed commands, local target selection and retained results share one owner. Named native-family gaps remain explicit; this is not a full-release completion claim.
 
 Prompt22 adds [bounded ESS discovery](ess_discovery.md), minimal public probes and retained

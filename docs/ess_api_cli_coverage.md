@@ -120,6 +120,11 @@ assignment, and disabled outputs do not promise an electrical level.
 
 ## Coverage and explicit gaps
 
+Prompt24 [finite scenarios](bench_scenarios.md) exercise these same typed routes
+and retain strict result/parser evidence. Same-session backup restoration closes
+a harness lifetime defect; it does not implement the arbitrary archived/native
+parameter gaps below or grant missing physical qualification.
+
 [The complete inventory](reference/ess_rs_operations.json) retains every ledger
 record and named choice. It separately classifies installed public helpers,
 operation sequences, metadata, diagnostics and CLI routes. Helpers/builders are
