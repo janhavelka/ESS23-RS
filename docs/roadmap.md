@@ -1,5 +1,12 @@
 # Roadmap to a supported ESS release
 
+The [overnight HIL experiment](reports/2026-10-05_overnight_hil.md) is running
+under the user's explicit extended-test authorization, until 10:00 CEST on
+6 October. Its finite motion/stop and health/resource pilots passed; the actual
+overnight aggregate and final cleanup remain open until completion is inspected.
+It does not close missing external fixtures or unresolved native families.
+
+
 The [canonical-command follow-up](reports/2026-10-05_fast_stop_console.md)
 removes legacy aliases and duplicate dispatch paths. `stop fast` names the
 existing serial emergency stop. Protocol-3 clients use the same public operations.

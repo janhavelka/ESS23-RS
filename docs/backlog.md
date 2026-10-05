@@ -1,5 +1,14 @@
 # Features implementation tasks and open questions
 
+## User-authorized overnight HIL, 5-6 October 2026
+
+- [x] Prepare and launch one-port finite motion/stop, health/native-read and
+  bounded load campaign with fixed 10:00 CEST cutoff and verified pilot cleanup.
+- [ ] Inspect the completed overnight aggregate, resource trends, any failures
+  and final stop/restoration evidence before closing endurance qualification.
+- [Experiment and live evidence paths](reports/2026-10-05_overnight_hil.md).
+
+
 ## Canonical console commands and fast stop
 
 - [x] One grouped help catalogue and one spelling per operation; remove legacy
