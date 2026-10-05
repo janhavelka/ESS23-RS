@@ -2,6 +2,7 @@
 #include <MotorControlRS/profiles/ess_rs/Homing.h>
 // This target sees only the installed package's exported include directories.
 #include <MotorControlRS/ReadOperation.h>
+#include <MotorControlRS/Discovery.h>
 #include <MotorControlRS/Axis.h>
 #include <MotorControlRS/profiles/ess_rs/Reads.h>
 #include <MotorControlRS/profiles/ess_rs/Actions.h>
@@ -22,6 +23,18 @@ int main() {
     using namespace MotorControlRS;
     using namespace MotorControlRS::ESS_RS;
     ReadTarget target; target.id = 1; target.address = 1; target.generation = 2;
+    DiscoveryCapabilities discovery;
+    PreparedProbe probe;
+    if (discoveryProfileCount() != 1 || !getDiscoveryCapabilities(DriveProfile::ESS_RS, discovery) ||
+        !discovery.nonChanging || !prepareProbe(probe, DriveProfile::ESS_RS, target, 1, 100, 1000) ||
+        probe.length != 8) return 100;
+    const uint8_t probeReply[] = {1, 3, 2, 3, 5, 0x78, 0xB7};
+    ReadEvent probeEvent; probeEvent.target = target; probeEvent.operationId = 1;
+    probeEvent.frame = probeReply; probeEvent.length = sizeof(probeReply); probeEvent.qualified = true;
+    probeEvent.earliestUs = 200; probeEvent.latestUs = 220; probeEvent.txAccepted = 8;
+    ProbeObservation responder;
+    if (!checkProbe(probe, probeEvent, 230, responder) || responder.outcome != ProbeOutcome::RESPONDER ||
+        responder.rawModel != 0x0305 || responder.confidence != ProbeConfidence::RESPONDER_MODEL_UNRESOLVED) return 101;
     ReadContext operation;
     if (!prepareIdentity(operation, target, 3, 100, 1000)) return 1;
     PreparedRead request;

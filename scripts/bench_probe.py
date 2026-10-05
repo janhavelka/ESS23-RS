@@ -3011,12 +3011,18 @@ class Console:
             raw = bytes.fromhex(e["raw_hex"])
             require(len(raw) == min(e["received_length"], 37), "copied prefix length differs")
             if unused:
-                require(not raw and e["received_length"] == 0 and not e["qualified"] and e["tx_accepted"] == 0, "unattempted identity carries wire traffic")
+                require(row == [0,0,0,"",0,False,0,0,0,0,0,0,False,"OK",0,0],
+                        "pending/unattempted identity carries settled evidence")
             else:
                 require(e["first"] == 0 and e["count"] == count, "query uses unreviewed register window")
                 require(e["attempted_us"] <= e["delivered_us"], "service precedes attempt")
                 if e["qualified"]:
-                    require(e["attempted_us"] <= e["earliest_us"] <= e["latest_us"] <= e["delivered_us"], "closure bounds invalid")
+                    require(e["event"] == 0 and e["attempted_us"] <= e["earliest_us"] <= e["latest_us"] <= e["delivered_us"], "closure bounds invalid")
+                else:
+                    require(e["earliest_us"] == e["latest_us"] == 0, "unqualified event invents closure bounds")
+                if e["event"] != 0:
+                    require((e["status"],e["detail"],e["frame_error"]) == ("ILLEGAL_VALUE",{1:11,2:12,3:10}[e["event"]],0),
+                            "local event status differs from public read failure")
             return e, raw
         for f in findings:
             require(isinstance(f, dict) and f.get("profile") == "ess_rs" and f.get("collision_excluded") is False, "unreviewed profile or uniqueness claim")
@@ -3046,6 +3052,15 @@ class Console:
                 require((e["status"], e["detail"], e["frame_error"]) == (status, detail, frame_error), "checked wire failure/status differs")
                 expected_outcome = 1 if status == "OK" else 2 if status == "EXCEPTION" else 4 if frame_error == 3 else 3
                 require(f["outcome"] == expected_outcome, "checked mismatch/malformed classification differs")
+            elif e["event"] == 0:
+                detail = 10 if e["qualified"] else 13
+                require((e["status"],e["detail"],e["frame_error"]) == ("ILLEGAL_VALUE",detail,0) and
+                        f["outcome"] == (7 if e["qualified"] else 9), "late/unqualified probe classification differs")
+            elif e["event"] == 2:
+                require(f["outcome"] == 6, "cancelled probe classification differs")
+            elif e["event"] == 3:
+                require(e["delivered_us"] >= f["deadline_us"] and f["outcome"] == (7 if raw else 5),
+                        "deadline probe classification differs")
             if f["outcome"] == 1:
                 require(len(raw) == 7 and raw[:3] == bytes((endpoint[1], 3, 2)) and e["status"] == "OK" and
                         f["confidence"] == 2 and f["raw_model_known"] and f["raw_model"] == int.from_bytes(raw[3:5], "big"), "model evidence differs")
@@ -3071,6 +3086,14 @@ class Console:
                 ids.add(admission[0])
                 if not pending_identity:
                     require(admission[1] == min(scan["deadline_us"], ie["attempted_us"] + settings["query_ms"] * 1000), "identity immutable deadline differs from preparation")
+                    if ie["event"] == 0:
+                        require((ie["status"],ie["detail"],ie["frame_error"]) ==
+                                _reply_status(iraw,ie["received_length"],endpoint[1],3,13),
+                                "identity codec evidence differs from retained RX")
+                    elif ie["event"] == 3:
+                        require(ie["delivered_us"] >= admission[1], "identity deadline event precedes deadline")
+                    known = ie["event"] == 0 and ie["qualified"] and ie["status"] == "OK" and ie["latest_us"] <= admission[1]
+                    require(f["identity_known"] == known, "identity success classification differs from checked closure")
             else:
                 require(f.get("identity_admission") == [0,0], "unattempted identity has admission correlation")
             if f["identity_known"]:
@@ -3081,7 +3104,7 @@ class Console:
                 require(ie["attempted_us"] < scan["deadline_us"] and ie["latest_us"] <= f["identity_admission"][1] and ie["tx_accepted"] == 8,
                         "identity closure exceeds its immutable query/scan deadline")
             else:
-                require(values == [0, 0, 0, 0], "failed/unattempted refinement publishes identity")
+                require(values == [0, 0, 0, 0] and not f["identity_ambiguous"], "failed/unattempted refinement publishes identity")
         require(scan["requests"] >= len(findings) + sum(f["identity_attempted"] for f in findings), "identity attempts exceed admitted request budget")
         if scan["phase"] == 5:
             require(scan["outcome"] != 0 and not scan["owned"] and scan["restored"] and scan["finished_us"] >= scan["started_us"], "terminal scan lacks restoration")
@@ -3101,7 +3124,7 @@ class Console:
                     require(after["identity_attempted"], "identity attempt disappeared")
                     require(before["identity_admission"] == after["identity_admission"],
                             "retained identity correlation changed")
-                    if before["identity_evidence"][4]:
+                    if before["identity_evidence"][1]:
                         require(before == after, "settled identity evidence changed")
         elif old and item["ok"]:
             require(action == 0 and old["released"] and scan["operation_id"] > old["operation_id"], "new scan replaced retained findings")

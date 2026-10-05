@@ -59,6 +59,8 @@ int main(int argc, char** argv) {
     }
     Fake f;Probe::Console c(f.hooks());
     send(c,"profile list");assert(f.has("\"command\":\"profile-list\""));assert(f.has("\"bus_traffic\":false"));assert(f.has("\"exact_model\":false"));assert(f.calls==0);
+    send(c,"help profile");assert(f.has("\"ok\":true"));assert(f.has("profile list"));
+    send(c,"help");assert(f.has("\"profile\""));assert(f.calls==0);
     send(c,"help discover");assert(f.has("query-ms 1..5000"));
     send(c,"@77 discover");assert(f.has("\"id\":77"));assert(f.calls==1 && f.begins==1);
     assert(f.request.settings.first==0 && f.request.settings.last==0 && f.request.settings.tupleCount==0);

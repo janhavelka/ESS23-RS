@@ -739,7 +739,7 @@ void testTypedRoutesAndValidation() {
     send(noHook, "profile ess_rs caps\n"); absent.contains("unavailable"); absent.untouched();
     send(noHook, "caps\n"); absent.contains("\"identity\":true"); absent.untouched();
     send(noHook, "help\n"); assert(absent.lines.back().find("\"read\"") == std::string::npos);
-    assert(absent.lines.back().find(",\"profile\",") == std::string::npos);
+    assert(absent.lines.back().find(",\"profile\",") != std::string::npos); // Local profile inventory needs no device hooks.
 }
 void testTypedTerminalInspectionAndBound() {
     Fake fake; auto host = fake.host(false, true); host.startTypedRead = Fake::typedRead;

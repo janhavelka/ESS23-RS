@@ -1,5 +1,10 @@
 # Motor bench and testing authorization
 
+The [fresh prompt22 audit](reports/ess_release_22_audit_2026-10-05.md) repeats
+bounded read-only scans, host restoration and ten probes on the corrected image.
+Explicit recovery interrupts a scan without resuming it; motor settings and
+stationary state remain unchanged. Collision/alternate-motor-tuple proof remains open.
+
 Prompt22 adds [bounded ESS discovery](ess_discovery.md), minimal public probes and retained
 scan evidence with explicit recovery/restoration. [Verification](reports/ess_release_22_2026-10-05.md) records
 COM13 address/tuple scans, budget limits and unchanged motor settings/state.

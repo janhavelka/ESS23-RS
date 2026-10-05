@@ -228,14 +228,16 @@
           "test/codec_test.cpp",
           "test/probe_app_test.cpp",
           "test/discovery_test.cpp",
-          "test/discovery_app_test.cpp"
+          "test/discovery_app_test.cpp",
+          "test/installed_consumer/main.cpp"
         ]
       },
       "hardware": {
         "state": "PASS",
         "evidence": [
           "docs/reports/ess_release_04_audit_2026-10-04.md",
-          "docs/reports/ess_release_22_2026-10-05.md"
+          "docs/reports/ess_release_22_2026-10-05.md",
+          "docs/reports/ess_release_22_audit_2026-10-05.md"
         ]
       },
       "reason": "Common minimal checked probe; explicit unresolved model/manufacturer confidence, bounded application discovery and independent no-collision claims."
@@ -2426,13 +2428,15 @@
           "test/discovery_test.cpp",
           "test/discovery_app_test.cpp",
           "test/discovery_console_test.cpp",
-          "test/discovery_harness_test.py"
+          "test/discovery_harness_test.py",
+          "test/installed_consumer/main.cpp"
         ]
       },
       "hardware": {
         "state": "PASS",
         "evidence": [
-          "docs/reports/ess_release_22_2026-10-05.md"
+          "docs/reports/ess_release_22_2026-10-05.md",
+          "docs/reports/ess_release_22_audit_2026-10-05.md"
         ]
       },
       "reason": "Finite ESS-only address/host tuple scanning with typed identity refinement; partial faults, explicit restoration and no automatic rebind/retry or collision exclusion. Alternate motor tuples remain unqualified."

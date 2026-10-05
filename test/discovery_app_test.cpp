@@ -451,11 +451,186 @@ void fullOrdinaryResultsCannotConsumeScanOrStopStorage() {
         assert(host(app).result(app, i, result) && result.probe.outcome == Rtu::Outcome::SUCCESS);
     }
 }
+void identityRefinementFailuresRetainProbeAndStopFaultedScans() {
+    // A checked exception is a settled responder result and permits the next
+    // reviewed query, without publishing a successful identity.
+    fresh(); auto candidates = range(1, 2); candidates.identity = true;
+    assert(control(Probe::DiscoveryCommandKind::BEGIN, &candidates) == Probe::Action::OK);
+    reply(0, words(1, {0x4EEA}));
+    const auto exception = crc({1, 0x83, 2});
+    reply(1, exception);
+    assert(!app->owner.needsRecovery());
+    reply(2, crc({2, 0x83, 2})); waitSettled();
+    assert(scan().outcome == ScanOutcome::COMPLETE && scan().restored && scan().requests == 3 && scan().count == 2);
+    const auto& rejected = scan().findings[0];
+    assert(rejected.probe.outcome == ProbeOutcome::RESPONDER && rejected.probe.rawModel == 0x4EEA);
+    assert(rejected.identityAttempted && !rejected.identityKnown && !rejected.identityAmbiguous);
+    assert(rejected.identityEvidence.status.code == MotorControlRS::Err::EXCEPTION && rejected.identityEvidence.status.detail == 2);
+    assert(rejected.identityEvidence.length == exception.size() &&
+        !std::memcmp(rejected.identityEvidence.raw, exception.data(), exception.size()));
+    assert(!rejected.identity.operationId && !app->identity.operationId);
+
+    // CRC failure, wrong endpoint, malformed length and late traffic must each
+    // preserve the first probe and stop before another address is queried.
+    for (unsigned scenario = 0; scenario < 4; ++scenario) {
+        fresh(); assert(control(Probe::DiscoveryCommandKind::BEGIN, &candidates) == Probe::Action::OK);
+        reply(0, words(1, {0x4EEA})); waitTx(1); reviewedFrame(1, 4);
+        if (scenario == 0) {
+            auto broken = words(1, {0x4EEA, 0x29, 1, 0}); broken.back() ^= 1; reply(1, broken);
+        } else if (scenario == 1) {
+            reply(1, words(2, {0x4EEA, 0x29, 2, 0}));
+        } else if (scenario == 2) {
+            reply(1, words(1, {0x4EEA, 0x29, 1}));
+        } else {
+            scheduleReply(hardware.writeStarted + 8 * hardware.txCharacterUs +
+                app->serial.timing.responseTimeoutUs + 1000, words(1, {0x4EEA, 0x29, 1, 0}), hardware.txCharacterUs);
+        }
+        waitSettled();
+        assert(scan().outcome == ScanOutcome::TRANSPORT_FAULT && scan().phase == ScanPhase::INTERLOCK);
+        assert(scan().owned && !scan().restored && scan().count == 1 && scan().requests == 2);
+        const auto& finding = scan().findings[0];
+        assert(finding.probe.outcome == ProbeOutcome::RESPONDER && finding.probe.rawModel == 0x4EEA);
+        assert(finding.identityAttempted && !finding.identityKnown && !finding.identityAmbiguous && !finding.identity.operationId);
+        assert(finding.identityEvidence.first == 0 && finding.identityEvidence.count == 4 && !finding.identityEvidence.status);
+        if (scenario == 0) assert(finding.identityEvidence.status.code == MotorControlRS::Err::CRC_ERROR &&
+            finding.identityEvidence.frameError == ESS::FrameError::CRC);
+        if (scenario == 1) assert(finding.identityEvidence.status.code == MotorControlRS::Err::FRAME_ERROR &&
+            finding.identityEvidence.frameError == ESS::FrameError::ADDRESS);
+        if (scenario == 2) assert(finding.identityEvidence.transportDetail == static_cast<int32_t>(Rtu::Reason::LENGTH));
+        if (scenario == 3) assert(finding.identityEvidence.transportDetail == static_cast<int32_t>(Rtu::Reason::NO_RESPONSE));
+        assert(app->owner.needsRecovery());
+        const unsigned configurations = hardware.configCalls;
+        pump(1000); assert(hardware.writes == 2 && hardware.configCalls == configurations && scan().count == 1);
+    }
+}
+void cancellationDuringIdentitySettlesQueuedAndInFlightWork() {
+    // Harvest the probe without another owner service so identity starts queued.
+    // Then cancel in the queue, pre-TX setup, TX and receive phases separately.
+    for (unsigned phase = 0; phase < 4; ++phase) {
+        fresh(); auto candidates = range(1, 2); candidates.identity = true;
+        assert(control(Probe::DiscoveryCommandKind::BEGIN, &candidates) == Probe::Action::OK);
+        waitTx(0);
+        scheduleReply(std::max(hardware.writeStarted + 8 * 87 + 1000, hardware.time + 1000), words(1, {0x4EEA}));
+        const auto probe = app->discoveryRequest;
+        for (unsigned i = 0; i < 25000 && !app->owner.result(probe); ++i) {
+            advanceHardware(hardware.time + 10); app->owner.service(uart.sample());
+        }
+        assert(app->owner.result(probe));
+        serviceDiscovery(*app, uart.sample());
+        assert(scan().phase == ScanPhase::IDENTITY && scan().count == 1 && scan().requests == 2 && hardware.writes == 1);
+        if (phase == 1) {
+            for (unsigned i = 0; i < 10000 && app->runner.phase() != Rtu::Phase::SETUP; ++i) step();
+            assert(app->runner.phase() == Rtu::Phase::SETUP && hardware.writes == 1);
+        } else if (phase >= 2) {
+            waitTx(1); reviewedFrame(1, 4);
+            if (phase == 3) {
+                for (unsigned i = 0; i < 10000 && app->runner.phase() != Rtu::Phase::RECEIVE; ++i) step();
+                assert(app->runner.phase() == Rtu::Phase::RECEIVE);
+            } else assert(app->runner.transmitEnabled());
+        }
+        assert(control(Probe::DiscoveryCommandKind::CANCEL) == Probe::Action::OK);
+        if (phase >= 2) reply(1, words(1, {0x4EEA, 0x29, 1, 0}));
+        waitSettled();
+        assert(scan().outcome == ScanOutcome::CANCELLED && scan().restored && scan().count == 1 && scan().requests == 2);
+        const auto& finding = scan().findings[0];
+        assert(finding.probe.outcome == ProbeOutcome::RESPONDER && finding.identityAttempted && !finding.identityAmbiguous);
+        if (phase < 2) {
+            assert(!finding.identityKnown && finding.identityEvidence.event == ReadEventKind::CANCEL);
+            assert(!finding.identityEvidence.txAccepted && !finding.identityEvidence.receivedLength);
+        } else {
+            assert(finding.identityKnown && finding.identity.rawModel == 0x4EEA && finding.identityEvidence.txAccepted == 8);
+        }
+        assert(!app->owner.needsRecovery() && !app->runner.transmitEnabled());
+        pump(1000); assert(hardware.writes == (phase < 2 ? 1U : 2U));
+    }
+}
+void explicitRecoveryCannotResumeUnharvestedScan() {
+    // The owner may finish recovery before the cooperative scan next runs.
+    // Recovery still cancels future scan work, independently of that timing.
+    for (unsigned scenario = 0; scenario < 3; ++scenario) {
+        fresh(); auto candidates = range(1, 2); candidates.identity = true;
+        assert(control(Probe::DiscoveryCommandKind::BEGIN, &candidates) == Probe::Action::OK);
+        if (scenario) {
+            waitTx(0);
+            if (scenario == 1) {
+                scheduleReply(std::max(hardware.writeStarted + 8 * 87 + 1000, hardware.time + 1000), words(1, {0x4EEA}));
+                for (unsigned i = 0; i < 25000 && !app->owner.result(app->discoveryRequest); ++i) {
+                    advanceHardware(hardware.time + 10); app->owner.service(uart.sample());
+                }
+                assert(app->owner.result(app->discoveryRequest) && !scan().count);
+            }
+        }
+        const unsigned before = hardware.writes;
+        uint32_t recoveryId = 0;
+        assert(host(app).recover(app, 99, recoveryId) == Probe::Action::OK);
+        // Deliberately service the owner without scan delivery until recovery
+        // has settled; normal loop delay can create the same ordering.
+        for (unsigned i = 0; i < 10000 && app->owner.recovering(); ++i) {
+            advanceHardware(hardware.time + 1000);
+            if (!app->runner.busy() && !app->runner.transmitEnabled() && hardware.time >= app->recoveryGuardUntilUs) {
+                if (!app->recovery.prepared) app->recovery.prepared = uart.clear();
+            }
+            app->owner.service(uart.sample(), app->recovery.prepared);
+        }
+        assert(!app->owner.recovering() && !app->owner.needsRecovery() && !uart.needsRecovery());
+        serviceDiscovery(*app, uart.sample());
+        assert(scan().requests == (scenario ? 1 : 0));
+        waitSettled();
+        assert(scan().outcome == ScanOutcome::CANCELLED && scan().restored);
+        assert(scan().requests == (scenario ? 1 : 0));
+        assert(scan().count == (scenario ? 1 : 0));
+        if (scenario == 1) assert(scan().findings[0].probe.outcome == ProbeOutcome::RESPONDER);
+        assert(!scan().findings[0].identityAttempted && hardware.writes == before);
+        pump(1000); assert(hardware.writes == before);
+    }
+}
+void urgentStopRestoresOriginalTupleBeforeDispatch() {
+    fresh(); const auto original = app->serial.active;
+    const auto originalActualBaud = uart.stats().actualBaud;
+    uint32_t probeId = 0;
+    assert(host(app).startProbe(app, 1, 1, probeId) == Probe::Action::OK);
+    reply(0, words(1, {0x4EEA}));
+    assert(app->knownTargets[0] & 2);
+    const auto originalGeneration = app->serial.generation;
+    auto candidates = range(2, 3); candidates.tupleCount = 1;
+    candidates.tuples[0].baud = 9600;
+    assert(control(Probe::DiscoveryCommandKind::BEGIN, &candidates) == Probe::Action::OK);
+    waitTx(1); reviewedFrame(2, 1);
+    assert(app->serial.active.baud == 9600 && !(app->knownTargets[0] & 2));
+    MotorControlRS::ActionRequest stop; stop.kind = MotorControlRS::ActionKind::STOP;
+    stop.stop.behavior = MotorControlRS::StopBehavior::CONFIGURED_DECELERATION;
+    uint32_t stopId = 0;
+    assert(host(app).startAction(app, 2, 1, stop, stopId) == Probe::Action::OK);
+    auto* record = findRecord(*app, stopId); assert(record && record->discoveryStop);
+    const auto deadline = record->deadlineUs;
+    assert(sameTuple(record->serialTuple, original) && record->serialGeneration == originalGeneration);
+    assert(scan().outcome == ScanOutcome::PREEMPTED && hardware.writes == 2);
+    reply(1, words(2, {0x4EEA}));
+    waitTx(2);
+    assert(scan().restored && !scan().owned && sameTuple(app->serial.active, original));
+    assert(hardware.tx[0] == 1 && hardware.tx[1] == 6 &&
+        static_cast<uint32_t>(hardware.config.baud_rate) == original.baud && uart.stats().actualBaud == originalActualBaud);
+    assert(record->deadlineUs == deadline && sameTuple(record->serialTuple, original));
+    assert(record->serialGeneration == app->serial.generation && record->serialGeneration > originalGeneration);
+    const auto echo = hardware.tx; writeResponseConfirmed = true;
+    reply(2, echo); reply(3, words(1, {0, 0}));
+    Probe::ResultView result;
+    assert(host(app).result(app, stopId, result) && !result.pending && result.actionContext);
+    assert(result.actionContext->execution == MotorControlRS::ActionExecution::ACKNOWLEDGED);
+    assert(result.actionContext->completion == MotorControlRS::ActionCompletion::OBSERVED);
+    assert(sameTuple(result.serialTuple, original) && result.serialGeneration == app->serial.generation);
+    assert(scan().count == 1 && scan().requests == 1 && scan().findings[0].request.target.address == 2);
+    assert(scan().findings[0].request.activeSerial.baud == 9600 && scan().findings[0].probe.rawModel == 0x4EEA);
+    assert(scan().outcome == ScanOutcome::PREEMPTED && !axisReserved(*app, 1) && hardware.writes == 4);
+    pump(1000); assert(hardware.writes == 4 && !app->owner.needsRecovery());
+}
 }
 int main() {
     minimalCurrentTupleAndRetainedEvidence();
     rejectedCandidatesAndExclusiveAdmission(); finiteBudgetsAndCheckedExceptions();
     identityRefinementAndBudget();
+    identityRefinementFailuresRetainProbeAndStopFaultedScans();
+    cancellationDuringIdentitySettlesQueuedAndInFlightWork();
     partialFindingsStopOnTransportFault(); cancellationSettlesCurrentFrame();
     exactOriginalTupleRestoration(); restorationFailureAndExplicitRepair();
     timeoutOnCandidateNeedsExplicitRecovery(); overallDeadlineIncludesAdapterSetup();
@@ -463,6 +638,8 @@ int main() {
     consoleAndDirectProductionParity();
     deferredStopDeadlineReleasesAxisWhileScanIsInterlocked();
     fullOrdinaryResultsCannotConsumeScanOrStopStorage();
+    explicitRecoveryCannotResumeUnharvestedScan();
+    urgentStopRestoresOriginalTupleBeforeDispatch();
     if (app) { app->~App(); std::free(app); app = nullptr; }
     std::puts("Discovery application tests passed");
 }

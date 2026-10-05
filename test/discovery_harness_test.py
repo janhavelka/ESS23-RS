@@ -17,8 +17,8 @@ def wire(prefix):
 
 def finding(address=1,op=8,identity=False,outcome=1):
     raw=wire([address,3,2,3,5]) if outcome==1 else wire([address,0x83,2]) if outcome==2 else ""
-    evidence=[0,1,0 if outcome in (1,2) else 3,raw,len(bytes.fromhex(raw)),outcome in (1,2),100,101 if raw else 0,102 if raw else 0,103,0,8,False,
-              "OK" if outcome==1 else "EXCEPTION" if outcome==2 else "ILLEGAL_VALUE",2 if outcome==2 else 0,10 if outcome==2 else 0]
+    evidence=[0,1,0 if outcome in (1,2) else 3,raw,len(bytes.fromhex(raw)),outcome in (1,2),100,101 if raw else 0,102 if raw else 0,103 if raw else 500100,0,8,False,
+              "OK" if outcome==1 else "EXCEPTION" if outcome==2 else "ILLEGAL_VALUE",2 if outcome==2 else 10 if not raw else 0,10 if outcome==2 else 0]
     ie=[0,4,0,wire([address,3,8,3,5,0,41,0,address,0,0]),13,True,110,111,112,113,0,8,False,"OK",0,0] if identity else [0,0,0,"",0,False,0,0,0,0,0,0,False,"OK",0,0]
     return dict(profile="ess_rs",target=[address,address,9],operation_id=op,serial=[True,115200,8,1,1],
                 tx_hex=wire([address,3,0,0,0,1]),started_us=100,deadline_us=500100,outcome=outcome,
@@ -93,6 +93,73 @@ class DiscoveryTests(unittest.TestCase):
             c,p=self.console(lambda t:response(t,scan=retained))
             with self.subTest(retained=retained),self.assertRaises(bench.BenchError):c.command("discover",host_args=("inspect",),timeout_s=.1)
             self.assertEqual(len(p.sent),1)
+    def test_failed_refinement_checks_retained_wire_and_success_classification(self):
+        for mutate in (lambda f:f.update(identity_known=False,identity=[0,0,0,0]),
+                       lambda f:f["identity_evidence"].__setitem__(14,3),
+                       lambda f:f["identity_evidence"].__setitem__(3,wire([2,3,8,3,5,0,41,0,1,0,0]))):
+            retained=scan(identity=True);mutate(retained["findings"][0])
+            c,p=self.console(lambda t:response(t,scan=copy.deepcopy(retained)))
+            with self.subTest(retained=retained),self.assertRaises(bench.BenchError):
+                c.command("discover",host_args=("inspect",),timeout_s=.1)
+            self.assertEqual(len(p.sent),1);self.assertFalse(c.synchronized)
+    def test_failed_refinement_retains_checked_exception_and_local_failure(self):
+        for event,raw,detail,frame_error in ((0,wire([1,0x83,2]),2,10),(1,"",11,0),(2,"",12,0),(3,"",10,0)):
+            retained=scan(identity=True);f=retained["findings"][0]
+            f.update(identity_known=False,identity=[0,0,0,0])
+            f["identity_evidence"]=[0,4,event,raw,len(bytes.fromhex(raw)),event==0,110,111 if raw else 0,112 if raw else 0,
+                                    500110 if event==3 else 113,0,8,False,"EXCEPTION" if raw else "ILLEGAL_VALUE",detail,frame_error]
+            c,p=self.console(lambda t:response(t,scan=copy.deepcopy(retained)))
+            self.assertFalse(c.command("discover",host_args=("inspect",),timeout_s=.1)["scan"]["findings"][0]["identity_known"])
+            f["identity_evidence"][14]+=1
+            with self.subTest(event=event),self.assertRaises(bench.BenchError):
+                c.command("discover",host_args=("inspect",),timeout_s=.1)
+            self.assertEqual(len(p.sent),2)
+    def test_settled_zero_byte_refinement_failure_cannot_mutate(self):
+        retained=scan(identity=True);f=retained["findings"][0]
+        f.update(identity_known=False,identity=[0,0,0,0])
+        f["identity_evidence"]=[0,4,1,"",0,False,110,0,0,113,0,8,False,"ILLEGAL_VALUE",11,0]
+        c,p=self.console(lambda t:response(t,scan=copy.deepcopy(retained)))
+        c.command("discover",host_args=("inspect",),timeout_s=.1)
+        f["identity_evidence"][10]=123
+        with self.assertRaises(bench.BenchError):c.command("discover",host_args=("inspect",),timeout_s=.1)
+        self.assertEqual(len(p.sent),2);self.assertFalse(c.synchronized)
+    def test_failed_refinement_checks_malformed_late_and_unqualified_frames(self):
+        for kind in ("malformed","late","unqualified"):
+            retained=scan(identity=True);f=retained["findings"][0];e=f["identity_evidence"]
+            f.update(identity_known=False,identity=[0,0,0,0])
+            if kind=="malformed":
+                e[3]=wire([2,3,8,3,5,0,41,0,1,0,0]);e[13:]=["FRAME_ERROR",3,3]
+            elif kind=="late":e[8]=e[9]=500111
+            else:e[5]=False;e[7]=e[8]=0
+            c,p=self.console(lambda t:response(t,scan=copy.deepcopy(retained)))
+            self.assertFalse(c.command("discover",host_args=("inspect",),timeout_s=.1)["scan"]["findings"][0]["identity_known"])
+            # Even failed/timing-rejected reads retain the codec's actual result.
+            e[14]+=1
+            fresh,port=self.console(lambda t:response(t,scan=copy.deepcopy(retained)))
+            with self.subTest(kind=kind),self.assertRaises(bench.BenchError):
+                fresh.command("discover",host_args=("inspect",),timeout_s=.1)
+            self.assertEqual(len(port.sent),1)
+    def test_pending_identity_can_settle_once_without_losing_admission(self):
+        retained=scan(phase=2,identity=True);f=retained["findings"][0]
+        completed=copy.deepcopy(f)
+        f.update(identity_known=False,identity=[0,0,0,0],identity_evidence=[0,0,0,"",0,False,0,0,0,0,0,0,False,"OK",0,0])
+        c,p=self.console(lambda t:response(t,scan=copy.deepcopy(retained)))
+        c.command("discover",host_args=("inspect",),timeout_s=.1)
+        retained.update(phase=5,outcome=1,owned=False,restored=True,finished_us=200)
+        retained["findings"][0]=completed
+        self.assertTrue(c.command("discover",host_args=("inspect",),timeout_s=.1)["scan"]["findings"][0]["identity_known"])
+        self.assertEqual(len(p.sent),2)
+    def test_unattempted_identity_cannot_claim_ambiguity(self):
+        retained=scan();retained["findings"][0]["identity_ambiguous"]=True
+        c,p=self.console(lambda t:response(t,scan=retained))
+        with self.assertRaises(bench.BenchError):c.command("discover",host_args=("inspect",),timeout_s=.1)
+        self.assertEqual(len(p.sent),1)
+    def test_no_response_probe_cannot_claim_successful_codec(self):
+        retained=scan(findings=[finding(outcome=5)])
+        retained["findings"][0]["probe"][13]="OK"
+        c,p=self.console(lambda t:response(t,scan=retained))
+        with self.assertRaises(bench.BenchError):c.command("discover",host_args=("inspect",),timeout_s=.1)
+        self.assertEqual(len(p.sent),1)
     def test_checked_exception_and_timeout_remain_different(self):
         for outcome in (2,5):
             c,p=self.console(lambda t:response(t,scan=scan(findings=[finding(outcome=outcome)])))

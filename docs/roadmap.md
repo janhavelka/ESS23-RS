@@ -1,5 +1,10 @@
 # Roadmap to a supported ESS release
 
+The [fresh prompt22 audit](reports/ess_release_22_audit_2026-10-05.md) verifies
+bounded ESS discovery, cancels scan continuations on explicit recovery and
+strengthens Python failure-evidence checks. Physical collision exclusion and
+alternate motor tuples remain unqualified.
+
 Prompt21 delivers [explicit save/factory restore](ess_persistence.md) with
 bounded retained outcomes, before-values, field-level uncertainty and reuse of
 the communication commissioning lease. Software and read-only COM13 evidence

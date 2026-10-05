@@ -378,6 +378,9 @@ FieldCore remains read-only; typed identity/state and motion/stop retain their g
   without resuming scans, urgent-stop preemption and fixed result retention.
 - [x] `profile list`, `probe`/`ping`, `read identity`, `discover` and Python parity
   through existing checked APIs. [API/evidence](ess_discovery.md).
+- [x] Fresh prompt22 audit: explicit recovery cancels unharvested scan
+  continuations; Python checks failed/refined evidence and retains zero-byte
+  failures unchanged. [Audit](reports/ess_release_22_audit_2026-10-05.md).
 - [x] Original ESS p68 read-effect review and COM13 address1..2 plus supported
   host115200/9600 8N1 checks; two intended nonresponses stop with partial results,
   explicit recovery/restoration and unchanged settings/state. No motor writes.
@@ -522,7 +525,7 @@ possible. This list is not a request for the user to answer everything now.
 | What motor/model/firmware is actually connected? | Read documented identity; compare model markings if identity is insufficient. The project's RS20 target is not a bench measurement. |
 | What firmware/host path is active on COM13? | Latest recorded bench: MotorControl-RS 0.6.0 JSONL probe/load console with timer capture, with original CO2control backup retained. Recheck identity at each new hardware session; it is not a raw RTU bridge. |
 | What are the board pins, DE/RE polarity, echo topology and bus wiring? | Bench pins are TX47/RX48/DE21, UART2/active-high DE; the selected example config owns them. Live polarity, echo and wiring qualification remain. |
-| Which address/baud/format is active despite reported defaults? | Replies are observed at node 1, 115200 8N1. Typed configuration and raw DIP readback now have prompt05/06 evidence; DIP mapping and bounded discovery remain pending. |
+| Which address/baud/format is active despite reported defaults? | Replies are observed at node 1, 115200 8N1. Typed configuration/raw DIP and bounded discovery have evidence; DIP mapping and alternate motor tuples remain unresolved/unqualified. |
 | Is the selected ESS probe qualified on the connected firmware? | Repeated checked FC03 0x0000/one-word replies have bench evidence. Exact model/firmware, external timing and communication-watchdog interaction remain unqualified. |
 | Can discovery distinguish a manufacturer/model or only a responder? | Record exact reply evidence and retain ambiguous candidates; no guessed selection. |
 | Which candidate protocols can be probed on the same bus? | Review query effects for the actual attached families; use an isolated target when compatibility is unknown. |

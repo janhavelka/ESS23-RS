@@ -1587,6 +1587,10 @@ Probe::Action recover(void* context, uint32_t commandId, uint32_t& operationId) 
     if (a.bindingGeneration == UINT32_MAX) return Probe::Action::IDS_EXHAUSTED;
     const uint64_t now = uart.sample(); uint64_t id = 0;
     if (a.owner.recover(now, now + 2000000, id) != Rtu::RecoveryAdmission::ACCEPTED) return Probe::Action::FAILED;
+    // Recovery invalidates the scan's saved generation, including work that
+    // has not reached the owner yet. Settle any admitted query and restore the
+    // original tuple, but never resume old candidates after recovery.
+    if (a.discovery.owned) a.discovery.cancelRequested = true;
     a.commissioningConfirmedGeneration = 0; // Recovery requires a new explicit candidate observation.
     a.persistenceConfirmedGeneration = 0;
     a.persistenceBaselineKnown = false;

@@ -1545,8 +1545,7 @@ void Console::dispatch() noexcept {
         case Command::VELOCITY: return host_.startVelocity && host_.snapshot && host_.axis;
         case Command::TUNING: case Command::CONTROL: case Command::SEGMENT: case Command::IO: case Command::DRIVER: return host_.startDriver && host_.snapshot;
         case Command::HOME: return host_.startHome && host_.snapshot && host_.axis;
-        case Command::PROFILE: return ((host_.startTypedRead || host_.startAction) && host_.snapshot) ||
-            ((host_.startMove || host_.startVelocity || host_.startHome) && host_.snapshot && host_.axis) || (host_.startDriver && host_.snapshot) || host_.communication || host_.persistence;
+        case Command::PROFILE: return true; // Local inventory is always callable; operation routes check their hooks.
         case Command::READ: case Command::READ_IDENTITY: case Command::READ_CONFIG: case Command::READ_STATE: case Command::HEALTH_CHECK: return host_.startTypedRead != nullptr;
         case Command::RESULT: return host_.result != nullptr;
         case Command::CANCEL: return host_.cancel != nullptr;

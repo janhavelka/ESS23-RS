@@ -68,9 +68,13 @@ automatic recovery, retry or continuation. Healthy endings restore the exact
 starting tuple, rather than startup defaults, before ordinary work resumes.
 Failed restoration keeps an explicit interlock. Use `recover` for a transaction
 fault, then `discover restore`; a failed host setup uses `discover restore` for
-explicit repair. These actions never resume scanning. Logical target/configuration
-generations are separate from transient host selection; historical evidence keeps
-its original context. Explicit recovery still invalidates logical confidence.
+explicit repair. These actions never resume scanning.
+Recovery also cancels a healthy scan's unadmitted continuations, even when its
+completion is serviced late. An admitted query still settles and retains evidence;
+restoration waits for recovery settlement before ordinary work resumes.
+Logical target/configuration generations are separate from transient host
+selection; historical evidence keeps its original context. Explicit recovery
+still invalidates logical confidence.
 
 `inspect` is non-consuming. One terminal scan remains until `finish` releases its
 retention, then the next BEGIN may replace it. Generic transaction `result/release`
@@ -83,3 +87,5 @@ automatically repairing it. Serial provenance is re-queried after scans.
 
 [Prompt22 evidence](reports/ess_release_22_2026-10-05.md) records native failure
 coverage, actual COM13 scans/restoration and the remaining qualification limits.
+The [fresh audit](reports/ess_release_22_audit_2026-10-05.md) adds recovery-before-
+delivery, refinement failure/cancellation and strict retained-evidence checks.
