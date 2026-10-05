@@ -41,21 +41,21 @@ void extreme(Ess::ReadStepObservation& p) {
 int main(){
     Fake f;Probe::Console c(f.hooks(), Probe::Format::JSON);
     send(c,"help persistence");assert(f.has("host before") && f.has("plan|begin"));
-    send(c,"profile ess_rs persistence");assert(f.has("\"action\":-1") && f.has("\"context\":null"));
+    send(c,"persistence");assert(f.has("\"action\":-1") && f.has("\"context\":null"));
     const unsigned before=f.calls;
     for(const char* bad:{"begin","begin save extra","begin all","plan factory","verify extra","finish extra","host requested","host","snapshot extra","save","begin save 1"}){
-        send(c,std::string("profile ess_rs persistence ")+bad);assert(f.has("\"ok\":false"));
+        send(c,std::string("persistence ")+bad);assert(f.has("\"ok\":false"));
     }
     assert(f.calls==before && !f.writes);
-    send(c,"profile ess_rs persistence plan save");assert(f.request.kind==Probe::PersistenceCommandKind::PREVIEW && f.request.request==Ess::PersistenceKind::SAVE);
+    send(c,"persistence plan save");assert(f.request.kind==Probe::PersistenceCommandKind::PREVIEW && f.request.request==Ess::PersistenceKind::SAVE);
     assert(f.has("\"register\":45,\"value\":66") && f.has("\"durability\":\"unverified\""));
-    send(c,"profile ess_rs persistence plan factory-restore");assert(f.request.request==Ess::PersistenceKind::FACTORY_RESTORE && f.has("\"value\":65"));
+    send(c,"persistence plan factory-restore");assert(f.request.request==Ess::PersistenceKind::FACTORY_RESTORE && f.has("\"value\":65"));
     assert(!f.writes);
-    f.result=Probe::Action::UNAVAILABLE;send(c,"profile ess_rs persistence begin save");assert(f.has("\"ok\":false") && f.has("\"route_ready\":false"));
+    f.result=Probe::Action::UNAVAILABLE;send(c,"persistence begin save");assert(f.has("\"ok\":false") && f.has("\"route_ready\":false"));
     f.result=Probe::Action::OK;
     const char* phases[]={"snapshot","verify","host before","finish"};
     const Probe::PersistenceCommandKind kinds[]={Probe::PersistenceCommandKind::SNAPSHOT,Probe::PersistenceCommandKind::VERIFY,Probe::PersistenceCommandKind::SELECT_BEFORE,Probe::PersistenceCommandKind::FINISH};
-    for(unsigned n=0;n<4;++n){send(c,std::string("profile ess_rs persistence ")+phases[n]);assert(f.request.kind==kinds[n]);}
+    for(unsigned n=0;n<4;++n){send(c,std::string("persistence ")+phases[n]);assert(f.request.kind==kinds[n]);}
     f.view.context=&f.retained;f.view.owned=true;f.view.parentSession=true;f.view.finished=true;f.view.invocations=2;
     f.retained.operationId=0xFFFFFFFFu;f.retained.effects=f.retained.uncertain=true;f.retained.verificationKnown=true;
     f.retained.startedUs=f.retained.deadlineUs=std::numeric_limits<uint64_t>::max();
@@ -65,7 +65,7 @@ int main(){
     for(auto& field:f.retained.fields){field.reg=field.before=field.readback=65535;field.sourceAccess="RW/S";field.readbackKnown=field.survivedRestart=true;}
     f.retained.writeEvidence.length=Ess::ACTION_MAX_REPLY_BYTES;std::memset(f.retained.writeEvidence.raw,0xFF,sizeof(f.retained.writeEvidence.raw));
     f.retained.writeEvidence.earliestUs=f.retained.writeEvidence.latestUs=f.retained.writeEvidence.deliveredUs=std::numeric_limits<uint64_t>::max();
-    send(c,"profile ess_rs persistence inspect");assert(f.has("\"context\":{") && !f.has("output_full"));assert(f.has("18446744073709551615"));
+    send(c,"persistence inspect");assert(f.has("\"context\":{") && !f.has("output_full"));assert(f.has("18446744073709551615"));
     assert(f.has("\"parent_session\":true,\"finished\":true,\"invocations\":2"));
     // A fresh snapshot after the historical invocation must remain visible. Use
     // the actual reviewed window sizes and maximum numeric formatting widths.
@@ -85,11 +85,11 @@ int main(){
     f.retained.before=next;f.retained.verification.config=next.beforeConfig;
     f.retained.verification.identity=next.beforeIdentity;f.retained.verification.stationary=next.stationary;
     f.view.baseline=&next;f.view.snapshotKnown=true;f.view.snapshotFailed=true;f.view.verificationAttempts=2;
-    send(c,"profile ess_rs persistence inspect");assert(f.has("\"baseline\":{") && !f.has("output_full"));
+    send(c,"persistence inspect");assert(f.has("\"baseline\":{") && !f.has("output_full"));
     assert(f.has("\"snapshot_failed\":true,\"verification_attempts\":2"));
-    const auto writes=f.writes;send(c,"profile ess_rs persistence inspect");assert(f.writes==writes);
+    const auto writes=f.writes;send(c,"persistence inspect");assert(f.writes==writes);
     Fake absent;auto h=absent.hooks();h.persistence=nullptr;Probe::Console legacy(h, Probe::Format::JSON);
-    send(legacy,"help");assert(!absent.has("\"persistence\""));send(legacy,"profile ess_rs persistence inspect");assert(absent.has("unavailable") && !absent.calls);
+    send(legacy,"help");assert(!absent.has("\"persistence\""));send(legacy,"persistence inspect");assert(absent.has("unavailable") && !absent.calls);
     send(c,"caps");assert(f.has("\"persistence\":true"));
     return 0;
 }

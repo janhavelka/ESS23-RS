@@ -97,7 +97,7 @@ class ScenarioArgumentsTest(unittest.TestCase):
             ['--load', '1000', '0', '64'], ['--phase', 'forward'],
             ['--native', 'driver'], ['--setting', 'lock-delay', '--value', '10'],
             ['--persistence-kind', 'save'], ['--count', '101'], ['--interval', 'nan'],
-            ['--stop-policy', 'direct'],
+            ['--stop-policy', 'fast'],
             ['--timeout', 'inf'], ['--address', '0'], ['--evidence-records', '1'],
             ['--scenario', 'native-read', '--native', 'io', '--native-args', 'set', 'x0-function', 'none'],
             ['--scenario', 'position', '--address', '2'],

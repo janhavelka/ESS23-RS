@@ -274,7 +274,7 @@ class FunctionalCampaignTest(unittest.TestCase):
                 self.assertEqual(record["state_before"][2]["raw_position"], position)
 
     def test_relative_dynamic_stops_need_no_raw_feedback_origin(self):
-        for phase in ("stop-normal", "stop-direct"):
+        for phase in ("stop-normal", "stop-fast"):
             for position in (298, 0xffffffff):
                 with self.subTest(phase=phase, position=position):
                     console = FakeConsole(raw_position=position, states=(False, False, True), move_ok=False)
@@ -310,7 +310,7 @@ class FunctionalCampaignTest(unittest.TestCase):
                 campaign.run_phase(console, "forward", record)
         self.assertEqual(len(console.commands("read-state")), 13)
         self.assertEqual(len(console.commands("move-relative")), 1)
-        self.assertEqual([c["stop_policy"] for c in console.commands("stop")], ["direct"])
+        self.assertEqual([c["stop_policy"] for c in console.commands("stop")], ["fast"])
         self.assertIn("failure_cleanup_state", record)
         self.assertNotIn("state_after_move", record)
         self.assertTrue(record["move"]["ok"])  # ARRIVED remains distinct from zero speed.
@@ -336,7 +336,7 @@ class FunctionalCampaignTest(unittest.TestCase):
         self.assertEqual(len(console.commands("move-relative")), 1)
         self.assertEqual(console.commands("move-relative")[0]["move_args"],
                          ("100", "steps", "native", "60", "configured"))
-        self.assertEqual([c["stop_policy"] for c in console.commands("stop")], ["direct"])
+        self.assertEqual([c["stop_policy"] for c in console.commands("stop")], ["fast"])
         self.assertEqual(record["move"]["execution"], 3)  # Never promote UNKNOWN to acknowledged.
         self.assertNotIn("failure_cleanup_stop", record)
 
@@ -350,7 +350,7 @@ class FunctionalCampaignTest(unittest.TestCase):
         self.assertEqual(len(console.commands("stop")), 1)
 
     def test_dynamic_stop_requires_running_before_stop(self):
-        for phase in ("stop-normal", "stop-direct"):
+        for phase in ("stop-normal", "stop-fast"):
             with self.subTest(phase=phase):
                 console = FakeConsole(states=[False, False, True], move_ok=False)
                 record = {}
@@ -367,7 +367,7 @@ class FunctionalCampaignTest(unittest.TestCase):
             campaign.run_phase(console, "stop-normal", record)
         self.assertIsNone(record["activity_before_stop"])
         self.assertEqual(len(console.commands("read-state")), 35)  # Admission + 32 polls + cleanup.
-        self.assertEqual([c["stop_policy"] for c in console.commands("stop")], ["direct"])
+        self.assertEqual([c["stop_policy"] for c in console.commands("stop")], ["fast"])
         self.assertEqual(len(console.commands("move-relative")), 1)
         self.assertIn("failure_cleanup_state", record)
 

@@ -62,7 +62,7 @@ class Clock:
 class Port:
     def __init__(self,factory):self.factory=factory;self.data=b"";self.sent=[]
     def write(self,data):
-        self.sent.append(data);tokens=data.decode().strip().split();item=self.factory(tuple(tokens[4:]));item["id"]=int(tokens[0][1:])
+        self.sent.append(data);tokens=data.decode().strip().split();item=self.factory(tuple(tokens[2:]));item["id"]=int(tokens[0][1:])
         self.data+=json.dumps(item).encode()+b"\n";return len(data)
     def read(self,n):result,self.data=self.data[:n],self.data[n:];return result
 
@@ -91,7 +91,7 @@ class PersistenceTests(unittest.TestCase):
         self.assertEqual(bench.persistence_arguments(("host","before"))["action"],5)
     def test_real_wire_is_profile_route_and_inspect_does_not_create_motor_operation(self):
         c,p=self.console();c.command("persistence",host_args=("plan","save"),timeout_s=.1)
-        self.assertEqual(p.sent,[b"@1 profile ess_rs persistence plan save\n"]);self.assertFalse(c.operations)
+        self.assertEqual(p.sent,[b"@1 persistence plan save\n"]);self.assertFalse(c.operations)
     def test_unavailable_begin_retains_diagnostic_reply_without_retry(self):
         c,p=self.console(lambda t:response(t,ok=False,result="unavailable",route_ready=False))
         self.assertFalse(c.command("persistence",host_args=("begin","save"),timeout_s=.1)["ok"]);self.assertEqual(len(p.sent),1)

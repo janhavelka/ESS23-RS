@@ -33,7 +33,7 @@ Action driverAdmissionStatus(const MotorControlRS::Status& status) noexcept {
 }
 namespace {
 
-enum class Command : uint8_t { HELP, VERSION, CONFIG, STATUS, HEALTH, STATS, PROBE, CAPTURE_READ, RECOVER, RESET, MEMORY, LOAD, DRV, RESULT, CANCEL, RELEASE, READ, PROFILE, CAPS, READ_IDENTITY, READ_CONFIG, READ_STATE, HEALTH_CHECK, MONITOR, AXIS, PREPARE, ENABLE, MOTOR_RELEASE, ALARM_CLEAR, STOP, MOVE, POSITION_CLEAR, VELOCITY, DRIVER, IO, HOME, SEGMENT, CONTROL, TUNING, HOST, COMMUNICATION, PERSISTENCE, MOTION_PROFILE, DEBUG, DISCOVER, USEADDR, WIRING, MOVE_BY, MOVE_TO, SPEED, ACCEL, DECEL, MOTION, STEPS_PER_TURN, SETTINGS };
+enum class Command : uint8_t { HELP, VERSION, CONFIG, STATUS, HEALTH, STATS, PROBE, CAPTURE_READ, RECOVER, MEMORY, LOAD, DRV, RESULT, CANCEL, RELEASE, READ, PROFILE, CAPS, READ_IDENTITY, READ_CONFIG, READ_STATE, MONITOR, AXIS, PREPARE, ENABLE, MOTOR_RELEASE, ALARM_CLEAR, STOP, MOVE, POSITION_CLEAR, VELOCITY, DRIVER, IO, HOME, SEGMENT, CONTROL, TUNING, HOST, COMMUNICATION, PERSISTENCE, MOTION_PROFILE, DEBUG, DISCOVER, USEADDR, WIRING, MOVE_BY, MOVE_TO, SPEED, ACCEL, DECEL, MOTION, STEPS_PER_TURN, SETTINGS };
 struct Entry { const char* name; Command command; const char* syntax; const char* effect; bool bus; const char* description; };
 const Entry COMMANDS[] = {
     {"moveby", Command::MOVE_BY, "moveby VALUE [steps|deg|turn|mm]", "finite_relative_move_with_readonly_preparation", true, "Move by an amount; default unit is command steps."},
@@ -47,9 +47,7 @@ const Entry COMMANDS[] = {
     {"debug", Command::DEBUG, "debug [off|raw|decoded]", "observe_regular_operations_and_cached_diagnostics", false, "Show diagnostics; select raw or decoded traffic while ordinary commands run."},
     {"motion-profile", Command::MOTION_PROFILE, "motion-profile read|inspect|restore|forget", "snapshot_position_parameters_restore_or_explicitly_release_snapshot", true, "Read, inspect or restore saved position parameters; forget releases the snapshot."},
     {"help", Command::HELP, "help [command]", "show_callable_commands", false, "Show all commands once, or detailed syntax for one command."},
-    {"?", Command::HELP, "? [command]", "show_callable_commands", false, "Alias for help."},
     {"version", Command::VERSION, "version", "show_build", false, "Show the firmware version and console protocol."},
-    {"ver", Command::VERSION, "ver", "show_build", false, "Alias for version."},
     {"config", Command::CONFIG, "config", "show_host_settings", false, "Show the selected address and host communication settings."},
     {"settings", Command::SETTINGS, "settings", "read_actual_motor_settings_and_next_move_choices", true, "Read actual motor settings and show the next move choices together."},
     {"useaddr", Command::USEADDR, "useaddr 1..247", "idle_host_selection_invalidates_dependent_confidence_no_motor_io", false, "Select a host target while idle; this does not change the drive address."},
@@ -58,13 +56,12 @@ const Entry COMMANDS[] = {
     {"communication", Command::COMMUNICATION, "communication [inspect | plan|begin address|baud|format VALUE [address] | host before|requested | confirm before|requested | finish]", "explicit_communication_session_no_save_restart_or_replay", true, "Plan and apply a drive communication change, then check its responding endpoint."},
     {"persistence", Command::PERSISTENCE, "persistence [inspect | snapshot | plan|begin save|factory-restore | verify | host before | finish]", "one_explicit_save_or_factory_restore_no_retry_or_inferred_durability", true, "Inspect, plan or attempt an explicit save or factory restoration."},
     {"status", Command::STATUS, "status", "show_cached_observations", false, "Show cached drive and transport observations, including their age."},
-    {"health", Command::HEALTH, "health [check [address]]", "show_cached_health_or_explicitly_read_state", true, "Show cached health; health check explicitly refreshes drive state."},
+    {"health", Command::HEALTH, "health", "show_cached_health", false, "Show cached health; use read state to refresh observations."},
     {"stats", Command::STATS, "stats [reset]", "show_or_clear_host_counters", false, "Show diagnostic counters; stats reset clears host counters only."},
     {"probe", Command::PROBE, "probe [address]", "read_model_word_only", true, "Read one model word to check communication."},
-    {"ping", Command::PROBE, "ping [address]", "read_model_word_only", true, "Alias for probe."},
     {"capture-read", Command::CAPTURE_READ, "capture-read [address]", "read_0x0130_16_words_for_capture_qualification", true, "Read a fixed 16-word window for transport timing diagnostics."},
     {"read", Command::READ, "read identity|config|state [address]", "checked_nonchanging_read", true, "Refresh drive identity, configuration or state through checked reads."},
-    {"profile", Command::PROFILE, "profile list | profile ess_rs OPERATION ...", "public_profile_operations", true, "List profiles or call a named ESS operation."},
+    {"profile", Command::PROFILE, "profile list", "list_available_profiles", false, "List available drive profiles."},
     {"driver", Command::DRIVER, "driver read [address] | driver set field integer [field integer ...] [address]", "typed_drive_settings_with_checked_readback", true, "Read or update supported drive settings and check their readback."},
     {"io", Command::IO, "io read [address] | io set input-polarity|x0|x1|x2|x3|output-polarity|y0|y1|custom value [field value ...] [address]; none assigns function 0", "explicit_typed_terminal_settings_and_readback", true, "Read or update terminal functions and polarity; none selects function zero."},
     {"segment", Command::SEGMENT, "segment position|speed|start INDEX read [address] | segment position|speed|start INDEX set FIELD INTEGER [FIELD INTEGER ...] [address]", "indexed_stored_records_only_external_execution", true, "Read or update stored segment settings; this does not execute a segment."},
@@ -74,16 +71,15 @@ const Entry COMMANDS[] = {
     {"enable", Command::ENABLE, "enable [address]", "request_enable_then_observe_flags", true, "Request motor enable and observe the resulting flags."},
     {"motor-release", Command::MOTOR_RELEASE, "motor-release [address]", "request_release_then_observe_flags", true, "Request motor release and observe the resulting flags."},
     {"alarm-clear", Command::ALARM_CLEAR, "alarm-clear [address]", "request_clear_resettable_alarm_then_observe_flags", true, "Request alarm clearing and check the drive flags."},
-    {"stop", Command::STOP, "stop normal|direct [address]", "priority_stop_with_explicit_policy_then_observe_flags", true, "normal: stop with deceleration; direct: ESS emergency stop without the ramp."},
+    {"stop", Command::STOP, "stop normal|fast [address]", "priority_stop_with_explicit_policy_then_observe_flags", true, "normal: stop with deceleration; fast: ESS emergency stop without the ramp."},
     {"move", Command::MOVE, "move relative|absolute value unit frame native_rpm configured [setup write|verify|stored] [basis actual|commanded|queued] [round mode error [approx error]] [address] | move angle value unit frame positive|negative|shortest reject|positive|negative native_rpm configured [setup write|verify|stored] [round mode error [approx error]] [address]", "finite_move_through_public_coordinate_preparation", true, "Advanced move: explicit frame, rounding and setup policy; ordinary moves use moveby/moveto."},
     {"position-clear", Command::POSITION_CLEAR, "position-clear [address]", "explicit_device_position_zero_only", true, "Explicitly set the drive position counter to zero."},
-    {"velocity", Command::VELOCITY, "velocity value rpm|steps/s|fullsteps/s|counts/s|turns/s|deg/s|rad/s|mm/s native|motor|load duration_ms configured normal|direct [round mode error [approx error]] [address]", "finite_serial_velocity_with_explicit_stop", true, "Request a bounded velocity operation with an explicit stop policy."},
+    {"velocity", Command::VELOCITY, "velocity value rpm|steps/s|fullsteps/s|counts/s|turns/s|deg/s|rad/s|mm/s native|motor|load duration_ms configured normal|fast [round mode error [approx error]] [address]", "finite_serial_velocity_with_explicit_stop", true, "Request a bounded velocity operation with an explicit stop policy."},
     {"monitor", Command::MONITOR, "monitor [off | interval_ms count]", "finite_nonconsuming_state_polling", true, "Read drive state a finite number of times; off ends local polling."},
     {"caps", Command::CAPS, "caps", "show_implemented_routes_and_explicit_capability_gaps", false, "Show implemented operations and unsupported or unresolved capabilities."},
     {"axis", Command::AXIS, "axis config [set field value [maximum]] | axis origin exact_native", "configure_host_coordinates_only", false, "Configure host coordinates, units and origin without motor traffic."},
     {"prepare", Command::PREPARE, "prepare absolute value unit frame [round [max_error [radian_error]]] | prepare relative value unit frame basis [round [max_error [radian_error]]] | prepare angle value unit frame path tie [round [max_error [radian_error]]]", "preview_public_target_arithmetic_without_motion", false, "Preview coordinate conversion and rounding without moving the motor."},
     {"recover", Command::RECOVER, "recover", "recover_host_transport_only", false, "Recover the host transport; this does not stop or reset the motor."},
-    {"reset", Command::RESET, "reset", "clear_host_counters_only", false, "Clear host diagnostic counters only."},
     {"memory", Command::MEMORY, "memory", "show_cached_memory", false, "Show cached memory and stack measurements."},
     {"load", Command::LOAD, "load [work_us owner_delay_us console_bytes]", "configure_or_report_host_load", false, "Show or configure the optional host workload used for timing checks."},
     {"drv", Command::DRV, "drv", "show_owner_queue_and_output", false, "Show the bus owner, queues, retained results and console pressure."},
@@ -94,7 +90,6 @@ const Entry COMMANDS[] = {
 const Entry IDENTITY_ENTRY = {"read-identity", Command::READ_IDENTITY, "read identity [address]", "checked_identity_read", true, "Read drive identity."};
 const Entry CONFIG_ENTRY = {"read-config", Command::READ_CONFIG, "read config [address]", "checked_configuration_read", true, "Read drive configuration."};
 const Entry STATE_ENTRY = {"read-state", Command::READ_STATE, "read state [address]", "checked_nonconsuming_state_read", true, "Read drive state."};
-const Entry HEALTH_ENTRY = {"read-state", Command::HEALTH_CHECK, "health check [address]", "explicit_nonconsuming_state_refresh", true, "Refresh drive state and health."};
 namespace Ess = MotorControlRS::ESS_RS;
 
 const char* tuningName(Ess::DriverGroup group) {
@@ -469,16 +464,6 @@ const Entry* find(const char* name) {
     return nullptr;
 }
 
-// Accepted compatibility spellings are not separate user operations.
-bool canonicalHelpEntry(const Entry& entry) {
-    if (entry.command == Command::RESET) return false; // Listed once as stats [reset].
-    for (const Entry& candidate : COMMANDS) {
-        if (&candidate == &entry) return true;
-        if (candidate.command == entry.command) return false;
-    }
-    return false;
-}
-
 const char* helpGroup(Command command) {
     switch(command) {
     case Command::HELP: case Command::VERSION: case Command::CAPS: case Command::PROFILE:
@@ -515,7 +500,7 @@ const char* helpExample(Command command) {
     case Command::READ: return "read config 1\n  read state 1";
     case Command::DEBUG: return "debug decoded\n  debug off";
     case Command::MOVE: return "move relative 100 steps native 60 configured 1";
-    case Command::STOP: return "stop normal 1\n  stop direct 1";
+    case Command::STOP: return "stop normal 1\n  stop fast 1";
     case Command::RESULT: return "result 12";
     case Command::RELEASE: return "release 12  (after inspecting the terminal result)";
     case Command::CANCEL: return "cancel 12  (local cancellation; use stop for the motor)";
@@ -523,7 +508,7 @@ const char* helpExample(Command command) {
     case Command::DISCOVER: return "discover addresses 1 1\n  discover inspect";
     case Command::MOTION_PROFILE: return "motion-profile read\n  motion-profile inspect";
     case Command::MONITOR: return "monitor 500 10\n  monitor off";
-    case Command::PROFILE: return "profile list\n  profile ess_rs caps";
+    case Command::PROFILE: return "profile list";
     case Command::AXIS: return "axis config";
     case Command::PREPARE: return "prepare relative 100 steps native actual";
     case Command::HOME: return "home methods";
@@ -562,7 +547,7 @@ const char* motorCommand(Core::ActionKind kind) {
     return kind == Core::ActionKind::CLEAR_POSITION ? "position-clear" : kind == Core::ActionKind::RELEASE ? "motor-release" : kind == Core::ActionKind::CLEAR_ALARM ? "alarm-clear" : motorKind(kind);
 }
 const char* stopPolicy(const Core::ActionRequest& request) {
-    return request.kind != Core::ActionKind::STOP ? "null" : request.stop.behavior == Core::StopBehavior::CONFIGURED_DECELERATION ? "\"normal\"" : "\"direct\"";
+    return request.kind != Core::ActionKind::STOP ? "null" : request.stop.behavior == Core::StopBehavior::CONFIGURED_DECELERATION ? "\"normal\"" : "\"fast\"";
 }
 const char* executionName(Core::ActionExecution execution) {
     switch (execution) { case Core::ActionExecution::NOT_TRANSMITTED: return "not_transmitted";
@@ -966,8 +951,7 @@ void Console::dispatch() noexcept {
     if (outstanding(id)) { error(id, "input", "duplicate_id"); return; }
     const Entry* entry = find(tokens[first]);
     if (entry) { syntax_=entry->syntax; helpCommand_=entry->name; }
-    const char* capability = count > first + 2 && std::strcmp(tokens[first], "profile") == 0 &&
-        std::strcmp(tokens[first + 1], "ess_rs") == 0 ? tokens[first + 2] : tokens[first];
+    const char* capability = tokens[first];
     if (std::strcmp(capability, "jog") == 0 || std::strcmp(capability, "torque") == 0 ||
         std::strcmp(capability, "current") == 0 || std::strcmp(capability, "velocity-update") == 0) {
         error(id, capability, "unsupported"); return;
@@ -1074,10 +1058,6 @@ void Console::dispatch() noexcept {
         else error(id,"debug","output_capacity");
         return;
     }
-    if (entry->command == Command::PROFILE && count > first + 2 &&
-        !std::strcmp(tokens[first + 1], "ess_rs") && !std::strcmp(tokens[first + 2], "motion-profile")) {
-        entry = find("motion-profile"); first += 2;
-    }
     if (entry->command == Command::MOTION_PROFILE) {
         if (outputPending()) { ++inputDropped_; return; }
         if (!host_.motionProfile) { error(id, "motion-profile", "unavailable"); return; }
@@ -1151,12 +1131,10 @@ void Console::dispatch() noexcept {
         if (!fits) { error(id, "host", "output_full"); return; }
         emit(); return;
     }
-    const bool nativePersistence = entry->command == Command::PROFILE && count > first + 2 &&
-        !std::strcmp(tokens[first+1],"ess_rs") && !std::strcmp(tokens[first+2],"persistence");
-    if (entry->command == Command::PERSISTENCE || nativePersistence) {
+    if (entry->command == Command::PERSISTENCE) {
         if (outputPending()) { ++inputDropped_; return; }
         if (!host_.persistence) { error(id,"persistence","unavailable"); return; }
-        const std::size_t args=first+(nativePersistence?3:1);
+        const std::size_t args=first+1;
         PersistenceCommand request; bool inspect=false,plan=false;
         if(count==args || (count==args+1 && !std::strcmp(tokens[args],"inspect"))) inspect=true;
         else if(count==args+1 && !std::strcmp(tokens[args],"snapshot")) request.kind=PersistenceCommandKind::SNAPSHOT;
@@ -1190,12 +1168,10 @@ void Console::dispatch() noexcept {
         if(!fits) {error(id,"persistence","output_full");return;}
         emit();return;
     }
-    const bool nativeCommunication = entry->command == Command::PROFILE && count > first + 2 &&
-        !std::strcmp(tokens[first+1],"ess_rs") && !std::strcmp(tokens[first+2],"communication");
-    if (entry->command == Command::COMMUNICATION || nativeCommunication) {
+    if (entry->command == Command::COMMUNICATION) {
         if (outputPending()) { ++inputDropped_; return; }
         if (!host_.communication) { error(id,"communication","unavailable"); return; }
-        const std::size_t args=first+(nativeCommunication?3:1);
+        const std::size_t args=first+1;
         CommunicationCommand request; bool inspect=false, plan=false;
         uint16_t reg=0,value=0;
         if (count==args || (count==args+1 && !std::strcmp(tokens[args],"inspect"))) inspect=true;
@@ -1246,11 +1222,9 @@ void Console::dispatch() noexcept {
         if (!fits) { error(id,"communication","output_full"); return; }
         emit(); return;
     }
-    const bool nativeHome = entry->command == Command::PROFILE && count > first + 2 &&
-        std::strcmp(tokens[first + 1], "ess_rs") == 0 && std::strcmp(tokens[first + 2], "home") == 0;
-    if (entry->command == Command::HOME || nativeHome) {
+    if (entry->command == Command::HOME) {
         if (outputPending()) { ++inputDropped_; return; }
-        const std::size_t args = first + (nativeHome ? 3 : 1);
+        const std::size_t args = first + 1;
         if (count == args + 1 && std::strcmp(tokens[args], "methods") == 0) {
             std::size_t used = 0;
             bool fits = append(output_, sizeof(output_), used,
@@ -1304,22 +1278,17 @@ void Console::dispatch() noexcept {
         action(id, "home", result, static_cast<uint8_t>(address), result == Action::OK ? operationId : 0);
         return;
     }
-    const bool nativeDriver = entry->command == Command::DRIVER || (entry->command == Command::PROFILE && count > first + 2 &&
-        std::strcmp(tokens[first + 1], "ess_rs") == 0 && std::strcmp(tokens[first + 2], "driver") == 0);
-    const bool nativeIo = entry->command == Command::IO || (entry->command == Command::PROFILE && count > first + 2 &&
-        std::strcmp(tokens[first + 1], "ess_rs") == 0 && std::strcmp(tokens[first + 2], "io") == 0);
-    const bool nativeSegment = entry->command == Command::SEGMENT || (entry->command == Command::PROFILE && count > first + 2 &&
-        std::strcmp(tokens[first + 1], "ess_rs") == 0 && std::strcmp(tokens[first + 2], "segment") == 0);
-    const bool nativeControl = entry->command == Command::CONTROL || (entry->command == Command::PROFILE && count > first + 2 &&
-        std::strcmp(tokens[first + 1], "ess_rs") == 0 && std::strcmp(tokens[first + 2], "control") == 0);
-    const bool nativeTuning = entry->command == Command::TUNING || (entry->command == Command::PROFILE && count > first + 2 &&
-        std::strcmp(tokens[first + 1], "ess_rs") == 0 && std::strcmp(tokens[first + 2], "tuning") == 0);
+    const bool nativeDriver = entry->command == Command::DRIVER;
+    const bool nativeIo = entry->command == Command::IO;
+    const bool nativeSegment = entry->command == Command::SEGMENT;
+    const bool nativeControl = entry->command == Command::CONTROL;
+    const bool nativeTuning = entry->command == Command::TUNING;
     if (nativeDriver || nativeIo || nativeSegment || nativeControl || nativeTuning) {
         const char* command = nativeTuning ? "tuning" : nativeControl ? "control" :
             nativeSegment ? "segment" : nativeIo ? "io" : "driver";
         if (outputPending()) { ++inputDropped_; return; }
         if (!host_.startDriver || !host_.snapshot) { error(id, command, "unavailable"); return; }
-        std::size_t next = first + (entry->command == Command::PROFILE ? 3 : 1);
+        std::size_t next = first + 1;
         if (next >= count) { error(id, command, "invalid_arguments"); return; }
         Ess::DriverRequest request;
         request.group = nativeControl ? Ess::DriverGroup::CONTROL_SETTINGS : nativeIo ? Ess::DriverGroup::IO : Ess::DriverGroup::DRIVE;
@@ -1437,12 +1406,10 @@ void Console::dispatch() noexcept {
         action(id, command, result, static_cast<uint8_t>(address), result == Action::OK ? operationId : 0);
         return;
     }
-    const bool nativeVelocity = entry->command == Command::PROFILE && count > first + 2 &&
-        std::strcmp(tokens[first + 1], "ess_rs") == 0 && std::strcmp(tokens[first + 2], "velocity") == 0;
-    if (entry->command == Command::VELOCITY || nativeVelocity) {
+    if (entry->command == Command::VELOCITY) {
         if (outputPending()) { ++inputDropped_; return; }
         if (!host_.startVelocity || !host_.snapshot || !host_.axis) { error(id, "velocity", "unavailable"); return; }
-        const std::size_t args = first + (nativeVelocity ? 3 : 1);
+        const std::size_t args = first + 1;
         Core::VelocityRequest request; uint32_t duration = 0;
         if (count < args + 6 || !Core::parseExactNumber(tokens[args], request.value) ||
             !rateUnit(tokens[args + 1], request.unit) || !coordinateFrame(tokens[args + 2], request.frame) ||
@@ -1450,7 +1417,7 @@ void Console::dispatch() noexcept {
             std::strcmp(tokens[args + 4], "configured") != 0) { error(id, "velocity", "invalid_arguments"); return; }
         request.durationUs = duration * 1000; request.ramp = Core::VelocityRamp::VERIFIED_CONFIGURED;
         if (std::strcmp(tokens[args + 5], "normal") == 0) request.stop.behavior = Core::StopBehavior::CONFIGURED_DECELERATION;
-        else if (std::strcmp(tokens[args + 5], "direct") == 0) request.stop.behavior = Core::StopBehavior::DIRECT;
+        else if (std::strcmp(tokens[args + 5], "fast") == 0) request.stop.behavior = Core::StopBehavior::DIRECT;
         else { error(id, "velocity", "unsupported_policy"); return; }
         std::size_t next = args + 6;
         if (next < count && std::strcmp(tokens[next], "round") == 0) {
@@ -1569,12 +1536,9 @@ void Console::dispatch() noexcept {
         }
         return;
     }
-    const bool nativeMove = entry->command == Command::PROFILE && count > first + 2 &&
-        std::strcmp(tokens[first + 1], "ess_rs") == 0 && (std::strcmp(tokens[first + 2], "move-relative") == 0 ||
-        std::strcmp(tokens[first + 2], "move-absolute") == 0 || std::strcmp(tokens[first + 2], "move-angle") == 0);
-    if (entry->command == Command::MOVE || nativeMove) {
+    if (entry->command == Command::MOVE) {
         if (outputPending()) { ++inputDropped_; return; }
-        const char* kind = nativeMove ? tokens[first + 2] + 5 : count > first + 1 ? tokens[first + 1] : "";
+        const char* kind = count > first + 1 ? tokens[first + 1] : "";
         Core::MoveRequest move;
         if (std::strcmp(kind, "relative") == 0) move.position.relative = true;
         else if (std::strcmp(kind, "absolute") == 0) move.position.relative = false;
@@ -1582,7 +1546,7 @@ void Console::dispatch() noexcept {
         else { error(id, "move", "invalid_arguments"); return; }
         const char* command = moveCommand(move.position);
         if (!host_.startMove || !host_.snapshot || !host_.axis) { error(id, command, "unavailable"); return; }
-        const std::size_t args = first + (nativeMove ? 3 : 2);
+        const std::size_t args = first + 2;
         const std::size_t required = move.position.wrapped ? 7 : 5;
         if (count < args + required) { error(id, command, "invalid_arguments"); return; }
         Core::Rational speed;
@@ -1637,33 +1601,25 @@ void Console::dispatch() noexcept {
     Core::ActionRequest request;
     const char* actionCommand = nullptr;
     std::size_t actionArgs = first + 1;
-    const bool nativeAction = entry->command == Command::PROFILE && count > first + 2 &&
-        std::strcmp(tokens[first + 1], "ess_rs") == 0;
-    const char* actionToken = nativeAction ? tokens[first + 2] : tokens[first];
-    if (entry->command == Command::ENABLE || (nativeAction && std::strcmp(actionToken, "enable") == 0)) {
+    if (entry->command == Command::ENABLE) {
         request.kind = Core::ActionKind::ENABLE; actionCommand = "enable";
-    } else if (entry->command == Command::MOTOR_RELEASE || (nativeAction && std::strcmp(actionToken, "release") == 0)) {
+    } else if (entry->command == Command::MOTOR_RELEASE) {
         request.kind = Core::ActionKind::RELEASE; actionCommand = "motor-release";
-    } else if (entry->command == Command::ALARM_CLEAR || (nativeAction && std::strcmp(actionToken, "clear-alarm") == 0)) {
+    } else if (entry->command == Command::ALARM_CLEAR) {
         request.kind = Core::ActionKind::CLEAR_ALARM; actionCommand = "alarm-clear";
-    } else if (entry->command == Command::POSITION_CLEAR || (nativeAction && std::strcmp(actionToken, "clear-position") == 0)) {
+    } else if (entry->command == Command::POSITION_CLEAR) {
         request.kind = Core::ActionKind::CLEAR_POSITION; actionCommand = "position-clear";
-    } else if (entry->command == Command::STOP || (nativeAction &&
-        (std::strcmp(actionToken, "normal-stop") == 0 || std::strcmp(actionToken, "emergency-stop") == 0))) {
+    } else if (entry->command == Command::STOP) {
         request.kind = Core::ActionKind::STOP; actionCommand = "stop";
-        if (nativeAction) request.stop.behavior = std::strcmp(actionToken, "normal-stop") == 0 ? Core::StopBehavior::CONFIGURED_DECELERATION : Core::StopBehavior::DIRECT;
-        else {
-            if (count <= actionArgs) { error(id, "stop", "invalid_arguments"); return; }
-            if (std::strcmp(tokens[actionArgs], "normal") == 0) request.stop.behavior = Core::StopBehavior::CONFIGURED_DECELERATION;
-            else if (std::strcmp(tokens[actionArgs], "direct") == 0) request.stop.behavior = Core::StopBehavior::DIRECT;
-            else { error(id, "stop", "unsupported_policy"); return; }
-            ++actionArgs;
-        }
+        if (count <= actionArgs) { error(id, "stop", "invalid_arguments"); return; }
+        if (std::strcmp(tokens[actionArgs], "normal") == 0) request.stop.behavior = Core::StopBehavior::CONFIGURED_DECELERATION;
+        else if (std::strcmp(tokens[actionArgs], "fast") == 0) request.stop.behavior = Core::StopBehavior::DIRECT;
+        else { error(id, "stop", "unsupported_policy"); return; }
+        ++actionArgs;
     }
     if (actionCommand) {
         const bool stop = request.kind == Core::ActionKind::STOP;
         if ((outputPending() && !stop) || stopReply_.pending) { ++inputDropped_; return; }
-        if (nativeAction) actionArgs = first + 3;
         if (!host_.startAction || !host_.snapshot) { error(id, actionCommand, "unavailable"); return; }
         Snapshot snapshot; host_.snapshot(host_.context, snapshot);
         uint32_t address = snapshot.address;
@@ -1744,30 +1700,20 @@ void Console::dispatch() noexcept {
         } else if (!append(output_, sizeof(output_), used, ",\"bus_traffic\":false,\"motion_command\":false}")) { error(id, entry->name, "output_full"); return; }
         emit(); return;
     }
-    // The asynchronous terminal event uses the canonical probe name too.
-    if (entry->command == Command::PROBE) entry = find("probe");
-    if (entry->command == Command::HEALTH && count > first + 1) {
-        if (std::strcmp(tokens[first + 1], "check") != 0) { error(id, "health", "invalid_arguments"); return; }
-        entry = &HEALTH_ENTRY; ++first;
-    }
-    if (entry->command == Command::READ || entry->command == Command::PROFILE) {
-        std::size_t kind = first + 1;
-        if (entry->command == Command::PROFILE) {
-            if (kind >= count || std::strcmp(tokens[kind], "ess_rs") != 0) { error(id, "profile", "invalid_profile"); return; }
-            ++kind;
-        }
-        if (kind >= count) { error(id, entry->name, "invalid_arguments"); return; }
+    if (entry->command == Command::PROFILE) { error(id, "profile", "invalid_arguments"); return; }
+    if (entry->command == Command::READ) {
+        const std::size_t kind = first + 1;
+        if (kind >= count) { error(id, "read", "invalid_arguments"); return; }
         if (std::strcmp(tokens[kind], "identity") == 0) entry = &IDENTITY_ENTRY;
         else if (std::strcmp(tokens[kind], "config") == 0) entry = &CONFIG_ENTRY;
         else if (std::strcmp(tokens[kind], "state") == 0) entry = &STATE_ENTRY;
-        else if (entry->command == Command::PROFILE && std::strcmp(tokens[kind], "caps") == 0) entry = find("caps");
-        else { error(id, entry->name, "invalid_arguments"); return; }
+        else { error(id, "read", "invalid_arguments"); return; }
         first = kind;
     }
     const std::size_t args = count - first - 1;
     const char* arg = args ? tokens[first + 1] : nullptr;
     const bool loadCommand = entry->command == Command::LOAD;
-    const bool typedCommand = entry->command == Command::READ_IDENTITY || entry->command == Command::READ_CONFIG || entry->command == Command::READ_STATE || entry->command == Command::HEALTH_CHECK;
+    const bool typedCommand = entry->command == Command::READ_IDENTITY || entry->command == Command::READ_CONFIG || entry->command == Command::READ_STATE;
     const bool readCommand = entry->command == Command::PROBE || entry->command == Command::CAPTURE_READ || typedCommand;
     const bool optionalArg = entry->command == Command::HELP ||
         entry->command == Command::STATS || readCommand ||
@@ -1808,17 +1754,9 @@ void Console::dispatch() noexcept {
             monitorSettings.enabled = true;
         else { error(id, "monitor", "invalid_arguments"); return; }
     }
-    const bool advancedHelp = entry->command == Command::HELP && arg && !std::strcmp(arg, "advanced");
-    const Entry* described = entry->command == Command::HELP && arg && !advancedHelp ? find(arg) : nullptr;
-    if (described) {
-        for (const Entry& candidate : COMMANDS) {
-            if (candidate.command == (described->command == Command::RESET ? Command::STATS : described->command)) {
-                described = &candidate; break;
-            }
-        }
-    }
-    if (entry->command == Command::HELP && arg && !described && !advancedHelp) {
-        error(id, entry->name, "unknown_command"); return;
+    const Entry* described = entry->command == Command::HELP && arg ? find(arg) : nullptr;
+    if (entry->command == Command::HELP && arg && !described) {
+        error(id, "help", "unknown_command"); return;
     }
     if ((loadCommand || (described && described->command == Command::LOAD)) && !host_.load) {
         error(id, entry->name, "unavailable"); return;
@@ -1845,16 +1783,15 @@ void Console::dispatch() noexcept {
         case Command::VELOCITY: return host_.startVelocity && host_.snapshot && host_.axis;
         case Command::TUNING: case Command::CONTROL: case Command::SEGMENT: case Command::IO: case Command::DRIVER: return host_.startDriver && host_.snapshot;
         case Command::HOME: return true; // Method inventory is local; execution checks its own hooks.
-        case Command::PROFILE: return true; // Local inventory is always callable; operation routes check their hooks.
-        case Command::READ: case Command::READ_IDENTITY: case Command::READ_CONFIG: case Command::READ_STATE: case Command::HEALTH_CHECK: return host_.startTypedRead != nullptr;
+        case Command::PROFILE: return true; // Local inventory does not need a transport.
+        case Command::READ: case Command::READ_IDENTITY: case Command::READ_CONFIG: case Command::READ_STATE: return host_.startTypedRead != nullptr;
         case Command::RESULT: return host_.result != nullptr;
         case Command::CANCEL: return host_.cancel != nullptr;
         case Command::RELEASE: return host_.release != nullptr;
         case Command::PROBE: return host_.startProbe != nullptr;
         case Command::RECOVER: return host_.recover != nullptr;
-        case Command::RESET: return host_.resetStats != nullptr;
         case Command::STATS: return host_.snapshot || host_.resetStats;
-        case Command::HEALTH: return host_.snapshot || host_.startTypedRead;
+        case Command::HEALTH: return host_.snapshot != nullptr;
         case Command::CONFIG: case Command::STATUS:
         case Command::MEMORY: case Command::DRV: return host_.snapshot != nullptr;
         default: return true;
@@ -1866,9 +1803,7 @@ void Console::dispatch() noexcept {
         error(id, entry->name, "unavailable"); return;
     }
     if (entry->command == Command::HELP) {
-        const char* helpSyntax=described?(described->command==Command::HEALTH && !host_.startTypedRead?"health":
-            described->command==Command::HEALTH && !host_.snapshot?"health check [address]":
-            described->command==Command::HOME && !(host_.startHome && host_.snapshot && host_.axis)?"home methods":
+        const char* helpSyntax=described?(described->command==Command::HOME && !(host_.startHome && host_.snapshot && host_.axis)?"home methods":
             described->command==Command::STATS && !host_.snapshot?"stats reset":
             described->command==Command::STATS && !host_.resetStats?"stats":described->syntax):nullptr;
         if (outputFormat_ == Format::HUMAN) {
@@ -1878,7 +1813,7 @@ void Console::dispatch() noexcept {
                     append(output_,sizeof(output_),used,"%s",described->description);
                 if (described->command == Command::STOP)
                     fits=fits && append(output_,sizeof(output_),used,
-                        "\nDirect stop uses reserved priority after the current bus transaction settles.\nIt requires working RS485 communication; it is not a hardwired emergency-stop circuit.");
+                        "\nFast stop uses reserved priority after the current bus transaction settles.\nIt requires working RS485 communication; it is not a hardwired emergency-stop circuit.");
                 if (const char* example=helpExample(described->command))
                     fits=fits && append(output_,sizeof(output_),used,"\nExamples:\n  %s",example);
                 fits=fits && append(output_,sizeof(output_),used,"\nArguments in [brackets] are optional. Use @ID before the command for full JSON evidence.");
@@ -1888,7 +1823,6 @@ void Console::dispatch() noexcept {
                 for (const char* group:groups) {
                     bool heading=false;
                     for (const Entry& item:COMMANDS) {
-                        if (!canonicalHelpEntry(item)) continue;
                         if (!callable(item.command) || std::strcmp(helpGroup(item.command),group)) continue;
                         if (!heading) { fits=fits && append(output_,sizeof(output_),used,"\n[%s]\n",group); heading=true; }
                         fits=fits && append(output_,sizeof(output_),used,"  %-16s ",item.name) &&
@@ -1898,7 +1832,7 @@ void Console::dispatch() noexcept {
                 if (host_.simpleMotion)
                     fits=fits && append(output_,sizeof(output_),used,
                         "\nExample defaults: 60 rpm, 100 ms ramps, assumed 1000 command steps/turn. No automatic motion.\n");
-                fits=fits && append(output_,sizeof(output_),used,"\nAccepted operations finish asynchronously. Cancel is local; it does not stop the motor.\nCompatibility aliases still work; help advanced shows this same menu.");
+                fits=fits && append(output_,sizeof(output_),used,"\nAccepted operations finish asynchronously. Cancel is local; it does not stop the motor.");
             }
             if (!fits) { error(id,"help","output_full"); return; }
             emit(0,true); return;
@@ -1917,7 +1851,7 @@ void Console::dispatch() noexcept {
             std::size_t used = static_cast<std::size_t>(prefix);
             bool firstName = true;
             for (const Entry& item : COMMANDS) {
-                if (!canonicalHelpEntry(item) || !callable(item.command)) continue;
+                if (!callable(item.command)) continue;
                 const int written = std::snprintf(output_ + used, sizeof(output_) - used,
                     "%s\"%s\"", firstName ? "" : ",", item.name);
                 if (written < 0 || static_cast<std::size_t>(written) >= sizeof(output_) - used) { error(id, "help", "output_full"); return; }
@@ -1931,7 +1865,7 @@ void Console::dispatch() noexcept {
     }
     if (entry->command == Command::VERSION) {
         std::snprintf(output_, sizeof(output_),
-            "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"%s\",\"ok\":true,\"product\":\"MotorControl-RS\",\"protocol\":2,\"version\":\"%s\",\"outstanding_capacity\":%u}",
+            "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"%s\",\"ok\":true,\"product\":\"MotorControl-RS\",\"protocol\":3,\"version\":\"%s\",\"outstanding_capacity\":%u}",
             static_cast<unsigned long>(id), entry->name, MotorControlRS::VERSION, static_cast<unsigned>(OUTSTANDING_CAPACITY));
         emit(); return;
     }
@@ -1942,7 +1876,7 @@ void Console::dispatch() noexcept {
             "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"caps\",\"ok\":true,\"probe\":%s,\"identity\":%s,\"config\":%s,\"state\":%s,\"max_steps\":%u,\"max_reply_bytes\":%u,\"writes\":%s,\"motion\":%s,\"write_response_confirmed\":%s,\"axis_reserved\":%s,\"actions\":%s,\"device_queue_guarantee\":false,\"velocity\":%s,\"configured_ramp_policy\":true,\"acceleration_mapping\":false,\"velocity_unsupported\":[\"jerk\",\"blending\",\"live_updates\",\"torque\",\"current\",\"external_jog\"],\"driver_settings\":%s,\"limit_pair_writes\":false,\"home\":%s,\"home_methods\":[33,34,35],\"home_physical_qualified\":false,\"io_settings\":%s,\"input_terminals\":4,\"output_terminals\":2,\"no_function\":0,\"input_function_codes\":[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17],\"output_function_codes\":[0,1,2,3,4,5,9,10],\"output_function_11\":\"unresolved\",\"input_mask\":15,\"output_mask\":3,\"external_enable_precedence\":\"unknown\",\"electrical_output_state_known\":false,\"segment_storage\":16,\"maximum_input_selections\":8,\"segment_execution\":\"external_input\",\"segment_pulse_writes\":false,\"negative_segment_speed_encoding\":\"unresolved\",\"control_settings\":%s,\"control_algorithm_codes\":[1,2],\"configured_encoder_is_identification\":false,\"current_percent_base\":\"unresolved\",\"effective_current_limit_from_peak\":false,\"tuning\":%s,\"tuning_groups\":[\"filters\",\"current-loop\",\"la\",\"collision\"],\"tuning_physical_scaling_known\":false,\"collision_003b_003c_access\":\"unresolved\",\"persistence\":%s,\"persistence_operations\":[\"save\",\"factory_restore\"],\"persistence_verified_all\":false,\"persistence_invocation_limit\":2}",
             static_cast<unsigned long>(id), boolean(caps.probe && callable(Command::PROBE)), boolean(caps.identity && callable(Command::READ_IDENTITY)), boolean(caps.config && callable(Command::READ_CONFIG)), boolean(caps.state && callable(Command::READ_STATE)), caps.maxSteps, caps.maxReplyBytes,
             boolean(callable(Command::ENABLE) || callable(Command::MOVE) || callable(Command::VELOCITY) || callable(Command::DRIVER) || (host_.startHome && host_.snapshot && host_.axis) || callable(Command::COMMUNICATION) || callable(Command::PERSISTENCE) || callable(Command::MOTION_PROFILE)),
-            boolean(host_.startMove && host_.snapshot && host_.axis), boolean(snapshot.writeResponseConfirmed), boolean(snapshot.axisReserved), callable(Command::ENABLE) ? "[\"enable\",\"release\",\"clear_alarm\",\"clear_position\",\"stop_normal\",\"stop_direct\"]" : "[]", boolean(host_.startVelocity && host_.snapshot && host_.axis), boolean(host_.startDriver && host_.snapshot), boolean(host_.startHome && host_.snapshot && host_.axis), boolean(host_.startDriver && host_.snapshot), boolean(host_.startDriver && host_.snapshot), boolean(host_.startDriver && host_.snapshot), boolean(host_.persistence != nullptr));
+            boolean(host_.startMove && host_.snapshot && host_.axis), boolean(snapshot.writeResponseConfirmed), boolean(snapshot.axisReserved), callable(Command::ENABLE) ? "[\"enable\",\"release\",\"clear_alarm\",\"clear_position\",\"stop_normal\",\"stop_fast\"]" : "[]", boolean(host_.startVelocity && host_.snapshot && host_.axis), boolean(host_.startDriver && host_.snapshot), boolean(host_.startHome && host_.snapshot && host_.axis), boolean(host_.startDriver && host_.snapshot), boolean(host_.startDriver && host_.snapshot), boolean(host_.startDriver && host_.snapshot), boolean(host_.persistence != nullptr));
         std::size_t used=std::strlen(output_);if(used) --used;
         if(!append(output_,sizeof(output_),used,",\"discovery\":%s,\"discovery_profiles\":%u,\"discovery_nonchanging\":true,\"discovery_max_tuples\":%u,\"discovery_max_results\":%u,\"discovery_model_mapping\":\"unresolved\",\"discovery_manufacturer_confirmation\":false,\"capability_scope\":\"implemented_application_routes\",\"unsupported\":[\"torque_motion\",\"current_motion\",\"serial_segment_start\"],\"unresolved\":[\"nonzero_home_offset\",\"paired_native_settings\",\"physical_acceleration_mapping\"],\"unimplemented\":[\"position_start_speed_write\",\"switch_homing\",\"jog_parameter_access\",\"homing_parameter_access\"],\"coverage_inventory\":\"docs/reference/ess_rs_operations.json\"}",
             boolean(host_.discovery!=nullptr),static_cast<unsigned>(MotorControlRS::discoveryProfileCount()),DISCOVERY_MAX_TUPLES,DISCOVERY_MAX_RESULTS)) {
@@ -1950,7 +1884,7 @@ void Console::dispatch() noexcept {
         }
         emit(); return;
     }
-    if (entry->command == Command::RESET || (entry->command == Command::STATS && arg)) {
+    if (entry->command == Command::STATS && arg) {
         host_.resetStats(host_.context); action(id, entry->name, Action::OK); return;
     }
     if (entry->command == Command::RECOVER) {
@@ -2614,7 +2548,7 @@ bool Console::formatVelocity(uint32_t id, uint32_t commandId, uint32_t operation
         static_cast<unsigned long long>(c.startedUs), static_cast<unsigned long long>(c.deadlineUs), static_cast<unsigned long long>(c.stopDueUs), static_cast<unsigned long long>(c.servicedUs),
         c.polls, static_cast<unsigned>(c.phase), boolean(c.stagingApplied), boolean(c.uncertain), boolean(c.needsStop), boolean(c.runningObserved), boolean(c.serviceMissed),
         boolean(c.observationKnown), alarm, motion, p.nativeRpm, c.words[0], c.words[1], c.words[2],
-        r.stop.behavior == Core::StopBehavior::DIRECT ? "direct" : "normal", static_cast<long long>(r.value.numerator), static_cast<unsigned long long>(r.value.denominator),
+        r.stop.behavior == Core::StopBehavior::DIRECT ? "fast" : "normal", static_cast<long long>(r.value.numerator), static_cast<unsigned long long>(r.value.denominator),
         static_cast<unsigned>(r.unit.position), static_cast<unsigned>(r.unit.time), static_cast<unsigned>(r.frame), static_cast<unsigned long>(r.durationUs),
         static_cast<unsigned>(r.rounding), boolean(r.approximate), r.maximumQuantizationErrorRpm, r.maximumApproximationErrorRpm,
         p.roundingError, p.approximationErrorBound, boolean(p.exactArithmetic), p.approximateRequestedRpm, executionName(c.stop.execution),

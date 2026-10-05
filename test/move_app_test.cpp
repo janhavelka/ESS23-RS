@@ -225,7 +225,7 @@ void testCommonAndProfileCliUseExactPreparation() {
     for (bool native : {false, true}) {
         fresh(); qualify();
         app->axis.units.commandStepsPerMotorTurn = UnitScale(1000, 1, ScaleSource::ASSUMED);
-        command(native ? "@1 profile ess_rs move-relative 20 steps native 60 configured\n" :
+        command(native ? "@1 move relative 20 steps native 60 configured\n" :
             "@1 move relative 0.02 turn motor 60 configured\n");
         if (Serial.output.find("\"result\":\"accepted\"") == std::string::npos)
             std::fprintf(stderr, "Move CLI rejected: %s\n", Serial.output.c_str());
@@ -330,7 +330,7 @@ void testConsoleResetPreservesUncertainTriggerUnderBackpressure() {
     assert(hardware.time < physicalEnd && app->runner.transmitEnabled() && hardware.de == 1);
 
     Serial.output.clear(); Serial.writeCapacity = 0;
-    Serial.input = "@2 cancel " + std::to_string(operation) + "\n@3 reset\n";
+    Serial.input = "@2 cancel " + std::to_string(operation) + "\n@3 stats reset\n";
     step();
     assert(Serial.input.empty() && Serial.output.empty() && app->outputCount);
     assert(app->runner.stats().started == 0); // The ordinary console reset executed.
@@ -349,7 +349,7 @@ void testConsoleResetPreservesUncertainTriggerUnderBackpressure() {
 
     // Output remains blocked while reset runs again against the retained unknown
     // trigger. Counter reset is neither transport recovery nor a motor stop.
-    command("@4 reset\n");
+    command("@4 stats reset\n");
     assert(Serial.output.empty() && app->runner.stats().started == 0);
     assert(view(operation).moveContext->outcome == retained.outcome && view(operation).moveContext->uncertain);
     assert(view(operation).moveContext->execution == retained.execution && axisReserved(*app, 1));
@@ -360,8 +360,8 @@ void testConsoleResetPreservesUncertainTriggerUnderBackpressure() {
     assert(app->owner.needsRecovery());
 
     Serial.writeCapacity = 4096; pump(3000);
-    assert(Serial.output.find("\"id\":3,\"command\":\"reset\",\"ok\":true") != std::string::npos);
-    assert(Serial.output.find("\"id\":4,\"command\":\"reset\",\"ok\":true") != std::string::npos);
+    assert(Serial.output.find("\"id\":3,\"command\":\"stats\",\"ok\":true") != std::string::npos);
+    assert(Serial.output.find("\"id\":4,\"command\":\"stats\",\"ok\":true") != std::string::npos);
     assert(hardware.writes == writes && view(operation).moveContext->uncertain && axisReserved(*app, 1));
     assert(app->owner.needsRecovery());
 }
@@ -378,7 +378,7 @@ void testConsoleStopUnderFullUsbBackpressure() {
     Serial.input.clear();
     for (unsigned id = 10; id < 19; ++id)
         Serial.input += "@" + std::to_string(id) + " status\n";
-    Serial.input += "@50 stop direct\n";
+    Serial.input += "@50 stop fast\n";
     for (unsigned i = 0; i < 50 && !Serial.input.empty(); ++i) step();
     assert(Serial.input.empty() && Serial.output.empty() && app->outputCount == OUTPUT_LINES);
     const uint32_t stopping = view(0).operationId;
@@ -574,13 +574,13 @@ void coordinates(int64_t native = 0) {
 }
 void testAbsoluteAngleApiCliAndLostReference() {
     for (const char* line : {"@1 move absolute 20 steps native 60 configured\n",
-        "@1 profile ess_rs move-absolute 7.2 deg motor 60 configured\n",
+        "@1 move absolute 7.2 deg motor 60 configured\n",
         "@1 move absolute 4 fullsteps motor 60 configured\n",
         "@1 move absolute 0.02 turn motor 60 configured\n",
         "@1 move absolute 0.08 mm load 60 configured\n",
         "@1 move absolute 0.1256637061435917 rad motor 60 configured round nearest 1 approx 0.00001\n",
         "@1 move angle 7.2 deg motor positive reject 60 configured\n",
-        "@1 profile ess_rs move-angle 7.2 deg motor shortest reject 60 configured\n"}) {
+        "@1 move angle 7.2 deg motor shortest reject 60 configured\n"}) {
         fresh(); qualify(); coordinates();
         auto r = request(); r.position.relative = false;
         ESS::MoveContext direct;
@@ -678,7 +678,7 @@ void testPositionClearApiCliAndUncertainInvalidation() {
         clear.devicePosition = 1;
         assert(host(app).startAction(app, 2, 1, clear, unchanged) == Probe::Action::UNSUPPORTED);
         assert(unchanged == 77 && hardware.writes == 0);
-        command(lost ? "@3 position-clear\n" : "@3 profile ess_rs clear-position\n");
+        command(lost ? "@3 position-clear\n" : "@3 position-clear\n");
         assert(Serial.output.find("\"result\":\"accepted\"") != std::string::npos);
         const auto operation = view(0).operationId; waitTx(operation); step();
         assert(hardware.tx[3] == 0x2D && hardware.tx[5] == 0x31);

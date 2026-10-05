@@ -130,11 +130,11 @@ reassignment, polarity workaround or precedence assumption resolves it.
 ## Console and external-trigger handoff
 
 ```text
-profile ess_rs io read [address]
-profile ess_rs io set x0 none [x1 FUNCTION ...] [address]
-profile ess_rs io set y0 none [y1 FUNCTION ...] [address]
-profile ess_rs io set input-polarity MASK [output-polarity MASK ...] [address]
-profile ess_rs io set custom MASK [address]
+io read [address]
+io set x0 none [x1 FUNCTION ...] [address]
+io set y0 none [y1 FUNCTION ...] [address]
+io set input-polarity MASK [output-polarity MASK ...] [address]
+io set custom MASK [address]
 ```
 
 `none` selects function zero; numeric function values use the same preparation

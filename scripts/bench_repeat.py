@@ -62,7 +62,7 @@ def campaign(console, record, count):
             record['cleanup'] = 'unknown'
             if not console.synchronized:
                 raise BenchError('framing unavailable; no cleanup write or replay')
-            record['stop'] = checked(console, 'stop', stop_policy='direct', address=1)
+            record['stop'] = checked(console, 'stop', stop_policy='fast', address=1)
             record['stopped'] = observe_stopped(console, address=1, timeout_s=5)
             record['restored'] = restore_profile(console)
             record['cleanup'] = 'stopped_and_restored'
@@ -80,7 +80,7 @@ def main():
     plan = dict(repeats_per_policy=args.count, total_moves=3 * args.count + 3,
                 maximum_increments=101, maximum_rpm=60, operation_deadline_s=3,
                 thresholds='Every terminal accounted, observed completion, expected write shape, no replay, exact restoration',
-                cleanup='One explicit direct stop, checked zero speed, restore saved profile once, ten probes',
+                cleanup='One explicit fast stop, checked zero speed, restore saved profile once, ten probes',
                 timing='Firmware admission to start acknowledgement; initial/state refresh outside timed interval')
     print(json.dumps(plan, indent=2), flush=True)
     if args.plan_only:

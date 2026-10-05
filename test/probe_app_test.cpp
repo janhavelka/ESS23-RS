@@ -77,7 +77,7 @@ void testSuccessfulProbeAndReset() {
     assert(view(1).probe.outcome == Rtu::Outcome::SUCCESS);
     Probe::Snapshot cached; snapshot(app, cached); snapshot(app, cached);
     assert(cached.retained == 1 && cached.reserved == 0 && cached.deadlineUs == 0);
-    command("@2 reset\n"); contains("\"result\":\"done\"");
+    command("@2 stats reset\n"); contains("\"result\":\"done\"");
     assert(app->runner.stats().started == 0 && app->ok);
     command("@3 status\n"); contains("\"codec\":\"OK\""); contains("\"transmit_enabled\":false");
     command("@4 result 1\n"); contains("\"operation_id\":1"); contains("\"raw_model\":60");
@@ -95,7 +95,7 @@ void testCheckedExceptionAndParserRejection() {
     reply(corrupt, 0, {1, 3, 2, 0, 0x3C, 0xB8, 0x54});
     assert(view(corrupt).probe.outcome == Rtu::Outcome::INVALID_REPLY);
     assert(!app->ok && app->owner.needsRecovery());
-    command("@3 reset\n"); assert(app->owner.needsRecovery());
+    command("@3 stats reset\n"); assert(app->owner.needsRecovery());
     command("@4 probe\n"); contains("\"result\":\"recovery_required\"");
     assert(hardware.writes == 1);
     command("@5 result 1\n"); contains("\"codec\":\"CRC_ERROR\"");
@@ -606,7 +606,7 @@ void testStopUsesReservedCapacityAndFullAdmissionPreservesWork() {
 void testUncertainStopSurvivesReleaseRecoveryAndCanBeStoppedAgain() {
     using namespace MotorControlRS;
     fresh(); timerCapture(); qualifyActions();
-    command("@1 stop direct\n"); const uint32_t old = view(0).operationId; startTx(0);
+    command("@1 stop fast\n"); const uint32_t old = view(0).operationId; startTx(0);
     for (unsigned i = 0; i < 30000 && view(old).pending; ++i) step();
     assert(!view(old).pending && view(old).actionContext->execution == ActionExecution::UNKNOWN);
     assert(axisReserved(*app, 1) && app->owner.needsRecovery() && hardware.writes == 1);
@@ -659,7 +659,7 @@ void testRetainedUnknownWriteSurvivesInspectionResetAndRecovery() {
     const std::string evidence = inspect();
     assert(inspect() == evidence); // Inspection does not consume or revise evidence.
     const unsigned writes = hardware.writes;
-    command("@202 reset\n"); contains("\"result\":\"done\"");
+    command("@202 stats reset\n"); contains("\"result\":\"done\"");
     assert(app->runner.stats().started == 0 && app->owner.needsRecovery());
     assert(inspect() == evidence && hardware.writes == writes && axisReserved(*app, 1));
 
@@ -813,7 +813,7 @@ void testTypedReadRoutesAndAtomicPublication() {
     assert(!view(identity).pending && app->identity.rawModel == 0x4EEA && app->identity.rawVersion == 0xCAFE);
     contains("\"type\":\"read\""); contains("\"read_kind\":\"identity\"");
     const auto oldIdentity = app->identity;
-    command("@3 profile ess_rs config 1\n"); const uint32_t config = view(0).operationId;
+    command("@3 read config 1\n"); const uint32_t config = view(0).operationId;
     assert(app->configuration.operationId == 0); completeConfig(config);
     assert(view(config).typedRead->state == ReadState::SUCCEEDED && hardware.writes == 6);
     assert(app->configuration.raw.subdivision == 1000 && app->configuration.raw.encoderResolution == 4000);
@@ -956,7 +956,7 @@ void testTypedReadPartialCancelRecoveryAndRetention() {
 void testTypedReadPressureAndInvalidArguments() {
     fresh(); timerCapture();
     command("@1 read unsupported\n"); command("@2 read config 0\n"); command("@3 profile other identity\n");
-    command("@4 profile ess_rs config 1 junk\n"); assert(hardware.writes == 0 && app->latestOperationId == 0);
+    command("@4 read config 1 junk\n"); assert(hardware.writes == 0 && app->latestOperationId == 0);
     for (unsigned i = 0; i < 8; ++i) {
         uint32_t operation = 0; assert(typedRead(app, i + 10, 1, ESS::ReadKind::IDENTITY, operation) == Probe::Action::OK);
         assert(cancel(app, operation) == Probe::Action::OK); advanceReads(*app, nowUs());
@@ -1232,7 +1232,7 @@ void testStateReadUnknownBitsAndPassiveQueries() {
     assert(hardware.writes == 4);
 }
 void testStatePartialRefreshPreservesPreviousBlocks() {
-    fresh(); timerCapture(); command("@1 health check\n"); const uint32_t first = view(0).operationId;
+    fresh(); timerCapture(); command("@1 read state\n"); const uint32_t first = view(0).operationId;
     completeState(first);
     const auto previous = app->stateCache;
     command("@2 read state\n"); const uint32_t second = view(0).operationId;
@@ -1411,13 +1411,13 @@ void segmentBaseline() {
     command("@2 read state\n"); const auto stateId = app->latestOperationId;
     readStep(stateId, 0, registerReply({0, 1})); readStep(stateId, 1, registerReply({0, 0})); readStep(stateId, 2, registerReply({0, 0, 0}));
     assert(release(app, stateId) == Probe::Action::OK);
-    command("@3 profile ess_rs io read\n"); const auto ioId = app->latestOperationId;
+    command("@3 io read\n"); const auto ioId = app->latestOperationId;
     driverStep(ioId, registerReply({0, 1, 2, 3, 0})); driverStep(ioId, registerReply({0, 0, 0})); driverStep(ioId, registerReply({0}));
     assert(release(app, ioId) == Probe::Action::OK);
 }
 void testSegmentRoutesStoredSettlementAndNoImplicitTrigger() {
     segmentBaseline();
-    command("@4 profile ess_rs segment position 16 read\n"); contains("\"result\":\"accepted\"");
+    command("@4 segment position 16 read\n"); contains("\"result\":\"accepted\"");
     const auto baseline = app->latestOperationId;
     startTx(hardware.writes);
     assert(hardware.tx[3] == 0xBA && hardware.tx[5] == 5);
@@ -1426,8 +1426,8 @@ void testSegmentRoutesStoredSettlementAndNoImplicitTrigger() {
     assert(app->segmentSettings.segmentIndex == 16 && app->segmentSettings.raw[3] == 0x1234);
     assert(release(app, baseline) == Probe::Action::OK);
     const auto before = hardware.writes;
-    command("@5 profile ess_rs segment position 16 set speed 60 target 0\n"); contains("unsupported"); assert(hardware.writes == before);
-    command("@6 profile ess_rs segment position 16 set speed 60 acceleration 90\n"); contains("accepted");
+    command("@5 segment position 16 set speed 60 target 0\n"); contains("unsupported"); assert(hardware.writes == before);
+    command("@6 segment position 16 set speed 60 acceleration 90\n"); contains("accepted");
     const auto update = app->latestOperationId; auto* record = findRecord(*app, update);
     assert(record->axisReserved && record->driver.prerequisites.allowEchoReadback);
     // Unwired passive origin/limit assignments permit stored settings, without
@@ -1450,33 +1450,33 @@ void testSegmentIndexCancellationAndTriggerPolicy() {
     fresh(); timerCapture();
     ESS::DriverRequest invalidGroup; invalidGroup.group = static_cast<ESS::DriverGroup>(255); uint32_t untouched = 999;
     assert(startDriver(app,99,1,ESS::DriverKind::READ,invalidGroup,untouched) == Probe::Action::INVALID && untouched == 999);
-    for (const char* invalid : {"profile ess_rs segment position 0 read\n", "profile ess_rs segment speed 17 read\n", "profile ess_rs segment start 1 set value 1.0\n", "profile ess_rs segment start 1 set value 1 value 2\n", "profile ess_rs segment speed 1 set target 1\n"}) command(invalid);
+    for (const char* invalid : {"segment position 0 read\n", "segment speed 17 read\n", "segment start 1 set value 1.0\n", "segment start 1 set value 1 value 2\n", "segment speed 1 set target 1\n"}) command(invalid);
     assert(hardware.writes == 0 && app->nextOperationId == 1);
-    command("@20 profile ess_rs segment speed 1 read\n"); const auto id = app->latestOperationId;
+    command("@20 segment speed 1 read\n"); const auto id = app->latestOperationId;
     command("@21 cancel\n"); pump(1000); assert(!view(id).pending && hardware.writes <= 1);
     segmentBaseline();
-    command("@4 profile ess_rs segment start 1 read\n"); const auto baseline = app->latestOperationId;
+    command("@4 segment start 1 read\n"); const auto baseline = app->latestOperationId;
     driverStep(baseline, registerReply({50})); assert(release(app, baseline) == Probe::Action::OK);
     const auto before = hardware.writes;
     app->inputWiring[0] = MotorControlRS::InputWiring::UNKNOWN;
-    command("@5 profile ess_rs segment start 1 set value 60\n"); contains("invalid"); assert(hardware.writes == before);
+    command("@5 segment start 1 set value 60\n"); contains("invalid"); assert(hardware.writes == before);
     app->inputWiring[0] = MotorControlRS::InputWiring::UNCONNECTED;
     app->ioSettings.raw[7] = 0x8000;
-    command("@6 profile ess_rs segment start 1 set value 60\n"); contains("invalid"); assert(hardware.writes == before);
+    command("@6 segment start 1 set value 60\n"); contains("invalid"); assert(hardware.writes == before);
     app->ioSettings.raw[7] = 0;
     app->stateCache.blocks[static_cast<uint8_t>(ESS::StateBlock::IO)].value.rawInputs = 1;
-    command("@7 profile ess_rs segment start 1 set value 60\n"); contains("invalid"); assert(hardware.writes == before);
+    command("@7 segment start 1 set value 60\n"); contains("invalid"); assert(hardware.writes == before);
     app->stateCache.blocks[static_cast<uint8_t>(ESS::StateBlock::IO)].value.rawInputs = 0;
-    command("@8 profile ess_rs segment start 16 set value 60\n"); contains("invalid"); assert(hardware.writes == before);
+    command("@8 segment start 16 set value 60\n"); contains("invalid"); assert(hardware.writes == before);
     app->ioSettings.raw[8] = 17; // Not a passive assignment; no trigger policy can be inferred.
-    command("@9 profile ess_rs segment start 1 set value 60\n"); contains("invalid"); assert(hardware.writes == before);
+    command("@9 segment start 1 set value 60\n"); contains("invalid"); assert(hardware.writes == before);
 }
 void testSegmentRecoveryCancelsReadbackContinuation() {
     segmentBaseline();
-    command("@4 profile ess_rs segment speed 16 read\n"); const auto baseline = app->latestOperationId;
+    command("@4 segment speed 16 read\n"); const auto baseline = app->latestOperationId;
     driverStep(baseline, registerReply({50,100,100}));
     assert(release(app,baseline) == Probe::Action::OK);
-    command("@5 profile ess_rs segment speed 16 set speed 60 acceleration 90\n");
+    command("@5 segment speed 16 set speed 60 acceleration 90\n");
     const auto update = app->latestOperationId; startTx(hardware.writes);
     const auto writes = hardware.writes;
     command("@6 recover\n"); const auto recovery = app->recovery.operationId;

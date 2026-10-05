@@ -17,7 +17,7 @@ bounded application inventory, not a register schema or another command engine.
 
 [Prompt26](reports/ess_release_26_2026-10-05.md) qualifies the shared Arduino/native
 IDF S3 paths for read/state/control, loaded capture, finite relative motion,
-normal/direct stop and reversible lock-delay updates. Other entries retain their
+normal/fast stop and reversible lock-delay updates. Other entries retain their
 individual unresolved/unsupported/unimplemented and fixture dispositions; S2
 compile-only consumption does not create another qualified motor adapter.
 
@@ -50,7 +50,7 @@ device or physical qualification.
 | Public role | Existing callable surface | Console relationship |
 | --- | --- | --- |
 | Typed device operations | ESS read/action/move/velocity/home/settings/communication/persistence preparations; common wrappers reuse ESS preparations | Producing common/profile routes call these functions through one application owner |
-| Typed position profile | `buildReadPositionProfile`, `parsePositionProfile`, `buildWritePositionProfile` | `motion-profile read/inspect/restore/forget` and matching `profile ess_rs motion-profile ...` manage an original six-word snapshot; restore writes only `0x0021/5`, excluding observed start speed; arbitrary candidate/archive staging remains a named gap; forget is local release |
+| Typed position profile | `buildReadPositionProfile`, `parsePositionProfile`, `buildWritePositionProfile` | `motion-profile read/inspect/restore/forget` manage an original six-word snapshot; restore writes only `0x0021/5`, excluding observed start speed; arbitrary candidate/archive staging remains a named gap; forget is local release |
 | Sequencers | `next*`, `advance*`, `serviceVelocity`, settings write deadline and persistence verification | Cooperatively executed by the owner; inspecting a context is not a second device operation |
 | Observations | Checked `getIdentity/getConfig/getStateBlock`, settings observations, `checkProbe`, `getHomeReference` | Terminal/result/status formatting uses retained evidence; reads and cached inspection remain separate |
 | Host configuration | `validateAxisConfig/configureAxis/setAxisOrigin/invalidateAxisReference`; explicitly assumed bench units | Axis commands change host interpretation, with idle/reference/generation rules; no implicit device write |
@@ -70,24 +70,24 @@ the installed core performs no UART, clock, retry, queue, heap or logging work.
 
 | Surface | Console | Shared implementation |
 | --- | --- | --- |
-| Presence and inventory | `profile list`, `probe`/`ping`, `discover` | Common `Discovery.h` inventory; ESS `Discovery.h` request/evidence and native probe functions, common forwarding routes; application `DiscoveryScan` |
-| Identity/configuration/state | `read identity|config|state`, `health check`; `profile ess_rs identity|config|state` | ESS `Reads.h` preparations, decoders and supplied-event sequence |
-| Passive observations | `status`, `health`, `config`/`settings`, `drv`, `memory`, `stats` | Cached application snapshots; no motor reads |
+| Presence and inventory | `profile list`, `probe`, `discover` | Common `Discovery.h` inventory; ESS `Discovery.h` request/evidence and native probe functions, common forwarding routes; application `DiscoveryScan` |
+| Identity/configuration/state | `read identity|config|state` | ESS `Reads.h` preparations, decoders and supplied-event sequence |
+| Consolidated motor settings | `settings` | Typed configuration and position-profile reads, separate from remembered move preferences |
+| Passive observations | `status`, `health`, `config`, `drv`, `memory`, `stats` | Cached application snapshots; no motor reads |
 | Axis configuration and preview | `axis config`, `axis config set ...`, `axis origin`, `prepare` | `Axis.h`/`Units.h`; exact-number parsing and one conversion path |
-| Explicit actions | `enable`, `motor-release`, `alarm-clear`, `position-clear`, `stop normal|direct`; matching `profile ess_rs` actions | Common action preparation and ESS `Actions.h` |
-| Finite positioning | `move relative|absolute|angle`; native `move-relative|move-absolute|move-angle` under `profile ess_rs` | Shared target preparation and ESS position sequence |
-| Velocity | `velocity`; `profile ess_rs velocity` | Common target preparation and ESS velocity sequence; unresolved acceleration mapping rejected |
-| Homing | `home methods`, `home ...`; `profile ess_rs home ...` | ESS method descriptors and homing sequence; only methods33–35 implemented |
-| Driver and optional I/O | `driver read|set`, `io read|set`; matching profile routes | ESS whole-candidate driver preparation and checked readback |
-| Stored records | `segment position|speed|start INDEX read|set`; matching profile route | One indexed helper per real layout; no serial record trigger |
-| Control and tuning | `control read|set`, `tuning GROUP read|set`; matching profile routes | ESS typed parameter validation and common settings sequence |
-| Commissioning/persistence | `communication ...`, `persistence ...`; matching profile routes | Explicit public preparations and exclusive application sessions |
+| Explicit actions | `enable`, `motor-release`, `alarm-clear`, `position-clear`, `stop normal|fast` | Common action preparation and ESS `Actions.h` |
+| Finite positioning | `move relative|absolute|angle` | Shared target preparation and ESS position sequence |
+| Velocity | `velocity` | Common target preparation and ESS velocity sequence; unresolved acceleration mapping rejected |
+| Homing | `home methods`, `home ...` | ESS method descriptors and homing sequence; only methods33–35 implemented |
+| Driver and optional I/O | `driver read|set`, `io read|set` | ESS whole-candidate driver preparation and checked readback |
+| Stored records | `segment position|speed|start INDEX read|set` | One indexed helper per real layout; no serial record trigger |
+| Control and tuning | `control read|set`, `tuning GROUP read|set` | ESS typed parameter validation and common settings sequence |
+| Commissioning/persistence | `communication ...`, `persistence ...` | Explicit public preparations and exclusive application sessions |
 | Host session and wiring | `useaddr ADDRESS`, `host ...`, `wiring [x0..x3|y0..y1 unknown|unconnected|connected]` | Idle local target selection, explicit wiring declarations and settled UART tuple callback; no drive setting change |
-| Local lifecycle | `result [ID]`, `release ID`, `cancel [ID]`, `monitor ...`, `reset`, `recover` | Non-consuming retained inspection, explicit release/cancel, finite polling, host recovery |
-| Diagnostics/profile snapshot | `debug off|raw|decoded`, `motion-profile read|inspect|restore|forget`, `profile ess_rs motion-profile ...`, `load ...`, `capture-read` | Installed traffic capture/decoder, typed position-profile codecs, bounded application adapters |
+| Local lifecycle | `result [ID]`, `release ID`, `cancel [ID]`, `monitor ...`, `stats reset`, `recover` | Non-consuming retained inspection, explicit release/cancel, finite polling, host recovery |
+| Diagnostics/profile snapshot | `debug off|raw|decoded`, `motion-profile read|inspect|restore|forget`, `load ...`, `capture-read` | Installed traffic capture/decoder, typed position-profile codecs, bounded application adapters |
 
-`help COMMAND` describes exact syntax. Parameter group aliases call the same
-parser and callback as their profile routes. Relative previews require an
+`help COMMAND` describes exact syntax. Each operation has one console route into its public preparation and callback. Relative previews require an
 explicit basis. Integers/rational values are checked before admission; a
 generic bare-address setter is not provided. Only ESS is implemented, so there
 is no second profile to select. `flush` remains unavailable; recovery is the
@@ -181,7 +181,7 @@ those gaps. Settings access does not establish those motion capabilities.
 Physical qualification, missing external fixtures, persistence/restart proof,
 engineering ramp conversion and endurance remain separate from implementation.
 The operation rows now cite the recorded positive relative staging/move and
-normal/direct stop subset on both S3 frameworks, and the recorded enable/release
+normal/fast stop subset on both S3 frameworks, and the recorded enable/release
 observations. Their scoped PASS does not qualify negative motion, all position
 paths, physical response-source measurements or shaft accuracy. Clear-alarm,
 zero-clear, absolute and velocity scenarios keep their separate evidence gaps;

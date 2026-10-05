@@ -134,8 +134,8 @@ for group in TUNING_FIELDS:
                    if json.loads(row)["case"] == "read" and json.loads(row)["record"]["driver_group"] == group)
     retained = {}
     def handler(command_id, command, arguments):
-        if command == "profile":
-            assert arguments == ["ess_rs", "tuning", slugs[group], "read", "1"]
+        if command == "tuning":
+            assert arguments == [slugs[group], "read", "1"]
             terminal = {**fixture, "id": command_id, "command_id": command_id, "operation_id": 101}
             retained.update(terminal)
             return encoded(reply(command_id, "tuning", result="accepted", address=1, operation_id=101)) + encoded(terminal)
@@ -150,7 +150,7 @@ for group in TUNING_FIELDS:
     console.identify(timeout_s=0.1)
     bench_probe.driver_read_campaign(console, timeout_s=0.1, address=1, command="tuning", driver_args=(slugs[group], "read"))
     assert events[-1][0] == "summary" and events[-1][1]["mode"] == "tuning-read"
-    assert [line.decode().split()[1] for line in port.writes] == ["version", "profile", "result", "release"]
+    assert [line.decode().split()[1] for line in port.writes] == ["version", "tuning", "result", "release"]
     parsed = bench_probe.arguments(["--port", "fake", "--log", "unused.jsonl", "tuning", slugs[group], "read"])
     assert parsed.mode == "tuning" and parsed.driver_args == (slugs[group], "read")
 print("PASS: 66 real tuning terminals, snapshot deadlines, all20 fields, fullLA16steps and retained transport")

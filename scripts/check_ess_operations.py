@@ -41,23 +41,8 @@ def check_cli_route(command, metadata, source, operation_kind):
     if not tokens or tokens[0] not in metadata:
         raise ValueError("CLI command absent from production inventory: " + command)
     root = tokens[0]
-    native_profile = root == "profile"
     if root == "profile":
-        if len(tokens) < 3 or tokens[1] != "ess_rs":
-            raise ValueError("invalid selected profile route: " + command)
-        root, tokens = tokens[2], tokens[2:]
-        aliases = {"release": "motor-release", "clear-alarm": "alarm-clear",
-                   "clear-position": "position-clear", "normal-stop": "stop",
-                   "emergency-stop": "stop", "move-relative": "move",
-                   "move-absolute": "move", "move-angle": "move",
-                   "identity": "read", "config": "read", "state": "read"}
-        if aliases.get(root, root) not in metadata or not re.search(
-                r'(?:strcmp|strncmp)\([^\n]*"' + re.escape(root) + r'"', source):
-            raise ValueError("profile leaf absent from dispatch: " + command)
-    elif root in {"driver", "io", "segment", "control", "tuning"}:
-        # A metadata topic alone must never count as a callable alias.
-        if 'error(id, command, "use_profile_route")' in source:
-            raise ValueError("native family is help-only: " + command)
+        raise ValueError("profile is inventory only; use the canonical operation command: " + command)
 
     tail = tokens[1:]
     valid = True
@@ -90,13 +75,10 @@ def check_cli_route(command, metadata, source, operation_kind):
         valid = len(tail) == 1 and tail[0] in {"relative", "absolute", "angle"}
         effects = {"WRITE", "ACTION"}
     elif root == "stop" and tokens[0] == "stop":
-        valid = len(tail) == 1 and tail[0] in {"normal", "direct"}
+        valid = len(tail) == 1 and tail[0] in {"normal", "fast"}
         effects = {"ACTION"}
     elif root == "read":
         valid = len(tail) == 1 and tail[0] in {"identity", "config", "state"}
-        effects = {"READ"}
-    elif root == "health":
-        valid = tail == ["check"]
         effects = {"READ"}
     elif root == "discover":
         valid = not tail or tail in [["inspect"], ["cancel"], ["restore"], ["finish"]]
@@ -107,9 +89,9 @@ def check_cli_route(command, metadata, source, operation_kind):
         effects = {"READ"}
     else:
         valid = not tail
-        if root in {"probe", "ping"} or (native_profile and root in {"identity", "config", "state"}): effects = {"READ"}
+        if root == "probe": effects = {"READ"}
         elif root in {"home", "velocity", "move-relative", "move-absolute", "move-angle"}: effects = {"WRITE", "ACTION"}
-        elif root in {"enable", "motor-release", "alarm-clear", "position-clear"} or (native_profile and root in {"release", "clear-alarm", "clear-position", "normal-stop", "emergency-stop"}): effects = {"ACTION"}
+        elif root in {"enable", "motor-release", "alarm-clear", "position-clear"}: effects = {"ACTION"}
     if not valid or operation_kind not in effects:
         raise ValueError("invalid operation CLI prefix: " + command)
 

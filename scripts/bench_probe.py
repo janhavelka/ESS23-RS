@@ -6,7 +6,7 @@ host reports. A lost or malformed reply stops the run; nothing is replayed and
 host recovery is never automatic. Python 3.10+; pyserial is needed only for a
 real port. See ``--help`` for finite probe, stress, watch and load runs. Load
 settings change the host fixture only; they never change motor settings.
-The Console API also exposes explicit result/release/cancel/recover/reset host
+The Console API also exposes explicit result/release/cancel/recover/stats-reset host
 controls. Sequential probes release their retained result with a logged command;
 begin/wait permit bounded interleaving and caller-controlled result retention.
 """
@@ -30,8 +30,8 @@ MAX_LINE = 8192
 MAX_INPUT = 32768
 MAX_TRAFFIC_INPUT = 1048576  # Independent finite diagnostic budget per command/drain.
 COMMANDS = frozenset({"version", "config", "probe", "capture-read", "status", "health", "memory", "stats", "load",
-                      "drv", "result", "release", "cancel", "recover", "reset", "caps", "host", "useaddr", "wiring", "communication", "persistence", "motion-profile", "debug",
-                      "read-identity", "read-config", "read-state", "health-check", "monitor", "axis", "prepare", "enable", "motor-release", "alarm-clear", "stop", "position-clear", "move-relative", "move-absolute", "move-angle", "velocity", "driver", "io", "segment", "control", "tuning", "home", "discover", "profile-list"})
+                      "drv", "result", "release", "cancel", "recover", "caps", "host", "useaddr", "wiring", "communication", "persistence", "motion-profile", "debug",
+                      "read-identity", "read-config", "read-state", "monitor", "axis", "prepare", "enable", "motor-release", "alarm-clear", "stop", "position-clear", "move-relative", "move-absolute", "move-angle", "velocity", "driver", "io", "segment", "control", "tuning", "home", "discover", "profile-list"})
 MAX_COMMANDS = 11  # Eight ordinary operations, recovery, reserved stop and local query.
 MAX_OPERATIONS = 10  # Eight ordinary operations, one recovery and one reserved stop.
 MAX_PROBES = 8
@@ -624,7 +624,7 @@ def velocity_arguments(arguments: tuple[str, ...]) -> dict:
     value, unit, frame, duration, ramp, stop = arguments[:6]
     units = {"rpm": (3, 1), "steps/s": (0, 0), "fullsteps/s": (1, 0), "counts/s": (2, 0),
              "turn/s": (3, 0), "turns/s": (3, 0), "deg/s": (4, 0), "rad/s": (5, 0), "mm/s": (6, 0)}
-    if unit not in units or frame not in ("native", "motor", "load") or ramp != "configured" or stop not in ("normal", "direct"):
+    if unit not in units or frame not in ("native", "motor", "load") or ramp != "configured" or stop not in ("normal", "fast"):
         raise ValueError("velocity unit, frame, ramp or stop is invalid")
     if re.fullmatch(r"[0-9]+", duration) is None or not 1 <= int(duration) <= 1000:
         raise ValueError("velocity duration must be within 1..1000 ms")
@@ -921,7 +921,7 @@ class Console:
         for key in ("staging_applied", "uncertain", "needs_stop", "running_observed", "service_missed", "observation_known", "interrupted_by_stop", "exact_arithmetic"):
             require(type(item.get(key)) is bool, "missing " + key)
         require(integer(item.get("native_rpm"), -3000, 3000) and item["native_rpm"] != 0 and item.get("ramp") == "configured" and
-                item.get("stop_policy") in ("normal", "direct"), "speed or stop policy differs")
+                item.get("stop_policy") in ("normal", "fast"), "speed or stop policy differs")
         words = item.get("staging_words")
         require(isinstance(words, list) and len(words) == 3 and words[0] == (item["native_rpm"] & 65535) and
                 all(integer(word, 0, 2000) for word in words[1:]), "staged words differ")
@@ -1865,7 +1865,7 @@ class Console:
             return all(entry.get(key) == value for key, value in empty_evidence.items())
 
         require(item.get("action_kind") == ACTION_KINDS.get(command)
-                and item.get("stop_policy") == policy and (command != "stop" or policy in ("normal", "direct"))
+                and item.get("stop_policy") == policy and (command != "stop" or policy in ("normal", "fast"))
                 and item.get("read_kind") is None and item.get("capture_read", False) is False
                 and item.get("recovery", False) is False, "kind or policy does not match request")
         require(integer(item.get("address"), 247) and item["address"] >= 1
@@ -3569,7 +3569,7 @@ class Console:
                             original is not None and move_kind != (original.command[5:] if original.command in MOVE_COMMANDS else None)):
                         raise BenchError("result move kind does not match retained operation")
                     if (action_kind is not None and action_kind not in ACTION_KINDS.values()) or (
-                            action_kind == "stop" and stop_policy not in ("normal", "direct")) or (
+                            action_kind == "stop" and stop_policy not in ("normal", "fast")) or (
                             action_kind != "stop" and not velocity and stop_policy is not None) or (
                             action_kind is not None and (recovery or capture_read or read_kind is not None)) or (
                             original is not None and action_kind != ACTION_KINDS.get(original.command)) or (
@@ -3668,8 +3668,8 @@ class Console:
         positive(timeout_s, "command timeout")
         if command not in COMMANDS:
             raise ValueError("command is not in the explicit harness inventory")
-        if (command == "stop" and stop_policy not in ("normal", "direct")) or (command != "stop" and stop_policy is not None):
-            raise ValueError("stop requires explicit normal or direct policy")
+        if (command == "stop" and stop_policy not in ("normal", "fast")) or (command != "stop" and stop_policy is not None):
+            raise ValueError("stop requires explicit normal or fast policy")
         if command == "host":
             host_args = () if host_args is None else host_args
             host_arguments(host_args)
@@ -3690,6 +3690,9 @@ class Console:
         elif command == "discover":
             host_args = () if host_args is None else host_args
             discovery_arguments(host_args)
+        elif command == "stats" and host_args is not None:
+            if host_args != ("reset",):
+                raise ValueError("stats accepts only reset")
         elif host_args is not None:
             if (command not in ("axis", "prepare") or not isinstance(host_args, tuple) or
                     not 1 <= len(host_args) <= (9 if command == "prepare" else 8) or any(type(token) is not str or not token or
@@ -3713,9 +3716,6 @@ class Console:
             home_arguments(home_args)
         elif home_args is not None:
             raise ValueError("home arguments require home command")
-        health_check = command == "health-check"
-        if health_check:
-            command = "read-state"  # The wire alias returns canonical read-state records.
         if monitor is not None:
             if command != "monitor" or (monitor is not False and
                 (not isinstance(monitor, tuple) or len(monitor) != 2 or
@@ -3748,7 +3748,7 @@ class Console:
             raise ValueError("move command exceeds the console line bound")
         if velocity_args is not None and len(f"@{self.next_id} velocity {' '.join(velocity_args)}" + ("" if address is None else f" {address}")) >= 128:
             raise ValueError("velocity command exceeds the console line bound")
-        if driver_args is not None and len(f"@{self.next_id} profile ess_rs {command} {' '.join(driver_args)}" + ("" if address is None else f" {address}")) >= 128:
+        if driver_args is not None and len(f"@{self.next_id} {command} {' '.join(driver_args)}" + ("" if address is None else f" {address}")) >= 128:
             raise ValueError("driver command exceeds the console line bound")
         request_id = self.next_id
         self.next_id += 1
@@ -3790,10 +3790,9 @@ class Console:
                 suffix = " " + " ".join(home_args) + suffix
             if driver_args is not None:
                 suffix = " " + " ".join(driver_args) + suffix
-            wire_command = "health check" if health_check else "read " + TYPED_READS[command] if command in TYPED_READS else command
+            wire_command = "read " + TYPED_READS[command] if command in TYPED_READS else command
             if command == "profile-list": wire_command = "profile list"
             if command in MOVE_COMMANDS: wire_command = "move " + command[5:]
-            if command in ("driver", "io", "segment", "control", "tuning", "communication", "persistence"): wire_command = "profile ess_rs " + command
             payload = f"@{request_id} {wire_command}{suffix}\n".encode("ascii")
             if len(payload) > 128:
                 raise ValueError("command exceeds the console line bound")
@@ -3874,7 +3873,7 @@ class Console:
         response = self.command("version", timeout_s=timeout_s)
         if (not response["ok"] or response.get("product") != "MotorControl-RS"
                 or type(response.get("protocol")) is not int
-                or response["protocol"] != 2
+                or response["protocol"] != 3
                 or type(response.get("outstanding_capacity")) is not int
                 or response["outstanding_capacity"] != MAX_OPERATIONS):
             self.synchronized = False
@@ -4361,7 +4360,7 @@ def move_campaign(console: Console, *, move_args: tuple[str, ...] | None, cleanu
     Drive status is not an independent physical shaft observation.
     """
     label = "home" if command == "home" else "velocity" if command == "velocity" else "move"
-    if cleanup_stop not in ("normal", "direct"):
+    if cleanup_stop not in ("normal", "fast"):
         raise ValueError(f"finite {label} requires an explicit cleanup stop policy")
     positive(timeout_s, f"{label} timeout")
     handle = None
@@ -4451,7 +4450,7 @@ def state_health_campaign(console: Console, *, count: int, interval_s: float, ti
     failure = None
     try:
         for index in range(count):
-            handle = console.begin("health-check", address=address, timeout_s=timeout_s)
+            handle = console.begin("read-state", address=address, timeout_s=timeout_s)
             terminal = console.wait(handle)
             if not terminal["ok"]:
                 raise BenchError("health check failed: " + str(terminal.get("outcome")))
@@ -4600,7 +4599,7 @@ def arguments(argv: list[str] | None) -> argparse.Namespace:
     for name in ACTION_COMMANDS:
         action = sub.add_parser(name, help="one explicit action attempt; never retried")
         if name == "stop":
-            action.add_argument("stop_policy", choices=("normal", "direct"))
+            action.add_argument("stop_policy", choices=("normal", "fast"))
     typed = sub.add_parser("typed-read", help="typed identity/configuration/state reads, retained inspection and release")
     typed.add_argument("--kind", choices=("identity", "config", "state", "both"), default="both")
     for name in MOVE_COMMANDS:
@@ -4618,14 +4617,14 @@ def arguments(argv: list[str] | None) -> argparse.Namespace:
         move.add_argument("--maximum-error", default="0", help="exact maximum native quantization error")
         move.add_argument("--approximation-error", help="explicit positive native error allowance for radians")
         if name == "move-relative": move.add_argument("--basis", choices=("actual", "commanded", "queued"))
-        move.add_argument("--cleanup-stop", required=True, choices=("normal", "direct"))
+        move.add_argument("--cleanup-stop", required=True, choices=("normal", "fast"))
     home = sub.add_parser("home", help="one current-position reference attempt with explicit stop cleanup")
     home.add_argument("method", choices=("35",))
     home.add_argument("search_native")
     home.add_argument("return_native")
     home.add_argument("ramp_native")
     home.add_argument("offset", choices=("zero",))
-    home.add_argument("--cleanup-stop", required=True, choices=("normal", "direct"))
+    home.add_argument("--cleanup-stop", required=True, choices=("normal", "fast"))
     velocity = sub.add_parser("velocity", help="one finite signed velocity with explicit stop cleanup; never replayed")
     sub.add_parser("driver-read", help="one checked four-window drive-settings read with retained inspection; no writes")
     segment = sub.add_parser("segment", help="indexed stored record read/update; no external execution")
@@ -4641,11 +4640,11 @@ def arguments(argv: list[str] | None) -> argparse.Namespace:
     velocity.add_argument("frame", choices=("native", "motor", "load"))
     velocity.add_argument("duration_ms", type=int)
     velocity.add_argument("ramp", choices=("configured",))
-    velocity.add_argument("stop", choices=("normal", "direct"))
+    velocity.add_argument("stop", choices=("normal", "fast"))
     velocity.add_argument("--round", choices=("exact", "nearest", "zero", "floor", "ceil"))
     velocity.add_argument("--maximum-error", default="0")
     velocity.add_argument("--approximation-error")
-    velocity.add_argument("--cleanup-stop", required=True, choices=("normal", "direct"))
+    velocity.add_argument("--cleanup-stop", required=True, choices=("normal", "fast"))
     for mode, default_count, default_interval, description in (
         ("stress", 100, 0.1, "explicit repeated probes"),
         ("state-health", 5, 0.1, "stationary state/health refresh, retained checks and passive cache age"),

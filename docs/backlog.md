@@ -1,12 +1,14 @@
 # Features implementation tasks and open questions
 
-## One complete console help menu
+## Canonical console commands and fast stop
 
-- [x] Generate one grouped menu from the command catalogue; `help advanced` is
-  the same menu. List canonical commands once, retaining compatible invocations.
-- [x] Expose actual detailed move syntax and clearly describe normal versus
-  direct (ESS emergency) stop; no separate emergency-stop implementation.
-- Verification: [unified help record](reports/2026-10-05_unified_console_help.md).
+- [x] One grouped help catalogue and one spelling per operation; remove legacy
+  command aliases and duplicate profile dispatch paths, including execution.
+- [x] Name the existing ESS emergency stop `stop fast`; preserve reserved
+  priority, explicit outcomes and the ordinary public stop sequence.
+- [x] Migrate automated clients, command coverage and current user guides to
+  console protocol 3. Historical evidence retains its original syntax.
+- Verification: [fast stop and canonical commands](reports/2026-10-05_fast_stop_console.md).
 
 ## Consolidated settings and manufacturer positioning ranges
 
@@ -128,7 +130,7 @@ This supplies30's qualification disposition; it does not approve a full release.
 
 ## Human console
 
-- [x] Shared Arduino/IDF console provides grouped help, `?`, command examples,
+- [x] Shared Arduino/IDF console provides grouped help, command examples,
   usage hints, labeled replies and compact raw/decoded traffic.
 - [x] Explicit `@ID` retains JSONL, including asynchronous results and deferred
   stops; bounded output preserves normal owner/result handling.
@@ -205,7 +207,7 @@ See [scenario contract](bench_scenarios.md) and [verification/evidence](reports/
 
 ## Prompt23 API/CLI integration
 
-- [x] One bounded command metadata table; typed group aliases, callback-aware help/caps and exact parser parity.
+- [x] One bounded command metadata table; canonical typed groups, callback-aware help/caps and exact parser parity.
 - [x] Idle-only selected target, generation/cache invalidation, explicit motion-profile snapshot release and fault-independent monitor query/off.
 - [x] Terminal UNKNOWN evidence survives repeated inspection, reset and recovery without replay.
 - [x] Complete221-record/135-choice inventory plus130 installed free-function classifications and producing-route validation.
@@ -596,7 +598,7 @@ FieldCore remains read-only; typed identity/state and motion/stop retain their g
   limits, optional typed identity refinement, cancellation and partial findings.
 - [x] Saved current tuple restoration, explicit failure interlock, fault recovery
   without resuming scans, urgent-stop preemption and fixed result retention.
-- [x] `profile list`, `probe`/`ping`, `read identity`, `discover` and Python parity
+- [x] `profile list`, `probe`, `read identity`, `discover` and Python parity
   through existing checked APIs. [API/evidence](ess_discovery.md).
 - [x] Fresh prompt22 audit: explicit recovery cancels unharvested scan
   continuations; Python checks failed/refined evidence and retains zero-byte
@@ -821,7 +823,7 @@ See [the typed read API](ess_reads.md) and [current report](reports/ess_release_
   retaining unknown alarms/bits and unresolved position/speed interpretation.
 - [x] Per-block application cache with exact generations, independent attempts,
   conservative age, failure retention and passive status/health.
-- [x] Explicit health check and finite disabled-by-default polling through the
+- [x] Explicit state refresh and finite disabled-by-default polling through the
   existing owner; cancellation, urgent scheduling and pressure tests pass.
 - [x] Installed C++11 consumer and stationary COM13 raw/decoded evidence;
   [report](reports/ess_release_06_2026-10-04.md) distinguishes native and hardware.

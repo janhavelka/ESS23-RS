@@ -57,8 +57,8 @@ class IoTransport(unittest.TestCase):
     def handler(self, update=False, echo=False, mutate=None):
         retained = {}
         def dispatch(request_id, command, args):
-            if command == "profile":
-                self.assertEqual(args[:2], ["ess_rs", "io"])
+            if command == "io":
+                self.assertIn(args[0], ("read", "set"))
                 record = terminal(request_id, update, echo)
                 if mutate: mutate(record)
                 retained[request_id + 100] = record
@@ -86,7 +86,7 @@ class IoTransport(unittest.TestCase):
             inspected = console.command("result", operation_id=handle.operation_id)
             self.assertEqual(inspected["evidence"], result["evidence"])
             self.assertTrue(console.command("release", operation_id=handle.operation_id)["ok"])
-            self.assertIn(b"profile ess_rs io", self.port.writes[1])
+            self.assertIn(b"io", self.port.writes[1])
             if echo: self.assertEqual(result["progress"][0][9], "unknown")
 
     def test_unknown_raw_is_preserved(self):
@@ -129,7 +129,7 @@ class IoTransport(unittest.TestCase):
             console = self.session(self.handler(update, update))
             bench.driver_read_campaign(console, timeout_s=0.1, address=1, command="io",
                                        driver_args=("set", "x0", "none") if update else ("read",))
-            self.assertEqual([line.decode().split()[1] for line in self.port.writes], ["version", "profile", "result", "release"])
+            self.assertEqual([line.decode().split()[1] for line in self.port.writes], ["version", "io", "result", "release"])
             self.assertEqual(self.events[-1]["mode"], "io-set" if update else "io-read")
         args = bench.arguments(["--port", "fake", "--log", "unused", "io", "set", "x0", "none"])
         self.assertEqual(args.driver_args, ("set", "x0", "none"))

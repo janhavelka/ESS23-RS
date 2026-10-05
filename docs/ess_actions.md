@@ -35,11 +35,11 @@ coordinate change, separate from these other actions and host origin updates.
 The original function manual physical pages 25–26 and 70–71 establish these
 commands. The stop page has inconsistent copied table descriptions; its prose,
 wire examples, graph and register appendix agree on the two stop values.
-Normal stop uses deceleration established before motion; direct stop does not
+Normal stop uses deceleration established before motion; fast stop does not
 use that deceleration. `StopPolicy` requires an explicit behavior.
 Custom deceleration and device queue PRESERVE/DISCARD reject before yielding
 traffic. `DeviceQueue::UNSPECIFIED` explicitly requests no device queue guarantee.
-Host continuation cancellation is a separate application effect. A serial direct
+Host continuation cancellation is a separate application effect. A serial fast
 stop is not a qualified independent emergency-stop mechanism.
 
 ## Explicit device position clear
@@ -147,17 +147,17 @@ configuration belongs to prompt 15.
 
 ## Console and bench restriction
 
-| Common console command | ESS-native spelling |
+| Console command | Requested action |
 | --- | --- |
-| `enable [address]` | `profile ess_rs enable [address]` |
-| `motor-release [address]` | `profile ess_rs release [address]` |
-| `alarm-clear [address]` | `profile ess_rs clear-alarm [address]` |
-| `position-clear [address]` | `profile ess_rs clear-position [address]` |
-| `stop normal [address]` | `profile ess_rs normal-stop [address]` |
-| `stop direct [address]` | `profile ess_rs emergency-stop [address]` |
+| `enable [address]` | Enable windings, then observe flags |
+| `motor-release [address]` | Release windings, then observe flags |
+| `alarm-clear [address]` | Clear resettable alarms |
+| `position-clear [address]` | Explicitly zero the device counter |
+| `stop normal [address]` | Stop using configured deceleration |
+| `stop fast [address]` | ESS emergency stop without the ramp |
 
 `release operation_id` remains explicit host result release. `cancel` remains
-local cancellation, `recover` host transport recovery and `reset` local counters.
+local cancellation, `recover` host transport recovery and `stats reset` local counters.
 Admission replies and terminal `action` JSON lines have independent command and
 operation IDs. `result` inspects retained evidence without consuming it. The
 console retains a stop admission reply under output pressure as compact fields,

@@ -1,6 +1,6 @@
 # ESP32-S3 standalone motor bench
 
-For interactive use, see the [console guide](console.md): type `help` or `?` for
+For interactive use, see the [console guide](console.md): type `help` for
 grouped commands and `help COMMAND` for syntax. Bare commands produce readable
 text; `@ID` commands preserve machine JSONL for the existing Python tools.
 
@@ -22,7 +22,7 @@ through stop, standstill and restoration. [Prompt24 evidence](reports/ess_releas
 records strict parser/failure coverage and461 new checked frames on the unchanged
 ordinary timer image, retaining every failed experiment.
 
-Prompt23 adds callback-aware help/capabilities, callable typed group aliases, local `useaddr`, fault-independent monitor control and explicit `motion-profile forget`. [The final command/result handoff](ess_api_cli_coverage.md) and [current verification](reports/ess_release_23_2026-10-05.md) supersede earlier probe-only capability descriptions below. Historical measurements remain dated evidence, not current exclusions.
+Prompt23 adds callback-aware help/capabilities, canonical typed groups, local `useaddr`, fault-independent monitor control and explicit `motion-profile forget`. [The final command/result handoff](ess_api_cli_coverage.md) and [current verification](reports/ess_release_23_2026-10-05.md) supersede earlier probe-only capability descriptions below. Historical measurements remain dated evidence, not current exclusions.
 
 The [fresh23 audit](reports/ess_release_23_audit_2026-10-05.md) adds local
 `wiring` declarations after rebinding and preserves uncertain restoration
@@ -135,9 +135,9 @@ The fixture adds these explicit host commands; they do not write to a motor:
 Settings bounds are respectively 0..5000 us, 0..20000 us and 0..256 payload
 bytes. These are input bounds, not a promise that every combination meets the
 TX/response deadlines. Tick rounding and competing work can extend the actual
-owner service gap. Load changes require an idle owner and settled DE. `reset`
+owner service gap. Load changes require an idle owner and settled DE. `stats reset`
 and an explicit load change start a fresh fixture measurement window without
-clearing faults. `reset` keeps the selected workload and last probe result.
+clearing faults. `stats reset` keeps the selected workload and last probe result.
 
 [Esp32Load](../examples/probe_cli/Esp32Load.h) owns one priority-2 competing task on
 the Arduino owner's core, a fixed 4096-byte internal stack and one protected
@@ -375,14 +375,14 @@ There are no raw writes, motion operations or automatic scans in this build.
 | `help [command]` | Show callable commands or one command's syntax and effects. |
 | `version` / `ver` | Report product, profile, library version and console protocol version. |
 | `config` / `settings` | Show host tuple, address, timing deadline and qualification state. Complete typed configuration is separately cached with its original target/generation; it never replaces the observed active host tuple. |
-| `probe [address]` / `ping [address]` | Read ESS model register `0x0000`, one word: eight-byte FC03 request, seven-byte normal reply or five-byte exception. |
-| `read state [address]` / `profile ess_rs state [address]` / `health check [address]` | Three reviewed non-consuming windows through `prepareState`/`getStateBlock`. |
+| `probe [address]` | Read ESS model register `0x0000`, one word: eight-byte FC03 request, seven-byte normal reply or five-byte exception. |
+| `read state [address]` | Three reviewed non-consuming windows through `prepareState`/`getStateBlock`. |
 | `monitor [off\|<interval_ms> <count>]` | Passive query, cancellation or finite100..60000ms/1..1000 attempts; disabled at startup. |
 | `status` | Cached transport, model and per-block observations with separate attempt/success/age. |
 | `health` | Assess cached communication freshness. State blocks show raw/decoded alarms and flags with independent ages; drive readiness remains unknown. |
 | `capture-read [address]` | Fixed non-consuming FC03 read of `0x0130/16` settings words; eight-byte request, 37-byte normal reply or five-byte exception. Timing fixture only; no model-cache update or interpreted speed values. |
 | `stats` | Show local runner and capture counters, including maximum observed poll gap. |
-| `reset` / `stats reset` | Clear local counters only. Preserve the result and recovery interlock. |
+| `stats reset` | Clear local counters only. Preserve the result and recovery interlock. |
 | `recover` | Explicit host-only RX/error recovery after the configured guard; no motor command. |
 | `drv` | Phase, queued/reserved/retained counts, capacities, absolute deadline, capture mode, input/output dispositions and timing bounds. |
 | `result [operation-id]` | Non-consuming pending or terminal view; omitted ID selects latest admission. |
@@ -396,8 +396,7 @@ latest transmitted attempt with `probe_address`; it is null before an attempt
 is available. `model_address` labels the last checked successful `raw_model`
 and its age, separately from the latest attempt/error. Failed reads preserve
 that value and its original observation bounds. Neither command performs a fresh read.
-`ping` uses the canonical command name `probe` in both admission and terminal
-records. Synchronous `reset` and `stats reset` return `result:"done"`.
+Synchronous `stats reset` returns `result:"done"`.
 Recovery emits an accepted reply and one separate `type:"recovery"` terminal.
 It cancels all old queued work at admission, retains interrupted results,
 waits for physical TX/DE and the guard, explicitly clears the adapter, then
@@ -542,7 +541,7 @@ write before returning; the runner's separate setup wait cannot shorten it.
 
 ## Typed identity/configuration subset
 
-Use `read identity [address]`, `read config [address]`, `profile ess_rs identity [address]`, `profile ess_rs config [address]`, `caps` or `profile ess_rs caps`. The [public read API](ess_reads.md) supplies every preparation/event/decoder; the CLI has no private raw-register sequence. Each admitted frontend read retains one terminal `type:read` record, with original command correlation, a separate operation ID, raw decoded codes and copied per-window TX/RX/closure evidence. `result` is non-consuming and `release` explicit. Eight retained/admitted read/probe operations share the existing frontend quota; a separate recovery record remains available. One 500-ms absolute deadline covers all five configuration windows.
+Use `read identity [address]`, `read config [address]` or `caps`. The [public read API](ess_reads.md) supplies every preparation/event/decoder; the CLI has no private raw-register sequence. Each admitted frontend read retains one terminal `type:read` record, with original command correlation, a separate operation ID, raw decoded codes and copied per-window TX/RX/closure evidence. `result` is non-consuming and `release` explicit. Eight retained/admitted read/probe operations share the existing frontend quota; a separate recovery record remains available. One 500-ms absolute deadline covers all five configuration windows.
 
 The JSON output capacity is8192 bytes. The tested full-width move record is4287
 bytes; input is128 bytes including terminator/20 tokens,32 input characters and64
@@ -563,8 +562,8 @@ See [typed state/cache contracts](ess_reads.md#state-observations-and-applicatio
 
 ## Typed optional I/O
 
-`profile ess_rs io read` exposes four input/two output assignments plus masks;
-`profile ess_rs io set x0 none` uses the same checked public function-zero setter
+`io read` exposes four input/two output assignments plus masks;
+`io set x0 none` uses the same checked public function-zero setter
 as direct code. Fresh explicit I/O and state reads precede a stopped-state
 update. The known-unwired application policy qualifies only reviewed passive
 transitions, prior-disabled input polarity and unloaded outputs; active external

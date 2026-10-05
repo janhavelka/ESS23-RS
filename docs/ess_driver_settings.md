@@ -108,8 +108,8 @@ Old state/config continuations cannot publish under a changed interpretation.
 The existing console exposes:
 
 ```text
-profile ess_rs driver read [address]
-profile ess_rs driver set FIELD INTEGER [FIELD INTEGER ...] [address]
+driver read [address]
+driver set FIELD INTEGER [FIELD INTEGER ...] [address]
 ```
 
 Fields are `direction`, `subdivision`, `word-order`, `soft-limit`, `over-limit`,

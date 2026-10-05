@@ -97,13 +97,13 @@ previous setting.
 The standalone routes use the same public preparation and sequence:
 
 ```text
-profile ess_rs segment position INDEX read [address]
-profile ess_rs segment speed INDEX read [address]
-profile ess_rs segment start INDEX read [address]
-profile ess_rs segment position|speed INDEX set speed VALUE acceleration VALUE deceleration VALUE [address]
-profile ess_rs segment start INDEX set value VALUE [address]
-profile ess_rs driver read [address]
-profile ess_rs driver set position-mode 0|1 interruption 0|1 [address]
+segment position INDEX read [address]
+segment speed INDEX read [address]
+segment start INDEX read [address]
+segment position|speed INDEX set speed VALUE acceleration VALUE deceleration VALUE [address]
+segment start INDEX set value VALUE [address]
+driver read [address]
+driver set position-mode 0|1 interruption 0|1 [address]
 ```
 
 Only explicitly named fields change. `position-mode` and `interruption` are

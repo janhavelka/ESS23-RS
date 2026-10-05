@@ -69,8 +69,8 @@ void testActualStartupAndPassiveCommands() {
     assert(hardware.allocationCaps == (MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
     assert(usbHardware.installs == 1 && usbHardware.config.tx_buffer_size == 1024 && usbHardware.config.rx_buffer_size == 256);
     assert(hardware.txPin == 47 && hardware.rxPin == 48 && hardware.dePin == 21);
-    command("@1 version\n@2 status\n@3 health\n@4 memory\n@5 reset\n");
-    contains("\"command\":\"version\""); contains("\"command\":\"reset\"");
+    command("@1 version\n@2 status\n@3 health\n@4 memory\n@5 stats reset\n");
+    contains("\"command\":\"version\""); contains("\"command\":\"stats\"");
     assert(hardware.writes == 0 && Serial.maxWriteSize <= 64);
 }
 
@@ -208,7 +208,7 @@ void testSharedCompleteInventoryAndRejectedRequestsNoTx() {
         contains((std::string("\"") + name + "\"").c_str());
     command("@2 caps\n");
     for (const char* field : {"\"io_settings\":true", "\"control_settings\":true", "\"tuning\":true", "\"persistence\":true", "\"discovery\":true", "\"segment_execution\":\"external_input\""}) contains(field);
-    for (const char* invalid : {"@3 profile ess_rs io set x4 none\n", "@4 segment position 17 read\n", "@5 tuning collision set current 1\n", "@6 move relative 1.25 steps native 60 configured\n"}) {
+    for (const char* invalid : {"@3 io set x4 none\n", "@4 segment position 17 read\n", "@5 tuning collision set current 1\n", "@6 move relative 1.25 steps native 60 configured\n"}) {
         command(invalid); contains("\"ok\":false"); assert(hardware.writes == 0);
     }
 }

@@ -396,7 +396,7 @@ void consoleAndDirectProductionParity() {
     assert(Serial.output.find("\"raw_model\":20202") != std::string::npos);
     assert(scan().findings[0].probe.rawModel == 0x4EEA && hardware.writes == 1);
     command("@4 discover finish\n"); assert(scan().released);
-    command("@5 ping\n"); reply(1, words(1, {0x4EEA}));
+    command("@5 probe\n"); reply(1, words(1, {0x4EEA}));
     Probe::ResultView result;
     assert(host(app).result(app, app->latestOperationId, result) && !result.pending);
     assert(result.probe.rawModel == scan().findings[0].probe.rawModel && hardware.writes == 2);

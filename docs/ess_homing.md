@@ -111,12 +111,12 @@ publication; any accepted write and its uncertainty remain retained.
 
 ## Console and finite host scenarios
 
-Both routes call the public preparation/execution API:
+The command calls the public preparation/execution API:
 
 ```text
 home methods
 home 35 60 30 100 zero [address]
-profile ess_rs home 33 60 30 100 zero [address]
+home 33 60 30 100 zero [address]
 ```
 
 The parameter names in help are `search_native`, `return_native` and

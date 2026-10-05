@@ -90,12 +90,12 @@ callback. Plan reports source rules and fixture availability; it does not
 certify execution readiness. Begin checks the current exact prerequisites:
 
 ```text
-profile ess_rs communication inspect
-profile ess_rs communication plan baud 38400
-profile ess_rs communication begin baud 38400
-profile ess_rs communication host before
-profile ess_rs communication confirm before
-profile ess_rs communication finish
+communication inspect
+communication plan baud 38400
+communication begin baud 38400
+communication host before
+communication confirm before
+communication finish
 ```
 
 `address` accepts an integer; `baud` accepts a documented nominal rate; `format`

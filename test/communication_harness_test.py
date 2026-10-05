@@ -61,7 +61,7 @@ class Port:
     def write(self,data):
         self.sent.append(data)
         tokens=data.decode().strip().split()
-        item=self.factory(tuple(tokens[4:]))
+        item=self.factory(tuple(tokens[2:]))
         item["id"]=int(tokens[0][1:])
         self.data+=json.dumps(item).encode()+b"\n"
         return len(data)
@@ -97,7 +97,7 @@ class CommunicationTests(unittest.TestCase):
     def test_real_console_wire_is_correlated_and_not_generic_operation(self):
         c,p=self.console()
         r=c.command("communication",host_args=("plan","baud","9600","1"),timeout_s=.1)
-        self.assertTrue(r["ok"]);self.assertEqual(p.sent,[b"@1 profile ess_rs communication plan baud 9600 1\n"])
+        self.assertTrue(r["ok"]);self.assertEqual(p.sent,[b"@1 communication plan baud 9600 1\n"])
         self.assertFalse(c.operations)
     def test_rejects_wrong_plan_and_action_and_false_activation(self):
         for mutate in [lambda r:r.update(action=6),lambda r:r["plan"].update(value=0),lambda r:r.update(save_sent=True),

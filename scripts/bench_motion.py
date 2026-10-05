@@ -13,8 +13,8 @@ from bench_probe import (BenchError, debug_session,
                          drive_reported_stopped, observe_stopped)
 from bench_session import run_recorded
 
-PHASES = ('inspect', 'actions', 'forward', 'absolute', 'return', 'stop-normal', 'stop-direct', 'restore', 'status')
-MOTION_PHASES = ('forward', 'absolute', 'return', 'stop-normal', 'stop-direct')
+PHASES = ('inspect', 'actions', 'forward', 'absolute', 'return', 'stop-normal', 'stop-fast', 'restore', 'status')
+MOTION_PHASES = ('forward', 'absolute', 'return', 'stop-normal', 'stop-fast')
 EVENT_TAIL = 32
 
 
@@ -63,26 +63,26 @@ def phase_plan(phase):
     common = ['version', 'host', 'config', 'stats', 'load', 'read-config 1', 'read-state 1']
     steps = {
         'inspect': ['read-identity 1', 'motion-profile read', 'motion-profile inspect'],
-        'actions': ['stop normal 1', 'read-state 1', 'stop direct 1', 'read-state 1',
-                    'motor-release 1', 'read-state 1', 'stop direct 1',
-                    'enable 1', 'read-state 1', 'stop direct 1', 'read-state 1'],
+        'actions': ['stop normal 1', 'read-state 1', 'stop fast 1', 'read-state 1',
+                    'motor-release 1', 'read-state 1', 'stop fast 1',
+                    'enable 1', 'read-state 1', 'stop fast 1', 'read-state 1'],
         'forward': ['motion-profile read', 'read-state 1', 'move relative 100 steps native 60 configured 1', 'read-state 1',
-                    'stop direct 1', 'read-state 1'],
-        'absolute': ['motion-profile read', 'read-state 1', 'move absolute 100 steps native 60 configured 1', 'read-state 1', 'stop direct 1', 'read-state 1'],
+                    'stop fast 1', 'read-state 1'],
+        'absolute': ['motion-profile read', 'read-state 1', 'move absolute 100 steps native 60 configured 1', 'read-state 1', 'stop fast 1', 'read-state 1'],
         'return': ['motion-profile read', 'read-state 1', 'move absolute 0 steps native 60 configured 1', 'read-state 1',
-                   'stop direct 1', 'read-state 1'],
+                   'stop fast 1', 'read-state 1'],
         'stop-normal': ['motion-profile read', 'read-state 1', 'move relative 250 steps native 60 configured 1',
                         'read-state 1 until new running report (at most 32 reads)',
                         'stop normal 1', 'inspect interrupted move result', 'read-state 1'],
-        'stop-direct': ['motion-profile read', 'read-state 1', 'move relative 250 steps native 60 configured 1',
+        'stop-fast': ['motion-profile read', 'read-state 1', 'move relative 250 steps native 60 configured 1',
                         'read-state 1 until new running report (at most 32 reads)',
-                        'stop direct 1', 'inspect interrupted move result', 'read-state 1'],
-        'restore': ['stop direct 1', 'read-state 1', 'motion-profile restore',
+                        'stop fast 1', 'inspect interrupted move result', 'read-state 1'],
+        'restore': ['stop fast 1', 'read-state 1', 'motion-profile restore',
                     'motion-profile inspect until settled (at most 100 reads)', 'probe 1'],
         'status': ['motion-profile inspect', 'probe 1'],
     }
-    cleanup = ['on failed accepted finite move: one direct stop only if no stop was attempted and framing remains synchronized; then read-state 1'] if phase in ('forward', 'absolute', 'return', 'stop-normal', 'stop-direct') else []
-    settling = ['after motion/stop: read-state 1 up to ten times, 50ms apart, until not running and raw speed zero'] if phase in ('forward', 'absolute', 'return', 'stop-normal', 'stop-direct') else []
+    cleanup = ['on failed accepted finite move: one fast stop only if no stop was attempted and framing remains synchronized; then read-state 1'] if phase in ('forward', 'absolute', 'return', 'stop-normal', 'stop-fast') else []
+    settling = ['after motion/stop: read-state 1 up to ten times, 50ms apart, until not running and raw speed zero'] if phase in ('forward', 'absolute', 'return', 'stop-normal', 'stop-fast') else []
     restoration = ['before closing this same connection: restore the saved original motion profile once, only after successful stop and fresh non-running/zero-speed evidence; verify exact readback',
                    'on failed/unknown stop or broken framing: no restore write; retain backup and unknown cleanup'] if phase in MOTION_PHASES else []
     return common + steps[phase] + settling + cleanup + restoration + ['stats', 'load', 'drv', 'memory', 'host']
@@ -175,16 +175,16 @@ def _run_phase(console, phase, record):
             if record['state_before'][0]['released']:
                 raise BenchError('action experiment requires initially enabled stationary drive; no action write')
             stop('normal'); state()
-            stop('direct'); state()
+            stop('fast'); state()
             command('motor-release', address=1)
             if not state()[0]['released']:
                 raise BenchError('release transition was not reported')
-            stop('direct')  # Reconcile uncertainty through a separate stopped report.
+            stop('fast')  # Reconcile uncertainty through a separate stopped report.
             command('enable', address=1)
             if state()[0]['released']:
                 raise BenchError('enable transition was not reported')
-            stop('direct'); state()
-        elif phase in ('forward', 'absolute', 'return', 'stop-normal', 'stop-direct'):
+            stop('fast'); state()
+        elif phase in ('forward', 'absolute', 'return', 'stop-normal', 'stop-fast'):
             # Reading the fixture refreshes current profile/provenance but keeps
             # the original saved words. It sends no setting write.
             record['profile'] = fixture('read')
@@ -225,10 +225,10 @@ def _run_phase(console, phase, record):
                 if not record['move']['ok']:
                     raise BenchError('finite move did not obtain new activity/completion reports')
                 record['state_after_move'] = settled()
-                stop('direct')
+                stop('fast')
             record['state_after'] = settled()
         elif phase == 'restore':
-            stop('direct'); state()
+            stop('fast'); state()
             record['restore'] = restore_profile(console, on_command=retain_command)
             command('probe', address=1)
         else:
@@ -248,7 +248,7 @@ def _run_phase(console, phase, record):
                 if not console.synchronized:
                     raise BenchError('framing unavailable; no stop or restoration command sent')
                 if not stop_attempted:
-                    record['failure_cleanup_stop'] = stop('direct')
+                    record['failure_cleanup_stop'] = stop('fast')
                 if not stop_confirmed:
                     raise BenchError('stop outcome unknown; no restoration command sent')
                 if settlement_failed:

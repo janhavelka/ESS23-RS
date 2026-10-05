@@ -86,9 +86,7 @@ the application binding generation and cancels old continuations, preserving
 their outcomes and raw evidence. A bit-identical delayed RTU response still has
 no wire request ID; host generations do not eliminate that ambiguity.
 
-The existing console supports `read identity [address]`, `read config [address]`,
-`profile ess_rs identity [address]`, `profile ess_rs config [address]`, `caps` and
-`profile ess_rs caps`. Accepted records use canonical `read-identity` and
+The existing console supports `read identity [address]`, `read config [address]` and `caps`. Accepted records use canonical `read-identity` and
 `read-config` names. One later `type:read` terminal record carries copied
 per-window TX/RX data and timing. `result` inspects the same retained operation;
 `cancel` and `release` use its operation ID, independently of command correlation.
@@ -154,8 +152,7 @@ and delayed delivery cannot rejuvenate observations; older evidence/generations
 cannot replace newer values. Failed attempts preserve prior values and bounds.
 Recover changes the binding generation, making old history non-current.
 
-`read state [address]`, `profile ess_rs state [address]` and `health check [address]`
-use this same API; all accepted/terminal records use canonical `read-state`.
+`read state [address]` uses this API; all accepted/terminal records use canonical `read-state`.
 Plain `status`/`health` are passive, include separate per-block ages and source,
 and keep communication freshness, drive alarm, unknown readiness and retained
 operation outcome independent. A checked exception proves communication only.

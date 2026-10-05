@@ -205,7 +205,7 @@ void consoleAdmissionAndTerminalCorrelation() {
     fresh(); readIo();
     for (unsigned i = 0; i < 1000 && app->outputCount; ++i) step();
     assert(!app->outputCount); stateEvidence(); Serial.output.clear();
-    Serial.input = "@55 profile ess_rs io set x0 none\n";
+    Serial.input = "@55 io set x0 none\n";
     for (unsigned i = 0; i < 100 && !Serial.input.empty(); ++i) step();
     assert(Serial.input.empty());
     for (unsigned i = 0; i < 100; ++i) step();

@@ -238,17 +238,17 @@ class Coverage(unittest.TestCase):
         self.rejected(lambda value: value["operations"][0]["api"].update(header="examples/common/RtuBusOwner.h"))
 
     def test_reachability_requires_a_real_producing_route(self):
-        for command in ("missing-command", "profile ess_rs missing", "profile other identity",
-                        "profile ess_rs tuning filters start", "profile ess_rs driver read extra",
-                        "profile ess_rs segment position 17 read", "version", "profile list",
+        for command in ("missing-command", "missing", "profile other identity",
+                        "tuning filters start", "driver read extra",
+                        "segment position 17 read", "version", "profile list",
                         "monitor", "discover inspect", "config", "status", "release",
                         "wiring", "wiring x0 unconnected"):
             with self.subTest(command=command):
                 self.rejected(lambda value: value["operations"][0].update(cli_commands=[command]))
         update = lambda value: next(row for row in value["operations"] if row["id"] == "driver_settings_update")
-        self.rejected(lambda value: update(value).update(cli_commands=["profile ess_rs driver read"]))
+        self.rejected(lambda value: update(value).update(cli_commands=["driver read"]))
         self.rejected(lambda value: update(value).update(cli_commands=["driver set invented garbage"]))
-        self.rejected(lambda value: update(value).update(cli_commands=["profile ess_rs driver set invented INTEGER"]))
+        self.rejected(lambda value: update(value).update(cli_commands=["driver set invented INTEGER"]))
 
     def test_position_profile_read_restore_do_not_claim_start_speed_write(self):
         result = operations.check(INVENTORY, LEDGER)
@@ -258,7 +258,7 @@ class Coverage(unittest.TestCase):
         self.assertEqual(rows["POSITION_START_SPEED"]["gaps"], ["position_start_speed_write"])
         restored = next(row for row in INVENTORY["operations"] if row["id"] == "position_profile_restore")
         self.assertNotIn("POSITION_START_SPEED", restored["records"])
-        self.assertEqual(restored["cli_commands"], ["motion-profile restore", "profile ess_rs motion-profile restore"])
+        self.assertEqual(restored["cli_commands"], ["motion-profile restore"])
         gap = next(row for row in INVENTORY["gaps"] if row["id"] == "position_profile_candidate_staging")
         self.assertEqual(gap["owner"], "09/11")
         self.assertEqual(gap["disposition"], "PARTIAL")
@@ -270,7 +270,7 @@ class Coverage(unittest.TestCase):
         restored = lambda value: next(row for row in value["operations"] if row["id"] == "position_profile_restore")
         for leaf in ("inspect", "forget", "set", "restore extra"):
             with self.subTest(leaf=leaf):
-                self.rejected(lambda value: restored(value).update(cli_commands=["profile ess_rs motion-profile " + leaf]))
+                self.rejected(lambda value: restored(value).update(cli_commands=["motion-profile " + leaf]))
 
     def test_gap_owners_and_unlinked_source_entries_are_mandatory(self):
         self.rejected(lambda value: value.update(gaps=[]))
@@ -336,7 +336,7 @@ class Coverage(unittest.TestCase):
         self.rejected(lambda value: value["public_surface"].append(copy.deepcopy(value["public_surface"][0])))
         self.rejected(lambda value: value["public_surface"][0].update(classification="SUPPORTED"))
         self.rejected(lambda value: value["public_surface"][0].update(cli_topics=["invented-command"]))
-        self.rejected(lambda value: value["public_surface"][0].update(cli_topics=["profile ess_rs invented_no_handler"]))
+        self.rejected(lambda value: value["public_surface"][0].update(cli_topics=["invented_no_handler"]))
 
     def test_evidence_needs_file_and_explicit_reason(self):
         self.rejected(lambda value: value["operations"][0]["hardware"].update(evidence=[]))

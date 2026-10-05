@@ -1,12 +1,13 @@
 # MotorControl-RS standalone CLI contract
 
 Ordinary console commands now use a [human-readable presentation](console.md),
-with one complete grouped `help`/`?` menu, usage examples and operation hints.
-`help advanced` is a compatibility spelling for that same menu. Both human and
-JSON inventories list canonical commands once; accepted aliases retain their
-existing execution paths. `help COMMAND` exposes actual detailed syntax, including
-`move`, without a separate abbreviated override. Explicit `@ID` commands
-retain the existing JSONL schema. Output format is retained per asynchronous
+with one complete grouped `help` menu, usage examples and operation hints.
+Human and JSON inventories list each command once. `help COMMAND` exposes
+actual detailed syntax, including `move`. Console protocol 3 removes the old
+`?`, `ver`, `ping`, `reset`, `health check`, `help advanced` and `profile ess_rs`
+operation aliases. `stop fast` replaces `stop direct`, including the bounded
+velocity stop policy. Scripts must use the matching protocol-3 client.
+Explicit `@ID` commands retain structured JSONL output. Output format is retained per asynchronous
 operation and deferred stop reply; there is one command/API/owner path.
 
 The interactive `moveby VALUE [steps|deg|turn|mm]` / `moveto ...` workflow owns
@@ -38,7 +39,7 @@ sends only motor reads; motion/settings/persistence require explicit selection.
 One port session retains snapshots through cleanup, with bounded evidence and
 unknown outcomes preserved on framing/stop/restoration failure.
 
-Prompt23 reconciles callable help, shared typed parameter aliases, target
+Prompt23 reconciles callable help, canonical typed parameter groups, target
 selection, capability states and local polling controls. The complete
 [API/CLI coverage handoff](ess_api_cli_coverage.md) records exact implemented
 routes and substantial gaps returned to their owning prompts. `useaddr` is
@@ -53,8 +54,7 @@ invalidate dependent host knowledge; they do not change drive assignments or
 terminal levels. `useaddr` resets declarations to unknown, so declare the
 selected fixture explicitly after rebinding.
 
-`profile ess_rs motion-profile` accepts the same read/inspect/restore/forget
-operations as `motion-profile`. An accepted restoration reserves the axis until
+`motion-profile` accepts read/inspect/restore/forget. An accepted restoration reserves the axis until
 checked readback matches the original snapshot. On failed or uncertain restore,
 `restore_unsettled` blocks another restore, forget, rebinding and competing
 motor writes. Repair transport explicitly if needed, refresh configuration and
@@ -64,7 +64,7 @@ reset and recovery never erase or replay it. Historical write bytes, outcome,
 deadline and generations remain separate from the reconciliation read; matching
 stored words does not turn a lost acknowledgement into an acknowledged write.
 
-Prompt21 implements `profile ess_rs persistence inspect|snapshot|plan|begin|verify|host before|finish`
+Prompt21 implements `persistence inspect|snapshot|plan|begin|verify|host before|finish`
 through the public [persistence API](ess_persistence.md). Save and factory restore
 are explicit stopped-state actions. One retained invocation, two nonvolatile
 attempts per boot, and two verification read sequences per invocation are
@@ -73,7 +73,7 @@ and ACK/live readback/restart survival are separate. The existing commissioning
 token excludes other producers and is retained through uncertain outcomes.
 No reset/recover/probe/stress path writes persistence.
 
-Prompt20 implements `profile ess_rs communication inspect|plan|begin|host|confirm|finish`
+Prompt20 implements `communication inspect|plan|begin|host|confirm|finish`
 through the public communication preparation. Candidate selection is explicit;
 ordinary producers remain excluded until the session settles. The finite Python
 `communication-check` defaults to planning and never saves, restarts or replays
@@ -89,22 +89,22 @@ and blocks admissions until explicit repair. `recover` cannot clear that failure
 See [host serial contracts](host_serial.md) for timing, generation isolation,
 immutable `host_serial` result provenance and the finite Python `host-check`.
 
-Prompt18 implements `profile ess_rs tuning GROUP read|set FIELD INTEGER ...`
+Prompt18 implements `tuning GROUP read|set FIELD INTEGER ...`
 for filters, current-loop, LA and collision through the same public typed
 preparations. Native units, group masks, partial progress and stored versus
 active settings remain explicit; [tuning contracts](ess_tuning.md) describe
 the command bounds and actual standalone qualification policy.
 
-Prompt17 implements `profile ess_rs control read|set FIELD VALUE ... [address]` through `ControlSettings.h` and the existing settings sequence. Strict native integer fields and named algorithms share direct API validation. Unknown codes, partial progress and stored versus acknowledged/active settings remain separate; [control contracts](ess_control_settings.md) state the128-byte/20-token candidate limit.
+Prompt17 implements `control read|set FIELD VALUE ... [address]` through `ControlSettings.h` and the existing settings sequence. Strict native integer fields and named algorithms share direct API validation. Unknown codes, partial progress and stored versus acknowledged/active settings remain separate; [control contracts](ess_control_settings.md) state the128-byte/20-token candidate limit.
 
 
-Prompt16 adds `profile ess_rs segment position|speed|start INDEX read|set ... [address]`. Index1..16, strict integer field/value pairs and the public whole-candidate validator precede admission. Supported scalar fields are speed/acceleration/deceleration and shared starting `value`; `target` reports unsupported before any write. Type/command `segment`, driver group and retained `segment_index` correlate accepted/terminal/inspection records. Configuration does not generate an external trigger; see [stored record contracts](ess_segments.md).
+Prompt16 adds `segment position|speed|start INDEX read|set ... [address]`. Index1..16, strict integer field/value pairs and the public whole-candidate validator precede admission. Supported scalar fields are speed/acceleration/deceleration and shared starting `value`; `target` reports unsupported before any write. Type/command `segment`, driver group and retained `segment_index` correlate accepted/terminal/inspection records. Configuration does not generate an external trigger; see [stored record contracts](ess_segments.md).
 
 
-Prompt14 adds `home methods` and `home METHOD SEARCH_NATIVE RETURN_NATIVE RAMP_NATIVE zero [address]`, plus `profile ess_rs home ...`, through [the installed homing API](ess_homing.md). Methods33/34/35 are implemented; all35 method dispositions and reasons are queryable. Production timing/method gates remain closed; parameters are native words, not inferred RPM or acceleration.
+Prompt14 adds `home methods` and `home METHOD SEARCH_NATIVE RETURN_NATIVE RAMP_NATIVE zero [address]`, through [the installed homing API](ess_homing.md). Methods33/34/35 are implemented; all35 method dispositions and reasons are queryable. Production timing/method gates remain closed; parameters are native words, not inferred RPM or acceleration.
 
-Implemented driver routes: `profile ess_rs driver read [address]` and
-`profile ess_rs driver set FIELD INTEGER [FIELD INTEGER ...] [address]` use the
+Implemented driver routes: `driver read [address]` and
+`driver set FIELD INTEGER [FIELD INTEGER ...] [address]` use the
 same public [driver preparation](ess_driver_settings.md). Groups validate before
 TX, retain ACK/readback/partial uncertainty and use existing result/cancel/release
 correlation. Long groups respect the existing 128-byte input bound. Native limit
@@ -114,9 +114,8 @@ at other addresses retain their own results. Unconfirmed reads/readbacks never
 clear write uncertainty or qualify another settings update.
 
 
-Prompt10 implements `move absolute`, `move angle`, matching
-`profile ess_rs move-absolute|move-angle`, and explicit zero-only
-`position-clear` / `profile ess_rs clear-position`. See the actual positional
+Prompt10 implements `move absolute`, `move angle` and explicit zero-only
+`position-clear`. See the actual positional
 grammar and limits in [finite positioning](ess_position.md),
 [clear action](ess_actions.md) and [pure previews](axis_preparation.md).
 The future grammar below does not add aliases to the current console.
@@ -128,7 +127,7 @@ reviewed finite native free-shaft subset has functional drive-report evidence;
 wider unit/fixture cases remain qualification-gated.
 
 Prompt09 implements `move relative <value> <unit> <native|motor|load> <native_rpm>
-configured [address]` and `profile ess_rs move-relative` through the same public
+configured [address]` through the public
 preparation/sequence. Accepted and retained terminal evidence remains distinct;
 see [finite relative positioning](ess_position.md). The ordinary bench firmware supports the reviewed finite free-shaft subset.
 Independent physical units, electrical timing and wider motion qualification
@@ -145,7 +144,7 @@ profiles, beginning with `MotorControlRS::ESS_RS`. The
 [API/CLI handoff](ess_api_cli_coverage.md) identifies every implemented route
 and named prerequisite gaps. Broader grammar examples below remain planned
 where they do not match callable help; they are not claims of dispatch support.
-The current protocol-2 subset also implements `drv`, non-consuming `result`,
+The current protocol-3 subset also implements `drv`, non-consuming `result`,
 explicit `release`, local `cancel [operation-id]` and asynchronous host recovery.
 Finite admission/retention/output limits and measured evidence are in the
 [probe guide](esp32_probe.md) and [prompt 03 report](reports/ess_release_03_2026-10-03.md).
@@ -222,7 +221,7 @@ instead of routing all numbers through floating point.
 
 The following is the intended command vocabulary. Optional arguments and
 profile-specific fields are defined by the public operation descriptors when
-implemented. Aliases have identical effects on every platform.
+implemented. Each operation has one canonical spelling on every platform.
 
 | Command | Public operation or application behavior | Motor bus traffic |
 | --- | --- | --- |
@@ -236,18 +235,17 @@ implemented. Aliases have identical effects on every platform.
 | `host [baud <rate> \| fmt <format>]` | Show/change host serial tuple when idle, subject to adapter capability | None |
 | `axis config show` | `getAxisConfig`, including scale/reference sources and missing fields | None |
 | `axis config set <fields...>` | Build a complete candidate, `validateAxisConfig`, then idle-only `configureAxis` | None |
-| `ping` / `probe` | `prepareProbe`; smallest supported non-changing presence query, with explicit identity confidence | Minimal query |
+| `probe` | `prepareProbe`; smallest supported non-changing presence query, with explicit identity confidence | Minimal query |
 | `read identity` | Implemented `ESS_RS::prepareIdentity`/`getIdentity`; raw identity with unresolved model/firmware mapping | Reads |
 | `discover [manufacturer <id> \| profile <id>] [bounds...]` | Application-owned bounded scan through reviewed probe/identity operations | Non-changing queries |
 | `read state` | Implemented `ESS_RS::prepareState`/`getStateBlock`; three independently timed non-consuming blocks | Reads |
 | `read config` | Implemented `ESS_RS::prepareConfig`/`getConfig`; bounded read-only motion-prerequisite subset | Reads |
 | `status` | Cached host, transport, motor and operation state with ages | None |
 | `health` | Cached presence/freshness and motor-readiness assessment | None |
-| `health check` | Implemented state refresh; canonical `read-state` correlation, then separate cached assessment | Reads |
 | `stats` | Transport/application counters | None |
-| `stats reset` / `reset` | Clear local counters only | None |
+| `stats reset` | Clear local counters only | None |
 | `drv` | Transport phase, deadlines, queue/buffer state and adapter capabilities | None |
-| `diagnose` / `diag` | Bounded public non-consuming observations plus host diagnostics | Reads |
+| `diagnose` | Bounded public non-consuming observations plus host diagnostics | Reads |
 | `auto on [ms]` / `auto off` | Start/stop optional telemetry polling; report admitted cadence | Reads while enabled |
 | `result [operation-id]` | Retained operation evidence/result, without consuming it | None |
 | `cancel` | Cancel unsent work/local waiting; settle existing activity | No new device command |
@@ -466,7 +464,7 @@ separates the following information:
   including reasons and configured thresholds. Monitoring `disabled` does not
   mean drive windings released.
 
-`status` and plain `health` are passive. Explicit `read ...` and `health check`
+`status` and plain `health` are passive. Explicit `read ...` commands
 refresh observations. This intentionally resolves inconsistent live/cached
 behavior among [sibling consoles](reference/02_ecosystem_review.md) and matches
 passive FieldCore snapshots. Failed reads retain last valid values and advance
@@ -486,14 +484,13 @@ state does not prove that a lost non-idempotent command never executed. Do not
 automatically retry relative movement or replay commands after recovery.
 Implemented `monitor off` disables finite observation polling and cancels its local continuation while physical TX settles; it is not a motor stop. Other planned automatic modes remain unimplemented. `recover` explicitly interrupts queued/active work and settles physical TX/DE
 before reinitializing host transport. It retains uncertain results and never
-clears alarms, enables the motor or resends work. `reset` always means local
+clears alarms, enables the motor or resends work. `stats reset` always means local
 statistics only and does not erase uncertain operations or coordinate state.
 
 ## Independent consumers and verification
 
 Prompt 08 implements the [bounded action routes](ess_actions.md): `enable`,
-`motor-release`, `alarm-clear`, and `stop normal|direct`, with matching ESS-native
-spellings. `release operation_id` continues to release a host result. Stop
+`motor-release`, `alarm-clear`, and `stop normal|fast`, through public ESS preparations. `release operation_id` continues to release a host result. Stop
 admission has reserved correlation/output capacity and never substitutes another
 stop policy. Terminal evidence exposes accepted-stop interruption separately
 from actual write acknowledgement and checked completion. Normal firmware uses the configured wiring/receive contract for checked
@@ -531,15 +528,15 @@ contract tests, firmware builds and physical motor qualification are distinct.
 See [verification](verification.md) and the linked bench reports for completed
 checks; the remaining native families and physical qualification remain open.
 
-Prompt11 implements `velocity VALUE UNIT FRAME DURATION_MS configured normal|direct`
-and `profile ess_rs velocity` with the same public preparation and bounded
+Prompt11 implements `velocity VALUE UNIT FRAME DURATION_MS configured normal|fast`
+with public preparation and bounded
 start/observe/stop sequence. Strict optional rounding/approximation, result
 correlation, limits and Python cleanup are documented in [finite serial velocity](ess_velocity.md).
 Velocity zero is distinct from stop/release; unqualified ramps and unsupported
 acceleration/jerk/blending/live/effort modes fail before traffic.
 
 
-Prompt15 implements `profile ess_rs io read|set` through the same installed
+Prompt15 implements `io read|set` through the same installed
 `DriverSettings.h` preparation/decoder as direct callers. Fields are
 `input-polarity`, `x0`-`x3`, `output-polarity`, `y0`, `y1`, and `custom`;
 `none` selects documented function zero. Values are strict integers, duplicate

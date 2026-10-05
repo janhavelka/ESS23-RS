@@ -53,13 +53,13 @@ cannot provide motor-restart evidence. Factory defaults are never guessed.
 ## Application and console ownership
 
 ```text
-profile ess_rs persistence inspect
-profile ess_rs persistence plan save|factory-restore
-profile ess_rs persistence snapshot
-profile ess_rs persistence begin save|factory-restore
-profile ess_rs persistence verify
-profile ess_rs persistence host before
-profile ess_rs persistence finish
+persistence inspect
+persistence plan save|factory-restore
+persistence snapshot
+persistence begin save|factory-restore
+persistence verify
+persistence host before
+persistence finish
 ```
 
 Inspect/plan are passive. Snapshot acquires the existing exclusive commissioning

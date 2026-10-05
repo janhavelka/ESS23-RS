@@ -93,7 +93,7 @@ ESS::DriverRequest update() {
     r.configurationGeneration = app->axis.generation; return r;
 }
 uint32_t admit(const ESS::DriverRequest& request) {
-    Serial.input = "@2 profile ess_rs driver set direction 1 subdivision 1200\n";
+    Serial.input = "@2 driver set direction 1 subdivision 1200\n";
     for (unsigned i = 0; i < 1000 && !Serial.input.empty(); ++i) step();
     const uint32_t id = app->latestOperationId;
     assert(view(id).driverContext->request.fields == request.fields);

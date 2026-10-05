@@ -223,8 +223,8 @@ fixture = json.loads(rows[0])["record"]
 terminal = None
 def handler(command_id, command, arguments):
     global terminal
-    if command == "profile":
-        assert arguments == ["ess_rs", "control", "read", "1"]
+    if command == "control":
+        assert arguments == ["read", "1"]
         terminal = {**fixture, "id": command_id, "command_id": command_id, "operation_id": 101}
         return encoded(reply(command_id, "control", result="accepted", address=1, operation_id=101)) + encoded(terminal)
     if command == "result":
@@ -239,7 +239,7 @@ console = bench_probe.Console(port, clock=clock, sleeper=clock.sleep,
 console.identify(timeout_s=0.1)
 bench_probe.driver_read_campaign(console, timeout_s=0.1, address=1, command="control", driver_args=("read",))
 assert events[-1][0] == "summary" and events[-1][1]["mode"] == "control-read"
-assert [line.decode().split()[1] for line in port.writes] == ["version", "profile", "result", "release"]
+assert [line.decode().split()[1] for line in port.writes] == ["version", "control", "result", "release"]
 parsed = bench_probe.arguments(["--port", "fake", "--log", "unused.jsonl", "control", "set", "algorithm", "open-loop"])
 assert parsed.mode == "control" and driver_arguments(parsed.driver_args, "control_settings") == {"algorithm": 1}
 print("PASS: 23 actual control terminals, snapshot deadlines, 16-step capacity, exact grammar and retained transport")

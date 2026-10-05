@@ -212,9 +212,6 @@ CLI grammar is:
 move relative <value> <unit> <native|motor|load> <native_rpm> configured [address]
 move absolute <value> <unit> <native|motor|load> <native_rpm> configured [address]
 move angle <value> <turn|deg|rad> <motor|load> <positive|negative|shortest> <reject|positive|negative> <native_rpm> configured [address]
-profile ess_rs move-relative <value> <unit> <native|motor|load> <native_rpm> configured [address]
-profile ess_rs move-absolute <value> <unit> <native|motor|load> <native_rpm> configured [address]
-profile ess_rs move-angle <value> <turn|deg|rad> <motor|load> <path> <tie> <native_rpm> configured [address]
 ```
 
 All units (`steps`, `fullsteps`, `counts`, `turn`, `deg`, `rad`, `mm`) share public
@@ -243,7 +240,7 @@ negative encoding and conversion prerequisites remain real checks; there is no
 analyzer admission flag or implicit motor commissioning.
 
 Python `move-relative`, `move-absolute` and `move-angle` with explicit
-`--cleanup-stop normal|direct` perform one attempt,
+`--cleanup-stop normal|fast` perform one attempt,
 retained inspection, explicit cleanup stop, checked final state/health, and
 local result releases. A malformed session becomes unusable and cannot replay
 the move. An interrupted acceptance/result wait also makes the session unusable,

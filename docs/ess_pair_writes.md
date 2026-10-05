@@ -101,7 +101,7 @@ and `advanceMove` already encode the target with `encodeInt32` and validate
 the `0x0021/5` transaction before publishing work. The mathematical signed32
 subset is not a source range resolution; negative values require the explicit
 qualified two's-complement prerequisite. The existing `move relative`,
-`move absolute`, `move angle` and `profile ess_rs move-*` console routes call
+`move absolute`, `move angle` and `move-*` console routes call
 these public operations. Keep their readiness, axis reservation, uncertainty
 and physical-write gates; do not add duplicate pair writers or unavailable
 setter stubs. Exact CLI grammar is in [the positioning guide](ess_position.md).

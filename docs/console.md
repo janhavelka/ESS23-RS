@@ -1,6 +1,6 @@
 # Using the motor console
 
-Open the board's serial terminal and type `help` or `?`. Ordinary commands print
+Open the board's serial terminal and type `help`. Ordinary commands print
 readable headings, labeled values and next-step hints. `help COMMAND` shows the
 exact syntax, with examples for common commands. Both Arduino and native ESP-IDF
 use this console.
@@ -37,7 +37,7 @@ after success. Actual enable, alarm, encoding and limit checks still apply.
 | `accel 100` / `decel 100` | Choose each ramp time in 0..2000 ms; these are not acceleration in steps/s^2. |
 | `stepsperturn 1000` | Declare command increments per motor turn in the host; no drive subdivision write. |
 | `stop normal` | Stop using the configured deceleration. |
-| `stop direct` | Request ESS emergency stop without that ramp; RS485 command, not a hardwired safety circuit. |
+| `stop fast` | Request ESS emergency stop without that ramp; RS485 command, not a hardwired safety circuit. |
 
 Speed/ramp choices apply on the next move, not immediately. These manufacturer
 positioning ranges replace the old 60 rpm / 250-increment experiment limits.
@@ -54,9 +54,8 @@ clear that declaration. Millimetres (`mm`) require configured load travel;
 its existing profile prerequisite is established.
 
 `help` is one complete grouped menu, covering everyday control and diagnostics.
-Each command is listed once. `help advanced` and `?` show that same menu;
-`help COMMAND` shows detailed syntax and examples. Compatibility aliases remain
-accepted but are not repeated as separate menu entries. Existing `driver`, `read config` and `motion-profile` commands remain
+Each command has one spelling. `help COMMAND` shows detailed syntax and examples.
+Existing `driver`, `read config` and `motion-profile` commands remain
 for specific operations and automation. `config` describes the host connection;
 `settings` now means actual motor settings, replacing the former host alias.
 `motion write` selects default full setup. Optional `motion stored` requires
@@ -107,10 +106,10 @@ when execution is unknown.
 - `result N` inspects the retained operation without consuming it.
 - `release N` releases a completed host result; it does not release motor windings.
 - `cancel N` cancels local work; it does not stop a motor.
-- `stop normal` and `stop direct` request their distinct documented stop policies.
+- `stop normal` and `stop fast` request their distinct documented stop policies.
 - `motor-release` explicitly requests winding release; `enable` requests enable.
 
-`stop direct` is the ESS emergency-stop command over RS485: it bypasses the
+`stop fast` is the ESS emergency-stop command over RS485: it bypasses the
 configured deceleration ramp. `stop normal` uses that ramp. Both use the existing
 priority stop path after the in-flight bus transaction settles. A serial stop
 requires working communication and is not a hardwired emergency-stop circuit.
@@ -121,7 +120,7 @@ Use `help move` for the full advanced move grammar (`@1 help move` for JSON). Ex
 commands and public C++ requests remain available.
 These commands keep the same prerequisites and sequence as the regular library
 API. No motion or setting changes occur merely by opening the console or asking
-for help. `recover` repairs host transport only, and `reset` clears host counters.
+for help. `recover` repairs host transport only, and `stats reset` clears host counters.
 Neither command replays a motor write or erases an uncertain outcome.
 
 ## Diagnostics

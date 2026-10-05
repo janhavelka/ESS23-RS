@@ -144,8 +144,8 @@ silently disables or reassigns an input function.
 The existing console and Python transport call the same public preparations:
 
 ```text
-profile ess_rs tuning filters|current-loop|la|collision read [address]
-profile ess_rs tuning GROUP set FIELD INTEGER [FIELD INTEGER ...] [address]
+tuning filters|current-loop|la|collision read [address]
+tuning GROUP set FIELD INTEGER [FIELD INTEGER ...] [address]
 ```
 
 | Group | Fields |

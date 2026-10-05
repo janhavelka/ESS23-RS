@@ -61,7 +61,7 @@ unconnected explicitly with `wiring x0 unconnected` etc. That writes no motor
 assignment. Do not declare wiring for an unknown fixture by copying the bench.
 
 `probe` tests presence. `read identity`, `read config`, `read state` refresh their
-own observations. `status`/`health` are cached; `health check` performs reads.
+own observations. `status`/`health` are cached; `read state` performs reads.
 Each admitted read/action has an operation ID and retained terminal record.
 Inspect with `result ID` and explicitly free a settled record with `release ID`.
 **`release ID` frees host storage; `motor-release` releases the drive.** Eight

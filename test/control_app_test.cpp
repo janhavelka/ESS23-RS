@@ -122,7 +122,7 @@ void safeDelayAndGuards() {
     assert(host(app).startDriver(app,2,1,ESS::DriverKind::UPDATE,invalid,unchanged) == Probe::Action::INVALID);
     assert(unchanged == 99 && hardware.writes == writes);
     const auto generation = app->axis.generation;
-    Serial.input = "@2 profile ess_rs control set lock-delay 1001\n";
+    Serial.input = "@2 control set lock-delay 1001\n";
     for (unsigned i = 0; i < 1000 && !Serial.input.empty(); ++i) step();
     const auto id = app->latestOperationId;
     assert(view(id).driverContext->group == ESS::DriverGroup::CONTROL_SETTINGS && axisReserved(*app,1));

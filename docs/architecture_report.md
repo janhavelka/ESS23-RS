@@ -264,7 +264,7 @@ A native ESP-IDF entry point with equivalent semantics remains planned.
 The CLI should call the same public motion/profile APIs that upper firmware
 uses. It should not perform its own angle conversion or construct ESS
 register sequences. `status` and `health` show cached evidence; explicit
-read/check commands refresh it. `reset` clears local statistics, `recover`
+read/check commands refresh it. `stats reset` clears local statistics, `recover`
 repairs host transport, and motor actions have explicit names. See the
 [CLI contract](cli_contract.md) for the agreed vocabulary.
 

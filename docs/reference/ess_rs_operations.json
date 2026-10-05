@@ -221,8 +221,7 @@
         ]
       },
       "cli_commands": [
-        "probe",
-        "ping"
+        "probe"
       ],
       "implementation": "IMPLEMENTED",
       "cli": "REACHABLE",
@@ -265,8 +264,7 @@
         ]
       },
       "cli_commands": [
-        "read identity",
-        "profile ess_rs identity"
+        "read identity"
       ],
       "implementation": "IMPLEMENTED",
       "cli": "REACHABLE",
@@ -320,8 +318,7 @@
         ]
       },
       "cli_commands": [
-        "read config",
-        "profile ess_rs config"
+        "read config"
       ],
       "implementation": "IMPLEMENTED",
       "cli": "REACHABLE",
@@ -367,8 +364,6 @@
       },
       "cli_commands": [
         "read state",
-        "profile ess_rs state",
-        "health check",
         "monitor INTERVAL_MS COUNT"
       ],
       "implementation": "IMPLEMENTED",
@@ -423,10 +418,7 @@
       "cli_commands": [
         "move relative",
         "move absolute",
-        "move angle",
-        "profile ess_rs move-relative",
-        "profile ess_rs move-absolute",
-        "profile ess_rs move-angle"
+        "move angle"
       ],
       "implementation": "IMPLEMENTED",
       "cli": "REACHABLE",
@@ -468,8 +460,7 @@
         ]
       },
       "cli_commands": [
-        "move relative",
-        "profile ess_rs move-relative"
+        "move relative"
       ],
       "implementation": "IMPLEMENTED",
       "cli": "REACHABLE",
@@ -516,8 +507,7 @@
         ]
       },
       "cli_commands": [
-        "enable",
-        "profile ess_rs enable"
+        "enable"
       ],
       "implementation": "IMPLEMENTED",
       "cli": "REACHABLE",
@@ -558,8 +548,7 @@
         ]
       },
       "cli_commands": [
-        "motor-release",
-        "profile ess_rs release"
+        "motor-release"
       ],
       "implementation": "IMPLEMENTED",
       "cli": "REACHABLE",
@@ -600,8 +589,7 @@
         ]
       },
       "cli_commands": [
-        "alarm-clear",
-        "profile ess_rs clear-alarm"
+        "alarm-clear"
       ],
       "implementation": "IMPLEMENTED",
       "cli": "REACHABLE",
@@ -639,8 +627,7 @@
         ]
       },
       "cli_commands": [
-        "stop normal",
-        "profile ess_rs normal-stop"
+        "stop normal"
       ],
       "implementation": "IMPLEMENTED",
       "cli": "REACHABLE",
@@ -681,8 +668,7 @@
         ]
       },
       "cli_commands": [
-        "stop direct",
-        "profile ess_rs emergency-stop"
+        "stop fast"
       ],
       "implementation": "IMPLEMENTED",
       "cli": "REACHABLE",
@@ -725,9 +711,7 @@
       },
       "cli_commands": [
         "move absolute",
-        "move angle",
-        "profile ess_rs move-absolute",
-        "profile ess_rs move-angle"
+        "move angle"
       ],
       "implementation": "IMPLEMENTED",
       "cli": "REACHABLE",
@@ -768,8 +752,7 @@
         ]
       },
       "cli_commands": [
-        "position-clear",
-        "profile ess_rs clear-position"
+        "position-clear"
       ],
       "implementation": "IMPLEMENTED",
       "cli": "REACHABLE",
@@ -800,8 +783,7 @@
         ]
       },
       "cli_commands": [
-        "velocity",
-        "profile ess_rs velocity"
+        "velocity"
       ],
       "implementation": "IMPLEMENTED",
       "cli": "REACHABLE",
@@ -839,8 +821,7 @@
         ]
       },
       "cli_commands": [
-        "velocity",
-        "profile ess_rs velocity"
+        "velocity"
       ],
       "implementation": "IMPLEMENTED",
       "cli": "REACHABLE",
@@ -892,7 +873,6 @@
         ]
       },
       "cli_commands": [
-        "profile ess_rs driver read",
         "driver read"
       ],
       "implementation": "IMPLEMENTED",
@@ -936,7 +916,6 @@
         ]
       },
       "cli_commands": [
-        "profile ess_rs driver set",
         "driver set"
       ],
       "implementation": "IMPLEMENTED",
@@ -1026,8 +1005,7 @@
         ]
       },
       "cli_commands": [
-        "home",
-        "profile ess_rs home"
+        "home"
       ],
       "implementation": "IMPLEMENTED",
       "cli": "REACHABLE",
@@ -1108,8 +1086,7 @@
         ]
       },
       "cli_commands": [
-        "home",
-        "profile ess_rs home"
+        "home"
       ],
       "implementation": "IMPLEMENTED",
       "cli": "REACHABLE",
@@ -1159,7 +1136,6 @@
         ]
       },
       "cli_commands": [
-        "profile ess_rs io read",
         "io read"
       ],
       "implementation": "IMPLEMENTED",
@@ -1206,7 +1182,6 @@
         ]
       },
       "cli_commands": [
-        "profile ess_rs io set",
         "io set"
       ],
       "implementation": "IMPLEMENTED",
@@ -1372,7 +1347,6 @@
         ]
       },
       "cli_commands": [
-        "profile ess_rs segment position INDEX read",
         "segment position INDEX read"
       ],
       "implementation": "IMPLEMENTED",
@@ -1456,7 +1430,6 @@
         ]
       },
       "cli_commands": [
-        "profile ess_rs segment position INDEX set",
         "segment position INDEX set"
       ],
       "implementation": "IMPLEMENTED",
@@ -1587,7 +1560,6 @@
         ]
       },
       "cli_commands": [
-        "profile ess_rs segment speed INDEX read",
         "segment speed INDEX read"
       ],
       "implementation": "IMPLEMENTED",
@@ -1671,7 +1643,6 @@
         ]
       },
       "cli_commands": [
-        "profile ess_rs segment speed INDEX set",
         "segment speed INDEX set"
       ],
       "implementation": "IMPLEMENTED",
@@ -1724,7 +1695,6 @@
         ]
       },
       "cli_commands": [
-        "profile ess_rs segment start INDEX read",
         "segment start INDEX read"
       ],
       "implementation": "IMPLEMENTED",
@@ -1776,7 +1746,6 @@
         ]
       },
       "cli_commands": [
-        "profile ess_rs segment start INDEX set",
         "segment start INDEX set"
       ],
       "implementation": "IMPLEMENTED",
@@ -1821,7 +1790,6 @@
         ]
       },
       "cli_commands": [
-        "profile ess_rs control read",
         "control read"
       ],
       "implementation": "IMPLEMENTED",
@@ -1867,7 +1835,6 @@
         ]
       },
       "cli_commands": [
-        "profile ess_rs control set",
         "control set"
       ],
       "implementation": "IMPLEMENTED",
@@ -1909,7 +1876,6 @@
         ]
       },
       "cli_commands": [
-        "profile ess_rs control set lock-delay INTEGER",
         "control set lock-delay INTEGER"
       ],
       "implementation": "IMPLEMENTED",
@@ -1955,7 +1921,6 @@
         ]
       },
       "cli_commands": [
-        "profile ess_rs tuning filters read",
         "tuning filters read"
       ],
       "implementation": "IMPLEMENTED",
@@ -2000,7 +1965,6 @@
         ]
       },
       "cli_commands": [
-        "profile ess_rs tuning filters set FIELD INTEGER",
         "tuning filters set FIELD INTEGER"
       ],
       "implementation": "IMPLEMENTED",
@@ -2041,7 +2005,6 @@
         ]
       },
       "cli_commands": [
-        "profile ess_rs tuning current-loop read",
         "tuning current-loop read"
       ],
       "implementation": "IMPLEMENTED",
@@ -2085,7 +2048,6 @@
         ]
       },
       "cli_commands": [
-        "profile ess_rs tuning current-loop set FIELD INTEGER",
         "tuning current-loop set FIELD INTEGER"
       ],
       "implementation": "IMPLEMENTED",
@@ -2130,7 +2092,6 @@
         ]
       },
       "cli_commands": [
-        "profile ess_rs tuning la read",
         "tuning la read"
       ],
       "implementation": "IMPLEMENTED",
@@ -2178,7 +2139,6 @@
         ]
       },
       "cli_commands": [
-        "profile ess_rs tuning la set FIELD INTEGER",
         "tuning la set FIELD INTEGER"
       ],
       "implementation": "IMPLEMENTED",
@@ -2217,7 +2177,6 @@
         ]
       },
       "cli_commands": [
-        "profile ess_rs tuning collision read",
         "tuning collision read"
       ],
       "implementation": "IMPLEMENTED",
@@ -2259,7 +2218,6 @@
         ]
       },
       "cli_commands": [
-        "profile ess_rs tuning collision set FIELD INTEGER",
         "tuning collision set FIELD INTEGER"
       ],
       "implementation": "IMPLEMENTED",
@@ -2297,7 +2255,6 @@
         ]
       },
       "cli_commands": [
-        "profile ess_rs tuning filters set input-filter INTEGER",
         "tuning filters set input-filter INTEGER"
       ],
       "implementation": "IMPLEMENTED",
@@ -2342,9 +2299,6 @@
         ]
       },
       "cli_commands": [
-        "profile ess_rs communication begin address VALUE",
-        "profile ess_rs communication begin baud VALUE",
-        "profile ess_rs communication begin format VALUE",
         "communication begin address VALUE",
         "communication begin baud VALUE",
         "communication begin format VALUE"
@@ -2399,7 +2353,6 @@
         ]
       },
       "cli_commands": [
-        "profile ess_rs persistence begin save",
         "persistence begin save"
       ],
       "implementation": "IMPLEMENTED",
@@ -2442,7 +2395,6 @@
         ]
       },
       "cli_commands": [
-        "profile ess_rs persistence begin factory-restore",
         "persistence begin factory-restore"
       ],
       "implementation": "IMPLEMENTED",
@@ -2522,8 +2474,7 @@
         ]
       },
       "cli_commands": [
-        "motion-profile read",
-        "profile ess_rs motion-profile read"
+        "motion-profile read"
       ],
       "implementation": "IMPLEMENTED",
       "cli": "REACHABLE",
@@ -2561,8 +2512,7 @@
         ]
       },
       "cli_commands": [
-        "motion-profile restore",
-        "profile ess_rs motion-profile restore"
+        "motion-profile restore"
       ],
       "implementation": "IMPLEMENTED",
       "cli": "REACHABLE",

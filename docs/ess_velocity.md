@@ -68,9 +68,9 @@ until explicit release; backpressure retains complete results and correlation.
 
 ```
 velocity 30 rpm native 200 configured normal
-velocity 180 deg/s motor 200 configured direct
+velocity 180 deg/s motor 200 configured fast
 velocity 3 rad/s motor 200 configured normal round nearest 0.5 approx 0.000001
-profile ess_rs velocity -30 rpm native 200 configured normal
+velocity -30 rpm native 200 configured normal
 ```
 
 Units: rpm, steps/s, fullsteps/s, counts/s, turns/s, deg/s, rad/s, mm/s.

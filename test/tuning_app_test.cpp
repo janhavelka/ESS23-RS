@@ -113,7 +113,7 @@ void safeFilterAndGuards() {
     app->inputWiring[0] = InputWiring::UNCONNECTED;
     app->axis.units.commandStepsPerMotorTurn = UnitScale(1000, 1, ScaleSource::QUALIFIED);
     const auto generation = app->axis.generation;
-    Serial.input = "@5 profile ess_rs tuning filters set input-filter 3\n";
+    Serial.input = "@5 tuning filters set input-filter 3\n";
     for (unsigned i = 0; i < 100 && !Serial.input.empty(); ++i) step();
     const auto id = app->latestOperationId; waitTx(id);
     assert(app->axis.generation > generation && !tuningCache(*app, ESS::DriverGroup::FILTERS).operationId && axisReserved(*app, 1));

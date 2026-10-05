@@ -177,7 +177,7 @@ class TypedSerial:
         self.admission_only = admission_only
 
     def __call__(self, request_id, command, args):
-        if command == "read" or (command == "health" and args and args[0] == "check"):
+        if command == "read" or (command == "read" and args and args[0] == "state"):
             kind = "state" if command == "health" else args[0]
             terminal = typed_terminal(request_id, kind)
             if self.mutate:
@@ -453,7 +453,7 @@ class Serial:
     def normal(request_id, command, args):
         if command == "version":
             return encoded(reply(request_id, command, product="MotorControl-RS",
-                                 protocol=2, version="0.test", outstanding_capacity=10))
+                                 protocol=3, version="0.test", outstanding_capacity=10))
         if command == "probe":
             address = int(args[0]) if args else 1
             tx = bytes((address, 3, 0, 0, 0, 1))
@@ -679,10 +679,10 @@ class Framing(unittest.TestCase):
             console = self.session(handler)
             with self.subTest(passes=passes):
                 if passes:
-                    bench.move_campaign(console, move_args=self.MOVE_ARGS, cleanup_stop="direct", timeout_s=3, address=1)
+                    bench.move_campaign(console, move_args=self.MOVE_ARGS, cleanup_stop="fast", timeout_s=3, address=1)
                 else:
                     with self.assertRaisesRegex(bench.BenchError, "observation bound"):
-                        bench.move_campaign(console, move_args=self.MOVE_ARGS, cleanup_stop="direct", timeout_s=3, address=1)
+                        bench.move_campaign(console, move_args=self.MOVE_ARGS, cleanup_stop="fast", timeout_s=3, address=1)
                 commands = [line.decode().split()[1] for line in self.port.writes]
                 self.assertEqual(commands.count("move"), 1)
                 self.assertEqual(commands.count("stop"), 1)
@@ -692,7 +692,7 @@ class Framing(unittest.TestCase):
 
     def test_native_inspection_and_release_failures_are_both_retained(self):
         def handler(i, command, args):
-            if command == "profile":
+            if command == "driver":
                 terminal = driver_terminal(i)
                 return encoded(reply(i, "driver", result="accepted", address=1, operation_id=i + 100)) + encoded(terminal)
             if command in ("result", "release"):
@@ -702,7 +702,7 @@ class Framing(unittest.TestCase):
         with self.assertRaisesRegex(bench.BenchError, "inspection failed"):
             bench.driver_read_campaign(console, timeout_s=.1, address=1)
         commands = [line.decode().split()[1] for line in self.port.writes]
-        self.assertEqual(commands, ["version", "profile", "result", "release"])
+        self.assertEqual(commands, ["version", "driver", "result", "release"])
         summary = self.events[-1]
         self.assertFalse(summary["ok"])
         self.assertEqual(summary["error"], "driver retained result inspection failed")
@@ -895,8 +895,8 @@ class Framing(unittest.TestCase):
             def handler(i, command, args):
                 nonlocal terminal
                 if command == "version": return Serial.normal(i, command, args)
-                if command == "profile":
-                    self.assertEqual(args[:2], ["ess_rs", "driver"])
+                if command == "driver":
+                    self.assertIn(args[0], ("read", "set"))
                     terminal = driver_terminal(i, update)
                     return encoded(reply(i, "driver", result="accepted", address=1, operation_id=i + 100)) + encoded(terminal)
                 if command == "result": return encoded({**terminal, "type": "reply", "id": i, "command": "result"})
@@ -907,7 +907,7 @@ class Framing(unittest.TestCase):
             self.assertEqual(console.wait(handle), terminal)
             inspected = console.command("result", operation_id=handle.operation_id)
             self.assertEqual(inspected["evidence"], terminal["evidence"])
-            self.assertIn(b"profile ess_rs driver", self.port.writes[1])
+            self.assertIn(b"driver", self.port.writes[1])
             self.assertTrue(console.command("release", operation_id=handle.operation_id)["ok"])
 
     def test_driver_checked_partial_progress_cannot_be_fabricated(self):
@@ -931,15 +931,15 @@ class Framing(unittest.TestCase):
         terminal = None
         def handler(i, command, args):
             nonlocal terminal
-            if command == "profile":
-                self.assertEqual(args, ["ess_rs", "driver", "read", "1"])
+            if command == "driver":
+                self.assertEqual(args, ["read", "1"])
                 terminal = driver_terminal(i)
                 return encoded(reply(i, "driver", result="accepted", address=1, operation_id=i + 100)) + encoded(terminal)
             if command == "result": return encoded({**terminal, "type": "reply", "id": i, "command": "result"})
             return Serial.normal(i, command, args)
         console = self.session(handler)
         bench.driver_read_campaign(console, timeout_s=0.1, address=1)
-        self.assertEqual([line.decode().split()[1] for line in self.port.writes], ["version", "profile", "result", "release"])
+        self.assertEqual([line.decode().split()[1] for line in self.port.writes], ["version", "driver", "result", "release"])
         parsed = bench.arguments(["--port", "fake", "--log", "unused.jsonl", "driver-read"])
         self.assertEqual(parsed.mode, "driver-read")
         self.assertEqual(parsed.count, 1)
@@ -984,7 +984,7 @@ class Framing(unittest.TestCase):
             return Serial.normal(i, command, args)
         console = self.session(rejected)
         with self.assertRaises(bench.BenchError):
-            bench.velocity_campaign(console, velocity_args=self.VELOCITY_ARGS, cleanup_stop="direct", timeout_s=3, address=1)
+            bench.velocity_campaign(console, velocity_args=self.VELOCITY_ARGS, cleanup_stop="fast", timeout_s=3, address=1)
         self.assertEqual([line.decode().split()[1] for line in self.port.writes], ["version", "velocity"])
         console = self.session(VelocitySerial(lambda item: item.update(command_id=99)))
         events = []; console.emit = lambda event, **data: events.append((event, data))
@@ -1038,8 +1038,8 @@ class Framing(unittest.TestCase):
         with self.assertRaises(ValueError):
             bench.velocity_campaign(self.session(VelocitySerial()), velocity_args=self.VELOCITY_ARGS,
                                     cleanup_stop="normal", timeout_s=0.5, address=1)
-        parsed = bench.arguments(["--port", "FAKE", "--log", "unused", "velocity", "60", "rpm", "native", "500", "configured", "normal", "--cleanup-stop", "direct"])
-        self.assertEqual(parsed.velocity_args, self.VELOCITY_ARGS); self.assertEqual(parsed.cleanup_stop, "direct")
+        parsed = bench.arguments(["--port", "FAKE", "--log", "unused", "velocity", "60", "rpm", "native", "500", "configured", "normal", "--cleanup-stop", "fast"])
+        self.assertEqual(parsed.velocity_args, self.VELOCITY_ARGS); self.assertEqual(parsed.cleanup_stop, "fast")
 
     def test_velocity_late_qualified_failure_is_retained_not_mistaken_for_success(self):
         t = velocity_terminal(2)
@@ -1353,7 +1353,7 @@ class Framing(unittest.TestCase):
         absolute = bench.arguments(common + ["move-absolute", "720", "deg", "motor", "60", "configured", "--cleanup-stop", "normal"])
         self.assertEqual(absolute.move_args, ("720", "deg", "motor", "60", "configured"))
         angle = bench.arguments(common + ["move-angle", "1", "rad", "motor", "shortest", "negative", "60", "configured",
-            "--round", "nearest", "--maximum-error", "1", "--approximation-error", "0.001", "--cleanup-stop", "direct"])
+            "--round", "nearest", "--maximum-error", "1", "--approximation-error", "0.001", "--cleanup-stop", "fast"])
         self.assertEqual(angle.move_args, ("1", "rad", "motor", "shortest", "negative", "60", "configured", "round", "nearest", "1", "approx", "0.001"))
 
     def test_unknown_move_inspections_preserve_api_rounding_and_radian_inputs(self):
@@ -1614,7 +1614,7 @@ class Framing(unittest.TestCase):
         console = self.session(rejected)
         events = []; console.emit = lambda event, **data: events.append((event, data))
         with self.assertRaises(bench.BenchError):
-            bench.move_campaign(console, move_args=self.MOVE_ARGS, cleanup_stop="direct", timeout_s=3, address=1)
+            bench.move_campaign(console, move_args=self.MOVE_ARGS, cleanup_stop="fast", timeout_s=3, address=1)
         self.assertEqual(len(self.port.writes), 2)
         self.assertEqual(events[-1][1]["cleanup"], "not_required")
         self.assertFalse(events[-1][1]["ok"])
@@ -2192,7 +2192,7 @@ class Framing(unittest.TestCase):
         self.assertEqual(len(self.port.writes), 3)
 
     def test_action_observation_requires_checked_echo(self):
-        for command, policy in (("enable", None), ("motor-release", None), ("stop", "normal"), ("stop", "direct")):
+        for command, policy in (("enable", None), ("motor-release", None), ("stop", "normal"), ("stop", "fast")):
             good = action_terminal(1, command, policy)
             good.update(execution="unknown")
             good["write_evidence"]["response_confirmed"] = False
@@ -2251,7 +2251,7 @@ class Framing(unittest.TestCase):
 
     def test_action_terminal_and_retained_round_trip(self):
         for command, policy in (("enable", None), ("motor-release", None), ("alarm-clear", None),
-                                ("stop", "normal"), ("stop", "direct")):
+                                ("stop", "normal"), ("stop", "fast")):
             with self.subTest(command=command, policy=policy):
                 console = self.session(ActionSerial())
                 handle = console.begin(command, address=1, stop_policy=policy)
@@ -2401,7 +2401,7 @@ class Framing(unittest.TestCase):
         console = self.session(fixture)
         handle = console.begin("stop", address=1, stop_policy="normal")
         console.wait(handle)
-        fixture.retained[handle.operation_id] = dict(fixture.retained[handle.operation_id], stop_policy="direct")
+        fixture.retained[handle.operation_id] = dict(fixture.retained[handle.operation_id], stop_policy="fast")
         with self.assertRaisesRegex(bench.BenchError, "policy"):
             console.command("result", operation_id=handle.operation_id)
 
@@ -2412,7 +2412,7 @@ class Framing(unittest.TestCase):
             handle = console.begin("enable", address=1)
             console.wait(handle)
         recovery = console.begin("recover"); console.wait(recovery)
-        stop = console.begin("stop", address=1, stop_policy="direct"); console.wait(stop)
+        stop = console.begin("stop", address=1, stop_policy="fast"); console.wait(stop)
         self.assertEqual(len(console.operations), bench.MAX_OPERATIONS)
         with self.assertRaisesRegex(bench.BenchError, "retained result limit"):
             console.begin("enable", address=1)
@@ -2442,7 +2442,7 @@ class Framing(unittest.TestCase):
             with self.assertRaises(ValueError):
                 bench.campaign(console, command, count=1, interval_s=0, timeout_s=1, address=1)
         self.assertEqual(self.port.writes, [b"@1 version\n"])
-        for policy in ("normal", "direct"):
+        for policy in ("normal", "fast"):
             args = bench.arguments(["--port", "fake", "--log", "fake.jsonl", "stop", policy])
             self.assertEqual(args.stop_policy, policy)
             self.assertEqual(args.count, 1)
@@ -2622,11 +2622,11 @@ class Framing(unittest.TestCase):
                 self.assertEqual(self.port.writes[-2:], [f"@2 read {kind} 1\n".encode(), b"@3 release 102\n"])
                 self.assertFalse(console.operations)
 
-    def test_health_check_alias_is_strictly_canonical_state(self):
+    def test_state_read_uses_canonical_wire_command(self):
         console = self.session(TypedSerial(), fragment=1)
-        terminal = console.command("health-check", address=1, timeout_s=0.1)
+        terminal = console.command("read-state", address=1, timeout_s=0.1)
         self.assertEqual(terminal["command"], "read-state")
-        self.assertEqual(self.port.writes[-2:], [b"@2 health check 1\n", b"@3 release 102\n"])
+        self.assertEqual(self.port.writes[-2:], [b"@2 read state 1\n", b"@3 release 102\n"])
 
     def test_state_decoder_rejects_fabricated_polarity_units_and_unknown_bits(self):
         mutations = (lambda r: r["state_blocks"][0].update(enabled=True),
@@ -2777,7 +2777,7 @@ class Framing(unittest.TestCase):
         latest = None
         def handler(request_id, command, args):
             nonlocal latest
-            if command == "health" and args and args[0] == "check":
+            if command == "read" and args and args[0] == "state":
                 latest = typed_terminal(request_id, "state")
             if command == "monitor":
                 return encoded(reply(request_id, command, enabled=False, interval_ms=0, count=0, remaining=0,
@@ -2794,7 +2794,7 @@ class Framing(unittest.TestCase):
         console = self.session(handler)
         bench.campaign(console, "state-health", count=2, interval_s=0.01, timeout_s=0.1, address=1)
         commands = [entry.decode().split()[1:] for entry in self.port.writes]
-        self.assertEqual(commands.count(["health", "check", "1"]), 2)
+        self.assertEqual(commands.count(["read", "state", "1"]), 2)
         self.assertEqual(commands.count(["read", "config", "1"]), 1)
         self.assertEqual(len([command for command in commands if command[0] == "release"]), 3)
         self.assertFalse(typed.retained)
@@ -2806,7 +2806,7 @@ class Framing(unittest.TestCase):
                 latest = None
                 def handler(request_id, command, args):
                     nonlocal latest
-                    if command == "health" and args and args[0] == "check":
+                    if command == "read" and args and args[0] == "state":
                         latest = typed_terminal(request_id, "state")
                     if command == "monitor":
                         return encoded(reply(request_id, command, enabled=False, interval_ms=0, count=0, remaining=0,
@@ -2827,7 +2827,7 @@ class Framing(unittest.TestCase):
                 console = self.session(handler)
                 with self.assertRaisesRegex(bench.BenchError, "does not match completed refresh"):
                     bench.campaign(console, "state-health", count=1, interval_s=0, timeout_s=0.1, address=1)
-                self.assertEqual(len([entry for entry in self.port.writes if b"health check" in entry]), 1)
+                self.assertEqual(len([entry for entry in self.port.writes if b"read state" in entry]), 1)
 
     def test_typed_invalid_evidence_never_releases_or_replays(self):
         mutations = (
@@ -4024,11 +4024,13 @@ class Framing(unittest.TestCase):
             console.command("probe", operation_id=17)
         self.assertEqual(len(self.port.writes), 1)
 
-    def test_protocol_one_cannot_hide_missing_operation_correlation(self):
-        console = self.session(identify=False)
-        self.port.handler = lambda i, command, args: encoded(reply(i, command, product="MotorControl-RS",
-                                                                  protocol=1, outstanding_capacity=10))
-        self.failed(lambda: console.identify(timeout_s=0.1), "not the supported")
+    def test_previous_protocols_are_rejected_before_motor_commands(self):
+        for protocol in (1, 2):
+            console = self.session(identify=False)
+            self.port.handler = lambda i, command, args: encoded(reply(i, command, product="MotorControl-RS",
+                                                                      protocol=protocol, outstanding_capacity=10))
+            self.failed(lambda: console.identify(timeout_s=0.1), "not the supported")
+            self.assertEqual(self.port.writes, [b"@1 version\n"])
 
     def test_begin_rejects_admission_received_after_its_original_deadline(self):
         console = self.session()

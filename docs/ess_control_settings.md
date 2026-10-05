@@ -122,8 +122,8 @@ Failure does not trigger a second write.
 The native profile route uses the same public candidate and sequence:
 
 ```text
-profile ess_rs control read [address]
-profile ess_rs control set FIELD INTEGER [FIELD INTEGER ...] [address]
+control read [address]
+control set FIELD INTEGER [FIELD INTEGER ...] [address]
 ```
 
 Fields are `algorithm`, `encoder-resolution`, `maximum-effective-current`,

@@ -143,7 +143,7 @@ void helpAndSyntax() {
     contains(fake.lines.back(), "probe");
     contains(fake.lines.back(), "debug");
     contains(fake.lines.back(), "help");
-    send(console, "?\n");
+    send(console, "help\n");
     assert(!json(fake.lines.back()));
     contains(fake.lines.back(), "probe");
     send(console, "help probe\n");
@@ -157,7 +157,7 @@ void helpAndSyntax() {
     assert(!json(fake.lines.back()));
     contains(fake.lines.back(), "stop");
     contains(fake.lines.back(), "normal");
-    contains(fake.lines.back(), "direct");
+    contains(fake.lines.back(), "fast");
     assert(fake.admitted.empty() && fake.actions == 0 && fake.releases == 0);
 
     send(console, "@42 help probe\n");
@@ -257,14 +257,17 @@ void unifiedHelpHasOneEntryPerCommand() {
     contains(menu,"ESS emergency stop without the ramp");
     contains(menu,"help COMMAND");
     contains(menu,"no separate advanced list");
-    send(console, "help advanced\n"); assert(fake.lines.back()==menu);
-    send(console, "?\n"); assert(fake.lines.back()==menu);
+    for (const char* removed : {"?", "ver", "ping", "reset", "health check", "help advanced", "profile ess_rs enable", "stop direct"}) {
+        send(console, std::string(removed) + "\n");
+        contains(fake.lines.back(), "ERROR");
+        assert(fake.admitted.empty() && fake.actions == 0);
+    }
     send(console, "help stop\n");
-    contains(fake.lines.back(),"stop normal|direct");
+    contains(fake.lines.back(),"stop normal|fast");
     contains(fake.lines.back(),"reserved priority");
     contains(fake.lines.back(),"not a hardwired emergency-stop circuit");
     send(console, "help ping\n");
-    contains(fake.lines.back(),"Usage: probe");
+    contains(fake.lines.back(),"unknown");
     assert(fake.admitted.empty() && fake.actions == 0);
     send(console, "@90 help\n");
     assert(json(fake.lines.back()));
@@ -287,7 +290,7 @@ void reservedStopAndBlockedOutput() {
     auto completed = probeResult();
     assert(console.reportProbe(interrupted.command, interrupted.address, interrupted.operation, completed));
     assert(console.outputPending());
-    send(console, "@501 stop direct\n");
+    send(console, "@501 stop fast\n");
     assert(fake.actions == 1);
     const Admission stop = fake.admitted.back();
     send(console, "stop normal\n@502 status\n");

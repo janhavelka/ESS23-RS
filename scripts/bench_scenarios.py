@@ -22,7 +22,7 @@ SCENARIOS = {
     'actions': 'explicit stopped-state enable/release cycle from enabled state; ends enabled',
     'angle': 'one explicit wrapped-angle request; existing preparation/gates; stop and profile restoration',
     'velocity': 'one explicitly bounded velocity request and stop; native parameter restoration not implemented',
-    'stop': 'normal/direct stop during one finite250-step move; same-session restoration',
+    'stop': 'normal/fast stop during one finite250-step move; same-session restoration',
     'homing-prerequisites': 'capabilities, wiring, configuration and I/O evidence; no home execution',
     'discovery': 'bounded explicit scan; COMPLETE and host restoration required, no recovery',
     'persistence-plan': 'local plan only; no durability claim or nonvolatile write',
@@ -45,7 +45,7 @@ def arguments(argv=None):
     parser.add_argument('--firmware', type=Path, help='image provenance; no upload or flash attestation')
     parser.add_argument('--load', nargs=3, type=int, metavar=('WORK_US', 'OWNER_DELAY_US', 'CONSOLE_BYTES'))
     parser.add_argument('--phase', choices=('forward', 'absolute', 'return'))
-    parser.add_argument('--stop-policy', choices=('normal', 'direct'))
+    parser.add_argument('--stop-policy', choices=('normal', 'fast'))
     parser.add_argument('--arguments', nargs='+', help='exact public angle/velocity grammar tokens')
     parser.add_argument('--native', choices=('driver', 'io', 'control', 'segment', 'tuning'))
     parser.add_argument('--native-args', nargs='+')

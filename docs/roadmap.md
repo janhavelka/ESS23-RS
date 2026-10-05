@@ -1,5 +1,9 @@
 # Roadmap to a supported ESS release
 
+The [canonical-command follow-up](reports/2026-10-05_fast_stop_console.md)
+removes legacy aliases and duplicate dispatch paths. `stop fast` names the
+existing serial emergency stop. Protocol-3 clients use the same public operations.
+
 The [unified help follow-up](reports/2026-10-05_unified_console_help.md) replaces
 separate simplified/advanced menus with one canonical grouped catalogue and
 makes the serial emergency-stop policy explicit. Motor execution is unchanged.

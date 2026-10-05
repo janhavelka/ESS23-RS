@@ -122,7 +122,7 @@ void gatesAndParity() {
     assert(!hardware.writes);
     for (bool profile : {false, true}) {
         fresh(); qualify(); app->axis.units.commandStepsPerMotorTurn = UnitScale(1000,1,ScaleSource::ASSUMED);
-        command(profile ? "@1 profile ess_rs velocity 30 rpm native 200 configured normal\n" :
+        command(profile ? "@1 velocity 30 rpm native 200 configured normal\n" :
             "@1 velocity 500 steps/s motor 200 configured normal\n");
         if (Serial.output.find("\"result\":\"accepted\"") == std::string::npos)
             std::fprintf(stderr,"Velocity CLI: %s\n",Serial.output.c_str());
