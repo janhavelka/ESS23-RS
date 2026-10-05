@@ -451,6 +451,15 @@ def invalid_constant(value: str) -> None:
     raise ValueError(f"invalid JSON number: {value}")
 
 
+def evidence_age_valid(observed_us: int, now_us: int, maximum_age_us: int) -> bool:
+    """Zero disables age expiry only; callers still check provenance/binding."""
+    return observed_us <= now_us and (maximum_age_us == 0 or now_us - observed_us < maximum_age_us)
+
+
+def evidence_age_deadline(observed_us: int, maximum_age_us: int) -> int:
+    return min(2**64 - 1, observed_us + maximum_age_us) if maximum_age_us else 2**64 - 1
+
+
 def wire_crc(data: bytes) -> int:
     """Check retained read-only fixture bytes independently of firmware parsing."""
     crc = 0xFFFF
@@ -1115,14 +1124,13 @@ class Console:
                 type(prerequisites.get("negative_encoding_verified")) is bool and
                 (item["effective_native"] >= 0 or prerequisites["negative_encoding_verified"]) and
                 (kind != "relative" or prerequisites.get("relative_basis_verified") is True), "qualification is missing")
-        require(integer(prerequisites.get("observed_us")) and integer(prerequisites.get("maximum_age_us"), 1) and
-                prerequisites["observed_us"] <= item["started_us"] and
-                item["started_us"] - prerequisites["observed_us"] < prerequisites["maximum_age_us"] and
+        require(integer(prerequisites.get("observed_us")) and integer(prerequisites.get("maximum_age_us")) and
+                evidence_age_valid(prerequisites["observed_us"], item["started_us"], prerequisites["maximum_age_us"]) and
                 prerequisites.get("raw_alarm") == 0 and integer(prerequisites.get("raw_motion"), 0, 65535) and
                 not prerequisites["raw_motion"] & 0x7C and integer(prerequisites.get("word_order"), 0, 1) and
                 integer(prerequisites.get("start_speed"), 0, item["native_rpm"]), "readiness or configured speed evidence is inconsistent")
-        write_deadline = min(item["deadline_us"], 0xFFFFFFFFFFFFFFFF,
-                             prerequisites["observed_us"] + prerequisites["maximum_age_us"])
+        write_deadline = min(item["deadline_us"],
+                             evidence_age_deadline(prerequisites["observed_us"], prerequisites["maximum_age_us"]))
         reference = item.get("reference")
         require(isinstance(reference, dict) and type(reference.get("native_known")) is bool and
                 all(integer(reference.get(key), 0, 0xFFFFFFFF) for key in ("target", "generation", "configuration_generation")) and
@@ -1135,12 +1143,12 @@ class Console:
                     "unreferenced absolute target invents a coordinate reference")
         elif kind != "relative" or reference["native_known"]:
             require(reference["native_known"] and all(reference[key] == item[key] for key in ("target", "generation", "configuration_generation")) and
-                    reference["basis"] == 0 and reference["source"] != 0 and reference["maximum_age_us"] > 0 and
-                    reference["observed_us"] <= item["started_us"] < min(0xFFFFFFFFFFFFFFFF,
-                        reference["observed_us"] + reference["maximum_age_us"]), "reference is stale or mismatched")
+                    reference["basis"] == 0 and reference["source"] != 0 and
+                    evidence_age_valid(reference["observed_us"], item["started_us"], reference["maximum_age_us"]),
+                    "reference is stale or mismatched")
             require(item["endpoint_known"] and item["endpoint_native"] - reference["native_position"] == item["displacement_native"] and
                     (kind == "relative" or item["effective_native"] == item["endpoint_native"]), "reference endpoint differs")
-            write_deadline = min(write_deadline, 0xFFFFFFFFFFFFFFFF, reference["observed_us"] + reference["maximum_age_us"])
+            write_deadline = min(write_deadline, evidence_age_deadline(reference["observed_us"], reference["maximum_age_us"]))
         expected_words = [encoded >> 16, encoded & 65535]
         if prerequisites["word_order"] == 1: expected_words.reverse()
         require(words[3:] == expected_words, "staged target word order differs from qualification")
@@ -1635,8 +1643,8 @@ class Console:
         for flag in ("staging_applied", "uncertain", "running_observed", "homed_low_observed", "observation_known", "interrupted_by_stop"):
             require(type(item.get(flag)) is bool, flag + " is invalid")
         p = item.get("prerequisites")
-        require(isinstance(p, dict) and uint(p.get("observed_us")) and uint(p.get("maximum_age_us")) and p["maximum_age_us"] > 0 and
-                p["observed_us"] <= item["started_us"] < p["observed_us"] + p["maximum_age_us"] and
+        require(isinstance(p, dict) and uint(p.get("observed_us")) and uint(p.get("maximum_age_us")) and
+                evidence_age_valid(p["observed_us"], item["started_us"], p["maximum_age_us"]) and
                 uint(p.get("raw_motion"), 65535) and not p["raw_motion"] & 0x7C and
                 p.get("auxiliary") == 7 and type(p.get("reference_semantics_qualified")) is bool,
                 "immutable prerequisites are invalid")
@@ -1690,13 +1698,13 @@ class Console:
                         1 <= raw[2] <= 7 and raw[2] == e["detail"] and wire_crc(raw) == 0, field + " lacks documented exception")
             else: require(e["tx_accepted"] > 0 or e["execution_unknown"], field + " lacks uncertainty")
             if e["qualified"] and e["status"] == "OK":
-                late = e["latest_us"] > min(item["deadline_us"], p["observed_us"] + p["maximum_age_us"])
+                late = e["latest_us"] > min(item["deadline_us"], evidence_age_deadline(p["observed_us"], p["maximum_age_us"]))
                 require(not late or (not item["ok"] and item["outcome"] == "deadline" and item["failure_evidence"] == item[name]), "write exceeds readiness without retained deadline")
         require(item["staging_applied"] == (item["setup_execution"] == "acknowledged"), "staging application differs")
         stage, _ = evidence["staging_evidence"]
         trigger, _ = evidence["trigger_evidence"]
         if trigger["tx_accepted"] or trigger["execution_unknown"]:
-            cap = min(item["deadline_us"], p["observed_us"] + p["maximum_age_us"])
+            cap = min(item["deadline_us"], evidence_age_deadline(p["observed_us"], p["maximum_age_us"]))
             require(item["setup_execution"] == "acknowledged" and stage["latest_us"] <= cap and stage["delivered_us"] < cap and
                     stage["delivered_us"] <= (trigger["earliest_us"] if trigger["qualified"] else trigger["delivered_us"]),
                     "trigger precedes checked in-budget staging")
@@ -1743,7 +1751,7 @@ class Console:
                 require(failure["event"] == event and failure["status"] == item["status"] == "ILLEGAL_VALUE" and
                         failure["detail"] == item["detail"] == detail, "local failure differs from terminal evidence")
             elif outcome == "deadline":
-                cap = min(item["deadline_us"], p["observed_us"] + p["maximum_age_us"]) if failure["step"] < 2 else item["deadline_us"]
+                cap = min(item["deadline_us"], evidence_age_deadline(p["observed_us"], p["maximum_age_us"])) if failure["step"] < 2 else item["deadline_us"]
                 require(item["status"] == "ILLEGAL_VALUE" and item["detail"] in (15, 20) and
                         ((failure["event"] == 3 and failure["delivered_us"] >= cap and
                           failure["status"] == item["status"] and failure["detail"] == item["detail"]) or
@@ -2252,7 +2260,7 @@ class Console:
             expected_current = expected_current and (invalidated == 0 or block["observed_earliest_us"] > invalidated)
             age = item["now_us"] - block["observed_earliest_us"]
             require(type(block.get("age_us")) is int and block["age_us"] == age and block["current"] == expected_current
-                    and block["fresh"] == (expected_current and age <= item["stale_after_ms"] * 1000), "observation age or generation is inconsistent")
+                    and block["fresh"] == (expected_current and (item["stale_after_ms"] == 0 or age <= item["stale_after_ms"] * 1000)), "observation age or generation is inconsistent")
         if item.get("command") == "health":
             require(item.get("readiness") == "unknown", "observation claims unsupported readiness")
             motion = blocks[0]
@@ -2269,7 +2277,8 @@ class Console:
             require(0 <= item["communication_earliest_us"] <= item["communication_latest_us"] <= item["now_us"], "communication timing bounds are invalid")
             if item.get("command") == "health" and item.get("communication") not in ("unavailable", "failed"):
                 same = all(item["communication_" + key] == item["selected_" + key] for key in ("target", "address", "generation"))
-                expected = "unknown" if not same else "stale" if item["now_us"] - item["communication_earliest_us"] > item["stale_after_ms"] * 1000 else "current"
+                expired = item["stale_after_ms"] != 0 and item["now_us"] - item["communication_earliest_us"] > item["stale_after_ms"] * 1000
+                expected = "unknown" if not same else "stale" if expired else "current"
                 require(item.get("communication") == expected, "communication freshness differs from evidence")
 
     @staticmethod

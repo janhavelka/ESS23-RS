@@ -25,6 +25,10 @@ Status parsePositionProfile(const uint8_t*, std::size_t, uint8_t address,
  * Returns zero without changing the buffer for invalid values/order/capacity. */
 std::size_t buildWritePositionProfile(uint8_t address, const PositionProfile&,
                                      WordOrder, uint8_t*, std::size_t) noexcept;
+/** Raw finite-position start only; uses the drive's already stored target and
+ * profile. No cached-state admission, setup, observation or retry is implied. */
+std::size_t buildStartPosition(uint8_t address, bool relative,
+                               uint8_t*, std::size_t) noexcept;
 /** Exact target/configuration binding and caller-qualified prerequisites.
  * Configured ramp words are preserved verbatim in the reviewed FC10 window;
  * their names do not claim a physical acceleration. Qualification must include
@@ -43,14 +47,16 @@ struct MovePrerequisites {
     uint16_t startSpeed = 0; ///< Qualified native-RPM relation from existing 0x0020; plain ambiguous readback is insufficient. Never rewritten.
     WordOrder wordOrder = WordOrder::HIGH_WORD_FIRST;
     uint16_t rawAlarm = 0, rawMotion = 0;
-    uint64_t observedUs = 0, maximumAgeUs = 0; ///< Admission/new writes require age below this immutable budget; qualified closure may equal its deadline.
+    uint64_t observedUs = 0, maximumAgeUs = 0; ///< Zero disables age expiry; otherwise admission/new writes require age below this immutable budget. Operation deadlines still apply.
 };
+enum class MoveAdmission : uint8_t { OBSERVED_STATE, NATIVE_INTENT };
 /** Caller-owned, read-only between API calls. step0 stages 0x0021/5; step1
  * triggers 0x0001 relative or 0x0005 absolute; later tokens read alarm/motion words.
  * One axis reservation must survive every staging/trigger/wait boundary.
  * uncertain includes a possibly/definitely applied setup on terminal failure;
  * execution separately describes the trigger, never physical completion. */
 struct MoveContext {
+    MoveAdmission admission = MoveAdmission::OBSERVED_STATE;
     ReadTarget target;
     uint32_t operationId = 0;
     MoveRequest request;
@@ -79,7 +85,34 @@ struct PreparedMove {
     std::size_t length = 0;
     uint16_t reg = 0, count = 0, value = 0;
     bool write = false;
-    uint64_t deadlineUs = 0, eligibleUs = 0; ///< Writes are capped by immutable readiness age; observations retain the operation deadline.
+    uint64_t deadlineUs = 0, eligibleUs = 0; ///< Optional readiness expiry caps writes; the operation deadline always applies.
+};
+/** Remembered caller intent, not a motor-state cache. Each preparation copies
+ * these settings into an independent MoveContext and always stages 0x0021/5
+ * before start. Use nextMove/advanceMove and the application's existing owner,
+ * reservation and priority-stop path; no I/O, clock, allocation or retries.
+ *
+ * This native route requires no prior motor observations. It does not establish
+ * enable, input/limit state, origin, calibration or 0x0020 starting-speed
+ * compatibility. It neither enables nor saves/clears anything implicitly.
+ * targetBits are the exact device-native 32-bit target encoding. In particular,
+ * supplying two's-complement bits is not qualification of negative motion.
+ * Generic units/limits and observation-aware admission use prepareMove* instead.
+ * The context retains NATIVE_INTENT; its prerequisites/reference/PreparedTarget
+ * do not pretend that observations or coordinate conversion took place.
+ * Success means setup and start were acknowledged: outcome ACKNOWLEDGED and
+ * completion NOT_OBSERVED. No status polling can attribute an already running
+ * motion to this noninterrupting start without a prior stationary observation.
+ * Use typed state reads for feedback, or prepareMove* for observed completion.
+ */
+struct PositionCommand {
+    ReadTarget target;
+    WordOrder wordOrder = WordOrder::HIGH_WORD_FIRST;
+    uint16_t accelerationTime = 0, decelerationTime = 0, speedRpm = 0;
+    Status prepareRelative(MoveContext&, uint32_t operationId, uint32_t targetBits,
+                           uint64_t nowUs, uint64_t deadlineUs) const noexcept;
+    Status prepareAbsolute(MoveContext&, uint32_t operationId, uint32_t targetBits,
+                           uint64_t nowUs, uint64_t deadlineUs) const noexcept;
 };
 /** Validate all parameters and prerequisites before publishing any work.
  * Unsupported bases, unresolved negative encoding/ramp/units and stale readiness

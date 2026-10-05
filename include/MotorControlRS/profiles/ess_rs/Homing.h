@@ -65,7 +65,7 @@ struct HomePrerequisites {
     bool referenceSemanticsQualified = false;
     uint8_t availableInputs = 0;
     uint16_t rawAlarm = 0, rawMotion = 0;
-    uint64_t observedUs = 0, maximumAgeUs = 0;
+    uint64_t observedUs = 0, maximumAgeUs = 0; ///< Zero disables age expiry, not evidence or operation deadlines.
 };
 enum class HomePhase : uint8_t { STAGING, TRIGGER, OBSERVING, ZERO_CHECK };
 /** Caller-owned state, read-only between calls. One axis reservation spans
@@ -121,9 +121,10 @@ Status nextHome(const HomeContext&, uint64_t nowUs, PreparedHome&) noexcept;
  * Wrong envelopes leave state unchanged; evidence is copied, never retained
  * by pointer. Qualified final evidence may be delivered after its deadline. */
 Status advanceHome(HomeContext&, const ActionEvent&, uint64_t nowUs) noexcept;
-/** Fresh successful completion plus caller-qualified coordinate semantics
+/** Successful completion under the optional age policy plus qualified coordinate semantics
  * publishes native-zero evidence. Does not change host origin or generation;
- * the application reconciles coordinate effects before retaining this witness. */
+ * the application reconciles coordinate effects before retaining this witness.
+ * maximumAgeUs=0 disables expiry, not the required post-trigger observations. */
 Status getHomeReference(const HomeContext&, uint64_t nowUs, uint64_t maximumAgeUs,
                         AxisReference&) noexcept;
 }} // namespace MotorControlRS::ESS_RS

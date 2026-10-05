@@ -59,7 +59,7 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     include(CTest)
     # Distributed source packages contain the core; repository tests stay here.
     if(BUILD_TESTING AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/test")
-        foreach(suite human_console console_text discovery discovery_app discovery_console persistence persistence_console persistence_app traffic motion_profile_app communication communication_console communication_app commissioning_owner units axis registers codec reads actions position velocity homing driver_settings segments control_settings control_app tuning tuning_app host_app host_console io io_app driver_app home_app runner bus_owner bus_scheduling probe_console esp32_uart probe_app probe_app_monitor_control move_app velocity_app capture_service)
+        foreach(suite human_console console_text discovery discovery_app discovery_console persistence persistence_console persistence_app traffic motion_profile_app communication communication_console communication_app commissioning_owner units axis registers codec reads actions position position_command velocity homing driver_settings segments control_settings control_app tuning tuning_app host_app host_console io io_app driver_app home_app runner bus_owner bus_scheduling probe_console esp32_uart probe_app probe_app_monitor_control move_app velocity_app capture_service)
             add_executable(${suite}_test "test/${suite}_test.cpp")
             target_link_libraries(${suite}_test PRIVATE MotorControlRS)
             set_target_properties(${suite}_test PROPERTIES

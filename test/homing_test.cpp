@@ -206,6 +206,9 @@ void testExactWireAndReference() {
     assert(ref.nativePosition == 0 && ref.nativeKnown && ref.stationary && ref.idle && ref.observedUs == completeReadEligible);
     assert(ref.configurationGeneration == 7 && ref.target.id == 3 && ref.source == ScaleSource::QUALIFIED);
     assert(!axis().originKnown); // Host origin remains separate.
+    assert(Ess::getHomeReference(c, completeReadEligible + 100000, 0, ref));
+    assert(ref.maximumAgeUs == 0 && ref.observedUs == completeReadEligible);
+    assert(!Ess::getHomeReference(c, c.servicedUs - 1, 0, ref));
     const Saved<AxisReference> retained(ref);
     assert(!Ess::getHomeReference(c, completeReadEligible + 1000, 1000, ref)); retained.check(ref);
     c.prerequisites.referenceSemanticsQualified = false;
@@ -307,7 +310,28 @@ void testReadinessAndDelayedEvidence() {
     assert(c.state == ActionState::FAILED && c.completion == ActionCompletion::NOT_OBSERVED); done(c);
 }
 }
+static void testOptionalAgePolicy() {
+    const uint64_t now = 100000, deadline = 110000;
+    auto p = prerequisites(); p.maximumAgeUs = 0;
+    Ess::HomeContext c;
+    assert(Ess::prepareHome(c, axis(), 12, request(), p, now, deadline, options()));
+    Ess::PreparedHome work;
+    assert(Ess::nextHome(c, now, work));
+    assert(work.deadlineUs == deadline);
+    const Saved<Ess::HomeContext> saved(c);
+    p.maximumAgeUs = 1000; assert(!(Ess::prepareHome(c, axis(), 12, request(), p, now, deadline, options()))); saved.check(c);
+    p.maximumAgeUs = 0; p.target.generation++;
+    assert(!(Ess::prepareHome(c, axis(), 12, request(), p, now, deadline, options()))); saved.check(c);
+    p = prerequisites(); p.maximumAgeUs = 0; p.readinessQualified = false;
+    assert(!(Ess::prepareHome(c, axis(), 12, request(), p, now, deadline, options()))); saved.check(c);
+    p.readinessQualified = true; p.observedUs = now + 1;
+    assert(!(Ess::prepareHome(c, axis(), 12, request(), p, now, deadline, options()))); saved.check(c);
+    assert(Ess::advanceHome(c, local(c, ReadEventKind::DEADLINE), deadline));
+    assert(c.state == ActionState::FAILED && c.outcome == ActionOutcome::DEADLINE);
+    assert(Ess::nextHome(c, deadline, work) && work.kind == Ess::ActionWork::DONE && !work.length);
+}
 int main() {
+    testOptionalAgePolicy();
     testDescriptorsAndNoTraffic(); testPreparationAndBounds(); testExactQualificationCannotBeReused(); testExactWireAndReference();
     testCorrelatedTransitions(); testFailuresAndEnvelopes(); testReadinessAndDelayedEvidence();
 }

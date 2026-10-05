@@ -7,6 +7,11 @@ FieldCore. The [candidate record](reports/ess_release_30_2026-10-05.md) pins the
 exact source commit, artifact hashes, commands, CI and final bench disposition.
 Version alone cannot distinguish earlier0.6.0 development images.
 
+The subsequent [optional-age/native-command change](reports/2026-10-05_optional_age_and_native_position.md)
+changes the working tree's default policy and API. Its evidence identifies the
+new image/package separately; the prompt30 hashes still identify that historical
+candidate. No tag or release is published by this follow-up.
+
 ## What is available
 
 The installed core provides framework-independent C++11 units/target preparation,

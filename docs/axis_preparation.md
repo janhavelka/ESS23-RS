@@ -1,5 +1,10 @@
 # Exact host target preparation
 
+Observation age expiry is optional: `AxisReference::maximumAgeUs=0` disables
+elapsed-age rejection by default. Positive budgets enable the age checks
+described below. Required evidence, binding/generation, future timestamps and
+known invalidation remain checked; elapsed time never proves continuous power.
+
 [Axis.h](../include/MotorControlRS/Axis.h) provides pure preparation, host configuration and supplied reference evidence. It performs no I/O, allocation, clock access, motion or device settings change. An arithmetic preview does not execute a motor command. The separate [ESS position operation](ess_position.md) now stages and triggers finite relative, absolute and wrapped-angle requests through the same preparation; its electrical, sign, reference and ramp qualifications remain explicit prerequisites.
 
 `AxisConfig` contains the existing `UnitConfig`, exact target/binding and independent host generation, inclusive native range, optional native soft limits, caller-declared relative basis policy and separate command/encoder-zero relations. Unknown gear, lead, encoder or origins are legal until used. Scales retain their source; operator configuration stays `ASSUMED`. `AxisReference` supplies correlated generation, explicit idle/stationary and optional established native-coordinate evidence with observation time, current time and maximum age. The library checks those supplied facts; the application qualifies their source and observes the drive.

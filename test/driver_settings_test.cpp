@@ -310,7 +310,26 @@ void testUnconfirmedReadEvidence() {
     assert(c.outcome == Ess::DriverOutcome::REPLY_ERROR && c.status.code == Err::CRC_ERROR && c.uncertain);
 }
 } // namespace
+static void testOptionalAgePolicy() {
+    auto p = prerequisites(); p.maxAgeUs = 0;
+    Ess::DriverContext c;
+    assert(Ess::prepareDriverSettings(c, target(), 12, request(), p, 100000, 110000));
+    assert(work(c).deadlineUs == 110000);
+    const Saved<Ess::DriverContext> saved(c);
+    p.maxAgeUs = 10000;
+    assert(!Ess::prepareDriverSettings(c, target(), 12, request(), p, 100000, 110000)); saved.check(c);
+    p.maxAgeUs = 0; p.previous.target.generation++;
+    assert(!Ess::prepareDriverSettings(c, target(), 12, request(), p, 100000, 110000)); saved.check(c);
+    p = prerequisites(); p.maxAgeUs = 0; p.stationaryQualified = false;
+    assert(!Ess::prepareDriverSettings(c, target(), 12, request(), p, 100000, 110000)); saved.check(c);
+    p.stationaryQualified = true; p.stationaryLatestUs = 100001;
+    assert(!Ess::prepareDriverSettings(c, target(), 12, request(), p, 100000, 110000)); saved.check(c);
+    assert(Ess::advanceDriver(c, local(c, ReadEventKind::DEADLINE), 110000));
+    assert(c.state == ReadState::FAILED && c.outcome == Ess::DriverOutcome::DEADLINE);
+    assert(work(c).kind == Ess::ActionWork::DONE && !work(c).length);
+}
 int main() {
+    testOptionalAgePolicy();
     testReadAndPairOrder(); testWholeCandidateAndPrerequisites(); testLimitDependencies();
     testProgressNoRollbackAndCopiedStorage(); testFaultsCancellationAndExpiry();
     testUnconfirmedReadEvidence();

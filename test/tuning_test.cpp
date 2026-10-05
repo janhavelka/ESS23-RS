@@ -256,7 +256,19 @@ void previousSettingsEnvelope() {
     }
 }
 } // namespace
+static void testOptionalAgePolicy() {
+    const auto r = request(E::DriverGroup::FILTERS); auto p = prerequisites(r); p.maxAgeUs = 0;
+    E::DriverContext c;
+    assert(E::prepareTuningSettings(c, target(), 12, r, p, 100000, 110000));
+    assert(work(c).deadlineUs == 110000);
+    const Saved<E::DriverContext> saved(c);
+    p.maxAgeUs = 10000;
+    assert(!E::prepareTuningSettings(c, target(), 12, r, p, 100000, 110000)); saved.check(c);
+    p.maxAgeUs = 0; p.previous.target.generation++;
+    assert(!E::prepareTuningSettings(c, target(), 12, r, p, 100000, 110000)); saved.check(c);
+}
 int main() {
+    testOptionalAgePolicy();
     metadataAndAllNativeRanges(); readsAndUnknownValues(); wholeCandidateQualifications(); fullSequencesAndPartialFailures();
     lostTransportAndEffectsBudget(); previousSettingsBudget(); previousSettingsEnvelope();
 }

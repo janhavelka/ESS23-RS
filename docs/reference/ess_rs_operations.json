@@ -3117,7 +3117,7 @@
         "nextMove"
       ],
       "classification": "SEQUENCER",
-      "reason": "Finite motion and typed PositionProfile snapshot/restore; ACK differs from completion.",
+      "reason": "Shared finite move engine. Observation-aware preparations serve CLI moves. API-only PositionCommand::prepareRelative/prepareAbsolute retain desired native settings without prior observations, stage then start, and end ACKNOWLEDGED with completion NOT_OBSERVED.",
       "cli_topics": [
         "move",
         "motion-profile",
@@ -3395,6 +3395,25 @@
         "probe",
         "discover"
       ]
+    },
+    {
+      "header": "include/MotorControlRS/ReadOperation.h",
+      "symbols": [
+        "evidenceAgeValid",
+        "evidenceAgeDeadline"
+      ],
+      "classification": "HOST_CONFIGURATION",
+      "reason": "Shared optional age policy; zero disables elapsed-age expiry while binding checks and operation deadlines remain.",
+      "cli_topics": []
+    },
+    {
+      "header": "include/MotorControlRS/profiles/ess_rs/Position.h",
+      "symbols": [
+        "buildStartPosition"
+      ],
+      "classification": "CODEC",
+      "reason": "API-only raw checked start frame for the already stored native position profile; no setup, admission, I/O or completion claim.",
+      "cli_topics": []
     }
   ],
   "non_operation_choices": [

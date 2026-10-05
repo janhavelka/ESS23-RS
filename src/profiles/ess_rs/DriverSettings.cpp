@@ -3,7 +3,6 @@
 #include "MotorControlRS/profiles/ess_rs/Registers.h"
 #include "MotorControlRS/profiles/ess_rs/Tuning.h"
 #include <cstring>
-#include <limits>
 #include <new>
 
 namespace MotorControlRS { namespace ESS_RS {
@@ -152,27 +151,25 @@ void finish(DriverContext& c, DriverOutcome outcome, Status status) {
 }
 uint64_t stationaryDeadline(const DriverContext& c) {
     const DriverPrerequisites& p = c.prerequisites;
-    const uint64_t maximum = std::numeric_limits<uint64_t>::max();
-    const uint64_t until = p.maxAgeUs > maximum - p.stationaryEarliestUs ? maximum :
-        p.stationaryEarliestUs + p.maxAgeUs;
+    const uint64_t until = evidenceAgeDeadline(p.stationaryEarliestUs, p.maxAgeUs);
     uint64_t deadline = until < c.deadlineUs ? until : c.deadlineUs;
     for (uint8_t i = 0; i < readSteps(c.group); ++i) {
         const uint64_t attempted = p.previous.provenance[i].attemptedUs;
-        const uint64_t settingsUntil = p.maxAgeUs > maximum - attempted ? maximum : attempted + p.maxAgeUs;
+        const uint64_t settingsUntil = evidenceAgeDeadline(attempted, p.maxAgeUs);
         if (settingsUntil < deadline) deadline = settingsUntil;
     }
     if (c.group == DriverGroup::IO) {
-        const uint64_t ioUntil = p.maxAgeUs > maximum - p.ioEarliestUs ? maximum : p.ioEarliestUs + p.maxAgeUs;
+        const uint64_t ioUntil = evidenceAgeDeadline(p.ioEarliestUs, p.maxAgeUs);
         if (ioUntil < deadline) deadline = ioUntil;
     }
     if (segmentGroup(c.group)) {
-        const uint64_t triggerUntil = p.maxAgeUs > maximum - p.triggerEarliestUs ? maximum : p.triggerEarliestUs + p.maxAgeUs;
+        const uint64_t triggerUntil = evidenceAgeDeadline(p.triggerEarliestUs, p.maxAgeUs);
         if (triggerUntil < deadline) deadline = triggerUntil;
     }
     if (c.group == DriverGroup::CONTROL_SETTINGS || isTuningGroup(c.group)) {
         const uint64_t effectsEarliest = isTuningGroup(c.group) ? p.tuningEarliestUs : p.controlEarliestUs;
-        const uint64_t controlUntil = p.maxAgeUs > maximum - effectsEarliest ? maximum : effectsEarliest + p.maxAgeUs;
-        const uint64_t identityUntil = p.maxAgeUs > maximum - p.controlIdentity.provenance.attemptedUs ? maximum : p.controlIdentity.provenance.attemptedUs + p.maxAgeUs;
+        const uint64_t controlUntil = evidenceAgeDeadline(effectsEarliest, p.maxAgeUs);
+        const uint64_t identityUntil = evidenceAgeDeadline(p.controlIdentity.provenance.attemptedUs, p.maxAgeUs);
         if (controlUntil < deadline) deadline = controlUntil;
         if (identityUntil < deadline) deadline = identityUntil;
     }
@@ -359,16 +356,16 @@ Status prepareDriverSettings(DriverContext& output, const ReadTarget& target, ui
         std::memcmp(checked.negativeWords, previous.negativeWords, sizeof(checked.negativeWords)))
         return invalid(DriverError::STALE_SETTINGS, "previous settings disagree with checked raw provenance");
     if (!prerequisites.stationaryQualified || (request.group == DriverGroup::DRIVE && !prerequisites.inputsPermit) ||
-        !sameTarget(prerequisites.stationaryTarget, target) || !prerequisites.maxAgeUs ||
+        !sameTarget(prerequisites.stationaryTarget, target) ||
         prerequisites.stationaryEarliestUs > prerequisites.stationaryLatestUs ||
         prerequisites.stationaryLatestUs > nowUs ||
-        nowUs - prerequisites.stationaryEarliestUs >= prerequisites.maxAgeUs ||
+        !evidenceAgeValid(prerequisites.stationaryEarliestUs, nowUs, prerequisites.maxAgeUs) ||
         prerequisites.rawAlarm || (prerequisites.rawMotion & 0xFFEC))
         return invalid(DriverError::STATIONARY_REQUIRED, "fresh qualified stopped-state and input policy required");
     for (uint8_t i = 0; i < readSteps(request.group); ++i) {
         const DriverEvidence& e = previous.provenance[i];
         if (e.attemptedUs > e.earliestUs || e.earliestUs > e.latestUs || e.latestUs > nowUs ||
-            nowUs - e.attemptedUs >= prerequisites.maxAgeUs)
+            !evidenceAgeValid(e.attemptedUs, nowUs, prerequisites.maxAgeUs))
             return invalid(DriverError::STALE_SETTINGS, "previous driver-settings observation is stale");
     }
     if (segment) {
@@ -376,7 +373,7 @@ Status prepareDriverSettings(DriverContext& output, const ReadTarget& target, ui
         if (!prerequisites.externalTriggerInhibitedQualified || !sameTarget(prerequisites.triggerTarget, target) ||
             prerequisites.triggerConfigurationGeneration != request.configurationGeneration ||
             prerequisites.triggerEarliestUs > prerequisites.triggerLatestUs || prerequisites.triggerLatestUs > nowUs ||
-            nowUs - prerequisites.triggerEarliestUs >= prerequisites.maxAgeUs ||
+            !evidenceAgeValid(prerequisites.triggerEarliestUs, nowUs, prerequisites.maxAgeUs) ||
             q.group != request.group || q.segmentIndex != request.segmentIndex || q.fields != request.fields ||
             q.configurationGeneration != request.configurationGeneration)
             return invalid(DriverError::TRIGGER_POLICY_REQUIRED, "fresh exact external-trigger inhibition policy required");
@@ -396,7 +393,7 @@ Status prepareDriverSettings(DriverContext& output, const ReadTarget& target, ui
             source.event != ReadEventKind::FRAME || !source.qualified || !source.status || source.executionUnknown ||
             source.length != 13 || source.receivedLength != source.length || source.txAccepted != READ_REQUEST_LEN ||
             source.attemptedUs > source.earliestUs || source.earliestUs > source.latestUs || source.latestUs > nowUs ||
-            nowUs - source.attemptedUs >= prerequisites.maxAgeUs ||
+            !evidenceAgeValid(source.attemptedUs, nowUs, prerequisites.maxAgeUs) ||
             !parseRegisters(source.raw, source.length, target.address, 4, identityWords, 4, decodedIdentity) ||
             identityWords[0] != identity.rawModel || identityWords[1] != identity.rawVersion ||
             identityWords[2] != identity.rawActiveNode || identityWords[3] != identity.rawDip)
@@ -409,7 +406,7 @@ Status prepareDriverSettings(DriverContext& output, const ReadTarget& target, ui
         if ((qualifiedFields & request.fields) != request.fields)
             return Status(Err::UNSUPPORTED, static_cast<int32_t>(effectsError), "setting effects are not independently qualified");
         if (q.group != request.group || q.fields != request.fields || q.configurationGeneration != request.configurationGeneration ||
-            earliest > latest || latest > nowUs || nowUs - earliest >= prerequisites.maxAgeUs)
+            earliest > latest || latest > nowUs || !evidenceAgeValid(earliest, nowUs, prerequisites.maxAgeUs))
             return invalid(effectsError, "fresh exact setting effects qualification required");
         for (uint8_t i = 0; i < (tuning ? tuningFieldCount(request.group) : 8); ++i)
             if ((request.fields & bit(i, request.group)) && requested(request, i) != requested(q, i))
@@ -455,7 +452,7 @@ Status prepareDriverSettings(DriverContext& output, const ReadTarget& target, ui
             prerequisites.ioConfigurationGeneration != request.configurationGeneration ||
             (prerequisites.actualInputs & ~0xFu) || (prerequisites.actualOutputs & ~3u) ||
             prerequisites.ioEarliestUs > prerequisites.ioLatestUs || prerequisites.ioLatestUs > nowUs ||
-            nowUs - prerequisites.ioEarliestUs >= prerequisites.maxAgeUs)
+            !evidenceAgeValid(prerequisites.ioEarliestUs, nowUs, prerequisites.maxAgeUs))
             return invalid(DriverError::IO_EVIDENCE_REQUIRED, "fresh qualified actual IO levels required");
         const DriverRequest& qualified = prerequisites.qualifiedIo;
         if ((prerequisites.ioEffectsQualifiedFields & request.fields) != request.fields ||

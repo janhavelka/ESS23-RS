@@ -161,7 +161,9 @@ and keep communication freshness, drive alarm, unknown readiness and retained
 operation outcome independent. A checked exception proves communication only.
 Identity/configuration success does not refresh state or settle uncertain writes.
 Legacy `age_ms` explicitly identifies model-probe age; communication has its own
-bound/age. The default freshness budget is5000ms for each block.
+bound/age. Elapsed-age expiry is disabled by default (`stale_after_ms=0`);
+applications can opt into a positive `observationMaxAgeMs` budget. Missing,
+invalidated, future-timestamped or wrong-generation evidence still fails.
 
 `monitor` queries, `monitor <interval_ms> <count>` enables100..60000ms and1..1000
 finite attempts, and `monitor off` disables/cancels future work. Default disabled

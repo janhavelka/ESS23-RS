@@ -212,4 +212,16 @@ void readFailuresAndLifetime() {
     assert(!(out.knownFields&field(E::DriverField::SEGMENT_SPEED))&&!(out.knownFields&field(E::DriverField::SEGMENT_ACCELERATION)));
 }
 }
-int main() { layouts(); rangesAndPolicies(); progressAndFailure(); readFailuresAndLifetime(); }
+static void testOptionalAgePolicy() {
+    const auto r = request(); auto p = prerequisites(r); p.maxAgeUs = 0;
+    E::DriverContext c;
+    assert(E::prepareSegmentSettings(c, target(), 12, r, p, 100000, 110000));
+    assert(work(c).deadlineUs == 110000);
+    const Saved<E::DriverContext> saved(c);
+    p.maxAgeUs = 10000;
+    assert(!E::prepareSegmentSettings(c, target(), 12, r, p, 100000, 110000)); saved.check(c);
+    p.maxAgeUs = 0; p.previous.target.generation++;
+    assert(!E::prepareSegmentSettings(c, target(), 12, r, p, 100000, 110000)); saved.check(c);
+}
+int main() {
+    testOptionalAgePolicy(); layouts(); rangesAndPolicies(); progressAndFailure(); readFailuresAndLifetime(); }

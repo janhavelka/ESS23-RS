@@ -41,7 +41,7 @@ struct CommunicationRequest {
 struct CommunicationPrerequisites {
     ConfigObservation previous;
     ActiveSerialTuple beforeSerial;
-    uint64_t maxAgeUs = 0;
+    uint64_t maxAgeUs = 0; ///< Zero disables age expiry; checked binding/provenance and operation deadlines still apply.
     bool stationaryQualified = false, effectsQualified = false, routeBackQualified = false;
     bool addressDipOffQualified = false;
     CommunicationRequest qualifiedRequest;

@@ -63,7 +63,7 @@ struct AxisReference {
     ScaleSource source = ScaleSource::UNKNOWN;
     uint64_t observedUs = 0;
     uint64_t nowUs = 0;
-    uint64_t maximumAgeUs = 0;
+    uint64_t maximumAgeUs = 0; ///< Zero disables age expiry; nonzero is an inclusive reference age limit.
 };
 struct PositionRequest {
     Rational value;

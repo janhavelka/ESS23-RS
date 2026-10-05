@@ -636,7 +636,28 @@ void testAbsoluteReferenceAndZeroGatesPreserveOutput() {
     assert(!c.prepared.displacementKnown);
 }
 } // namespace
+static void testOptionalAgePolicy() {
+    const uint64_t now = 100000, deadline = 110000;
+    auto p = prerequisites(); p.maximumAgeUs = 0;
+    Ess::MoveContext c;
+    assert(Ess::prepareMoveRelative(c, axis(), nullptr, 12, request(), p, now, deadline, options()));
+    Ess::PreparedMove work;
+    assert(Ess::nextMove(c, now, work));
+    assert(work.deadlineUs == deadline);
+    const Saved<Ess::MoveContext> saved(c);
+    p.maximumAgeUs = 1000; assert(!(Ess::prepareMoveRelative(c, axis(), nullptr, 12, request(), p, now, deadline, options()))); saved.check(c);
+    p.maximumAgeUs = 0; p.target.generation++;
+    assert(!(Ess::prepareMoveRelative(c, axis(), nullptr, 12, request(), p, now, deadline, options()))); saved.check(c);
+    p = prerequisites(); p.maximumAgeUs = 0; p.readinessQualified = false;
+    assert(!(Ess::prepareMoveRelative(c, axis(), nullptr, 12, request(), p, now, deadline, options()))); saved.check(c);
+    p.readinessQualified = true; p.observedUs = now + 1;
+    assert(!(Ess::prepareMoveRelative(c, axis(), nullptr, 12, request(), p, now, deadline, options()))); saved.check(c);
+    assert(Ess::advanceMove(c, local(c, ReadEventKind::DEADLINE), deadline));
+    assert(c.state == ActionState::FAILED && c.outcome == ActionOutcome::DEADLINE);
+    assert(Ess::nextMove(c, deadline, work) && work.kind == Ess::ActionWork::DONE && !work.length);
+}
 int main() {
+    testOptionalAgePolicy();
     testTypedPositionProfile(); testNativeAbsoluteDoesNotInventDisplacement(); testNativeAbsoluteTargetsAndReadiness();
     testTriggerObservationKeepsUnknownExecution(); testTriggerPreservesFailures();
     testExactStageTriggerAndCommonParity(); testAllPreparationGatesLeaveOutputUnchanged();

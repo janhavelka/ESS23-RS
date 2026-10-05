@@ -1,5 +1,13 @@
 # Motor bench and testing authorization
 
+The [optional-age/native-command follow-up](reports/2026-10-05_optional_age_and_native_position.md)
+uploads the new Arduino timer image (SHA256 in that report). A corrected finite
+campaign passes a move with31-second-old observations, normal/direct stops and
+profile restoration. Ending position5457/alarm0/non-running/speed0, enabled,
+profile `[30,100,100,60,0,250]`, node1/1152008N1. Debug/load/monitor off, DE released,
+owner/results empty, no recovery. The initial host-parser failure and explicit
+cleanup remain separate evidence; no uncertain move was replayed.
+
 [Prompt30's fresh audit](reports/ess_release_30_audit_2026-10-05.md) adds39 checked
 read-only frames with no new errors, writes or uploads. Ending profile
 `[30,100,100,60,0,250]`, lock delay200, position4881/alarm0/non-running/speed0;

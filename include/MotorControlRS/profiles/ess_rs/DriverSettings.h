@@ -120,7 +120,7 @@ struct DriverPrerequisites {
     bool stationaryQualified = false, inputsPermit = false;
     ReadTarget stationaryTarget;
     uint16_t rawAlarm = 0, rawMotion = 0;
-    uint64_t stationaryEarliestUs = 0, stationaryLatestUs = 0, maxAgeUs = 0;
+    uint64_t stationaryEarliestUs = 0, stationaryLatestUs = 0, maxAgeUs = 0; ///< Zero disables age expiry; provenance/generation and operation deadlines remain required.
     bool limitSemanticsQualified = false, homedReferenceQualified = false;
     ReadTarget referenceTarget;
     uint32_t referenceConfigurationGeneration = 0;

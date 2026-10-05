@@ -274,4 +274,20 @@ void lifecycle() {
     assert(E::prepareControlSettings(c,target(),12,request(),p,200,9000));assert(work(c).deadlineUs==210); // Older identity eligibility bounds write budget.
 }
 }
-int main(){readAndPreservation();rangesAndWholeCandidate();identityEffectsAndBounds();fullCapacity();deadlineEvidence();previousSettingsBudget();previousSettingsEnvelope();lifecycle();}
+static void testOptionalAgePolicy() {
+    const auto r = request(); auto p = prerequisites(r); p.maxAgeUs = 0;
+    E::DriverContext c;
+    assert(E::prepareControlSettings(c, target(), 12, r, p, 100000, 110000));
+    assert(work(c).deadlineUs == 110000);
+    const Saved<E::DriverContext> saved(c);
+    p.maxAgeUs = 10000;
+    assert(!E::prepareControlSettings(c, target(), 12, r, p, 100000, 110000)); saved.check(c);
+    p.maxAgeUs = 0; p.controlIdentity.target.generation++;
+    assert(!E::prepareControlSettings(c, target(), 12, r, p, 100000, 110000)); saved.check(c);
+    p = prerequisites(r); p.maxAgeUs = 0; p.controlIdentity.operationId = 0;
+    assert(!E::prepareControlSettings(c, target(), 12, r, p, 100000, 110000)); saved.check(c);
+    p = prerequisites(r); p.maxAgeUs = 0; p.controlLatestUs = 100001;
+    assert(!E::prepareControlSettings(c, target(), 12, r, p, 100000, 110000)); saved.check(c);
+}
+int main(){
+    testOptionalAgePolicy();readAndPreservation();rangesAndWholeCandidate();identityEffectsAndBounds();fullCapacity();deadlineEvidence();previousSettingsBudget();previousSettingsEnvelope();lifecycle();}

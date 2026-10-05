@@ -57,6 +57,7 @@ device or physical qualification.
 | Conversion | Exact position/velocity preparation, numeric parsing and unit conversions | `prepare`, axis configuration and motion unit arguments; helpers need no separate device command |
 | Metadata | Source catalogue, bounded indexed lookups, method descriptors, read/discovery capability queries, tuning parameter metadata, status labels | `caps`, `profile list`, `home methods` and help are local inspection |
 | Raw codecs | Checked FC03/06/10 builders/parsers, CRC, access/length checks, paired scalar encode/decode | Used beneath typed paths; raw wire helpers do not count as semantic device coverage |
+| Native remembered position intent | `PositionCommand::prepareRelative/prepareAbsolute`, raw `buildStartPosition` | API-only. Desired speed/ramps and exact target bits use the existing staging/start sequencer; command success is ACKNOWLEDGED, completion NOT_OBSERVED. Ordinary CLI moves retain observation-aware preparation. |
 | Diagnostics | `TrafficCapture`, traffic labels and checked ESS traffic decoder | `debug off/raw/decoded` observes copied owner traffic; display loss does not consume protocol bytes or retained outcomes |
 
 `TrafficCapture` also exposes bounded member operations for caller-owned

@@ -22,12 +22,8 @@ constexpr uint16_t FAULTS = static_cast<uint16_t>(MotionStatusBit::ALARM) |
     static_cast<uint16_t>(MotionStatusBit::POSITIVE_SOFT_LIMIT) |
     static_cast<uint16_t>(MotionStatusBit::NEGATIVE_SOFT_LIMIT);
 std::size_t requestLength(const MoveContext& c) { return c.step == 0 ? MOVE_REQUEST_BYTES : READ_REQUEST_LEN; }
-uint64_t ageDeadline(uint64_t observed, uint64_t age) {
-    return age > std::numeric_limits<uint64_t>::max() - observed ?
-        std::numeric_limits<uint64_t>::max() : observed + age;
-}
 uint64_t readinessDeadline(const MoveContext& c) {
-    return ageDeadline(c.prerequisites.observedUs, c.prerequisites.maximumAgeUs);
+    return evidenceAgeDeadline(c.prerequisites.observedUs, c.prerequisites.maximumAgeUs);
 }
 uint64_t stepDeadline(const MoveContext& c) {
     const uint64_t readiness = readinessDeadline(c);
@@ -40,7 +36,8 @@ Status expiredStep(const MoveContext& c) {
 }
 void finish(MoveContext& c, ActionOutcome outcome, Status status) {
     c.outcome = outcome; c.status = status;
-    c.state = outcome == ActionOutcome::OBSERVED ? ActionState::SUCCEEDED : ActionState::FAILED;
+    c.state = (outcome == ActionOutcome::OBSERVED || outcome == ActionOutcome::ACKNOWLEDGED)
+        ? ActionState::SUCCEEDED : ActionState::FAILED;
     // FC10 has no documented atomic-application guarantee, even on an exception.
     // A failed operation after any setup TX cannot establish untouched parameters.
     c.uncertain = c.state == ActionState::FAILED &&
@@ -60,6 +57,16 @@ ActionExecution execution(const ActionEvidence& evidence) {
             return ActionExecution::REJECTED;
     }
     return ActionExecution::UNKNOWN;
+}
+void beginMove(MoveContext& c, const ReadTarget& target, uint32_t id,
+               uint64_t now, uint64_t deadline, const ActionOptions& options) {
+    c.target = target; c.operationId = id; c.options = options;
+    c.state = ActionState::ACTIVE;
+    c.startedUs = c.servicedUs = c.eligibleUs = now; c.deadlineUs = deadline;
+}
+uint16_t startValue(bool relative) {
+    return static_cast<uint16_t>(MotionCommandBit::START_POSITION) |
+        (relative ? 0 : static_cast<uint16_t>(MotionCommandBit::ABSOLUTE_POSITION));
 }
 } // namespace
 
@@ -85,6 +92,40 @@ std::size_t buildWritePositionProfile(uint8_t address, const PositionProfile& pr
     uint16_t words[5] = {profile.accelerationTime, profile.decelerationTime, profile.speed, 0, 0};
     if (!encodeUint32(profile.targetBits, order, words + 3, 2)) return 0;
     return buildWriteMultipleRegisters(address, Registers::POSITION_ACCELERATION_TIME, words, 5, out, capacity);
+}
+std::size_t buildStartPosition(uint8_t address, bool relative, uint8_t* out, std::size_t capacity) noexcept {
+    return buildWriteSingleRegister(address, Registers::MOTION_COMMAND, startValue(relative), out, capacity);
+}
+
+static Status prepareNative(MoveContext& output, const PositionCommand& command,
+        uint32_t id, uint32_t bits, bool relative, uint64_t now, uint64_t deadline) noexcept {
+    if (!command.target.id || !command.target.generation || !isValidAddress(command.target.address))
+        return invalid(MoveError::INVALID_TARGET, "invalid native position target");
+    if (!id) return invalid(MoveError::INVALID_OPERATION, "zero move id");
+    if (deadline <= now) return invalid(MoveError::INVALID_DEADLINE, "expired move deadline");
+    if (!command.speedRpm || command.speedRpm > 3000 || command.accelerationTime > 2000 ||
+        command.decelerationTime > 2000 || (relative && !bits))
+        return invalid(MoveError::INVALID_REQUEST, "invalid native position parameters");
+    MoveContext prepared;
+    prepared.admission = MoveAdmission::NATIVE_INTENT;
+    prepared.request.position.relative = relative;
+    prepared.words[0] = command.accelerationTime; prepared.words[1] = command.decelerationTime;
+    prepared.words[2] = command.speedRpm;
+    const Status encoded = encodeUint32(bits, command.wordOrder, prepared.words + 3, 2);
+    if (!encoded) return encoded;
+    const Status access = validateWriteMultipleRegistersRequest(command.target.address,
+        Registers::POSITION_ACCELERATION_TIME, prepared.words, 5);
+    if (!access) return access;
+    beginMove(prepared, command.target, id, now, deadline, ActionOptions());
+    output = prepared; return Ok();
+}
+Status PositionCommand::prepareRelative(MoveContext& out, uint32_t id, uint32_t bits,
+        uint64_t now, uint64_t deadline) const noexcept {
+    return prepareNative(out, *this, id, bits, true, now, deadline);
+}
+Status PositionCommand::prepareAbsolute(MoveContext& out, uint32_t id, uint32_t bits,
+        uint64_t now, uint64_t deadline) const noexcept {
+    return prepareNative(out, *this, id, bits, false, now, deadline);
 }
 
 static Status prepareMove(MoveContext& output, const AxisConfig& axis, const AxisReference* reference,
@@ -120,8 +161,7 @@ static Status prepareMove(MoveContext& output, const AxisConfig& axis, const Axi
     if (!prerequisites.wordOrderKnown || prerequisites.wordOrder > WordOrder::LOW_WORD_FIRST)
         return invalid(MoveError::STALE_CONFIGURATION, "move word order is unresolved");
     if (!prerequisites.readinessQualified || !prerequisites.serialInputsPermit ||
-        !prerequisites.maximumAgeUs || prerequisites.observedUs > nowUs ||
-        nowUs - prerequisites.observedUs >= prerequisites.maximumAgeUs ||
+        !evidenceAgeValid(prerequisites.observedUs, nowUs, prerequisites.maximumAgeUs) ||
         prerequisites.rawAlarm || (prerequisites.rawMotion & (FAULTS | RUNNING)))
         return invalid(MoveError::READINESS, "fresh enabled stationary alarm-free serial readiness is required");
     MoveContext prepared;
@@ -135,9 +175,9 @@ static Status prepareMove(MoveContext& output, const AxisConfig& axis, const Axi
     const Status arithmetic = preparePosition(request.position, axis, reference, prepared.prepared);
     if (!arithmetic) return arithmetic;
     if (prepared.prepared.endpointKnown && reference && reference->nativeKnown) {
-        const uint64_t readinessEnd = ageDeadline(prerequisites.observedUs, prerequisites.maximumAgeUs);
+        const uint64_t readinessEnd = evidenceAgeDeadline(prerequisites.observedUs, prerequisites.maximumAgeUs);
         const uint64_t writeEnd = readinessEnd < deadlineUs ? readinessEnd : deadlineUs;
-        if (ageDeadline(reference->observedUs, reference->maximumAgeUs) < writeEnd)
+        if (evidenceAgeDeadline(reference->observedUs, reference->maximumAgeUs) < writeEnd)
             return invalid(MoveError::READINESS, "native reference freshness must cover both write budgets");
         prepared.reference = *reference;
     }
@@ -156,11 +196,8 @@ static Status prepareMove(MoveContext& output, const AxisConfig& axis, const Axi
     const Status access = validateWriteMultipleRegistersRequest(axis.target.address,
         Registers::POSITION_ACCELERATION_TIME, prepared.words, 5);
     if (!access) return access;
-    prepared.target = axis.target; prepared.operationId = operationId;
     prepared.request = request; prepared.prerequisites = prerequisites;
-    prepared.options = options; prepared.state = ActionState::ACTIVE;
-    prepared.startedUs = prepared.servicedUs = prepared.eligibleUs = nowUs;
-    prepared.deadlineUs = deadlineUs;
+    beginMove(prepared, axis.target, operationId, nowUs, deadlineUs, options);
     output = prepared;
     return Ok();
 }
@@ -204,9 +241,8 @@ Status nextMove(const MoveContext& c, uint64_t nowUs, PreparedMove& output) noex
             next.bytes, sizeof(next.bytes));
     } else if (c.step == 1) {
         next.function = 6; next.reg = Registers::MOTION_COMMAND;
-        next.value = static_cast<uint16_t>(MotionCommandBit::START_POSITION) |
-            (c.request.position.relative ? 0 : static_cast<uint16_t>(MotionCommandBit::ABSOLUTE_POSITION)); next.count = 1;
-        next.length = buildWriteSingleRegister(c.target.address, next.reg, next.value, next.bytes, sizeof(next.bytes));
+        next.value = startValue(c.request.position.relative); next.count = 1;
+        next.length = buildStartPosition(c.target.address, c.request.position.relative, next.bytes, sizeof(next.bytes));
     } else {
         next.function = 3; next.reg = Registers::ERROR_CODE; next.count = 2;
         next.length = buildReadRegisters(c.target.address, next.reg, next.count, next.bytes, sizeof(next.bytes));
@@ -248,8 +284,7 @@ Status advanceMove(MoveContext& c, const ActionEvent& supplied, uint64_t nowUs) 
         if (c.step == 0) evidence.status = parseWriteMultipleRegisters(event.frame, event.length, c.target.address,
             Registers::POSITION_ACCELERATION_TIME, 5, &evidence.frameError);
         else if (c.step == 1) evidence.status = parseWriteSingleRegister(event.frame, event.length, c.target.address,
-            Registers::MOTION_COMMAND, static_cast<uint16_t>(MotionCommandBit::START_POSITION) |
-                (c.request.position.relative ? 0 : static_cast<uint16_t>(MotionCommandBit::ABSOLUTE_POSITION)), &evidence.frameError);
+            Registers::MOTION_COMMAND, startValue(c.request.position.relative), &evidence.frameError);
         else evidence.status = parseRegisters(event.frame, event.length, c.target.address, 2,
             words, 2, count, &evidence.frameError);
     } else if (event.kind == ReadEventKind::CANCEL)
@@ -269,9 +304,11 @@ Status advanceMove(MoveContext& c, const ActionEvent& supplied, uint64_t nowUs) 
         failed(MoveError::TIMING_UNQUALIFIED, "move closure timing is unqualified"));
     else if (event.latestUs > stepDeadline(c)) finish(c, ActionOutcome::DEADLINE, expiredStep(c));
     else if (!evidence.status) finish(c, ActionOutcome::REPLY_ERROR, evidence.status);
-    else if (!supplied.responseConfirmed && c.step != 1)
+    else if (!supplied.responseConfirmed && (c.step != 1 || c.admission == MoveAdmission::NATIVE_INTENT))
         finish(c, ActionOutcome::UNCONFIRMED_RESPONSE,
         failed(MoveError::UNCONFIRMED_RESPONSE, "frame source is not confirmed as the drive"));
+    else if (c.step == 1 && c.admission == MoveAdmission::NATIVE_INTENT)
+        finish(c, ActionOutcome::ACKNOWLEDGED, Ok());
     else if (c.step < 2) {
         if (nowUs >= c.deadlineUs) finish(c, ActionOutcome::DEADLINE,
             failed(MoveError::DEADLINE_EXPIRED, "no budget for the next move step"));

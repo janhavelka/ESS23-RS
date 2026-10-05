@@ -171,7 +171,7 @@ struct Snapshot {
     uint32_t baud = 0;
     uint32_t responseTimeoutUs = 0;
     uint32_t replyGapUs = 0, gap15Us = 0, gap35Us = 0;
-    uint32_t staleAfterMs = 5000;
+    uint32_t staleAfterMs = 0; ///< Zero disables age-only expiry; observation ages remain visible.
     uint64_t uptimeMs = 0;
     bool ready = false;
     bool timingQualified = false;

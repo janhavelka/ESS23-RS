@@ -50,7 +50,8 @@ enum class ActionExecution : uint8_t { NOT_TRANSMITTED, ACKNOWLEDGED, REJECTED, 
 enum class ActionCompletion : uint8_t { NOT_OBSERVED, OBSERVED };
 enum class ActionOutcome : uint8_t {
     NONE, OBSERVED, REPLY_ERROR, TRANSPORT_ERROR, CANCELLED, DEADLINE,
-    TIMING_UNQUALIFIED, UNCONFIRMED_RESPONSE, OBSERVATION_LIMIT
+    TIMING_UNQUALIFIED, UNCONFIRMED_RESPONSE, OBSERVATION_LIMIT,
+    ACKNOWLEDGED ///< Command-only sequence acknowledged; physical completion remains NOT_OBSERVED.
 };
 enum class ActionError : int32_t {
     NONE, INVALID_TARGET, INVALID_OPERATION, INVALID_DEADLINE, INVALID_POLICY,

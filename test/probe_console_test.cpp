@@ -335,6 +335,9 @@ void testCachedHealthAndStatus() {
     fake.contains("\"probe_address\":17");
     fake.contains("\"readiness\":\"unknown\""); fake.contains("\"alarms\":\"unknown\"");
     fake.data.ageMs = 5001;
+    send(console, "health\n"); fake.contains("\"communication\":\"current\"");
+    fake.contains("\"stale_after_ms\":0");
+    fake.data.staleAfterMs = 5000; // Age expiry is an explicit application policy.
     send(console, "health\n"); fake.contains("\"communication\":\"stale\"");
     fake.data.recoveryRequired = true;
     send(console, "health\n"); fake.contains("\"communication\":\"failed\"");

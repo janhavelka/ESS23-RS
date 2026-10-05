@@ -710,6 +710,66 @@ class Framing(unittest.TestCase):
         self.assertTrue(console.synchronized)
         self.assertEqual(len(console.operations), 1)
 
+    def test_move_disabled_age_keeps_terminal_and_framing_valid(self):
+        # Reproduces the hardware rejection: firmware emits maximum_age_us=0.
+        console = self.session(MoveSerial(lambda r: r["prerequisites"].update(maximum_age_us=0)))
+        result = console.command("move-relative", address=1, move_args=self.MOVE_ARGS)
+        self.assertTrue(result["ok"])
+        self.assertTrue(console.synchronized)
+        self.assertEqual([line.decode().split()[1] for line in self.port.writes], ["version", "move", "release"])
+        for mutate in (
+                lambda r: r["prerequisites"].update(observed_us=r["started_us"] + 1),
+                lambda r: r["prerequisites"].update(generation=10),
+                lambda r: r["prerequisites"].update(readiness_qualified=False),
+                lambda r: r["prerequisites"].update(maximum_age_us=100),
+                lambda r: r.update(deadline_us=2100),
+                lambda r: r["activity_evidence"].update(latest_us=1000)):
+            item = move_terminal(2); item["prerequisites"]["maximum_age_us"] = 0
+            mutate(item)
+            with self.assertRaises(bench.BenchError): bench.Console._check_move(item, 1, self.MOVE_ARGS)
+
+    def test_move_optional_reference_age_preserves_binding_and_write_budget(self):
+        item = move_terminal(2); item["prerequisites"]["maximum_age_us"] = 0
+        item.update(endpoint_known=True, endpoint_native=1050)
+        item["reference"].update(native_known=True, target=1, generation=9, configuration_generation=3,
+                                 native_position=50, source=1, observed_us=100, maximum_age_us=0)
+        bench.Console._check_move(item, 1, self.MOVE_ARGS)
+        for mutation in ({"observed_us":1001}, {"maximum_age_us":900}, {"generation":10}, {"source":0}):
+            bad = copy.deepcopy(item); bad["reference"].update(mutation)
+            with self.assertRaises(bench.BenchError): bench.Console._check_move(bad, 1, self.MOVE_ARGS)
+
+    def test_home_optional_age_retains_deadline_and_new_event_checks(self):
+        item = home_terminal(2); item["prerequisites"].update(observed_us=0, maximum_age_us=0)
+        bench.Console._check_home(item, 1, None)
+        for mutate in (
+                lambda r: r["prerequisites"].update(observed_us=1001),
+                lambda r: r["prerequisites"].update(maximum_age_us=1000),
+                lambda r: r.update(deadline_us=1250),
+                lambda r: r.update(homed_low_observed=False),
+                lambda r: r["prerequisites"].update(qualified_parameters=[35, 60, 30, 101])):
+            bad = copy.deepcopy(item); mutate(bad)
+            with self.assertRaises(bench.BenchError): bench.Console._check_home(bad, 1, None)
+
+    def test_cached_zero_age_reports_old_checked_evidence_without_rejuvenation(self):
+        item = cached_state(2)
+        item.update(now_us=31000000, stale_after_ms=0, communication_age_us=30999000)
+        for block in item["state_blocks"]:
+            block["age_us"] = item["now_us"] - block["observed_earliest_us"]
+        bench.Console._check_cached_state(item)
+        for mutate in (
+                lambda r: r["state_blocks"][0].update(observed_earliest_us=r["now_us"] + 1),
+                lambda r: r["state_blocks"][0].update(generation=10),
+                lambda r: r["state_blocks"][0].update(valid=False),
+                lambda r: r["state_blocks"][0].update(invalidated_us=2000),
+                lambda r: r.update(communication_latest_us=r["now_us"] + 1),
+                lambda r: r.update(communication_generation=10),
+                lambda r: r.update(stale_after_ms=5000)):
+            bad = copy.deepcopy(item); mutate(bad)
+            with self.assertRaises(bench.BenchError): bench.Console._check_cached_state(bad)
+        item.update(stale_after_ms=5000, communication="stale", state="unknown", alarms="unknown")
+        for block in item["state_blocks"]: block["fresh"] = False
+        bench.Console._check_cached_state(item)
+
     def test_home_exact_native_arguments_never_send_on_rejection(self):
         console = self.session()
         for tokens in (("3.5", *self.HOME_ARGS[1:]), ("35", "4", "30", "100", "zero"),

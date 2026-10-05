@@ -28,6 +28,17 @@ network state and native features remain specific to each library. Matching
 function names alone does not establish matching behavior. Extract common
 types/code only when both implementations demonstrate a concrete need.
 
+Observation age expiry is optional and disabled by default. Core
+`maxAgeUs`/`maximumAgeUs=0` retains established evidence until invalidated;
+nonzero values enable the documented age bound. “Fresh” in this contract means
+checked provenance and matching binding/configuration generations, with age
+checked when that policy is enabled. Future timestamps, absent evidence and
+known contradictions remain invalid. The standalone application exposes the
+same choice as `ApplicationOptions::observationMaxAgeMs` (zero by default;
+`5000` enables five seconds). This policy does not establish uninterrupted drive
+power or unchanged physical state. Transaction/operation deadlines and required
+post-trigger observations are independent and remain mandatory.
+
 ## Callable surface and ownership
 
 Use the following function names as the planned common vocabulary. This is
@@ -295,13 +306,24 @@ engineering coordinates still require their established origin and scales.
 Wrapped-angle execution requires established stationary ACTUAL command-coordinate
 evidence. Any reference supplied to either executor must be stationary ACTUAL
 evidence; the executor copies a consumed reference into the operation and checks
-its freshness at supplied admission time. Its age budget must cover
-readiness-capped staging/trigger deadlines. Observation
+its validity at supplied admission time. If age expiry is enabled, its age budget
+must cover readiness-capped staging/trigger deadlines. Observation
 work retains the immutable overall operation deadline; expiry of the consumed
 starting reference after an on-time trigger does not cancel that observation
 sequence. Zero effective displacement is reported by pure preview and rejected
 by the executor before traffic. These software paths do not qualify unresolved
 drive sign, coordinate-source, electrical or ramp semantics.
+
+The ESS profile also exposes native `PositionCommand` intent and
+`buildStartPosition` without the common axis conversion/readiness contract.
+`PositionCommand` remembers the desired speed/raw ramps and uses the same
+`MoveContext`, `nextMove` and `advanceMove` for checked staging followed by start.
+It requires no prior observation and fabricates none: success is
+`ACKNOWLEDGED`, completion is `NOT_OBSERVED`. The application still owns exact
+endpoint binding, same-axis reservation, deadlines, transport and explicit stop.
+The raw builder only starts the drive's already stored target/profile. Neither
+route enables, reconfigures I/O, persists settings or replays uncertain writes.
+They are public API paths, not a change to the ordinary observation-aware CLI.
 
 ## Velocity, ramps and effort
 
@@ -368,7 +390,7 @@ it clears both origins, derived limits and supplied reference confidence while
 preserving unit scales/preferences, then advances the coordinate generation.
 Exhausted or disabled generations never wrap or revive; confidence still clears
 when invalidation returns `GENERATION_EXHAUSTED`. Applications invalidate on
-actual release, uncertain clear, newly observed external movement, stale/lost
+actual release, uncertain clear, newly observed external movement, expired (when enabled)/lost
 reference or relevant interpretation changes, preserve admitted/historical
 evidence and require fresh qualification before new dependent preparation.
 The ESS `prepareSetDevicePosition` subset supports explicit zero clear only,

@@ -1,5 +1,19 @@
 # Features implementation tasks and open questions
 
+## Optional age policy and native position intent
+
+- [x] Default elapsed-age expiry to off in core, ordinary application and host
+  diagnostics; preserve opt-in limits, missing-evidence/generation checks and
+  operation deadlines.
+- [x] Expose remembered native speed/ramp intent and checked setup/start sequence
+  through `PositionCommand`; retain raw start/profile builders and observed
+  coordinate-aware preparations. Acknowledgement never guarantees movement.
+- [x] Verify native boundaries, package consumers and finite ordinary-path bench
+  behavior; preserve the host parser failure and correction in the
+  [change record](reports/2026-10-05_optional_age_and_native_position.md).
+- [ ] Guided console refresh/result management remains separate; the new native
+  object is API-only. Multi-hour endurance and independent shaft timing remain open.
+
 ## Prompt30 partial candidate and integration handoff
 
 - [x] Fresh independent audit corrected the stale prompt index and FieldCore

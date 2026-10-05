@@ -2,7 +2,6 @@
 #include "MotorControlRS/profiles/ess_rs/Communication.h"
 #include "MotorControlRS/profiles/ess_rs/Registers.h"
 #include <cstring>
-#include <limits>
 
 namespace MotorControlRS { namespace ESS_RS {
 namespace {
@@ -60,7 +59,7 @@ Status prepareCommunication(CommunicationContext& output, const ReadTarget& targ
         return invalid(CommunicationError::INVALID_CANDIDATE, "unsupported communication setting code or endpoint");
     if (!valid(p.beforeSerial) || !same(p.beforeSerial, p.previous.activeSerial))
         return invalid(CommunicationError::INVALID_TUPLE, "known matching active host tuple required");
-    if (!same(p.previous.target, target) || !p.previous.operationId || !p.maxAgeUs)
+    if (!same(p.previous.target, target) || !p.previous.operationId)
         return invalid(CommunicationError::STALE_SETTINGS, "previous settings target or age invalid");
     const ReadStepObservation& source = p.previous.provenance[1];
     uint16_t words[3] = {}; std::size_t count = 0;
@@ -69,7 +68,7 @@ Status prepareCommunication(CommunicationContext& output, const ReadTarget& targ
         source.length > READ_MAX_REPLY_BYTES || source.txAccepted != READ_REQUEST_LEN || source.executionUnknown ||
         source.attemptedUs > source.earliestUs || source.earliestUs > source.latestUs ||
         source.latestUs > source.deliveredUs || source.deliveredUs > now ||
-        now - source.attemptedUs >= p.maxAgeUs ||
+        !evidenceAgeValid(source.attemptedUs, now, p.maxAgeUs) ||
         !parseRegisters(source.raw, source.length, target.address, 3, words, 3, count) ||
         words[0] != p.previous.raw.customNode || words[1] != p.previous.raw.baud || words[2] != p.previous.raw.format)
         return invalid(CommunicationError::STALE_SETTINGS, "invalid or stale communication read provenance");
@@ -101,8 +100,7 @@ Status prepareCommunication(CommunicationContext& output, const ReadTarget& targ
     if (!checked) return checked;
     c.state = ReadState::ACTIVE;
     c.startedUs = c.servicedUs = c.eligibleUs = now;
-    const uint64_t maximum = std::numeric_limits<uint64_t>::max();
-    const uint64_t freshUntil = p.maxAgeUs > maximum - source.attemptedUs ? maximum : source.attemptedUs + p.maxAgeUs;
+    const uint64_t freshUntil = evidenceAgeDeadline(source.attemptedUs, p.maxAgeUs);
     c.deadlineUs = deadline < freshUntil ? deadline : freshUntil;
     output = c;
     return Ok();

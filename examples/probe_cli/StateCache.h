@@ -35,7 +35,8 @@ inline uint64_t ageUs(const StateCache::Block& block, uint64_t nowUs) {
 }
 inline bool fresh(const StateCache::Block& block, const MotorControlRS::ReadTarget& target,
                   uint64_t nowUs, uint64_t maxAgeUs) {
-    return current(block, target) && nowUs >= block.observedEarliestUs && ageUs(block, nowUs) <= maxAgeUs;
+    return current(block, target) && nowUs >= block.observedEarliestUs &&
+        (!maxAgeUs || ageUs(block, nowUs) <= maxAgeUs);
 }
 /** Admission is the attempt timestamp, not a claim that bytes reached the bus. */
 inline void stateAttempt(StateCache& cache, const MotorControlRS::ReadTarget& target,

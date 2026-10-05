@@ -13,7 +13,7 @@
 FakeSerial Serial;
 namespace {
 const std::vector<uint8_t> REPLY = {1, 3, 2, 0, 0x3C, 0xB8, 0x55};
-void fresh() {
+void fresh(uint32_t maximumAgeMs = 0) {
     if (app) { app->~App(); std::free(app); app = nullptr; }
     uart.~Esp32S3Uart(); new (&uart) Esp32S3Uart;
 #if MOTORCONTROLRS_LOAD_FIXTURE
@@ -21,8 +21,9 @@ void fresh() {
     fixtureReady = false; nextServiceUs = 0;
 #endif
     resetHardware(); Serial = FakeSerial(); platformReady = false; writeResponseConfirmed = false;
+    ApplicationOptions options; options.observationMaxAgeMs = maximumAgeMs;
     assert(beginApplication({Board::kRs485TxPin, Board::kRs485RxPin, Board::kRs485DeRePin,
-        Board::kRs485DeReActiveHigh}, false)); // The fixture exercises unconfirmed FC06 echo.
+        Board::kRs485DeReActiveHigh}, false, options)); // The fixture exercises unconfirmed FC06 echo.
     assert(app && uart.ready() && app->owner.valid() && hardware.writes == 0);
     assert(!writeResponseConfirmed);
     assert(Serial.txTimeoutMs == 0);
@@ -1095,6 +1096,11 @@ void testStateCacheLateDeliveryCannotRejuvenateObservation() {
     assert(cache.blocks[0].observedEarliestUs == stored.observedEarliestUs);
     assert(Probe::ageUs(cache.blocks[0], 5000) == 4450);
     assert(!Probe::fresh(cache.blocks[0], target, 5000, 1000));
+    assert(Probe::fresh(cache.blocks[0], target, 5000, 0));
+    assert(!Probe::fresh(cache.blocks[0], target, stored.observedEarliestUs - 1, 0));
+    auto wrongTarget = target; ++wrongTarget.generation;
+    assert(!Probe::fresh(cache.blocks[0], wrongTarget, 5000, 0));
+    assert(!Probe::fresh(Probe::StateCache::Block(), target, 5000, 0));
     Probe::stateResult(cache, newer, 0, 550);
     assert(cache.blocks[0].deliveredUs == stored.deliveredUs && cache.blocks[0].lastSuccessUs == 800);
     ++target.generation;
@@ -1173,7 +1179,7 @@ void testHostAxisPreparationUsesPublicApiWithoutTraffic() {
 }
 void testAxisConfigurationRequiresFreshIdleEvidenceAndInvalidatesPreparation() {
     using namespace MotorControlRS;
-    fresh(); timerCapture(); command("@1 read state\n"); completeState(view(0).operationId);
+    fresh(5000); timerCapture(); command("@1 read state\n"); completeState(view(0).operationId);
     command("@2 axis config set relative-bases 1\n"); assert(app->axis.generation == 2);
     PositionRequest prior; prior.configurationGeneration = app->axis.generation; prior.value = Rational(3);
     const uint32_t probe = admit(3); startTx(3);
@@ -1521,7 +1527,23 @@ void testLoadDelayExhaustsSetupTxBudgetWithoutTransmission() {
 }
 #endif
 }
+static void testDefaultAgeKeepsEstablishedHostEvidence() {
+    fresh(); timerCapture();
+    assert(app->options.observationMaxAgeMs == 0);
+    command("@1 read state\n"); completeState(view(0).operationId);
+    const auto writes = hardware.writes;
+    advanceHardware(hardware.time + 31000000);
+    command("@2 axis config set command 1000\n"); contains("\"ok\":true");
+    assert(hardware.writes == writes);
+    uint32_t recovery = 0;
+    assert(recover(app, 3, recovery) == Probe::Action::OK);
+    for (unsigned i = 0; i < 80000 && app->owner.recovering(); ++i) step();
+    assert(!app->owner.needsRecovery() && !Probe::current(app->stateCache.blocks[0], app->axis.target));
+    command("@3 axis config set gear 1\n"); contains("\"ok\":false");
+    assert(hardware.writes == writes);
+}
 int main() {
+    testDefaultAgeKeepsEstablishedHostEvidence();
     std::printf("Storage bytes: App=%zu Record=%zu Console=%zu ReadContext=%zu PreparedRead=%zu Identity=%zu Config=%zu StateCache=%zu StateObservation=%zu\n",
         sizeof(App), sizeof(App::Record), sizeof(Probe::Console), sizeof(ESS::ReadContext), sizeof(ESS::PreparedRead),
         sizeof(ESS::IdentityObservation), sizeof(ESS::ConfigObservation), sizeof(Probe::StateCache), sizeof(ESS::StateObservation));

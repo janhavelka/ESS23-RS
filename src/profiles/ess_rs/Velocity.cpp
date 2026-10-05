@@ -27,7 +27,7 @@ uint64_t stepDeadline(const VelocityContext& c) {
     if (c.phase == VelocityPhase::STOPPING) return c.deadlineUs;
     uint64_t deadline = c.stopDueUs;
     if (c.phase != VelocityPhase::OBSERVING) {
-        const uint64_t readiness = sum(c.prerequisites.observedUs, c.prerequisites.maximumAgeUs);
+        const uint64_t readiness = evidenceAgeDeadline(c.prerequisites.observedUs, c.prerequisites.maximumAgeUs);
         if (readiness < deadline) deadline = readiness;
     }
     return deadline;
@@ -116,8 +116,8 @@ Status prepareVelocity(VelocityContext& output, const AxisConfig& axis, uint32_t
     if (!p.nativeRpmVerified) return invalid(VelocityError::UNRESOLVED_UNITS, "native signed rpm interpretation is unresolved");
     if (p.minimumRpm < -3000 || p.maximumRpm > 3000 || p.minimumRpm > p.maximumRpm)
         return invalid(VelocityError::INVALID_REQUEST, "invalid qualified velocity range");
-    if (!p.readinessQualified || !p.serialInputsPermit || !p.maximumAgeUs || p.observedUs > now ||
-        now - p.observedUs >= p.maximumAgeUs || p.rawAlarm || (p.rawMotion & (FAULTS | RUNNING)))
+    if (!p.readinessQualified || !p.serialInputsPermit || !evidenceAgeValid(p.observedUs, now, p.maximumAgeUs) ||
+        p.rawAlarm || (p.rawMotion & (FAULTS | RUNNING)))
         return invalid(VelocityError::READINESS, "fresh enabled stationary alarm-free serial readiness is required");
     VelocityContext c;
     const Status target = prepareVelocityTarget(request, axis, c.prepared);

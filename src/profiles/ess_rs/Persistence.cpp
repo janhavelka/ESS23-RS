@@ -36,16 +36,15 @@ void configWords(const RawConfig& c, uint16_t* w) {
 }
 bool source(const ReadStepObservation& e, const ReadTarget& t, uint16_t first, uint16_t n,
             const uint16_t* expected, uint64_t now, uint64_t age, uint64_t after, uint64_t& freshUntil) {
-    if (!age || !e.qualified || !e.status || e.frameError != FrameError::NONE || e.event != ReadEventKind::FRAME ||
+    if (!e.qualified || !e.status || e.frameError != FrameError::NONE || e.event != ReadEventKind::FRAME ||
         e.first != first || e.count != n || e.length != e.receivedLength || e.length > READ_MAX_REPLY_BYTES ||
         e.txAccepted != READ_REQUEST_LEN || e.executionUnknown || e.attemptedUs < after ||
         e.attemptedUs > e.earliestUs || e.earliestUs > e.latestUs || e.latestUs > e.deliveredUs ||
-        e.deliveredUs > now || now - e.attemptedUs >= age) return false;
+        e.deliveredUs > now || !evidenceAgeValid(e.attemptedUs, now, age)) return false;
     uint16_t words[5] = {}; std::size_t count = 0;
     if (!parseRegisters(e.raw, e.length, t.address, n, words, 5, count)) return false;
     for (uint16_t i = 0; i < n; ++i) if (words[i] != expected[i]) return false;
-    const uint64_t maximum = std::numeric_limits<uint64_t>::max();
-    const uint64_t end = age > maximum - e.attemptedUs ? maximum : e.attemptedUs + age;
+    const uint64_t end = evidenceAgeDeadline(e.attemptedUs, age);
     if (end < freshUntil) freshUntil = end;
     return true;
 }

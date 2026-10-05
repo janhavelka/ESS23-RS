@@ -15,7 +15,7 @@ bool motionProfileBound(const App& a) {
 }
 bool motionProfileStationary(const App& a, uint64_t now) {
     const auto& motion = a.stateCache.blocks[static_cast<uint8_t>(ESS::StateBlock::MOTION)];
-    return Probe::fresh(motion, a.axis.target, now, 5000000) && !motion.value.rawAlarm &&
+    return Probe::fresh(motion, a.axis.target, now, a.observationAgeUs()) && !motion.value.rawAlarm &&
         !motion.value.alarmFlag && !motion.value.running &&
         !motion.value.positiveSoftLimit && !motion.value.negativeSoftLimit;
 }
@@ -32,7 +32,7 @@ bool absoluteMoveInEnvelope(const App& a, const MotorControlRS::MoveRequest& req
     return !request.position.relative && request.position.frame == MotorControlRS::CoordinateFrame::NATIVE &&
         request.position.unit == MotorControlRS::PositionUnit::STEPS &&
         motionProfileBound(a) && motionProfileStationary(a, now) &&
-        Probe::fresh(feedback, a.axis.target, now, 5000000) && feedback.value.pairKnown &&
+        Probe::fresh(feedback, a.axis.target, now, a.observationAgeUs()) && feedback.value.pairKnown &&
         !feedback.value.rawSpeed && feedback.value.rawPosition <= 250;
 }
 bool moveRequirements(const App& a, const MotorControlRS::MoveRequest& request,
@@ -40,7 +40,7 @@ bool moveRequirements(const App& a, const MotorControlRS::MoveRequest& request,
     using namespace MotorControlRS;
     const auto& profile = a.motionProfile.view;
     if (!motionProfileBound(a) || !profile.ok || profile.pending || !profile.closureQualified ||
-        now < profile.closureEarliestUs || now - profile.closureEarliestUs > 30000000 ||
+        !MotorControlRS::evidenceAgeValid(profile.closureEarliestUs, now, a.observationAgeUs()) ||
         request.position.wrapped || request.position.frame != CoordinateFrame::NATIVE ||
         request.position.unit != PositionUnit::STEPS ||
         (request.position.relative ? request.position.value.numerator <= 0 : request.position.value.numerator < 0) ||
@@ -48,7 +48,7 @@ bool moveRequirements(const App& a, const MotorControlRS::MoveRequest& request,
     const auto& raw = a.configuration.raw;
     const auto& io = a.stateCache.blocks[static_cast<uint8_t>(ESS::StateBlock::IO)];
     const auto& motion = a.stateCache.blocks[static_cast<uint8_t>(ESS::StateBlock::MOTION)];
-    if (!Probe::fresh(io, a.axis.target, now, 5000000) || io.value.unknownInputBits ||
+    if (!Probe::fresh(io, a.axis.target, now, a.observationAgeUs()) || io.value.unknownInputBits ||
         raw.softLimitEnable != 0 || !a.configuration.wordOrderKnown || motion.value.released ||
         profile.current[0] > request.speedRpm || profile.current[1] > 2000 || profile.current[2] > 2000)
         return false;
@@ -69,6 +69,6 @@ bool moveRequirements(const App& a, const MotorControlRS::MoveRequest& request,
     out.decelerationTime = profile.current[2];
     out.startSpeedKnown = true;
     out.startSpeed = profile.current[0];
-    out.maximumAgeUs = 3000000;
+    out.maximumAgeUs = a.observationAgeUs();
     return true;
 }

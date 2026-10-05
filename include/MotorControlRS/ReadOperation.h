@@ -8,6 +8,17 @@
 
 namespace MotorControlRS {
 
+/** Optional age policy for established evidence. Zero disables age expiry only;
+ * callers still validate provenance, generations and operation-specific facts.
+ * Future observations are invalid even when expiry is disabled. */
+inline bool evidenceAgeValid(uint64_t observedUs, uint64_t nowUs, uint64_t maximumAgeUs) noexcept {
+    return observedUs <= nowUs && (!maximumAgeUs || nowUs - observedUs < maximumAgeUs);
+}
+/** Saturating evidence expiry; zero age leaves the operation deadline intact. */
+inline uint64_t evidenceAgeDeadline(uint64_t observedUs, uint64_t maximumAgeUs) noexcept {
+    return !maximumAgeUs || maximumAgeUs > UINT64_MAX - observedUs ? UINT64_MAX : observedUs + maximumAgeUs;
+}
+
 /** Application identity and binding generation; all three fields are immutable
  * during one operation. Address is the selected unicast wire endpoint. */
 struct ReadTarget {

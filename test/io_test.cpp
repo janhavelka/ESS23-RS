@@ -214,7 +214,19 @@ void testEchoReadbackAndFaults() {
     e = local(c, ReadEventKind::DEADLINE); assert(E::advanceDriver(c, e, 295) && !c.effects && c.deadlineUs == 9000);
 }
 } // namespace
+static void testOptionalAgePolicy() {
+    const auto r = request(); auto p = prerequisites(r); p.maxAgeUs = 0;
+    E::DriverContext c;
+    assert(E::prepareDriverSettings(c, target(), 12, r, p, 100000, 110000));
+    assert(work(c).deadlineUs == 110000);
+    const Saved<E::DriverContext> saved(c);
+    p.maxAgeUs = 10000;
+    assert(!E::prepareDriverSettings(c, target(), 12, r, p, 100000, 110000)); saved.check(c);
+    p.maxAgeUs = 0; p.previous.target.generation++;
+    assert(!E::prepareDriverSettings(c, target(), 12, r, p, 100000, 110000)); saved.check(c);
+}
 int main() {
+    testOptionalAgePolicy();
     testChoicesAndDisable(); testRawAndImmutable(); testPrerequisitesAndMasks();
     testFullUpdatePartialAndCustom(); testEchoReadbackAndFaults();
 }

@@ -1,5 +1,11 @@
 # Roadmap to a supported ESS release
 
+The [optional-age/native-command follow-up](reports/2026-10-05_optional_age_and_native_position.md)
+disables elapsed-age rejection by default and adds caller-owned desired native
+position settings. Raw commands, setup/start acknowledgement and observed
+completion remain distinct. Its new image and verification do not replace the
+historical prompt30 artifact hashes or close physical/native-family gaps.
+
 [Prompt30](release_candidate.md) delivers the unpublished0.6.0 partial candidate,
 clean package and [FieldCore handoff](fieldcore_handoff.md). Its
 [exact source/artifact/CI record](reports/ess_release_30_2026-10-05.md) passes

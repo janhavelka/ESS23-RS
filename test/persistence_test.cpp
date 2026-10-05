@@ -230,7 +230,32 @@ void invalidVerification() {
     assert(!Ess::verifyPersistence(c, c.verification, 1500)); second.check(c);
 }
 } // namespace
+static void testOptionalAgePolicy() {
+    const uint64_t now = 100000, deadline = 110000;
+    auto p = prerequisites(); p.maxAgeUs = 0;
+    Ess::PersistenceContext c; assert(Ess::prepareSave(c, target(), 9, p, now, deadline));
+    Ess::PreparedPersistence work; assert(Ess::nextPersistence(c, now, work) && work.deadlineUs == deadline);
+    const Saved<Ess::PersistenceContext> saved(c);
+    p.maxAgeUs = 10000; assert(!(Ess::prepareSave(c, target(), 9, p, now, deadline))); saved.check(c);
+    p.maxAgeUs = 0; p.beforeIdentity.target.generation++;
+    assert(!(Ess::prepareSave(c, target(), 9, p, now, deadline))); saved.check(c); p.beforeIdentity.target.generation--;
+    const auto id = p.beforeIdentity.operationId; p.beforeIdentity.operationId = 0;
+    assert(!(Ess::prepareSave(c, target(), 9, p, now, deadline))); saved.check(c); p.beforeIdentity.operationId = id;
+    p.beforeIdentity.provenance.deliveredUs = now + 1;
+    assert(!(Ess::prepareSave(c, target(), 9, p, now, deadline))); saved.check(c);
+    assert(Ess::advancePersistence(c, event(c, ReadEventKind::DEADLINE), deadline));
+    assert(c.state == ReadState::FAILED && c.outcome == Ess::PersistenceOutcome::DEADLINE);
+    assert(Ess::nextPersistence(c, deadline, work) && work.kind == Ess::ActionWork::DONE && !work.length);
+    // Disabling age does not allow pre-write observations to prove persistence.
+    c = operation(); ack(c);
+    auto v = verification(10); v.maxAgeUs = 0;
+    const Saved<Ess::PersistenceContext> terminal(c);
+    assert(!Ess::verifyPersistence(c, v, now)); terminal.check(c);
+    v = verification(); v.maxAgeUs = 0;
+    assert(Ess::verifyPersistence(c, v, now) && c.liveReadbackKnown && !c.verifiedFields);
+}
 int main() {
+    testOptionalAgePolicy();
     preparation(); acknowledgementsAndLostReplies(); invalidEnvelopes();
     liveAndRestartVerification(); invalidVerification(); return 0;
 }

@@ -16,7 +16,7 @@ struct VelocityPrerequisites {
     uint16_t accelerationTime = 0, decelerationTime = 0; ///< Qualified native words, never physical acceleration.
     int16_t minimumRpm = -3000, maximumRpm = 3000; ///< Caller-qualified subset; cannot broaden signed 3000-rpm subset.
     uint16_t rawAlarm = 0, rawMotion = 0;
-    uint64_t observedUs = 0, maximumAgeUs = 0;
+    uint64_t observedUs = 0, maximumAgeUs = 0; ///< Zero disables age expiry; nonzero bounds admission/staging age. Stop deadlines remain mandatory.
 };
 enum class VelocityPhase : uint8_t { STAGING, TRIGGER, OBSERVING, STOPPING };
 /** Caller-owned, read-only between calls. One axis reservation spans staging,

@@ -25,6 +25,12 @@ A write echo is not completion; local cancellation is not a motor stop. Lost
 write acknowledgements can leave unknown execution and must not be replayed
 implicitly. External wiring, drive assignments and observed levels are distinct.
 
+Observation age expiry is off by default: core `maxAgeUs`/`maximumAgeUs=0` and
+standalone `ApplicationOptions::observationMaxAgeMs=0`. Nonzero values opt in to
+expiry. Missing evidence, invalidated generations, transaction deadlines and
+new-event completion requirements still apply. Retained observations do not
+prove uninterrupted motor power or an unchanged physical state.
+
 [Candidate scope/gates](docs/release_candidate.md),
 [getting started/troubleshooting](docs/getting_started.md) and
 [API/CLI inventory](docs/ess_api_cli_coverage.md) describe current behavior.
@@ -173,6 +179,18 @@ implements finite relative/absolute motion and wrapped orientations. The install
 and explicit normal/direct stop operations. It separates acknowledgement from
 reported completion; physical action admission checks actual operation and transport prerequisites,
 without requiring an analyzer or a special firmware mode.
+
+For direct device-native positioning, `ESS_RS::PositionCommand` remembers the
+desired speed, raw ramp words, endpoint and word order. Each
+`prepareRelative`/`prepareAbsolute` copies that intent and exact target bits
+into a caller-owned `MoveContext`; the existing `nextMove`/`advanceMove` stages
+the profile, then starts only after a confirmed staging acknowledgement.
+Success is `ACKNOWLEDGED` with completion `NOT_OBSERVED`. This API-only route
+needs no prior observations and invents none; typed state reads provide separate
+feedback. `buildStartPosition` is the lower-level start-only frame builder for
+an already stored target/profile. Neither route enables the drive, changes I/O,
+saves settings or retries implicitly. The ordinary CLI keeps the
+observation-aware `prepareMove*` path. See the [position API](docs/ess_position.md).
 
 The probe reads the read-only model word at `0x0000`; no consuming side effect is
 documented. Its successful reply is seven bytes. Pure 32-bit helpers require an

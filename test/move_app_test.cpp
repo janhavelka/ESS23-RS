@@ -22,17 +22,16 @@ FakeSerial Serial;
 #endif
 namespace {
 using namespace MotorControlRS;
-void fresh() {
+void fresh(uint32_t maximumAgeMs = 0) {
     if (app) { app->~App(); std::free(app); app = nullptr; }
     uart.~Esp32S3Uart(); new (&uart) Esp32S3Uart;
     resetHardware(); Serial = FakeSerial(); platformReady = false; writeResponseConfirmed = false;
 #if MOTORCONTROLRS_TEST_IDF
     resetUsbHardware(); Platform::consoleReady = false; Platform::pendingByte = -1;
-    assert(beginApplication({Board::kRs485TxPin, Board::kRs485RxPin, Board::kRs485DeRePin,
-        Board::kRs485DeReActiveHigh}, Board::kRs485ReceiverDisabledDuringTransmit));
-#else
-    setup();
 #endif
+    ApplicationOptions options; options.observationMaxAgeMs = maximumAgeMs;
+    assert(beginApplication({Board::kRs485TxPin, Board::kRs485RxPin, Board::kRs485DeRePin,
+        Board::kRs485DeReActiveHigh}, Board::kRs485ReceiverDisabledDuringTransmit, options));
     assert(app && uart.ready() && app->owner.valid() && hardware.writes == 0);
     hardware.txCharacterUs = 87;
     assert(uart.startCapture(20, timing().holdUs));
@@ -772,7 +771,63 @@ void testPositionClearBadObservationKeepsConflict() {
 }
 } // namespace
 
+// Establish admission through actual typed reads and the normal profile snapshot.
+// No qualify() flags or fabricated cache entries are used on the accepting path.
+static void readProductionMoveBaseline() {
+    const auto read = [](ESS::ReadKind kind, const std::vector<std::vector<uint8_t>>& responses) {
+        uint32_t operation = 0;
+        assert(startTypedRead(app, 1, 1, kind, operation, false) == Probe::Action::OK);
+        for (const auto& response : responses) {
+            const auto token = view(operation).typedRead->step;
+            waitTx(operation);
+            scheduleReply(hardware.time + 2000, response);
+            for (unsigned i = 0; i < 25000 && view(operation).pending &&
+                 view(operation).typedRead->step == token; ++i) step();
+            assert(!view(operation).pending || view(operation).typedRead->step != token);
+        }
+        assert(!view(operation).pending && view(operation).typedRead->state == ReadState::SUCCEEDED);
+        pump(); // Retain the completed read; profile/move admission must coexist with it.
+    };
+    read(ESS::ReadKind::CONFIG, {registers(1, {0, 1000}), registers(1, {0, 0, 0}),
+        registers(1, {0, 0, 0}), registers(1, {0, 1, 2, 3, 0}), registers(1, {3, 4000})});
+    read(ESS::ReadKind::STATE, {registers(1, {0, 1}), registers(1, {0, 0}), registers(1, {0, 0, 0})});
+    Probe::MotionProfileView profile;
+    assert(motionProfileCommand(app, Probe::MotionProfileCommand::SNAPSHOT, profile) == Probe::Action::OK);
+    const auto ownerRequest = app->motionProfile.request;
+    for (unsigned i = 0; i < 25000 && !app->owner.txAccepted(ownerRequest); ++i) step();
+    assert(app->owner.txAccepted(ownerRequest));
+    scheduleReply(hardware.time + 2000, registers(1, {30, 100, 100, 60, 0, 250}));
+    for (unsigned i = 0; i < 25000 && app->motionProfile.view.pending; ++i) step();
+    assert(!app->motionProfile.view.pending && app->motionProfile.view.saved && app->motionProfile.view.ok);
+    assert(!app->movePrerequisites.commandUnitsVerified);
+}
+static void testProductionMoveOptionalObservationAge() {
+    for (unsigned scenario = 0; scenario < 4; ++scenario) {
+        fresh(scenario == 1 ? 5000 : 0);
+        readProductionMoveBaseline();
+        const auto observed = app->stateCache.blocks[0].observedEarliestUs;
+        advanceHardware(hardware.time + 31000000);
+        if (scenario == 2) app->stateCache.blocks[1].valid = false; // Missing required input evidence.
+        if (scenario == 3) invalidateAxis(*app); // Configuration invalidation still revokes the snapshot.
+        const auto writes = hardware.writes;
+        uint32_t operation = 99;
+        const auto admitted = host(app).startMove(app, 2, 1, request(), operation);
+        if (scenario) {
+            assert(admitted != Probe::Action::OK && operation == 99 && hardware.writes == writes);
+            assert(!app->owner.active() && !app->owner.pending());
+            continue;
+        }
+        assert(admitted == Probe::Action::OK);
+        assert(view(operation).moveContext->prerequisites.maximumAgeUs == 0);
+        assert(view(operation).moveContext->prerequisites.observedUs == observed);
+        moveStep(operation); moveStep(operation);
+        moveStep(operation, registers(1, {0, 4})); moveStep(operation, registers(1, {0, 1}));
+        assert(!view(operation).pending && view(operation).moveContext->completion == ActionCompletion::OBSERVED);
+        assert(hardware.writes == writes + 4 && !app->owner.needsRecovery());
+    }
+}
 int main() {
+    testProductionMoveOptionalObservationAge();
     testProductionGateAndImmutableAdmission(); testIndependentWritesRespectQualificationAndMoveStartup();
     testStageReservationAndFreshCompletion();
     testCommonAndProfileCliUseExactPreparation();

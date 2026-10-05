@@ -2,7 +2,6 @@
 #include "MotorControlRS/profiles/ess_rs/Homing.h"
 #include "MotorControlRS/profiles/ess_rs/Registers.h"
 #include <cstring>
-#include <limits>
 
 namespace MotorControlRS { namespace ESS_RS {
 namespace {
@@ -64,8 +63,7 @@ bool sameTarget(const ReadTarget& a, const ReadTarget& b) {
 }
 uint64_t stepDeadline(const HomeContext& c) {
     const auto& p = c.prerequisites;
-    const uint64_t ageEnd = p.maximumAgeUs > std::numeric_limits<uint64_t>::max() - p.observedUs ?
-        std::numeric_limits<uint64_t>::max() : p.observedUs + p.maximumAgeUs;
+    const uint64_t ageEnd = evidenceAgeDeadline(p.observedUs, p.maximumAgeUs);
     return c.step < 2 && ageEnd < c.deadlineUs ? ageEnd : c.deadlineUs;
 }
 Status expired(const HomeContext& c) {
@@ -135,8 +133,8 @@ Status prepareHome(HomeContext& output, const AxisConfig& axis, uint32_t id,
         return invalid(HomeError::INPUT_REQUIRED, "existing inputs and interfering assignments must be qualified");
     if (method->requiresIndex && !p.indexQualified)
         return invalid(HomeError::INDEX_REQUIRED, "qualified closed-loop motor Z index is required");
-    if (!p.methodQualified || !p.readinessQualified || !p.maximumAgeUs || p.observedUs > nowUs ||
-        nowUs - p.observedUs >= p.maximumAgeUs || p.rawAlarm || (p.rawMotion & (FAULTS | RUNNING)))
+    if (!p.methodQualified || !p.readinessQualified || !evidenceAgeValid(p.observedUs, nowUs, p.maximumAgeUs) ||
+        p.rawAlarm || (p.rawMotion & (FAULTS | RUNNING)))
         return invalid(HomeError::READINESS, "fresh enabled stationary alarm-free qualified home readiness is required");
     HomeContext c;
     c.target = axis.target; c.operationId = id; c.request = request; c.prerequisites = p;
@@ -281,7 +279,7 @@ Status getHomeReference(const HomeContext& c, uint64_t nowUs, uint64_t maximumAg
     // Request eligibility bounds when the device may have sampled its values;
     // response closure/delivery must not renew the older stationary witness.
     const uint64_t observedUs = c.completionObservedUs;
-    if (nowUs < c.servicedUs || nowUs < observedUs || !maximumAgeUs || nowUs - observedUs >= maximumAgeUs)
+    if (nowUs < c.servicedUs || !evidenceAgeValid(observedUs, nowUs, maximumAgeUs))
         return invalid(HomeError::STALE_REFERENCE, "homing reference is stale");
     AxisReference reference;
     reference.target = c.target; reference.configurationGeneration = c.request.configurationGeneration;

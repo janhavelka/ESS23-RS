@@ -223,6 +223,24 @@ void immutableEnvelopes() {
     assert(!Ess::advanceCommunication(c, e, 370)); pending.check(c);
 }
 }
+static void testOptionalAgePolicy() {
+    const uint64_t now = 100000, deadline = 110000;
+    auto r = request(); auto p = prerequisites(r); p.maxAgeUs = 0;
+    Ess::CommunicationContext c; assert(Ess::prepareCommunication(c, target(), 9, r, p, now, deadline));
+    Ess::PreparedCommunication work; assert(Ess::nextCommunication(c, now, work) && work.deadlineUs == deadline);
+    const Saved<Ess::CommunicationContext> saved(c);
+    p.maxAgeUs = 10000; assert(!(Ess::prepareCommunication(c, target(), 9, r, p, now, deadline))); saved.check(c);
+    p.maxAgeUs = 0; p.previous.target.generation++;
+    assert(!(Ess::prepareCommunication(c, target(), 9, r, p, now, deadline))); saved.check(c); p.previous.target.generation--;
+    const auto id = p.previous.operationId; p.previous.operationId = 0;
+    assert(!(Ess::prepareCommunication(c, target(), 9, r, p, now, deadline))); saved.check(c); p.previous.operationId = id;
+    p.previous.provenance[1].deliveredUs = now + 1;
+    assert(!(Ess::prepareCommunication(c, target(), 9, r, p, now, deadline))); saved.check(c);
+    assert(Ess::advanceCommunication(c, event(c, ReadEventKind::DEADLINE), deadline));
+    assert(c.state == ReadState::FAILED && c.outcome == Ess::CommunicationOutcome::DEADLINE);
+    assert(Ess::nextCommunication(c, deadline, work) && work.kind == Ess::ActionWork::DONE && !work.length);
+}
 int main() {
+    testOptionalAgePolicy();
     preparation(); oldAndNewContexts(); lostAndDelayed(); rejectionAndUncertainty(); immutableEnvelopes();
 }

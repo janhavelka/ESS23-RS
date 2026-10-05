@@ -66,6 +66,8 @@ struct App;
 Probe::Host host(App*);
 MotorControlRS::ActiveSerialTuple communicationTuple(const HostTuple&);
 struct App {
+    ApplicationOptions options;
+    uint64_t observationAgeUs() const { return static_cast<uint64_t>(options.observationMaxAgeMs) * 1000; }
     uint8_t tx[32] = {}, rx[64] = {}, viewTx[8] = {};
     Rtu::Trace trace[128];
     Rtu::PendingSlot pending[5];
@@ -176,7 +178,7 @@ struct App {
     uint64_t communicationEarliestUs = 0, communicationLatestUs = 0;
     bool communicationKnown = false;
     MotorControlRS::ESS_RS::FrameError frameError = MotorControlRS::ESS_RS::FrameError::NONE;
-    App() : runner(uart.port(), storage(tx, rx, trace), timing()),
+    explicit App(const ApplicationOptions& supplied = ApplicationOptions()) : options(supplied), runner(uart.port(), storage(tx, rx, trace), timing()),
         owner(runner, busStorage(pending, results, producers)), console(host(this)) {
         hostTiming(serial.active, serial.timing);
         serial.original = serial.requested = serial.active;
@@ -194,7 +196,7 @@ struct App {
             }
         }
         axis.target.id = axis.target.address = 1; axis.target.generation = bindingGeneration;
-        persistencePrerequisites.maxAgeUs = 5000000;
+        persistencePrerequisites.maxAgeUs = observationAgeUs();
         axis.supportedRelativeBases = 1;
         // Application bench declaration: only power/RS485, no terminal wiring.
         for (auto& wiring : inputWiring) wiring = MotorControlRS::InputWiring::UNCONNECTED;
@@ -292,15 +294,15 @@ bool triggeredMotion(const App& a, uint8_t address) {
 void serviceCoordinates(App& a, uint64_t now) {
     if (!coordinateKnowledge(a)) return;
     const auto& reference = a.coordinateReference;
-    if (reference.nativeKnown && (!reference.maximumAgeUs || now < reference.observedUs ||
-        now - reference.observedUs > reference.maximumAgeUs)) {
+    if (reference.nativeKnown && (now < reference.observedUs ||
+        (reference.maximumAgeUs && now - reference.observedUs > reference.maximumAgeUs))) {
         invalidateAxis(a); return;
     }
     const auto& motion = a.stateCache.blocks[static_cast<uint8_t>(ESS::StateBlock::MOTION)];
     // A status captured during our search cannot erase a newer correlated
     // stationary reference. Overlapping/newer bounds still invalidate it.
     const bool relevantMotion = !reference.nativeKnown || motion.observedLatestUs >= reference.observedUs;
-    if (relevantMotion && Probe::fresh(motion, a.axis.target, now, 5000000) &&
+    if (relevantMotion && Probe::fresh(motion, a.axis.target, now, a.observationAgeUs()) &&
         (motion.value.released || (motion.value.running && !triggeredMotion(a, a.axis.target.address))))
         invalidateAxis(a);
 }
@@ -311,7 +313,7 @@ MotorControlRS::AxisReference axisReference(const App& a) {
         evidence.configurationGeneration != a.axis.generation) evidence = AxisReference();
     evidence.target = a.axis.target; evidence.configurationGeneration = a.axis.generation;
     evidence.nowUs = nowUs();
-    if (!evidence.nativeKnown) evidence.maximumAgeUs = 5000000;
+    if (!evidence.nativeKnown) evidence.maximumAgeUs = a.observationAgeUs();
     evidence.idle = !a.owner.active() && !a.owner.pending() && !a.owner.recovering() &&
         !a.owner.needsRecovery() && !uart.needsRecovery() && !reading(a) && !a.monitorState.settings.enabled &&
         !axisReserved(a, a.axis.target.address);
@@ -387,6 +389,7 @@ MotorControlRS::Status axisCommand(void* context, const Probe::AxisCommand& comm
 void snapshot(void* context, Probe::Snapshot& s) {
     App& a = *static_cast<App*>(context);
     s = Probe::Snapshot();
+    s.staleAfterMs = a.options.observationMaxAgeMs;
     s.bindingGeneration = a.bindingGeneration;
     s.nowUs = nowUs(); s.stateCache = &a.stateCache; s.monitorState = a.monitorState;
     s.communicationKnown = a.communicationKnown;
@@ -598,11 +601,11 @@ Probe::Action startAction(void* context, uint32_t commandId, uint8_t address,
         if (request.devicePosition != 0) return Probe::Action::UNSUPPORTED;
         if (!a.positionClearQualified) return Probe::Action::UNAVAILABLE;
         const auto& motion = a.stateCache.blocks[static_cast<uint8_t>(ESS::StateBlock::MOTION)];
-        const uint64_t age = 5000000;
+        const uint64_t age = a.observationAgeUs();
         if (a.axis.target.address != address || !Probe::fresh(motion, a.axis.target, now, age) ||
             motion.value.running || motion.value.released || motion.value.rawAlarm || motion.value.alarmFlag)
             return Probe::Action::UNAVAILABLE;
-        const uint64_t readinessEnd = motion.observedEarliestUs > UINT64_MAX - age ? UINT64_MAX : motion.observedEarliestUs + age;
+        const uint64_t readinessEnd = evidenceAgeDeadline(motion.observedEarliestUs, age);
         if (readinessEnd <= now) return Probe::Action::UNAVAILABLE;
         if (readinessEnd < deadline) deadline = readinessEnd;
         admittedRequest.positionClearQualified = true;
@@ -1083,7 +1086,7 @@ Probe::Action startDriver(void* context, uint32_t commandId, uint8_t address, ES
         prerequisites.~DriverPrerequisites(); new (&prerequisites) ESS::DriverPrerequisites();
         prerequisites.previous = ESS::isTuningGroup(supplied.group) ? tuningCache(a, supplied.group) : segmentGroup(supplied.group) ? a.segmentSettings : supplied.group == ESS::DriverGroup::IO ? a.ioSettings : supplied.group == ESS::DriverGroup::CONTROL_SETTINGS ? a.controlSettings : a.driverSettings;
         prerequisites.configurationGeneration = generation;
-        prerequisites.stationaryTarget = target; prerequisites.maxAgeUs = 5000000;
+        prerequisites.stationaryTarget = target; prerequisites.maxAgeUs = a.observationAgeUs();
         const auto& motion = a.stateCache.blocks[static_cast<uint8_t>(ESS::StateBlock::MOTION)];
         prerequisites.stationaryQualified = Probe::fresh(motion, target, now, prerequisites.maxAgeUs);
         prerequisites.rawAlarm = motion.value.rawAlarm; prerequisites.rawMotion = motion.value.rawMotion;
@@ -1130,7 +1133,7 @@ Probe::Action startDriver(void* context, uint32_t commandId, uint8_t address, ES
                 for (const auto& evidence : a.ioSettings.provenance) {
                     if (!evidence.count) continue;
                     passive = passive && evidence.qualified && evidence.responseConfirmed && evidence.status &&
-                        now >= evidence.attemptedUs && now - evidence.attemptedUs < prerequisites.maxAgeUs;
+                        evidenceAgeValid(evidence.attemptedUs, now, prerequisites.maxAgeUs);
                     if (evidence.attemptedUs < earliest) earliest = evidence.attemptedUs;
                     if (evidence.latestUs > latest) latest = evidence.latestUs;
                 }
@@ -1158,7 +1161,7 @@ Probe::Action startDriver(void* context, uint32_t commandId, uint8_t address, ES
             for (const auto& e : a.ioSettings.provenance) {
                 if (!e.count) continue;
                 inhibited = inhibited && e.qualified && e.responseConfirmed && e.status &&
-                    e.attemptedUs <= now && now - e.attemptedUs < prerequisites.maxAgeUs;
+                    evidenceAgeValid(e.attemptedUs, now, prerequisites.maxAgeUs);
                 if (e.attemptedUs < earliest) earliest = e.attemptedUs;
                 if (e.latestUs > latest) latest = e.latestUs;
             }
@@ -1458,7 +1461,7 @@ void updateActionReservation(App& a, App::Record& record) {
         if (!record.cancelContinuation && a.axis.generation && record.address == a.axis.target.address &&
             record.configurationGeneration == a.axis.generation && record.home.target.generation == a.bindingGeneration) {
             MotorControlRS::AxisReference reference;
-            if (ESS::getHomeReference(record.home, nowUs(), 5000000, reference)) {
+            if (ESS::getHomeReference(record.home, nowUs(), a.observationAgeUs(), reference)) {
                 // Only the derived cache is reconciled. Historical operation/evidence remain immutable.
                 reference.configurationGeneration = a.axis.generation;
                 a.coordinateReference = reference;
@@ -2147,7 +2150,7 @@ void deliver(App& a) {
 }
 }
 namespace MotorControlRSExample {
-bool beginApplication(const Esp32S3Uart::Pins& pins, bool receiverDisabledDuringTransmit) {
+bool beginApplication(const Esp32S3Uart::Pins& pins, bool receiverDisabledDuringTransmit, const ApplicationOptions& options) {
     if (app) return false; // Construction and I/O are one explicit startup action.
     const bool consoleReady = Platform::beginConsole();
     if (!consoleReady) { Platform::bootFailure("console_init"); return false; }
@@ -2165,7 +2168,7 @@ bool beginApplication(const Esp32S3Uart::Pins& pins, bool receiverDisabledDuring
     fixtureReady = loadFixture.begin();
     if (!fixtureReady) { platformReady = false; failure = "load_init"; }
 #endif
-    app = new (memory) App;
+    app = new (memory) App(options);
     app->runner.setTrafficCapture(&app->debug.capture);
     app->console.welcome();
     if (failure) Platform::bootFailure(failure);

@@ -33,7 +33,7 @@ struct PersistencePrerequisites {
     StateObservation stationary;
     ActiveSerialTuple beforeSerial;
     uint32_t configurationGeneration = 0;
-    uint64_t maxAgeUs = 0;
+    uint64_t maxAgeUs = 0; ///< Zero disables age expiry, not checked provenance or operation deadlines.
     bool stationaryQualified = false, effectsQualified = false;
     PersistenceKind qualifiedKind = PersistenceKind::SAVE;
     bool completeBackupQualified = false, routeBackQualified = false;
@@ -49,7 +49,7 @@ struct PersistenceVerification {
     StateObservation stationary;
     ActiveSerialTuple serial;
     uint32_t configurationGeneration = 0;
-    uint64_t maxAgeUs = 0;
+    uint64_t maxAgeUs = 0; ///< Zero disables age expiry; post-operation/restart observations remain mandatory.
     bool restartObserved = false;
     uint64_t restartUs = 0;
     uint32_t restartSourceId = 0;

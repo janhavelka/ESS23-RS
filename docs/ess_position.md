@@ -12,8 +12,58 @@ Prompt10 adds `prepareMoveAbsolute` and `prepareMoveAngle` beside
 `prepareMoveRelative`. Common `MotorControlRS` and native `ESS_RS` routes invoke
 the same implementation and reuse `nextMove`/`advanceMove`; there is one staging,
 trigger and completion sequence. Construction and advancement perform no I/O, read no
-clock and allocate nothing. Native tests are software evidence; physical moves
-and dynamic stopping remain unqualified on the current bench.
+clock and allocate nothing. Short bench tests establish drive-reported activity
+and stopping for the recorded subset; independent shaft timing remains unmeasured.
+
+## Native commands and remembered intent
+
+`ESS_RS::PositionCommand` holds caller intent: endpoint/binding, word order,
+desired native RPM and raw acceleration/deceleration words. Each preparation
+copies those settings and the supplied exact 32-bit target bits into a separate
+`MoveContext`. Later edits affect future commands only.
+
+```cpp
+#include <MotorControlRS/profiles/ess_rs/Position.h>
+namespace ESS = MotorControlRS::ESS_RS;
+
+ESS::PositionCommand motor;
+motor.target.id = 1;
+motor.target.address = 1;
+motor.target.generation = 1; // Application's current endpoint binding.
+motor.speedRpm = 60;
+motor.accelerationTime = motor.decelerationTime = 100; // Native ramp words.
+
+ESS::MoveContext operation;
+const auto status = motor.prepareRelative(operation, 7, 100, 1000, 1001000);
+// On success, execute nextMove/advanceMove through the existing owner.
+// prepareAbsolute has the same arguments and preserves the supplied target bits.
+```
+
+This native route does not require prior state observations, host origin or
+engineering-unit conversion. It always stages `0x0021/5`, then yields the
+relative/absolute start only after checked, confirmed staging acknowledgement.
+The application uses its existing owner and holds the same-axis reservation
+across both writes, preserving deadlines, uncertainty and explicit stop handling.
+Successful start ends with outcome `ACKNOWLEDGED`
+and completion `NOT_OBSERVED`; it does not poll for completion without a prior
+stationary baseline. Use separate typed state reads for feedback or the
+observation-aware preparations below for correlated completion.
+
+Native target bits do not qualify negative-motion encoding, calibration or
+starting-speed compatibility. There is no implicit enable, I/O change, save,
+stop or retry. `buildStartPosition(address, relative, buffer, capacity)` builds
+only the eight-byte FC06 start for the drive's already stored target/profile;
+it does not stage parameters or observe the result. These lower-level routes
+are API-only. The CLI continues to use `prepareMove*`.
+
+## Observation-aware preparation
+
+Here “fresh” means correctly bound, checked and not invalidated; age is checked
+only when explicitly enabled. `maximumAgeUs=0` disables age expiry by default.
+The standalone application's matching option is `observationMaxAgeMs=0`;
+set it to `5000` to opt into a five-second policy. Missing/contradicted evidence,
+future timestamps and generation mismatches still reject. Retained evidence
+does not establish uninterrupted motor power or unchanged physical state.
 
 `MoveRequest` contains the existing exact `PositionRequest`, positive native
 motor `speedRpm`, and explicit `VERIFIED_CONFIGURED` ramp policy. Preparation
@@ -21,8 +71,8 @@ calls `preparePosition`; there is no CLI conversion path. Native relative
 requests without endpoint limits need no unrelated origin, gearing or lead.
 EXACT is the default; public requests retain the existing explicit rounding and
 radian error policies. Zero effective displacement rejects without traffic.
-When endpoint preparation consumes an established native reference, its age is
-checked at the operation's supplied admission time. Its freshness must cover
+When endpoint preparation consumes an established native reference, an enabled
+age policy is checked at the operation's supplied admission time and must cover
 the earlier readiness/operation write deadline. A caller can refresh the
 reference or choose a smaller readiness/deadline budget; an old cached `nowUs`
 cannot authorize a stale endpoint. Unestablished optional feedback remains
@@ -81,9 +131,10 @@ event and must independently qualify FC06 response source against local echo.
 | 2 onward | Bounded FC03 `0x0006/2` observations, separated by waits which hold no bus transaction |
 | Completion | Fresh post-trigger RUNNING report, then a later checked ARRIVED and not-RUNNING report without alarm/release/limit interruption |
 
-The operation retains one immutable absolute deadline. Staging and trigger
-transactions also retain the earlier readiness cutoff (saturating observation
-time plus maximum age); queueing, UART setup and TX cannot renew it. New writes
+The operation retains one immutable absolute deadline. With age expiry enabled,
+staging and trigger transactions also retain the earlier readiness cutoff
+(saturating observation time plus maximum age); queueing, UART setup and TX
+cannot renew it. With age expiry disabled, writes use the operation deadline. New writes
 require time strictly before that cutoff. Qualified physical closure at the
 cutoff can be accepted when delivered later, but delayed staging delivery at or
 after it cannot authorize a trigger. An expired deferred write settles locally;
@@ -122,7 +173,7 @@ The application drops current native-reference confidence when trigger TX is
 accepted. A terminal triggered move invalidates dependent origins/limits until
 a newly qualified reference is supplied; arrival flags alone cannot establish
 its exact endpoint. Release, accepted or uncertain device clear, reference
-expiry, observed external movement and relevant settings changes also invalidate
+expiry when enabled, observed external movement and relevant settings changes also invalidate
 coordinate knowledge while retaining historical raw evidence. Host `axis origin`
 changes no motor counter and requires idle stationary native reference evidence.
 The current board cannot establish that reference from unsigned raw feedback

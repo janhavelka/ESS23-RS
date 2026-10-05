@@ -36,6 +36,15 @@ advance the profile context with real events and preserve uncertainty. Never
 invent prerequisite booleans to force admission. See [API inventory](ess_api_cli_coverage.md)
 and [FieldCore mapping](fieldcore_handoff.md) for the event/result boundary.
 
+When the application already knows the desired native command, use
+`ESS_RS::PositionCommand` to remember speed and raw ramps and prepare an exact
+32-bit relative/absolute target. It shares `nextMove`/`advanceMove` and the same
+bus owner, but requires no prior state reads. Its successful result means setup
+and start were acknowledged; completion remains `NOT_OBSERVED`. The
+[native position example](ess_position.md#native-commands-and-remembered-intent)
+also shows the start-only builder. These are public library APIs; the ordinary
+CLI continues to use observation-aware motion preparation.
+
 ## Standalone console
 
 Build/flash commands and backup/recovery are in the
@@ -93,15 +102,23 @@ units/methods require their own evidence.
 | COM13 access denied | Another terminal/program owns the port; close that connection before a new session |
 
 Manual `move relative 100 steps native 60 configured 1` currently needs a
-matching `motion-profile read` within30s and fresh stationary state/I/O/config
-context. The mover's consumed readiness has a3s budget; waiting3–5s after a
-state read can produce `invalid`, and older input/motion evidence can produce
-`unavailable`. Settings writes also need matching identity/configuration within
-their own freshness bounds (typically5s). A successful probe alone establishes
-none of these. Result release preserves cache values but does not refresh age.
+matching `motion-profile read` and checked stationary state/I/O/configuration.
+Age alone does not expire these observations by default. Settings retain their
+required identity/configuration evidence as well. A successful probe alone
+establishes none of this; recovery, changed configuration or other invalidating
+events still require renewed evidence. Result release does not refresh timestamps.
+
+The application may enable expiry with
+`ApplicationOptions::observationMaxAgeMs=5000` when calling `beginApplication`;
+its default is zero. Core callers likewise use a nonzero `maxAgeUs` or
+`maximumAgeUs` to bound observation age. “Fresh” means checked, correctly bound
+and not invalidated, plus the configured age check when enabled. Operation
+deadlines remain mandatory; the example move still has a three-second execution
+budget. Disabling age expiry does not establish continuous power or prove that
+the motor's physical state stayed unchanged between observations.
 
 The human console currently lacks automatic prerequisite refresh and detailed
 motion rejection reasons; operation0 and the coarse error do not uniquely
-identify the failed check. The finite harness avoids manual typing races without
-weakening validation. Future guided commands should perform the same checked
+identify the failed check. The finite harness refreshes the evidence it needs
+and preserves failures. Future guided commands should perform the same checked
 preparation, manage their own retained results and expose the actual rejection.

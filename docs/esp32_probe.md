@@ -330,9 +330,29 @@ Current application timing choices are:
 | Probe response deadline | 200 milliseconds, including final frame gap |
 | Absolute admitted probe deadline | 500 milliseconds, including queue/setup/TX/final closure |
 | Explicit recovery guard / deadline | 500 milliseconds after physical TX/DE settlement and recovery admission / 2 seconds from admission |
-| Presence freshness threshold | 5000 milliseconds from qualified frame-closure earliest bound |
+| Observation age expiry | Disabled by default (`0`); optional `ApplicationOptions::observationMaxAgeMs` |
 
 These deadlines are host policy, not measured or vendor-guaranteed upper bounds.
+Age expiry can be enabled before startup using the existing application entry
+point with the caller's pins and receiver topology:
+
+```cpp
+MotorControlRSExample::ApplicationOptions options;
+options.observationMaxAgeMs = 5000;
+MotorControlRSExample::beginApplication(pins, receiverDisabledDuringTransmit, options);
+```
+
+Omitting options keeps expiry disabled. `config`/`status` expose this choice as
+`stale_after_ms`; observed ages are still reported. A manual pause alone no
+longer expires a checked motion profile or state/identity observation. Missing
+evidence, changed generations, recovery and known contradictions still require
+renewed evidence. Core `maxAgeUs`/`maximumAgeUs=0` has the same meaning. This does
+not prove uninterrupted power or an unchanged physical state, and does not
+disable transaction deadlines or required new completion reports. The ordinary
+CLI keeps observation-aware preparation; the lower-level
+[`PositionCommand`/start-only APIs](ess_position.md#native-commands-and-remembered-intent)
+are available to library callers without a separate firmware mode.
+
 The first-reply override is deliberately separate from the recommended 1750
 microsecond high-baud inter-frame threshold. Host bus admission and final frame
 closure still use 1750 microseconds. `config` exposes `reply_gap_us`, `gap15_us`
@@ -468,8 +488,9 @@ Result quotas remain independent; mismatches poison the session.
 
 `probe` performs one explicit model read. `stress` repeats that same read a
 finite number of times, with status/health/memory observations between reads.
-`watch` only reads cached host reports and creates no motor bus traffic; presence
-will become stale if no checked communication refreshes it. `state-health` now
+`watch` only reads cached host reports and creates no motor bus traffic; age
+continues increasing, and presence becomes stale only with age expiry enabled.
+`state-health` now
 checks raw/decoded alarms, flags, I/O, paired position and speed through the public
 state API. Position source/sign/scale and speed sign/units can remain unresolved;
 readiness and motion completion are not inferred.

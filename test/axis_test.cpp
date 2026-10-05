@@ -434,7 +434,26 @@ static void testWrappedIntegerOracle() {
         }
     }
 }
+static void testOptionalAgePolicy() {
+    const auto c = config(); auto ref = reference(c); auto r = request(c, 1);
+    PreparedTarget out;
+    ref.nowUs = 100000; ref.maximumAgeUs = 0;
+    assert(preparePosition(r, c, &ref, out) && out.endpointKnown);
+    ref.maximumAgeUs = 20; assert(!preparePosition(r, c, &ref, out));
+    ref.maximumAgeUs = 0; ref.target.generation++;
+    assert(!preparePosition(r, c, &ref, out));
+    ref = reference(c); ref.maximumAgeUs = 0; ref.source = ScaleSource::UNKNOWN;
+    assert(!preparePosition(r, c, &ref, out));
+    ref.source = ScaleSource::QUALIFIED; ref.nowUs = ref.observedUs - 1;
+    assert(!preparePosition(r, c, &ref, out));
+    assert(evidenceAgeValid(10, UINT64_MAX, 0));
+    assert(!evidenceAgeValid(11, 10, 0));
+    assert(evidenceAgeValid(10, 19, 10) && !evidenceAgeValid(10, 20, 10));
+    assert(evidenceAgeDeadline(10, 0) == UINT64_MAX);
+    assert(evidenceAgeDeadline(UINT64_MAX - 5, 10) == UINT64_MAX);
+}
 int main() {
+    testOptionalAgePolicy();
     testNative(); testRounding(); testFactorsAndOrigins(); testEncodersAndLimits(); testHostConfiguration();
     testRetainedConfigurationReference();
     testRelativeRequestedRange(); testZeroRadiansAndCancellation(); testRadiansAndParsing();

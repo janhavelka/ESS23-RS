@@ -20,15 +20,16 @@ FakeSerial Serial;
 #endif
 namespace {
 using namespace MotorControlRS;
-void fresh() {
+void fresh(uint32_t maximumAgeMs = 0) {
     if (app) { app->~App(); std::free(app); app = nullptr; }
     uart.~Esp32S3Uart(); new (&uart) Esp32S3Uart;
     resetHardware(); Serial = FakeSerial(); platformReady = writeResponseConfirmed = false;
 #if MOTORCONTROLRS_TEST_IDF
     resetUsbHardware(); Platform::consoleReady = false; Platform::pendingByte = -1;
 #endif
+    ApplicationOptions options; options.observationMaxAgeMs = maximumAgeMs;
     assert(beginApplication({Board::kRs485TxPin, Board::kRs485RxPin, Board::kRs485DeRePin,
-        Board::kRs485DeReActiveHigh}, false)); // Explicit alternate/unknown-echo topology.
+        Board::kRs485DeReActiveHigh}, false, options)); // Explicit alternate/unknown-echo topology.
     assert(app && !hardware.writes && !writeResponseConfirmed);
     hardware.txCharacterUs = 87; assert(uart.startCapture(20, timing().holdUs));
 }
@@ -138,7 +139,7 @@ void safeDelayAndGuards() {
 }
 void modelAndStaleness() {
     for (unsigned fault = 0; fault < 4; ++fault) {
-        fresh(); readControl(); readIdentity(fault == 0 ? 0x1234 : 0x4EEA, fault == 1 ? 0x1234 : 0x29); stationary();
+        fresh(fault == 2 ? 5000 : 0); readControl(); readIdentity(fault == 0 ? 0x1234 : 0x4EEA, fault == 1 ? 0x1234 : 0x29); stationary();
         auto r = delay();
         if (fault == 2) { advanceHardware(hardware.time + 5000001); stationary(); }
         if (fault == 3) ++r.configurationGeneration;
@@ -246,7 +247,19 @@ void failedRefreshInvalidatesChangedScale() {
     }
 }
 } // namespace
+static void testDefaultAgeKeepsCheckedControlIdentity() {
+    fresh(); readControl(); readIdentity(); stationary();
+    assert(app->options.observationMaxAgeMs == 0);
+    const auto observed = app->identity.provenance.attemptedUs;
+    advanceHardware(hardware.time + 31000000);
+    const auto operation = start(delay());
+    assert(view(operation).driverContext->prerequisites.maxAgeUs == 0);
+    assert(view(operation).driverContext->prerequisites.controlIdentity.provenance.attemptedUs == observed);
+    reply(operation, {}); reply(operation, words({1001}));
+    assert(!view(operation).pending && view(operation).driverContext->outcome == ESS::DriverOutcome::SUCCESS);
+}
 int main() {
+    testDefaultAgeKeepsCheckedControlIdentity();
     safeDelayAndGuards(); modelAndStaleness(); changedScaleAndHistoricalContext(); uncertaintyAndCancel(); independentCachesAndPressure();
     recoveryWithActiveWriteAndFullResults(); failedRefreshInvalidatesChangedScale();
     if (app) { app->~App(); std::free(app); app = nullptr; }

@@ -38,6 +38,15 @@ int main() {
     using namespace MotorControlRS;
     using namespace MotorControlRS::ESS_RS;
     ReadTarget target; target.id = 1; target.address = 1; target.generation = 2;
+    PositionCommand desired;
+    desired.target = target; desired.speedRpm = 60;
+    desired.accelerationTime = desired.decelerationTime = 100;
+    MoveContext nativeMove; PreparedMove nativeWork;
+    if (!desired.prepareRelative(nativeMove, 12, 100, 100, 1000000) ||
+        !nextMove(nativeMove, 100, nativeWork) || nativeWork.length != 19 ||
+        nativeMove.admission != MoveAdmission::NATIVE_INTENT) return 104;
+    uint8_t rawStart[8];
+    if (buildStartPosition(1, true, rawStart, sizeof(rawStart)) != 8) return 105;
     DiscoveryCapabilities discovery;
     ESS_RS::PreparedProbe probe;
     if (discoveryProfileCount() != 1 || !getDiscoveryCapabilities(DriveProfile::ESS_RS, discovery) ||

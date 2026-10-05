@@ -74,7 +74,8 @@ bool sameInterpretation(const UnitConfig& a, const UnitConfig& b) {
 Status evidence(const AxisConfig& c, const AxisReference& r, bool stationary, bool native) {
     if (!sameTarget(c.target,r.target) || c.generation != r.configurationGeneration)
         return fail(AxisError::STALE_GENERATION,"reference target/generation mismatch",Err::INVALID_CONFIG);
-    if (!sourceKnown(r.source) || r.nowUs < r.observedUs || r.nowUs - r.observedUs > r.maximumAgeUs)
+    if (!sourceKnown(r.source) || r.nowUs < r.observedUs ||
+        (r.maximumAgeUs && r.nowUs - r.observedUs > r.maximumAgeUs))
         return fail(AxisError::STALE_REFERENCE,"reference is absent or stale",Err::INVALID_CONFIG);
     if (stationary && (!r.idle || !r.stationary))
         return fail(AxisError::NOT_STATIONARY,"idle stationary evidence is required",Err::INVALID_CONFIG);

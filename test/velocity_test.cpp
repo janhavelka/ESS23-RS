@@ -430,7 +430,37 @@ void testBoundedStopAndPreservedPrimaryFailure() {
     assert(c.needsStop && c.stop.execution == ActionExecution::ACKNOWLEDGED && c.stop.completion == ActionCompletion::NOT_OBSERVED);
 }
 } // namespace
+static void testOptionalAgePolicy() {
+    const uint64_t now = 100000, deadline = 110000;
+    auto p = prerequisites(); p.maximumAgeUs = 0;
+    Ess::VelocityContext c;
+    assert(Ess::prepareVelocity(c, axis(), 12, request(), p, now, deadline, options()));
+    Ess::PreparedVelocity work;
+    assert(Ess::nextVelocity(c, now, work));
+    assert(work.deadlineUs == c.stopDueUs);
+    const Saved<Ess::VelocityContext> saved(c);
+    p.maximumAgeUs = 1000; assert(!(Ess::prepareVelocity(c, axis(), 12, request(), p, now, deadline, options()))); saved.check(c);
+    p.maximumAgeUs = 0; p.target.generation++;
+    assert(!(Ess::prepareVelocity(c, axis(), 12, request(), p, now, deadline, options()))); saved.check(c);
+    p = prerequisites(); p.maximumAgeUs = 0; p.readinessQualified = false;
+    assert(!(Ess::prepareVelocity(c, axis(), 12, request(), p, now, deadline, options()))); saved.check(c);
+    p.readinessQualified = true; p.observedUs = now + 1;
+    assert(!(Ess::prepareVelocity(c, axis(), 12, request(), p, now, deadline, options()))); saved.check(c);
+    assert(Ess::advanceVelocity(c, local(c, ReadEventKind::DEADLINE), deadline));
+    assert(c.state == ActionState::FAILED && c.outcome == ActionOutcome::DEADLINE);
+    assert(Ess::nextVelocity(c, deadline, work) && work.kind == Ess::ActionWork::DONE && !work.length);
+    // The finite stop obligation is independent of the optional admission age.
+    p = prerequisites(); p.maximumAgeUs = 0;
+    assert(Ess::prepareVelocity(c, axis(), 12, request(), p, now, deadline, options()));
+    trigger(c);
+    assert(Ess::serviceVelocity(c, c.stopDueUs));
+    assert(c.phase == Ess::VelocityPhase::STOPPING && c.needsStop);
+    assert(Ess::nextVelocity(c, c.servicedUs, work) && work.urgent && work.write);
+    assert(Ess::serviceVelocity(c, deadline) && c.state == ActionState::FAILED);
+    assert(c.stop.completion == ActionCompletion::NOT_OBSERVED);
+}
 int main() {
+    testOptionalAgePolicy();
     testGoldenFramesCommonParityAndFiniteStop(); testRejectedParametersUnchanged(); testSignRangesAndLatchedSettings();
     testFailuresAndLocalCancellation(); testCheckedRepliesAndEnvelopePreservation(); testDeadlinesActivityAndDelayedService();
     testSharedNumericPreparation();

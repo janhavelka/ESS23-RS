@@ -550,6 +550,7 @@ const char* motorOutcome(Core::ActionOutcome outcome) {
     case Core::ActionOutcome::CANCELLED: return "cancelled"; case Core::ActionOutcome::DEADLINE: return "deadline";
     case Core::ActionOutcome::TIMING_UNQUALIFIED: return "timing_unqualified";
     case Core::ActionOutcome::UNCONFIRMED_RESPONSE: return "unconfirmed_response";
+    case Core::ActionOutcome::ACKNOWLEDGED: return "acknowledged";
     case Core::ActionOutcome::OBSERVATION_LIMIT: return "observation_limit"; } return "unknown";
 }
 void hex(const uint8_t* bytes, std::size_t length, char* output, std::size_t capacity) {
@@ -1959,11 +1960,11 @@ void Console::dispatch() noexcept {
     case Command::HEALTH: {
         const char* communication = !data.ready ? "unavailable" : data.recoveryRequired ? "failed" :
             !data.probeKnown ? "unknown" : !data.probeOk ? "failed" : !data.observedEarliestUs ? "unknown" :
-            data.ageMs > data.staleAfterMs ? "stale" : "current";
+            data.staleAfterMs && data.ageMs > data.staleAfterMs ? "stale" : "current";
         MotorControlRS::ReadTarget target; target.id = data.address; target.address = data.address; target.generation = data.bindingGeneration;
         if (data.communicationKnown && data.ready && !data.recoveryRequired) {
             communication = !sameTarget(data.communicationTarget, target) || data.nowUs < data.communicationEarliestUs ? "unknown" :
-                data.nowUs - data.communicationEarliestUs > static_cast<uint64_t>(data.staleAfterMs) * 1000 ? "stale" : "current";
+                data.staleAfterMs && data.nowUs - data.communicationEarliestUs > static_cast<uint64_t>(data.staleAfterMs) * 1000 ? "stale" : "current";
         }
         const StateCache::Block* motion = data.stateCache ? &data.stateCache->blocks[0] : nullptr;
         const bool motionFresh = motion && fresh(*motion, target, data.nowUs, static_cast<uint64_t>(data.staleAfterMs) * 1000);
