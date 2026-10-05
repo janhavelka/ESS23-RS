@@ -6,6 +6,10 @@ you want to investigate, inspect its retained result, then use `debug off`.
 There is one execution path and one UART owner. Changing the display mode sends
 no motor command and changes no admission rule, timeout, recovery or retry policy.
 
+Plain `debug raw`/`debug decoded` selects readable traffic records. Prefix the
+selection with `@ID` for JSONL traffic; a passive query does not change the chosen
+display format. See the [console guide](console.md) for mixed human/automation use.
+
 | Need | Command | Effect |
 | --- | --- | --- |
 | Current debug/owner/capture/memory overview | `debug` | Cached host snapshot; no bus traffic |

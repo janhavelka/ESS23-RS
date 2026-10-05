@@ -1,5 +1,11 @@
 # Motor bench and testing authorization
 
+The [human-console update](reports/human_console_2026-10-05.md) leaves COM13 on
+Arduino timer firmware SHA-256 `e5989e3b2f6a4afe51e97c8d5628bdeaf0daf6e88538a924594a75f4e31ffab3`.
+Its read-only regression retains raw position3644, speed0/alarm0 and unchanged
+drive settings; debug/load/monitor off, DE released, no retained results or
+required recovery. No motion or setting write was performed in this block.
+
 The [fresh25/26 audit](reports/ess_release_25_26_audit_2026-10-05.md) repeats
 matched loaded capture, finite motion, both stops, native settings restoration
 and explicit stopped-state host mismatch/recovery. COM13 ends on the Arduino

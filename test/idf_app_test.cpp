@@ -92,7 +92,13 @@ void testStartupDelimitsRetainedBootBytesBeforeCorrelatedReply() {
     startOwner(); pump();
     assert(app && platformReady && hardware.writes == 0);
     assert(Serial.output.compare(0, boot.size() + 1, boot + "\n") == 0);
-    const std::string reply = Serial.output.substr(boot.size() + 1);
+    const auto greeting = Serial.output.find("MotorControl-RS ", boot.size() + 1);
+    assert(greeting == boot.size() + 1);
+    const auto replyAt = Serial.output.find("{\"type\":\"reply\"", greeting);
+    assert(replyAt != std::string::npos && Serial.output[replyAt - 1] == '\n');
+    const auto welcome = Serial.output.substr(greeting, replyAt - greeting);
+    assert(welcome.find("Type help or ?") != std::string::npos);
+    const std::string reply = Serial.output.substr(replyAt);
     assert(reply.find("{\"type\":\"reply\"") == 0);
     assert(reply.find("\"id\":1,\"command\":\"version\",\"ok\":true") != std::string::npos);
     assert(reply.find('\n') == reply.size() - 1);

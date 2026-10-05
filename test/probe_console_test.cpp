@@ -186,7 +186,7 @@ void send(Probe::Console& console, const std::string& input) {
 }
 
 void debugFixtures() {
-    Fake fake; auto host=fake.host(); Probe::Console console(host);
+    Fake fake; auto host=fake.host(); Probe::Console console(host, Probe::Format::JSON);
     MotorControlRS::TrafficRecord tx; tx.kind=MotorControlRS::TrafficKind::TX;
     tx.sequence=1; tx.transaction=1; tx.atUs=100; tx.complete=true;
     tx.length=static_cast<uint16_t>(Ess::buildReadRegisters(1,0,1,tx.bytes,sizeof(tx.bytes)));
@@ -206,7 +206,7 @@ void debugFixtures() {
 }
 
 void testDebugTranslationAndOutputIsolation() {
-    Fake fake; auto host=fake.host(); host.debug=Fake::debug; Probe::Console console(host);
+    Fake fake; auto host=fake.host(); host.debug=Fake::debug; Probe::Console console(host, Probe::Format::JSON);
     fake.data.phase=Rtu::Phase::RECEIVE; fake.data.busy=true; fake.data.pending=2; fake.data.retained=3;
     fake.data.timerCapture=true; fake.data.captureFaults=4; fake.data.maxPollGapUs=17;
     fake.data.memoryValid=true; fake.data.stackFreeBytes=2345; fake.data.internalFree=12345; fake.data.psramFree=54321;
@@ -241,7 +241,7 @@ void testDebugTranslationAndOutputIsolation() {
     send(console,"@4 debug invalid\n"); fake.contains("invalid_arguments"); assert(fake.debugCalls==2);
     send(console,"help debug\n"); fake.contains("debug [off|raw|decoded]"); fake.contains("\"bus_traffic\":false");
     send(console,"sniff raw\n"); fake.contains("unknown_command");
-    Fake absent; Probe::Console other(absent.host()); send(other,"help\n");
+    Fake absent; Probe::Console other(absent.host(), Probe::Format::JSON); send(other,"help\n");
     assert(absent.lines.back().find("\"debug\"")==std::string::npos);
     send(other,"help debug\n"); absent.contains("unavailable");
     fake.untouched();
@@ -256,7 +256,7 @@ void report(Probe::Console& console, Fake& fake, uint32_t id, uint8_t address,
 
 void testFramingAndIds() {
     Fake fake;
-    Probe::Console console(fake.host());
+    Probe::Console console(fake.host(), Probe::Format::JSON);
     send(console, "\r\n \t\n"); assert(fake.lines.empty());
     send(console, "@42 ver"); assert(fake.lines.empty());
     send(console, "sion\r\n"); assert(fake.lines.size() == 1);
@@ -278,7 +278,7 @@ void testInvalidInputHasNoEffects() {
         "@4 probe 1 2 3", "@4 reset 0 0 0", "@4 help load extra", "@4 stats reset extra"
     };
     for (const char* input : invalid) {
-        Fake fake; Probe::Console console(fake.host());
+        Fake fake; Probe::Console console(fake.host(), Probe::Format::JSON);
         send(console, std::string(input) + "\n");
         assert(fake.lines.size() == 1); fake.contains("\"ok\":false");
         assert(fake.snapshots == 0); fake.untouched();
@@ -286,7 +286,7 @@ void testInvalidInputHasNoEffects() {
 }
 
 void testOverflowAndControlDiscardWholeLine() {
-    Fake fake; Probe::Console console(fake.host());
+    Fake fake; Probe::Console console(fake.host(), Probe::Format::JSON);
     send(console, "probe" + std::string(200, ' ') + "1\n");
     fake.contains("line_too_long"); assert(fake.snapshots == 0); fake.untouched();
     send(console, std::string("probe\0 1\n", 9));
@@ -301,7 +301,7 @@ void testOverflowAndControlDiscardWholeLine() {
 
 void testProbeAdmissionAndAliases() {
     Fake fake; fake.data.address = 17;
-    Probe::Console console(fake.host());
+    Probe::Console console(fake.host(), Probe::Format::JSON);
     send(console, "@8 ping\n"); assert(fake.probes == 1 && fake.address == 17 && fake.id == 8);
     fake.contains("\"command\":\"probe\"");
     fake.probeAction = Probe::Action::BUSY;
@@ -318,7 +318,7 @@ void testProbeAdmissionAndAliases() {
 }
 
 void testCachedHealthAndStatus() {
-    Fake fake; Probe::Console console(fake.host());
+    Fake fake; Probe::Console console(fake.host(), Probe::Format::JSON);
     send(console, "health\n"); fake.contains("\"communication\":\"unavailable\"");
     fake.data.ready = true;
     send(console, "health\n"); fake.contains("\"communication\":\"unknown\""); fake.contains("\"age_ms\":null");
@@ -356,7 +356,7 @@ void testCachedHealthAndStatus() {
 }
 
 void testHelpConfigMemoryAndStats() {
-    Fake fake; Probe::Console console(fake.host());
+    Fake fake; Probe::Console console(fake.host(), Probe::Format::JSON);
     send(console, "help\n"); fake.contains("\"commands\":["); fake.contains("\"probe\"");
     assert(fake.lines.back().find("\"move\"") == std::string::npos);
     send(console, "help probe\n"); fake.contains("\"bus_traffic\":true");
@@ -382,7 +382,7 @@ void testHelpConfigMemoryAndStats() {
 }
 
 void testProbeResultEvidence() {
-    Fake fake; Probe::Console console(fake.host());
+    Fake fake; Probe::Console console(fake.host(), Probe::Format::JSON);
     const uint8_t request[] = {1, 3, 0, 0, 0, 1, 0x84, 0x0A};
     const uint8_t response[] = {1, 3, 2, 0, 0x3C, 0xB8, 0x55};
     Probe::ProbeResult result;
@@ -414,7 +414,7 @@ void testProbeResultEvidence() {
 }
 
 void testMaximumOutputAndRawBounds() {
-    Fake fake; Probe::Console console(fake.host());
+    Fake fake; Probe::Console console(fake.host(), Probe::Format::JSON);
     const uint32_t max = std::numeric_limits<uint32_t>::max();
     const uint64_t max64 = std::numeric_limits<uint64_t>::max();
     fake.data.uptimeMs = max64; fake.data.ageMs = max64; fake.data.staleAfterMs = max;
@@ -457,7 +457,7 @@ void testLoadQueryAndSettings() {
     fake.loadData.captureUs = 5000; fake.loadData.captureSamples = 6000;
     fake.loadData.ownerGapMaxUs = 5002; fake.loadData.captureGapMaxUs = 23;
     fake.loadData.workStackFreeBytes = 2400;
-    Probe::Console console(fake.host(true));
+    Probe::Console console(fake.host(true), Probe::Format::JSON);
     send(console, "@4294967295 load 5000 20000 256\n");
     assert(fake.loads == 1 && fake.loadChanges == 1);
     assert(fake.loadData.settings.workUs == 5000 && fake.loadData.settings.ownerDelayUs == 20000);
@@ -494,20 +494,20 @@ void testLoadValidationAndOptionalCallback() {
         "load 0 junk 0", "load 0 0 1x", "@-1 load 0 0 0"
     };
     for (const char* input : invalid) {
-        Fake fake; Probe::Console console(fake.host(true));
+        Fake fake; Probe::Console console(fake.host(true), Probe::Format::JSON);
         send(console, std::string(input) + "\n");
         fake.contains("\"ok\":false");
         assert(fake.lines.size() == 1 && fake.loads == 0 && fake.snapshots == 0);
         fake.untouched();
     }
-    Fake fake; Probe::Console unavailable(fake.host());
+    Fake fake; Probe::Console unavailable(fake.host(), Probe::Format::JSON);
     send(unavailable, "load\n"); fake.contains("\"result\":\"unavailable\"");
     send(unavailable, "load 0 0 0\n"); fake.contains("\"result\":\"unavailable\"");
     send(unavailable, "help load\n"); fake.contains("\"result\":\"unavailable\"");
     send(unavailable, "help\n");
     assert(fake.lines.back().find("\"load\"") == std::string::npos);
     assert(fake.loads == 0 && fake.snapshots == 0); fake.untouched();
-    Probe::Console available(fake.host(true));
+    Probe::Console available(fake.host(true), Probe::Format::JSON);
     send(available, "help\n"); fake.contains("\"load\"");
     send(available, "help load\n"); fake.contains("load [work_us owner_delay_us console_bytes]");
     fake.contains("\"bus_traffic\":false"); assert(fake.loads == 0); fake.untouched();
@@ -520,7 +520,7 @@ void testLoadValidationAndOptionalCallback() {
 }
 
 void testLoadMaximumOutput() {
-    Fake fake; Probe::Console console(fake.host(true));
+    Fake fake; Probe::Console console(fake.host(true), Probe::Format::JSON);
     const uint64_t max64 = std::numeric_limits<uint64_t>::max();
     fake.loadData.elapsedUs = fake.loadData.workUs = fake.loadData.workIterations = max64;
     fake.loadData.consoleLines = fake.loadData.consoleDropped = max64;
@@ -539,7 +539,7 @@ void testLoadMaximumOutput() {
 }
 
 void testCorrelationAndOutstandingLimit() {
-    Fake fake; Probe::Console console(fake.host());
+    Fake fake; Probe::Console console(fake.host(), Probe::Format::JSON);
     send(console, "@2 ping\n");
     fake.contains("\"operation_id\":100");
     const unsigned snapshots = fake.snapshots;
@@ -554,7 +554,7 @@ void testCorrelationAndOutstandingLimit() {
     assert(!console.reportProbe(2, 1, 100, result));
     send(console, "@2 reset\n"); assert(fake.resets == 1);
 
-    Fake bounded; Probe::Console full(bounded.host());
+    Fake bounded; Probe::Console full(bounded.host(), Probe::Format::JSON);
     for (unsigned i = 1; i < Probe::OUTSTANDING_CAPACITY; ++i)
         send(full, "@" + std::to_string(i) + " probe\n");
     assert(bounded.probes == Probe::OUTSTANDING_CAPACITY - 1);
@@ -567,7 +567,7 @@ void testCorrelationAndOutstandingLimit() {
 }
 
 void testOutputBackpressureOwnership() {
-    Fake fake; Probe::Console console(fake.host(false, true));
+    Fake fake; Probe::Console console(fake.host(false, true), Probe::Format::JSON);
     fake.blocked = true;
     send(console, "@17 probe\n");
     assert(fake.lines.empty() && fake.probes == 1 && console.outputPending());
@@ -593,7 +593,7 @@ void testOutputBackpressureOwnership() {
 }
 
 void testOwnerControlsAndRetainedInspections() {
-    Fake fake; Probe::Console console(fake.host(false, true));
+    Fake fake; Probe::Console console(fake.host(false, true), Probe::Format::JSON);
     send(console, "help\n"); fake.contains("\"drv\""); fake.contains("\"result\"");
     fake.contains("\"cancel\""); fake.contains("\"release\"");
     send(console, "help cancel\n"); fake.contains("cancel_local_work_not_motor_stop");
@@ -636,7 +636,7 @@ void testOwnerControlsAndRetainedInspections() {
 }
 
 void testRecoveryTerminalAndOptionalOwnerHooks() {
-    Fake fake; Probe::Console console(fake.host());
+    Fake fake; Probe::Console console(fake.host(), Probe::Format::JSON);
     send(console, "@8 recover\n"); fake.contains("\"result\":\"accepted\"");
     fake.contains("\"operation_id\":100");
     Rtu::RecoveryResult result; result.outcome = Rtu::RecoveryOutcome::RECOVERED;
@@ -659,12 +659,12 @@ void testRecoveryTerminalAndOptionalOwnerHooks() {
     assert(fake.lines.back().find("\"release\"") == std::string::npos);
 }
 void testCaptureReadOptionalHookAndDiagnostics() {
-    Fake fake; Probe::Console unavailable(fake.host());
+    Fake fake; Probe::Console unavailable(fake.host(), Probe::Format::JSON);
     send(unavailable, "capture-read\n"); fake.contains("unavailable");
     assert(fake.probes == 0);
     send(unavailable, "help\n"); assert(fake.lines.back().find("capture-read") == std::string::npos);
     auto host = fake.host(); host.startCaptureRead = Fake::probe;
-    Probe::Console console(host);
+    Probe::Console console(host, Probe::Format::JSON);
     send(console, "@1 help capture-read\n"); fake.contains("read_0x0130_16_words");
     send(console, "@2 capture-read 247\n"); fake.contains("accepted"); assert(fake.address == 247);
     Probe::ProbeResult result; result.captureRead = true;
@@ -713,7 +713,7 @@ void completeTypedStep(Ess::ReadContext& context, bool invalid = false) {
 }
 void testTypedRoutesAndValidation() {
     Fake fake; auto host = fake.host(); host.startTypedRead = Fake::typedRead;
-    Probe::Console console(host);
+    Probe::Console console(host, Probe::Format::JSON);
     send(console, "@1 read identity 247\n"); fake.contains("\"command\":\"read-identity\""); fake.contains("\"result\":\"accepted\"");
     assert(fake.typedReads == 1 && fake.typedKind == Ess::ReadKind::IDENTITY && fake.address == 247);
     send(console, "@2 profile ess_rs config 1\n"); fake.contains("\"command\":\"read-config\"");
@@ -734,7 +734,7 @@ void testTypedRoutesAndValidation() {
     send(console, "config\n"); fake.contains("\"device_settings\":\"cached\"");
     fake.contains("\"cached_identity_id\":91,\"cached_identity_address\":4,\"cached_identity_generation\":2");
     fake.contains("\"cached_config_id\":92,\"cached_config_address\":5,\"cached_config_generation\":3,\"binding_generation\":4");
-    Fake absent; Probe::Console noHook(absent.host());
+    Fake absent; Probe::Console noHook(absent.host(), Probe::Format::JSON);
     send(noHook, "read identity\n"); absent.contains("unavailable"); absent.untouched();
     send(noHook, "profile ess_rs caps\n"); absent.contains("\"identity\":false"); absent.untouched();
     send(noHook, "caps\n"); absent.contains("\"identity\":false"); absent.contains("\"writes\":false"); absent.contains("\"actions\":[]"); absent.untouched();
@@ -743,7 +743,7 @@ void testTypedRoutesAndValidation() {
 }
 void testTypedTerminalInspectionAndBound() {
     Fake fake; auto host = fake.host(false, true); host.startTypedRead = Fake::typedRead;
-    Probe::Console console(host);
+    Probe::Console console(host, Probe::Format::JSON);
     fake.nextOperation = UINT32_MAX;
     send(console, "@4294967295 read config 247\n");
     Ess::ReadContext context = typedContext(false, UINT32_MAX);
@@ -788,7 +788,7 @@ void testTypedTerminalInspectionAndBound() {
 
 void testStateRoutesCacheAndPolling() {
     Fake fake; auto host = fake.host(); host.startTypedRead = Fake::typedRead; host.monitor = Fake::monitor;
-    Probe::Console console(host);
+    Probe::Console console(host, Probe::Format::JSON);
     send(console, "@1 read state 247\n@2 profile ess_rs state 247\n@3 health check 247\n");
     assert(fake.typedReads == 3 && fake.typedKind == Ess::ReadKind::STATE);
     fake.contains("\"command\":\"read-state\""); fake.contains("\"read_kind\":\"state\"");
@@ -852,7 +852,7 @@ void testStateRoutesCacheAndPolling() {
     cache.blocks[0].value.alarmFlag = true;
     send(console, "health\n"); fake.contains("\"alarms\":\"present\"");
     ++fake.data.bindingGeneration; send(console, "status\n"); fake.contains("\"fresh\":false");
-    Fake absent; Probe::Console unsupported(absent.host());
+    Fake absent; Probe::Console unsupported(absent.host(), Probe::Format::JSON);
     send(unsupported, "help\n"); assert(absent.lines.back().find("\"monitor\"") == std::string::npos);
     send(unsupported, "monitor off\n"); absent.contains("unavailable");
 }
@@ -864,7 +864,7 @@ void testExactHostPreparationAndParsing() {
     fake.axisConfig.target.generation = 1;
     fake.axisConfig.supportedRelativeBases = 7;
     auto host = fake.host(); host.axis = Fake::axis;
-    Probe::Console console(host);
+    Probe::Console console(host, Probe::Format::JSON);
     send(console, "axis config\n"); fake.contains("\"motion_command\":false"); fake.contains("\"origin_known\":false");
     send(console, "@4294967295 prepare relative -9223372036854775808 steps native actual\n");
     fake.contains("\"ok\":true"); fake.contains("\"effective_native\":-9223372036854775808");
@@ -920,7 +920,7 @@ void testExactHostPreparationAndParsing() {
 
 void testHostArgumentsAndBackpressure() {
     Fake fake; auto host = fake.host(); host.axis = Fake::axis;
-    Probe::Console console(host);
+    Probe::Console console(host, Probe::Format::JSON);
     const char* invalid[] = {
         "axis", "axis origin 1/2", "axis config set bad 1", "axis config set command 0",
         "axis config set gear 4294967296", "axis config set lead -1", "axis config set command 1/4294967296",
@@ -951,7 +951,7 @@ void testHostArgumentsAndBackpressure() {
     const auto calls = fake.axisCalls;
     send(console, "axis config set polarity -1\nprepare relative 1 steps native actual\n");
     assert(fake.axisCalls == calls && console.inputDropped() == 2);
-    Fake absent; Probe::Console unavailable(absent.host());
+    Fake absent; Probe::Console unavailable(absent.host(), Probe::Format::JSON);
     send(unavailable, "help\n"); assert(absent.lines.back().find("\"axis\"") == std::string::npos && absent.lines.back().find("\"prepare\"") == std::string::npos);
     send(unavailable, "axis config\n"); absent.contains("unavailable");
 }
@@ -964,7 +964,7 @@ void testZeroRadiansAndApproximateCancellationMatchApi() {
     fake.axisConfig.supportedRelativeBases = 1;
     fake.axisConfig.units.commandStepsPerMotorTurn = Core::UnitScale(1000, 1, Core::ScaleSource::ASSUMED);
     auto host = fake.host(); host.axis = Fake::axis;
-    Probe::Console console(host);
+    Probe::Console console(host, Probe::Format::JSON);
     send(console, "prepare relative 0 rad motor actual\n");
     fake.contains("\"ok\":true"); fake.contains("\"exact_arithmetic\":true");
     for (const char* policy : {"exact", "nearest", "zero", "floor", "ceil"}) {
@@ -1007,7 +1007,7 @@ void testActionRoutesAndStopPressure() {
         "stop direct 2", "profile ess_rs emergency-stop 2"};
     for (unsigned i = 0; i < 10; ++i) {
         Fake fake; auto host = fake.host(false, true); host.startAction = Fake::startAction;
-        Probe::Console console(host); send(console, std::string("@42 ") + commands[i] + "\n");
+        Probe::Console console(host, Probe::Format::JSON); send(console, std::string("@42 ") + commands[i] + "\n");
         assert(fake.actions == 1 && fake.address == 2 && fake.id == 42);
         assert(fake.actionRequest.kind == (i < 2 ? Core::ActionKind::ENABLE : i < 4 ? Core::ActionKind::RELEASE : i < 6 ? Core::ActionKind::CLEAR_ALARM : Core::ActionKind::STOP));
         if (i >= 6) assert(fake.actionRequest.stop.behavior == (i < 8 ? Core::StopBehavior::CONFIGURED_DECELERATION : Core::StopBehavior::DIRECT));
@@ -1022,7 +1022,7 @@ void testActionRoutesAndStopPressure() {
         fake.view.actionContext = &context; fake.view.commandId = 42; fake.view.operationId = 100;
         send(console, "result 100\n"); fake.contains("\"command\":\"result\""); fake.contains("\"tx_accepted\":3");
     }
-    Fake fake; auto host = fake.host(); host.startAction = Fake::startAction; Probe::Console console(host);
+    Fake fake; auto host = fake.host(); host.startAction = Fake::startAction; Probe::Console console(host, Probe::Format::JSON);
     for (const char* text : {"stop", "stop zero", "stop normal 0", "stop normal 2 3", "enable -1", "alarm-clear 1junk", "profile ess_rs release 248"}) {
         send(console, std::string(text) + "\n"); fake.contains("\"ok\":false"); assert(fake.actions == 0);
     }
@@ -1046,7 +1046,7 @@ void testActionRoutesAndStopPressure() {
 void testMaximumActionAndInvalidatedCacheFormatting() {
     namespace Core = MotorControlRS;
     Fake fake; auto host = fake.host(false, true); host.startAction = Fake::startAction;
-    Probe::Console console(host); fake.nextOperation = UINT32_MAX;
+    Probe::Console console(host, Probe::Format::JSON); fake.nextOperation = UINT32_MAX;
     send(console, "@4294967295 motor-release 247\n");
     Ess::ActionContext context; context.operationId = UINT32_MAX;
     context.target.id = context.target.generation = UINT32_MAX; context.target.address = 247;
@@ -1077,7 +1077,7 @@ void testMoveRoutesExactParsingAndRetainedReports() {
     for (const char* route : {"move relative", "profile ess_rs move-relative"}) {
         Fake fake; auto host = fake.host(false, true); host.startMove = Fake::startMove; host.axis = Fake::axis;
         fake.axisConfig.generation = 17;
-        Probe::Console console(host);
+        Probe::Console console(host, Probe::Format::JSON);
         send(console, std::string("@42 ") + route + " -12.50 deg load 60 configured 2\n");
         assert(fake.moves == 1 && fake.address == 2 && fake.id == 42);
         assert(fake.moveRequest.position.value.numerator == -25 && fake.moveRequest.position.value.denominator == 2);
@@ -1118,7 +1118,7 @@ void testMoveRoutesExactParsingAndRetainedReports() {
         fake.contains("\"move_kind\":\"relative\"");
     }
     Fake fake; auto host = fake.host(); host.startMove = Fake::startMove; host.axis = Fake::axis;
-    Probe::Console console(host);
+    Probe::Console console(host, Probe::Format::JSON);
     for (const char* input : {"move", "move absolute 1 steps native 60", "move relative 1 steps native 0 configured",
         "move relative 1 steps native -1 configured", "move relative 1 steps native 60.5 configured", "move relative 1 steps native 65536 configured",
         "move relative 1/2.0 steps native 60 configured", "move relative NaN steps native 60 configured", "move relative 1 deg other 60 configured",
@@ -1131,14 +1131,14 @@ void testMoveRoutesExactParsingAndRetainedReports() {
     fake.actionResult = Probe::Action::AXIS_CONFLICT;
     send(console, "move relative 1 steps native 60 configured\n"); fake.contains("axis_conflict");
     assert(fake.moves == 2);
-    Fake absent; Probe::Console unavailable(absent.host()); send(unavailable, "help\n");
+    Fake absent; Probe::Console unavailable(absent.host(), Probe::Format::JSON); send(unavailable, "help\n");
     assert(absent.lines.back().find("\"move\"") == std::string::npos);
     for (bool missingSnapshot : {false, true}) {
         Fake partial; auto partialHost = partial.host(); partialHost.startMove = Fake::startMove;
         partialHost.axis = Fake::axis;
         if (missingSnapshot) partialHost.snapshot = nullptr;
         else partialHost.axis = nullptr;
-        Probe::Console incomplete(partialHost); send(incomplete, "help\n");
+        Probe::Console incomplete(partialHost, Probe::Format::JSON); send(incomplete, "help\n");
         assert(partial.lines.back().find("\"move\"") == std::string::npos);
         send(incomplete, "help move\n"); partial.contains("\"result\":\"unavailable\"");
         send(incomplete, "move relative 1 steps native 60 configured\n");
@@ -1151,7 +1151,7 @@ void testMoveRoutesExactParsingAndRetainedReports() {
 void testMaximumMoveReportFitsFixedOutput() {
     namespace Core = MotorControlRS;
     Fake fake; auto host = fake.host(false, true); host.startMove = Fake::startMove; host.axis = Fake::axis;
-    Probe::Console console(host); fake.nextOperation = UINT32_MAX;
+    Probe::Console console(host, Probe::Format::JSON); fake.nextOperation = UINT32_MAX;
     send(console, "@4294967295 move relative 1 steps native 3000 configured 247\n");
     Ess::MoveContext c; c.operationId = UINT32_MAX; c.request = fake.moveRequest;
     c.target.id = c.target.generation = c.prepared.configurationGeneration = UINT32_MAX; c.target.address = 247;
@@ -1205,7 +1205,7 @@ void testAbsoluteAngleAndClearRoutesUsePublicRequests() {
     fake.axisReference.nativeKnown = true; fake.axisReference.nativePosition = 2000;
     fake.axisReference.source = Core::ScaleSource::ASSUMED;
     fake.axisReference.observedUs = fake.axisReference.nowUs = 100; fake.axisReference.maximumAgeUs = 1000;
-    Probe::Console console(host);
+    Probe::Console console(host, Probe::Format::JSON);
     for (const char* route : {"move absolute", "profile ess_rs move-absolute"}) {
         send(console, std::string(route) + " 720 deg motor 60 configured\n");
         assert(!fake.moveRequest.position.relative && !fake.moveRequest.position.wrapped);
@@ -1235,14 +1235,14 @@ void testAbsoluteAngleAndClearRoutesUsePublicRequests() {
     Core::PreparedTarget prepared; assert(Core::preparePosition(direct, fake.axisConfig, &fake.axisReference, prepared));
     assert(prepared.endpointNative == 2250);
     Fake units; auto unitHost = units.host(); unitHost.axis = Fake::axis; unitHost.startMove = Fake::startMove;
-    Probe::Console unitConsole(unitHost);
+    Probe::Console unitConsole(unitHost, Probe::Format::JSON);
     for (const char* unit : {"steps", "fullsteps", "turn", "deg", "rad", "mm"}) {
         send(unitConsole, std::string("move absolute 1 ") + unit + " motor 60 configured\n");
         assert(!units.moveRequest.position.relative);
     }
     assert(units.moves == 6);
     Fake clear; auto clearHost = clear.host(); clearHost.startAction = Fake::startAction;
-    Probe::Console clearConsole(clearHost);
+    Probe::Console clearConsole(clearHost, Probe::Format::JSON);
     for (const char* route : {"position-clear", "profile ess_rs clear-position"}) {
         send(clearConsole, std::string(route) + " 2\n");
         assert(clear.actionRequest.kind == Core::ActionKind::CLEAR_POSITION && clear.actionRequest.devicePosition == 0);
@@ -1260,7 +1260,7 @@ void testAbsoluteAngleAndClearRoutesUsePublicRequests() {
     clear.contains("\"raw_position\":0"); clear.contains("\"raw_alarm\":null,\"raw_motion\":null");
     clear.contains("\"device_position\":0,\"position_clear_qualified\":true");
     auto partialHost = clear.host(); partialHost.startAction = Fake::startAction; partialHost.snapshot = nullptr;
-    Probe::Console partial(partialHost); send(partial, "help position-clear\n"); clear.contains("\"result\":\"unavailable\"");
+    Probe::Console partial(partialHost, Probe::Format::JSON); send(partial, "help position-clear\n"); clear.contains("\"result\":\"unavailable\"");
     send(console, "help move\n"); fake.contains("move angle");
 }
 
@@ -1268,7 +1268,7 @@ void testVelocityExactRoutesRetentionAndBound() {
     namespace Core = MotorControlRS;
     Fake fake; auto host = fake.host(false, true); host.startVelocity = Fake::startVelocity; host.axis = Fake::axis;
     fake.axisConfig.target.id = 1; fake.axisConfig.target.generation = 1; fake.axisConfig.target.address = 1;
-    Probe::Console console(host);
+    Probe::Console console(host, Probe::Format::JSON);
     send(console, "help velocity\n"); fake.contains("counts/s");
     send(console, "@41 velocity -3/2 rpm native 500 configured normal round nearest 1 2\n");
     assert(fake.velocities == 1 && fake.address == 2 && fake.id == 41);
@@ -1373,7 +1373,7 @@ void velocityFixtures() {
         assert(c.state != ActionState::ACTIVE);
         Fake fake; fake.view.velocityContext = &c; fake.view.commandId = 2;
         fake.view.operationId = c.operationId; fake.view.address = c.target.address;
-        Probe::Console console(fake.host(false, true)); send(console, "@1 result 102\n");
+        Probe::Console console(fake.host(false, true), Probe::Format::JSON); send(console, "@1 result 102\n");
         assert(fake.lines.size() == 1 && fake.lines[0].find("\"velocity\":true") != std::string::npos);
         std::printf("{\"case\":\"%s\",\"record\":%s}\n", name, fake.lines[0].c_str());
     };
@@ -1404,7 +1404,7 @@ void velocityFixtures() {
 
 void testDriverProfileGrammarAndRetainedReports() {
     Fake fake; auto host = fake.host(false, true); host.startDriver = Fake::startDriver;
-    Probe::Console console(host);
+    Probe::Console console(host, Probe::Format::JSON);
     send(console, "@600 profile ess_rs driver read 2\n");
     assert(fake.drivers == 1 && fake.driverKind == Ess::DriverKind::READ && fake.driverRequest.fields == 0 && fake.address == 2);
     fake.contains("\"result\":\"accepted\"");
@@ -1435,12 +1435,12 @@ void testDriverProfileGrammarAndRetainedReports() {
     }
     fake.blocked = true; send(console, "version\n");
     send(console, "profile ess_rs driver set direction 0\n"); assert(fake.drivers == 3 && console.inputDropped() == 1);
-    Fake noHook; Probe::Console unavailable(noHook.host()); send(unavailable, "profile ess_rs driver read\n"); noHook.contains("unavailable");
+    Fake noHook; Probe::Console unavailable(noHook.host(), Probe::Format::JSON); send(unavailable, "profile ess_rs driver read\n"); noHook.contains("unavailable");
 }
 
 void testMaximumDriverReportFitsFixedOutput() {
     Fake fake; auto host = fake.host(false, true); host.startDriver = Fake::startDriver;
-    Probe::Console console(host); send(console, "@900 profile ess_rs driver set direction 1\n");
+    Probe::Console console(host, Probe::Format::JSON); send(console, "@900 profile ess_rs driver set direction 1\n");
     Ess::DriverContext c; c.kind = Ess::DriverKind::UPDATE; c.state = MotorControlRS::ReadState::FAILED;
     c.outcome = Ess::DriverOutcome::TRANSPORT_ERROR; c.status = {MotorControlRS::Err::ILLEGAL_VALUE, INT32_MIN, "transport"};
     c.operationId = fake.nextOperation - 1; c.target.id = c.target.generation = UINT32_MAX; c.target.address = 247;
@@ -1528,7 +1528,7 @@ void driverFixtures(bool io = false) {
     };
     auto emit = [io](const char* name, const Ess::DriverContext& c) {
         Fake fake; fake.nextOperation = c.operationId; auto host = fake.host(false, true); host.startDriver = Fake::startDriver;
-        Probe::Console console(host); send(console, io ? "@77 profile ess_rs io read 1\n" : "@77 profile ess_rs driver read 1\n"); fake.lines.clear();
+        Probe::Console console(host, Probe::Format::JSON); send(console, io ? "@77 profile ess_rs io read 1\n" : "@77 profile ess_rs driver read 1\n"); fake.lines.clear();
         assert(console.reportDriver(77, c.operationId, c)); assert(fake.lines.size() == 1);
         std::printf("{\"case\":\"%s\",\"record\":%s}\n", name, fake.lines[0].c_str());
     };
@@ -1568,7 +1568,7 @@ void driverFixtures(bool io = false) {
 void testIoRoutes() {
     Fake f; f.data.address = 1;
     auto h = f.host(false, true); h.startDriver = Fake::startDriver;
-    Probe::Console c(h);
+    Probe::Console c(h, Probe::Format::JSON);
     send(c, "@1 profile ess_rs io read 2\n");
     assert(f.drivers == 1 && f.driverRequest.group == Ess::DriverGroup::IO && f.address == 2);
     f.contains("\"result\":\"accepted\"");
@@ -1581,7 +1581,7 @@ void testIoRoutes() {
     for (unsigned v = 0; v <= 17; ++v) {
         // Use fresh correlation storage for each admission.
         Fake isolated; isolated.data.address = 1; auto hook = isolated.host(false, true); hook.startDriver = Fake::startDriver;
-        Probe::Console route(hook); send(route, "profile ess_rs io set x3 " + std::to_string(v) + "\n");
+        Probe::Console route(hook, Probe::Format::JSON); send(route, "profile ess_rs io set x3 " + std::to_string(v) + "\n");
         assert(isolated.drivers == 1 && static_cast<unsigned>(isolated.driverRequest.inputFunctions[3]) == v);
     }
     send(c, "@3 help io\n"); f.contains("none assigns function 0");
@@ -1590,7 +1590,7 @@ void testIoRoutes() {
 void testHomeRoutesAndDescriptors() {
     Fake f; f.data.address = 1; f.axisConfig.generation = 3;
     auto h = f.host(false, true); h.startHome = Fake::startHome; h.axis = Fake::axis;
-    Probe::Console c(h);
+    Probe::Console c(h, Probe::Format::JSON);
     send(c, "@1 home methods\n");
     f.contains("\"method\":35,\"support\":\"implemented\"");
     f.contains("\"method\":-1,\"support\":\"unresolved\"");
@@ -1648,7 +1648,7 @@ void homeFixtures() {
     auto emit = [](const char* name, const Ess::HomeContext& context) {
         Fake f; f.nextOperation = context.operationId; f.data.address = 1; f.axisConfig.generation = 3;
         auto h = f.host(false, true); h.axis = Fake::axis; h.startHome = Fake::startHome;
-        Probe::Console console(h); send(console, "@77 home 35 60 30 100 zero\n"); f.lines.clear();
+        Probe::Console console(h, Probe::Format::JSON); send(console, "@77 home 35 60 30 100 zero\n"); f.lines.clear();
         assert(console.reportHome(77, context.operationId, context)); assert(f.lines.size() == 1);
         std::printf("{\"case\":\"%s\",\"record\":%s}\n", name, f.lines[0].c_str());
     };
@@ -1670,7 +1670,7 @@ void homeFixtures() {
 void testMaximumHomeOutputAndRetention() {
     Fake f; f.data.address = 1; f.nextOperation = UINT32_MAX;
     auto h = f.host(false, true); h.startHome = Fake::startHome; h.axis = Fake::axis;
-    Probe::Console console(h); send(console, "@77 home 35 60 30 100 zero\n");
+    Probe::Console console(h, Probe::Format::JSON); send(console, "@77 home 35 60 30 100 zero\n");
     Ess::HomeContext c; c.operationId = UINT32_MAX;
     c.state = MotorControlRS::ActionState::FAILED;
     c.outcome = MotorControlRS::ActionOutcome::TRANSPORT_ERROR;
@@ -1762,7 +1762,7 @@ void tuningFixtures() {
         assert(Ess::advanceDriver(c,e,c.servicedUs+3));
     };
     auto emit = [&](const char* name,unsigned g,const Ess::DriverContext& c) {
-        Fake f;f.nextOperation=c.operationId;auto h=f.host(false,true);h.startDriver=Fake::startDriver;Probe::Console console(h);
+        Fake f;f.nextOperation=c.operationId;auto h=f.host(false,true);h.startDriver=Fake::startDriver;Probe::Console console(h, Probe::Format::JSON);
         send(console,std::string("@77 profile ess_rs tuning ")+names[g]+" read\n");f.lines.clear();
         assert(console.reportDriver(77,c.operationId,c));assert(f.lines.size()==1);
         std::printf("{\"case\":\"%s\",\"record\":%s}\n",name,f.lines[0].c_str());
@@ -1812,12 +1812,12 @@ void tuningFixtures() {
     }
 }
 void testTuningRoutes() {
-    Fake absent;auto ah=absent.host(false,true);ah.startDriver=nullptr;Probe::Console unavailable(ah);
+    Fake absent;auto ah=absent.host(false,true);ah.startDriver=nullptr;Probe::Console unavailable(ah, Probe::Format::JSON);
     send(unavailable,"@80 help\n");assert(absent.lines.back().find("\"tuning\"")==std::string::npos);
     send(unavailable,"@81 help tuning\n");absent.contains("\"result\":\"unavailable\"");
     send(unavailable,"@82 caps\n");absent.contains("\"tuning\":false");
     send(unavailable,"@83 profile ess_rs tuning filters read\n");absent.contains("\"result\":\"unavailable\"");assert(!absent.drivers);
-    Fake f;auto h=f.host(false,true);h.startDriver=Fake::startDriver;Probe::Console c(h);
+    Fake f;auto h=f.host(false,true);h.startDriver=Fake::startDriver;Probe::Console c(h, Probe::Format::JSON);
     send(c,"@84 profile ess_rs tuning filters read 2\n");assert(f.drivers==1&&f.address==2&&f.driverRequest.group==Ess::DriverGroup::FILTERS);f.contains("\"result\":\"accepted\"");
     send(c,"@85 profile ess_rs tuning filters set arrival-time 0 pulse-mean 512\n");
     assert(f.drivers==2&&f.driverRequest.tuningValues[4]==0&&f.driverRequest.tuningValues[5]==512&&f.driverRequest.fields==48);
@@ -1836,7 +1836,7 @@ void testTuningRoutes() {
     const char* fields[4][8]={{"input-filter","pulse-low-pass","deviation-threshold","arrival-window","arrival-time","pulse-mean"},{"multiplier","kp","ki","kc"},{"kp1","kv1","node1","kp2","kv2","node2","kvf","position-ki"},{"threshold","current"}};
     for(unsigned g=0;g<4;++g)for(uint8_t slot=0;slot<Ess::tuningFieldCount(groups[g]);++slot) {
         Ess::TuningParameterInfo info;assert(Ess::tuningParameterInfo(Ess::tuningParameter(groups[g],slot),info));
-        Fake one;auto hook=one.host(false,true);hook.startDriver=Fake::startDriver;Probe::Console console(hook);
+        Fake one;auto hook=one.host(false,true);hook.startDriver=Fake::startDriver;Probe::Console console(hook, Probe::Format::JSON);
         send(console,std::string("@1 profile ess_rs tuning ")+names[g]+" set "+fields[g][slot]+" "+std::to_string(info.maximum)+"\n");
         assert(one.drivers==1&&one.driverRequest.group==groups[g]&&one.driverRequest.fields==(1u<<slot)&&one.driverRequest.tuningValues[slot]==info.maximum);
     }
@@ -1868,7 +1868,7 @@ void controlFixtures() {
         assert(Ess::advanceDriver(c,e,c.servicedUs+3));
     };
     auto emit = [](const char* name,const Ess::DriverContext& c) {
-        Fake f;f.nextOperation=c.operationId;auto h=f.host(false,true);h.startDriver=Fake::startDriver;Probe::Console console(h);
+        Fake f;f.nextOperation=c.operationId;auto h=f.host(false,true);h.startDriver=Fake::startDriver;Probe::Console console(h, Probe::Format::JSON);
         send(console,"@77 profile ess_rs control read\n");f.lines.clear();
         assert(console.reportDriver(77,c.operationId,c));assert(f.lines.size()==1);
         std::printf("{\"case\":\"%s\",\"record\":%s}\n",name,f.lines[0].c_str());
@@ -1910,7 +1910,7 @@ void controlFixtures() {
 void testControlRoutes() {
     {
         Fake absent; auto absentHost=absent.host(false,true); absentHost.startDriver=nullptr;
-        Probe::Console unavailable(absentHost);
+        Probe::Console unavailable(absentHost, Probe::Format::JSON);
         send(unavailable,"@80 help\n");
         assert(absent.lines.size()==1 && absent.lines.back().find("\"control\"")==std::string::npos);
         send(unavailable,"@81 help control\n"); absent.contains("\"result\":\"unavailable\"");
@@ -1918,7 +1918,7 @@ void testControlRoutes() {
         send(unavailable,"@83 profile ess_rs control read\n"); absent.contains("\"result\":\"unavailable\"");
         assert(!absent.drivers);
     }
-    Fake f;auto h=f.host(false,true);h.startDriver=Fake::startDriver;Probe::Console c(h);
+    Fake f;auto h=f.host(false,true);h.startDriver=Fake::startDriver;Probe::Console c(h, Probe::Format::JSON);
     send(c,"@84 profile ess_rs control read 2\n");assert(f.drivers==1&&f.address==2&&f.driverRequest.group==Ess::DriverGroup::CONTROL_SETTINGS);
     f.contains("\"result\":\"accepted\"");
     send(c,"@85 profile ess_rs control set algorithm open-loop lock-delay 20000\n");
@@ -1956,7 +1956,7 @@ void segmentFixtures() {
         assert(Ess::advanceDriver(c,e,c.servicedUs+3));
     };
     auto emit = [](const char* name, const Ess::DriverContext& c) {
-        Fake f; f.nextOperation=c.operationId; auto h=f.host(false,true); h.startDriver=Fake::startDriver; Probe::Console console(h);
+        Fake f; f.nextOperation=c.operationId; auto h=f.host(false,true); h.startDriver=Fake::startDriver; Probe::Console console(h, Probe::Format::JSON);
         send(console,"@77 profile ess_rs segment position 1 read\n"); f.lines.clear();
         assert(console.reportDriver(77,c.operationId,c));
         assert(f.lines.size()==1); std::printf("{\"case\":\"%s\",\"record\":%s}\n", name, f.lines[0].c_str());
@@ -1980,7 +1980,7 @@ void segmentFixtures() {
 }
 void testSegmentGrammarAndCorrelation() {
     Fake f; auto hook = f.host(false,true); hook.startDriver = Fake::startDriver;
-    Probe::Console c(hook);
+    Probe::Console c(hook, Probe::Format::JSON);
     send(c, "@80 profile ess_rs segment position 16 read 2\n");
     assert(f.drivers == 1 && f.address == 2 && f.driverRequest.segmentIndex == 16 && f.driverRequest.group == Ess::DriverGroup::POSITION_SEGMENT);
     f.contains("\"result\":\"accepted\"");
@@ -1995,7 +1995,7 @@ void testIndependentLocalHooksAndNativeAliases() {
     Fake local;
     Probe::Host minimal; minimal.context = &local; minimal.emitLine = Fake::emit;
     minimal.result = Fake::result;
-    Probe::Console passive(minimal);
+    Probe::Console passive(minimal, Probe::Format::JSON);
     send(passive, "help\n"); local.contains("\"caps\"");
     send(passive, "version\n"); local.contains("\"ok\":true");
     send(passive, "caps\n"); local.contains("\"writes\":false");
@@ -2010,26 +2010,26 @@ void testIndependentLocalHooksAndNativeAliases() {
     send(passive, "home methods\n"); local.contains("\"methods\":["); local.untouched();
 
     auto typedHost = minimal; typedHost.startTypedRead = Fake::typedRead;
-    Probe::Console typedOnly(typedHost);
+    Probe::Console typedOnly(typedHost, Probe::Format::JSON);
     send(typedOnly, "help health\n"); local.contains("health check [address]");
     send(typedOnly, "health\n"); local.contains("unavailable");
     send(typedOnly, "health check 1\n"); assert(local.typedReads == 1);
 
     minimal.resetStats = Fake::reset;
-    Probe::Console counters(minimal);
+    Probe::Console counters(minimal, Probe::Format::JSON);
     send(counters, "stats reset\n"); assert(local.resets == 1);
     send(counters, "reset\n"); assert(local.resets == 2);
     send(counters, "stats\n"); local.contains("unavailable");
     send(counters, "help stats\n"); local.contains("stats reset");
     minimal.motionProfile = [](void*, Probe::MotionProfileCommand, Probe::MotionProfileView&) { return Probe::Action::UNAVAILABLE; };
-    Probe::Console profileOnly(minimal);
+    Probe::Console profileOnly(minimal, Probe::Format::JSON);
     send(profileOnly, "caps\n"); local.contains("\"writes\":true");
 
     const char* routes[] = {"driver read", "io read", "segment position 16 read",
         "control read", "tuning filters read"};
     for (const char* route : routes) {
         Fake f; auto h = f.host(); h.startDriver = Fake::startDriver;
-        Probe::Console console(h);
+        Probe::Console console(h, Probe::Format::JSON);
         send(console, std::string("@1 ") + route + "\n");
         assert(f.drivers == 1); const auto request = f.driverRequest;
         const auto kind = f.driverKind;
@@ -2064,7 +2064,7 @@ void testWiringAndProfileRoutes() {
         }
         out = s.value; return Probe::Action::OK;
     };
-    Probe::Console local(h);
+    Probe::Console local(h, Probe::Format::JSON);
     send(local, "@1 wiring\n"); f.contains("\"bus_traffic\":false");
     assert(calls == 1 && !changes);
     send(local, "@2 wiring x3 unconnected\n"); f.contains("\"inputs\":[0,0,0,1]");
@@ -2082,7 +2082,7 @@ void testWiringAndProfileRoutes() {
     profileHost.motionProfile = [](void*, Probe::MotionProfileCommand command, Probe::MotionProfileView& out) {
         assert(command == Probe::MotionProfileCommand::INSPECT); out.error = "none"; return Probe::Action::OK;
     };
-    Probe::Console profile(profileHost);
+    Probe::Console profile(profileHost, Probe::Format::JSON);
     send(profile, "@1 motion-profile inspect\n"); const auto plain = f.lines.back();
     send(profile, "@1 profile ess_rs motion-profile inspect\n"); assert(plain == f.lines.back());
     using Err = MotorControlRS::Err;

@@ -5,5 +5,6 @@ idf_component_register(
         "${EXAMPLES}/common/RtuBusOwner.cpp"
         "${EXAMPLES}/common/EssRtuValidator.cpp"
         "${EXAMPLES}/probe_cli/ProbeConsole.cpp"
+        "${EXAMPLES}/probe_cli/ConsoleText.cpp"
     REQUIRES MotorControlRS)
 target_compile_features(${COMPONENT_LIB} PRIVATE cxx_std_11)

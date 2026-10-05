@@ -35,7 +35,7 @@ struct Fake {
 void send(Probe::Console& console,const std::string& command) { for(char c:command)console.feed(c);console.feed('\n'); }
 }
 int main() {
-    Fake f;Probe::Console c(f.hooks());
+    Fake f;Probe::Console c(f.hooks(), Probe::Format::JSON);
     send(c,"help communication");assert(f.has("plan|begin"));
     send(c,"profile ess_rs communication");assert(f.has("\"action\":-1"));assert(f.has("\"context\":null"));
     const char* invalid[]={"begin address 0","begin address 248","plan baud 57600","begin format 8E2","begin baud 9600 0","begin baud 9600 248","begin baud 9600 1 extra","begin baud 4294967296","host other","confirm","finish extra","save","plan arbitrary 1"};
@@ -72,7 +72,7 @@ int main() {
     unsigned kind=2;
     for(const char* line:commands){send(c,std::string("profile ess_rs communication ")+line);assert(static_cast<unsigned>(f.request.kind)==kind++);}
     const auto writes=f.writes;send(c,"profile ess_rs communication inspect");assert(f.writes==writes);
-    Fake absent;auto h=absent.hooks();h.communication=nullptr;Probe::Console legacy(h);
+    Fake absent;auto h=absent.hooks();h.communication=nullptr;Probe::Console legacy(h, Probe::Format::JSON);
     send(legacy,"help");assert(!absent.has("\"communication\""));
     send(legacy,"profile ess_rs communication inspect");assert(absent.has("unavailable"));assert(absent.calls==0);
     return 0;

@@ -1,5 +1,11 @@
 # Roadmap to a supported ESS release
 
+The [human console](console.md) now provides grouped help, examples and readable
+operation/traffic output on the existing application path. `@ID` automation keeps
+JSONL and per-operation correlation. [Verification](reports/human_console_2026-10-05.md)
+covers native output pressure and a short read-only bench regression; motion and
+electrical qualification dispositions remain unchanged.
+
 The [fresh27 audit](reports/ess_release_27_audit_2026-10-05.md) tightens actual
 test command/mode identity, assertion and exit-status guards, exported archive
 consumption and maintained Markdown links. Qualified verifier compilers are

@@ -1,5 +1,9 @@
 # MotorControl-RS documentation
 
+The [human-readable console guide](console.md) explains grouped help, operation
+results and diagnostics. Ordinary commands are readable; `@ID` commands retain
+the existing JSONL automation protocol.
+
 [Repeatable verification and core packaging](verification.md) provides one
 quick/full entry point shared by hosted CI, strict C++11/C++17 consumers and
 offline reference/document checks. Hardware qualification is separate.

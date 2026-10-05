@@ -39,7 +39,7 @@ void extreme(Ess::ReadStepObservation& p) {
 }
 }
 int main(){
-    Fake f;Probe::Console c(f.hooks());
+    Fake f;Probe::Console c(f.hooks(), Probe::Format::JSON);
     send(c,"help persistence");assert(f.has("host before") && f.has("plan|begin"));
     send(c,"profile ess_rs persistence");assert(f.has("\"action\":-1") && f.has("\"context\":null"));
     const unsigned before=f.calls;
@@ -88,7 +88,7 @@ int main(){
     send(c,"profile ess_rs persistence inspect");assert(f.has("\"baseline\":{") && !f.has("output_full"));
     assert(f.has("\"snapshot_failed\":true,\"verification_attempts\":2"));
     const auto writes=f.writes;send(c,"profile ess_rs persistence inspect");assert(f.writes==writes);
-    Fake absent;auto h=absent.hooks();h.persistence=nullptr;Probe::Console legacy(h);
+    Fake absent;auto h=absent.hooks();h.persistence=nullptr;Probe::Console legacy(h, Probe::Format::JSON);
     send(legacy,"help");assert(!absent.has("\"persistence\""));send(legacy,"profile ess_rs persistence inspect");assert(absent.has("unavailable") && !absent.calls);
     send(c,"caps");assert(f.has("\"persistence\":true"));
     return 0;

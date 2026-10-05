@@ -54,10 +54,10 @@ int main(int argc, char** argv) {
         Core::ReadEvent event;event.target=s.originalTarget;event.operationId=8;event.frame=raw;event.length=sizeof(raw);
         event.qualified=true;event.earliestUs=101;event.latestUs=102;event.txAccepted=8;
         assert(Core::checkProbe(finding.request,event,103,finding.probe));
-        Probe::Console console(f.hooks());send(console,"@1 discover inspect");
+        Probe::Console console(f.hooks(), Probe::Format::JSON);send(console,"@1 discover inspect");
         assert(f.lines.size()==1);std::puts(f.lines[0].c_str());return 0;
     }
-    Fake f;Probe::Console c(f.hooks());
+    Fake f;Probe::Console c(f.hooks(), Probe::Format::JSON);
     send(c,"profile list");assert(f.has("\"command\":\"profile-list\""));assert(f.has("\"bus_traffic\":false"));assert(f.has("\"exact_model\":false"));assert(f.calls==0);
     send(c,"help profile");assert(f.has("\"ok\":true"));assert(f.has("profile list"));
     send(c,"help");assert(f.has("\"profile\""));assert(f.calls==0);
@@ -104,7 +104,7 @@ int main(int argc, char** argv) {
     const auto pressured=f.calls;send(c,"discover cancel");assert(f.calls==pressured+1);
     assert(f.request.kind==Probe::DiscoveryCommandKind::CANCEL);
     f.blocked=false;assert(c.serviceOutput());
-    Fake absent;auto h=absent.hooks();h.discovery=nullptr;Probe::Console unavailable(h);
+    Fake absent;auto h=absent.hooks();h.discovery=nullptr;Probe::Console unavailable(h, Probe::Format::JSON);
     send(unavailable,"discover");assert(absent.has("unavailable"));assert(absent.calls==0);
     return 0;
 }

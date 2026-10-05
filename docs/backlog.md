@@ -1,5 +1,14 @@
 # Features implementation tasks and open questions
 
+## Human console
+
+- [x] Shared Arduino/IDF console provides grouped help, `?`, command examples,
+  usage hints, labeled replies and compact raw/decoded traffic.
+- [x] Explicit `@ID` retains JSONL, including asynchronous results and deferred
+  stops; bounded output preserves normal owner/result handling.
+- [x] Native format/backpressure tests, package checks, firmware builds and short
+  read-only COM13 regression. See [evidence](reports/human_console_2026-10-05.md).
+
 ## Prompt27 verification and packaging
 
 - [x] Fresh independent audit closes command/check-mode, optimized-assertion,

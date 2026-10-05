@@ -81,7 +81,7 @@ bool has(const Fake& fake, const char* fragment) { return fake.last().find(fragm
 }
 
 int main() {
-    Fake fake; Probe::Console console(fake.hooks());
+    Fake fake; Probe::Console console(fake.hooks(), Probe::Format::JSON);
     send(console, "@1 help host"); assert(has(fake, "host [baud RATE"));
     send(console, "@2 host caps");
     assert(has(fake, "\"supported_bauds\":[9600,19200,38400,115200]"));
@@ -149,7 +149,7 @@ int main() {
     assert(has(fake, "\"tx_bytes\":8,\"rx_bytes\":0"));
     assert(has(fake, "\"raw_model\":null")); assert(has(fake, "\"timing_valid\":false"));
 
-    Fake legacy; auto absent = legacy.hooks(); absent.hostSerial = nullptr; Probe::Console oldConsole(absent);
+    Fake legacy; auto absent = legacy.hooks(); absent.hostSerial = nullptr; Probe::Console oldConsole(absent, Probe::Format::JSON);
     send(oldConsole, "help"); assert(!has(legacy, "\"host\""));
     send(oldConsole, "host"); assert(has(legacy, "\"result\":\"unavailable\""));
     send(oldConsole, "config"); assert(has(legacy, "\"format\":\"8N1\""));

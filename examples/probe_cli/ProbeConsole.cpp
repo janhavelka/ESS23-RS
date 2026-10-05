@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 #include "ProbeConsole.h"
+#include "ConsoleText.h"
 #include "MotorControlRS/Version.h"
 #include "MotorControlRS/profiles/ess_rs/Traffic.h"
 #include "MotorControlRS/profiles/ess_rs/Registers.h"
@@ -33,59 +34,60 @@ Action driverAdmissionStatus(const MotorControlRS::Status& status) noexcept {
 namespace {
 
 enum class Command : uint8_t { HELP, VERSION, CONFIG, STATUS, HEALTH, STATS, PROBE, CAPTURE_READ, RECOVER, RESET, MEMORY, LOAD, DRV, RESULT, CANCEL, RELEASE, READ, PROFILE, CAPS, READ_IDENTITY, READ_CONFIG, READ_STATE, HEALTH_CHECK, MONITOR, AXIS, PREPARE, ENABLE, MOTOR_RELEASE, ALARM_CLEAR, STOP, MOVE, POSITION_CLEAR, VELOCITY, DRIVER, IO, HOME, SEGMENT, CONTROL, TUNING, HOST, COMMUNICATION, PERSISTENCE, MOTION_PROFILE, DEBUG, DISCOVER, USEADDR, WIRING };
-struct Entry { const char* name; Command command; const char* syntax; const char* effect; bool bus; };
+struct Entry { const char* name; Command command; const char* syntax; const char* effect; bool bus; const char* description; };
 const Entry COMMANDS[] = {
-    {"discover", Command::DISCOVER, "discover [profile ess_rs|manufacturer stepperonline] [addresses FIRST LAST] [tuple BAUD FORMAT] [query-ms 1..5000] [overall-ms 1..60000] [requests 1..256] [results 1..8] [identity] | discover inspect|cancel|restore|finish; max4 distinct tuples,128bytes,20tokens; defaults selected endpoint/current tuple,query500ms,overall5000ms,requests16,results8,no identity,no retries", "bounded_nonchanging_queries_retained_findings_host_restoration", true},
-    {"debug", Command::DEBUG, "debug [off|raw|decoded]", "observe_regular_operations_and_cached_diagnostics", false},
-    {"motion-profile", Command::MOTION_PROFILE, "motion-profile read|inspect|restore|forget | profile ess_rs motion-profile ...", "snapshot_position_parameters_restore_or_explicitly_release_snapshot", true},
-    {"help", Command::HELP, "help [command]", "show_callable_commands", false},
-    {"version", Command::VERSION, "version", "show_build", false},
-    {"ver", Command::VERSION, "ver", "show_build", false},
-    {"config", Command::CONFIG, "config", "show_host_settings", false},
-    {"settings", Command::CONFIG, "settings", "show_host_settings", false},
-    {"useaddr", Command::USEADDR, "useaddr 1..247", "idle_host_selection_invalidates_dependent_confidence_no_motor_io", false},
-    {"wiring", Command::WIRING, "wiring [x0|x1|x2|x3|y0|y1 unknown|unconnected|connected]", "declare_external_wiring_only_no_device_assignment_or_io", false},
-    {"host", Command::HOST, "host [baud RATE | fmt 8N1|8N2|8E1|8O1 | set RATE FORMAT | restore | caps]", "settled_host_serial_only_no_motor_settings", false},
-    {"communication", Command::COMMUNICATION, "communication [inspect | plan|begin address|baud|format VALUE [address] | host before|requested | confirm before|requested | finish]", "explicit_communication_session_no_save_restart_or_replay", true},
-    {"persistence", Command::PERSISTENCE, "persistence [inspect | snapshot | plan|begin save|factory-restore | verify | host before | finish]", "one_explicit_save_or_factory_restore_no_retry_or_inferred_durability", true},
-    {"status", Command::STATUS, "status", "show_cached_observations", false},
-    {"health", Command::HEALTH, "health [check [address]]", "show_cached_health_or_explicitly_read_state", true},
-    {"stats", Command::STATS, "stats [reset]", "show_or_clear_host_counters", false},
-    {"probe", Command::PROBE, "probe [address]", "read_model_word_only", true},
-    {"ping", Command::PROBE, "ping [address]", "read_model_word_only", true},
-    {"capture-read", Command::CAPTURE_READ, "capture-read [address]", "read_0x0130_16_words_for_capture_qualification", true},
-    {"read", Command::READ, "read identity|config|state [address]", "checked_nonchanging_read", true},
-    {"profile", Command::PROFILE, "profile list | profile ess_rs identity|config|state|enable|release|clear-alarm|clear-position|normal-stop|emergency-stop [address] | profile ess_rs move-relative|move-absolute|move-angle ... | profile ess_rs velocity ... | profile ess_rs driver read|set ... | profile ess_rs io read|set ... | profile ess_rs segment ... | profile ess_rs control read|set ... | profile ess_rs tuning GROUP read|set ... | profile ess_rs communication ... | profile ess_rs persistence ... | profile ess_rs home ... | profile ess_rs motion-profile ... | profile ess_rs caps", "public_profile_operations", true},
-    {"driver", Command::DRIVER, "driver read [address] | driver set field integer [field integer ...] [address] | profile ess_rs driver ...", "typed_drive_settings_with_checked_readback", true},
-    {"io", Command::IO, "io read [address] | io set input-polarity|x0|x1|x2|x3|output-polarity|y0|y1|custom value [field value ...] [address]; none assigns function 0 | profile ess_rs io ...", "explicit_typed_terminal_settings_and_readback", true},
-    {"segment", Command::SEGMENT, "segment position|speed|start INDEX read [address] | segment position|speed|start INDEX set FIELD INTEGER [FIELD INTEGER ...] [address] | profile ess_rs segment ...", "indexed_stored_records_only_external_execution", true},
-    {"control", Command::CONTROL, "control read [address] | control set algorithm|encoder-resolution|maximum-effective-current|closed-maximum-current|closed-base-current|open-maximum-current|lock-current|lock-delay INTEGER [field integer ...] [address]; algorithm open-loop|algorithm-1 | profile ess_rs control ...", "stopped_native_control_settings_and_checked_readback", true},
-    {"tuning", Command::TUNING, "tuning filters|current-loop|la|collision read [address] | tuning GROUP set FIELD INTEGER [FIELD INTEGER ...] [address]; filters: input-filter pulse-low-pass deviation-threshold arrival-window arrival-time pulse-mean; current-loop: multiplier kp ki kc; la: kp1 kv1 node1 kp2 kv2 node2 kvf position-ki; collision: threshold current | profile ess_rs tuning ...", "qualified_stopped_native_tuning_and_checked_readback", true},
-    {"home", Command::HOME, "home methods | home method search_native return_native ramp_native zero [address] | profile ess_rs home ...", "qualified_homing_with_fresh_completion_and_zero_evidence", true},
-    {"enable", Command::ENABLE, "enable [address]", "request_enable_then_observe_flags", true},
-    {"motor-release", Command::MOTOR_RELEASE, "motor-release [address]", "request_release_then_observe_flags", true},
-    {"alarm-clear", Command::ALARM_CLEAR, "alarm-clear [address]", "request_clear_resettable_alarm_then_observe_flags", true},
-    {"stop", Command::STOP, "stop normal|direct [address]", "priority_stop_with_explicit_policy_then_observe_flags", true},
-    {"move", Command::MOVE, "move relative|absolute value unit frame native_rpm configured [basis actual|commanded|queued] [round mode error [approx error]] [address] | move angle value unit frame positive|negative|shortest reject|positive|negative native_rpm configured [round mode error [approx error]] [address]", "finite_move_through_public_coordinate_preparation", true},
-    {"position-clear", Command::POSITION_CLEAR, "position-clear [address]", "explicit_device_position_zero_only", true},
-    {"velocity", Command::VELOCITY, "velocity value rpm|steps/s|fullsteps/s|counts/s|turns/s|deg/s|rad/s|mm/s native|motor|load duration_ms configured normal|direct [round mode error [approx error]] [address]", "finite_serial_velocity_with_explicit_stop", true},
-    {"monitor", Command::MONITOR, "monitor [off | interval_ms count]", "finite_nonconsuming_state_polling", true},
-    {"caps", Command::CAPS, "caps", "show_implemented_routes_and_explicit_capability_gaps", false},
-    {"axis", Command::AXIS, "axis config [set field value [maximum]] | axis origin exact_native", "configure_host_coordinates_only", false},
-    {"prepare", Command::PREPARE, "prepare absolute value unit frame [round [max_error [radian_error]]] | prepare relative value unit frame basis [round [max_error [radian_error]]] | prepare angle value unit frame path tie [round [max_error [radian_error]]]", "preview_public_target_arithmetic_without_motion", false},
-    {"recover", Command::RECOVER, "recover", "recover_host_transport_only", false},
-    {"reset", Command::RESET, "reset", "clear_host_counters_only", false},
-    {"memory", Command::MEMORY, "memory", "show_cached_memory", false},
-    {"load", Command::LOAD, "load [work_us owner_delay_us console_bytes]", "configure_or_report_host_load", false},
-    {"drv", Command::DRV, "drv", "show_owner_queue_and_output", false},
-    {"result", Command::RESULT, "result [operation_id]", "inspect_retained_result_without_consuming", false},
-    {"cancel", Command::CANCEL, "cancel [operation_id]", "cancel_local_work_not_motor_stop", false},
-    {"release", Command::RELEASE, "release operation_id", "release_retained_terminal_result", false}
+    {"discover", Command::DISCOVER, "discover [profile ess_rs|manufacturer stepperonline] [addresses FIRST LAST] [tuple BAUD FORMAT] [query-ms 1..5000] [overall-ms 1..60000] [requests 1..256] [results 1..8] [identity] | discover inspect|cancel|restore|finish; max4 distinct tuples,128bytes,20tokens; defaults selected endpoint/current tuple,query500ms,overall5000ms,requests16,results8,no identity,no retries", "bounded_nonchanging_queries_retained_findings_host_restoration", true, "Find responding drives within explicit address, serial and time limits."},
+    {"debug", Command::DEBUG, "debug [off|raw|decoded]", "observe_regular_operations_and_cached_diagnostics", false, "Show diagnostics; select raw or decoded traffic while ordinary commands run."},
+    {"motion-profile", Command::MOTION_PROFILE, "motion-profile read|inspect|restore|forget | profile ess_rs motion-profile ...", "snapshot_position_parameters_restore_or_explicitly_release_snapshot", true, "Read, inspect or restore saved position parameters; forget releases the snapshot."},
+    {"help", Command::HELP, "help [command]", "show_callable_commands", false, "List available commands or show usage for one command."},
+    {"?", Command::HELP, "? [command]", "show_callable_commands", false, "Alias for help."},
+    {"version", Command::VERSION, "version", "show_build", false, "Show the firmware version and console protocol."},
+    {"ver", Command::VERSION, "ver", "show_build", false, "Alias for version."},
+    {"config", Command::CONFIG, "config", "show_host_settings", false, "Show the selected address and host communication settings."},
+    {"settings", Command::CONFIG, "settings", "show_host_settings", false, "Alias for config."},
+    {"useaddr", Command::USEADDR, "useaddr 1..247", "idle_host_selection_invalidates_dependent_confidence_no_motor_io", false, "Select a host target while idle; this does not change the drive address."},
+    {"wiring", Command::WIRING, "wiring [x0|x1|x2|x3|y0|y1 unknown|unconnected|connected]", "declare_external_wiring_only_no_device_assignment_or_io", false, "Declare connected or unconnected terminals without changing their functions."},
+    {"host", Command::HOST, "host [baud RATE | fmt 8N1|8N2|8E1|8O1 | set RATE FORMAT | restore | caps]", "settled_host_serial_only_no_motor_settings", false, "Show or change host UART settings; drive settings stay separate."},
+    {"communication", Command::COMMUNICATION, "communication [inspect | plan|begin address|baud|format VALUE [address] | host before|requested | confirm before|requested | finish]", "explicit_communication_session_no_save_restart_or_replay", true, "Plan and apply a drive communication change, then check its responding endpoint."},
+    {"persistence", Command::PERSISTENCE, "persistence [inspect | snapshot | plan|begin save|factory-restore | verify | host before | finish]", "one_explicit_save_or_factory_restore_no_retry_or_inferred_durability", true, "Inspect, plan or attempt an explicit save or factory restoration."},
+    {"status", Command::STATUS, "status", "show_cached_observations", false, "Show cached drive and transport observations, including their age."},
+    {"health", Command::HEALTH, "health [check [address]]", "show_cached_health_or_explicitly_read_state", true, "Show cached health; health check explicitly refreshes drive state."},
+    {"stats", Command::STATS, "stats [reset]", "show_or_clear_host_counters", false, "Show diagnostic counters; stats reset clears host counters only."},
+    {"probe", Command::PROBE, "probe [address]", "read_model_word_only", true, "Read one model word to check communication."},
+    {"ping", Command::PROBE, "ping [address]", "read_model_word_only", true, "Alias for probe."},
+    {"capture-read", Command::CAPTURE_READ, "capture-read [address]", "read_0x0130_16_words_for_capture_qualification", true, "Read a fixed 16-word window for transport timing diagnostics."},
+    {"read", Command::READ, "read identity|config|state [address]", "checked_nonchanging_read", true, "Refresh drive identity, configuration or state through checked reads."},
+    {"profile", Command::PROFILE, "profile list | profile ess_rs identity|config|state|enable|release|clear-alarm|clear-position|normal-stop|emergency-stop [address] | profile ess_rs move-relative|move-absolute|move-angle ... | profile ess_rs velocity ... | profile ess_rs driver read|set ... | profile ess_rs io read|set ... | profile ess_rs segment ... | profile ess_rs control read|set ... | profile ess_rs tuning GROUP read|set ... | profile ess_rs communication ... | profile ess_rs persistence ... | profile ess_rs home ... | profile ess_rs motion-profile ... | profile ess_rs caps", "public_profile_operations", true, "List profiles or call a named ESS operation."},
+    {"driver", Command::DRIVER, "driver read [address] | driver set field integer [field integer ...] [address] | profile ess_rs driver ...", "typed_drive_settings_with_checked_readback", true, "Read or update supported drive settings and check their readback."},
+    {"io", Command::IO, "io read [address] | io set input-polarity|x0|x1|x2|x3|output-polarity|y0|y1|custom value [field value ...] [address]; none assigns function 0 | profile ess_rs io ...", "explicit_typed_terminal_settings_and_readback", true, "Read or update terminal functions and polarity; none selects function zero."},
+    {"segment", Command::SEGMENT, "segment position|speed|start INDEX read [address] | segment position|speed|start INDEX set FIELD INTEGER [FIELD INTEGER ...] [address] | profile ess_rs segment ...", "indexed_stored_records_only_external_execution", true, "Read or update stored segment settings; this does not execute a segment."},
+    {"control", Command::CONTROL, "control read [address] | control set algorithm|encoder-resolution|maximum-effective-current|closed-maximum-current|closed-base-current|open-maximum-current|lock-current|lock-delay INTEGER [field integer ...] [address]; algorithm open-loop|algorithm-1 | profile ess_rs control ...", "stopped_native_control_settings_and_checked_readback", true, "Read or update supported control settings while the drive is stopped."},
+    {"tuning", Command::TUNING, "tuning filters|current-loop|la|collision read [address] | tuning GROUP set FIELD INTEGER [FIELD INTEGER ...] [address]; filters: input-filter pulse-low-pass deviation-threshold arrival-window arrival-time pulse-mean; current-loop: multiplier kp ki kc; la: kp1 kv1 node1 kp2 kv2 node2 kvf position-ki; collision: threshold current | profile ess_rs tuning ...", "qualified_stopped_native_tuning_and_checked_readback", true, "Read or update named filter, current-loop, LA or collision parameters."},
+    {"home", Command::HOME, "home methods | home method search_native return_native ramp_native zero [address] | profile ess_rs home ...", "qualified_homing_with_fresh_completion_and_zero_evidence", true, "List homing methods or request a supported method with explicit parameters."},
+    {"enable", Command::ENABLE, "enable [address]", "request_enable_then_observe_flags", true, "Request motor enable and observe the resulting flags."},
+    {"motor-release", Command::MOTOR_RELEASE, "motor-release [address]", "request_release_then_observe_flags", true, "Request motor release and observe the resulting flags."},
+    {"alarm-clear", Command::ALARM_CLEAR, "alarm-clear [address]", "request_clear_resettable_alarm_then_observe_flags", true, "Request alarm clearing and check the drive flags."},
+    {"stop", Command::STOP, "stop normal|direct [address]", "priority_stop_with_explicit_policy_then_observe_flags", true, "Request a priority normal or direct motor stop."},
+    {"move", Command::MOVE, "move relative|absolute value unit frame native_rpm configured [basis actual|commanded|queued] [round mode error [approx error]] [address] | move angle value unit frame positive|negative|shortest reject|positive|negative native_rpm configured [round mode error [approx error]] [address]", "finite_move_through_public_coordinate_preparation", true, "Request a finite relative, absolute or wrapped-angle move with explicit units."},
+    {"position-clear", Command::POSITION_CLEAR, "position-clear [address]", "explicit_device_position_zero_only", true, "Explicitly set the drive position counter to zero."},
+    {"velocity", Command::VELOCITY, "velocity value rpm|steps/s|fullsteps/s|counts/s|turns/s|deg/s|rad/s|mm/s native|motor|load duration_ms configured normal|direct [round mode error [approx error]] [address]", "finite_serial_velocity_with_explicit_stop", true, "Request a bounded velocity operation with an explicit stop policy."},
+    {"monitor", Command::MONITOR, "monitor [off | interval_ms count]", "finite_nonconsuming_state_polling", true, "Read drive state a finite number of times; off ends local polling."},
+    {"caps", Command::CAPS, "caps", "show_implemented_routes_and_explicit_capability_gaps", false, "Show implemented operations and unsupported or unresolved capabilities."},
+    {"axis", Command::AXIS, "axis config [set field value [maximum]] | axis origin exact_native", "configure_host_coordinates_only", false, "Configure host coordinates, units and origin without motor traffic."},
+    {"prepare", Command::PREPARE, "prepare absolute value unit frame [round [max_error [radian_error]]] | prepare relative value unit frame basis [round [max_error [radian_error]]] | prepare angle value unit frame path tie [round [max_error [radian_error]]]", "preview_public_target_arithmetic_without_motion", false, "Preview coordinate conversion and rounding without moving the motor."},
+    {"recover", Command::RECOVER, "recover", "recover_host_transport_only", false, "Recover the host transport; this does not stop or reset the motor."},
+    {"reset", Command::RESET, "reset", "clear_host_counters_only", false, "Clear host diagnostic counters only."},
+    {"memory", Command::MEMORY, "memory", "show_cached_memory", false, "Show cached memory and stack measurements."},
+    {"load", Command::LOAD, "load [work_us owner_delay_us console_bytes]", "configure_or_report_host_load", false, "Show or configure the optional host workload used for timing checks."},
+    {"drv", Command::DRV, "drv", "show_owner_queue_and_output", false, "Show the bus owner, queues, retained results and console pressure."},
+    {"result", Command::RESULT, "result [operation_id]", "inspect_retained_result_without_consuming", false, "Inspect an operation without consuming its retained result."},
+    {"cancel", Command::CANCEL, "cancel [operation_id]", "cancel_local_work_not_motor_stop", false, "Cancel local work; use stop to request a motor stop."},
+    {"release", Command::RELEASE, "release operation_id", "release_retained_terminal_result", false, "Release an inspected terminal result to free its storage."}
 };
-const Entry IDENTITY_ENTRY = {"read-identity", Command::READ_IDENTITY, "read identity [address]", "checked_identity_read", true};
-const Entry CONFIG_ENTRY = {"read-config", Command::READ_CONFIG, "read config [address]", "checked_configuration_read", true};
-const Entry STATE_ENTRY = {"read-state", Command::READ_STATE, "read state [address]", "checked_nonconsuming_state_read", true};
-const Entry HEALTH_ENTRY = {"read-state", Command::HEALTH_CHECK, "health check [address]", "explicit_nonconsuming_state_refresh", true};
+const Entry IDENTITY_ENTRY = {"read-identity", Command::READ_IDENTITY, "read identity [address]", "checked_identity_read", true, "Read drive identity."};
+const Entry CONFIG_ENTRY = {"read-config", Command::READ_CONFIG, "read config [address]", "checked_configuration_read", true, "Read drive configuration."};
+const Entry STATE_ENTRY = {"read-state", Command::READ_STATE, "read state [address]", "checked_nonconsuming_state_read", true, "Read drive state."};
+const Entry HEALTH_ENTRY = {"read-state", Command::HEALTH_CHECK, "health check [address]", "explicit_nonconsuming_state_refresh", true, "Refresh drive state and health."};
 namespace Ess = MotorControlRS::ESS_RS;
 
 const char* tuningName(Ess::DriverGroup group) {
@@ -460,6 +462,58 @@ const Entry* find(const char* name) {
     return nullptr;
 }
 
+const char* helpGroup(Command command) {
+    switch(command) {
+    case Command::HELP: case Command::VERSION: case Command::CAPS: case Command::PROFILE:
+        return "Getting started";
+    case Command::READ: case Command::READ_IDENTITY: case Command::READ_CONFIG: case Command::READ_STATE:
+    case Command::PROBE: case Command::STATUS: case Command::HEALTH: case Command::MONITOR:
+        return "Read and observe";
+    case Command::MOVE: case Command::VELOCITY: case Command::HOME: case Command::ENABLE:
+    case Command::MOTOR_RELEASE: case Command::ALARM_CLEAR: case Command::POSITION_CLEAR: case Command::STOP:
+        return "Motor operations";
+    case Command::DRIVER: case Command::IO: case Command::SEGMENT: case Command::CONTROL: case Command::TUNING:
+    case Command::MOTION_PROFILE: case Command::PERSISTENCE:
+        return "Drive settings";
+    case Command::CONFIG: case Command::HOST: case Command::USEADDR: case Command::WIRING:
+    case Command::COMMUNICATION: case Command::DISCOVER: case Command::AXIS: case Command::PREPARE:
+        return "Host and setup";
+    case Command::RESULT: case Command::CANCEL: case Command::RELEASE:
+        return "Operation results";
+    default: return "Diagnostics";
+    }
+}
+const char* helpExample(Command command) {
+    switch(command) {
+    case Command::HELP: return "help move\n  @1 status  (machine-readable JSON)";
+    case Command::PROBE: return "probe 1";
+    case Command::READ: return "read config 1\n  read state 1";
+    case Command::DEBUG: return "debug decoded\n  debug off";
+    case Command::MOVE: return "move relative 100 steps native 60 configured 1";
+    case Command::STOP: return "stop normal 1\n  stop direct 1";
+    case Command::RESULT: return "result 12";
+    case Command::RELEASE: return "release 12  (after inspecting the terminal result)";
+    case Command::CANCEL: return "cancel 12  (local cancellation; use stop for the motor)";
+    case Command::HOST: return "host\n  host caps";
+    case Command::DISCOVER: return "discover addresses 1 1\n  discover inspect";
+    case Command::MOTION_PROFILE: return "motion-profile read\n  motion-profile inspect";
+    case Command::MONITOR: return "monitor 500 10\n  monitor off";
+    case Command::PROFILE: return "profile list\n  profile ess_rs caps";
+    case Command::AXIS: return "axis config";
+    case Command::PREPARE: return "prepare relative 100 steps native actual";
+    case Command::HOME: return "home methods";
+    default: return nullptr;
+    }
+}
+bool helpEffect(char* output,std::size_t capacity,std::size_t& used,const char* effect) {
+    for (const char* p=effect;*p;++p) {
+        if (used+1>=capacity) return false;
+        output[used++]=*p=='_'?' ':*p;
+    }
+    output[used]='\0';
+    return true;
+}
+
 bool number(const char* text, uint32_t& value) {
     if (!*text) return false;
     uint32_t result = 0;
@@ -571,6 +625,17 @@ const char* cancellationName(Rtu::Cancellation value) {
 
 } // namespace
 
+bool Console::welcome() noexcept {
+    if (outputPending()) return false;
+    const Format saved=outputFormat_;
+    outputFormat_=Format::HUMAN;
+    std::snprintf(output_,sizeof(output_),
+        "MotorControl-RS %s\nType help or ? for commands; help COMMAND shows usage.\nPlain commands use human output. Prefix @ID for JSON, for example @1 status.",Core::VERSION);
+    emit(0,true);
+    outputFormat_=saved;
+    return true;
+}
+
 bool Console::reportTraffic(const Core::TrafficRecord& record, DebugMode mode,
                           const Core::TrafficRecord* request) noexcept {
     if (mode==DebugMode::OFF || mode>DebugMode::DECODED || outputPending() || !host_.emitLine ||
@@ -607,6 +672,10 @@ bool Console::reportTraffic(const Core::TrafficRecord& record, DebugMode mode,
     } else if (!append(output_,sizeof(output_),used,"null,\"decode_detail\":0,\"frame_error\":0,\"decoded\":null")) return false;
     if (!append(output_,sizeof(output_),used,"}")) return false;
     // Direct, nonblocking, best-effort delivery. No pending-output reservation.
+    if (trafficFormat_ == Format::HUMAN) {
+        if (!renderHuman(output_,pendingOutput_,sizeof(pendingOutput_))) return false;
+        return host_.emitLine(host_.context,pendingOutput_,std::strlen(pendingOutput_));
+    }
     return host_.emitLine(host_.context,output_,used);
 }
 
@@ -619,16 +688,26 @@ bool Console::track(uint32_t id, uint32_t operationId, bool stop) noexcept {
     const std::size_t begin = stop ? OUTSTANDING_CAPACITY - 1 : 0;
     const std::size_t end = stop ? OUTSTANDING_CAPACITY : OUTSTANDING_CAPACITY - 1;
     for (std::size_t i = begin; i < end; ++i) { auto& item = outstanding_[i]; if (!item.commandId) {
-        item.commandId = id; item.operationId = operationId; return true;
+        item.commandId = id; item.operationId = operationId; item.format = outputFormat_; return true;
     } }
     return false;
 }
 void Console::untrack(uint32_t operationId) noexcept {
     for (auto& item : outstanding_) if (item.operationId == operationId) item = Outstanding();
 }
-void Console::emit(uint32_t terminalOperation) noexcept {
+void Console::emit(uint32_t terminalOperation, bool humanText) noexcept {
     if (outputPending_) { ++inputDropped_; return; }
-    std::memcpy(pendingOutput_, output_, std::strlen(output_) + 1);
+    if (outputFormat_ == Format::HUMAN && !humanText) {
+        if (!renderHuman(output_, pendingOutput_, sizeof(pendingOutput_))) {
+            if (terminalOperation)
+                std::snprintf(pendingOutput_, sizeof(pendingOutput_),
+                    "ERROR: response formatting failed. Inspect @ID result %lu for JSON evidence.",
+                    static_cast<unsigned long>(terminalOperation));
+            else
+                std::snprintf(pendingOutput_, sizeof(pendingOutput_),
+                    "ERROR: response formatting failed. Inspect retained results with @ID result N; do not repeat writes.");
+        }
+    } else std::memcpy(pendingOutput_, output_, std::strlen(output_) + 1);
     outputPending_ = true;
     pendingTerminalOperation_ = terminalOperation;
     serviceOutput();
@@ -643,6 +722,7 @@ bool Console::serviceOutput() noexcept {
     if (stopReply_.pending) {
         const StopReply reply = stopReply_;
         stopReply_ = StopReply();
+        outputFormat_ = reply.format;
         // action emits at most this one additional line. The cleared pending
         // field bounds serviceOutput's nested call to one level.
         action(reply.id, "stop", reply.result, reply.address, reply.operationId);
@@ -652,6 +732,15 @@ bool Console::serviceOutput() noexcept {
 }
 
 void Console::error(uint32_t id, const char* command, const char* reason) noexcept {
+    if (outputFormat_ == Format::HUMAN) {
+        std::size_t used=0;
+        const bool fits=append(output_,sizeof(output_),used,"ERROR: %s: ",command) &&
+            helpEffect(output_,sizeof(output_),used,reason) &&
+            append(output_,sizeof(output_),used,".%s%s%s%s",syntax_?"\nUsage: ":"",syntax_?syntax_:"",
+                helpCommand_?"\nHelp: help ":"\nType help for available commands.",helpCommand_?helpCommand_:"");
+        if (!fits) std::snprintf(output_,sizeof(output_),"ERROR: command failed. Type help for usage.");
+        emit(0,true); return;
+    }
     std::snprintf(output_, sizeof(output_),
         "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"%s\",\"ok\":false,\"result\":\"%s\"}",
         static_cast<unsigned long>(id), command, reason);
@@ -673,6 +762,12 @@ void Console::feed(char value) noexcept {
     if (value == '\n' && afterCr_) { afterCr_ = false; return; }
     afterCr_ = value == '\r';
     if (value == '\r' || value == '\n') {
+        // Select framing before errors/tokenization: even a malformed or
+        // overlong correlated command must receive a machine-readable error.
+        std::size_t first=0;
+        while(first<length_ && (line_[first]==' ' || line_[first]=='\t')) ++first;
+        outputFormat_=first<length_ && line_[first]=='@'?Format::JSON:defaultFormat_;
+        syntax_=helpCommand_=nullptr;
         if (overflow_) error(0, "input", "line_too_long");
         else if (invalid_) error(0, "input", "invalid_input");
         else if (length_) { line_[length_] = '\0'; dispatch(); }
@@ -844,6 +939,7 @@ void Console::dispatch() noexcept {
     }
     if (outstanding(id)) { error(id, "input", "duplicate_id"); return; }
     const Entry* entry = find(tokens[first]);
+    if (entry) { syntax_=entry->syntax; helpCommand_=entry->name; }
     const char* capability = count > first + 2 && std::strcmp(tokens[first], "profile") == 0 &&
         std::strcmp(tokens[first + 1], "ess_rs") == 0 ? tokens[first + 2] : tokens[first];
     if (std::strcmp(capability, "jog") == 0 || std::strcmp(capability, "torque") == 0 ||
@@ -932,6 +1028,7 @@ void Console::dispatch() noexcept {
         if (outputPending() && (!change || mode!=DebugMode::OFF)) { ++inputDropped_; return; }
         DebugSnapshot view;
         const auto result=host_.debug(host_.context,change?&mode:nullptr,view);
+        if (change && result==Action::OK) trafficFormat_=outputFormat_;
         // Disabling remains possible under pressure; an existing ordinary reply
         // keeps its ownership and the diagnostic reply may be dropped.
         if (outputPending()) { ++inputDropped_; return; }
@@ -1463,6 +1560,7 @@ void Console::dispatch() noexcept {
             stopReply_.pending = true; stopReply_.id = id;
             stopReply_.address = static_cast<uint8_t>(address); stopReply_.result = result;
             stopReply_.operationId = result == Action::OK ? operationId : 0;
+            stopReply_.format = outputFormat_;
         } else action(id, actionCommand, result, static_cast<uint8_t>(address), result == Action::OK ? operationId : 0);
         return;
     }
@@ -1635,14 +1733,40 @@ void Console::dispatch() noexcept {
         error(id, entry->name, "unavailable"); return;
     }
     if (entry->command == Command::HELP) {
+        const char* helpSyntax=described?(described->command==Command::HEALTH && !host_.startTypedRead?"health":
+            described->command==Command::HEALTH && !host_.snapshot?"health check [address]":
+            described->command==Command::HOME && !(host_.startHome && host_.snapshot && host_.axis)?"home methods":
+            described->command==Command::STATS && !host_.snapshot?"stats reset":
+            described->command==Command::STATS && !host_.resetStats?"stats":described->syntax):nullptr;
+        if (outputFormat_ == Format::HUMAN) {
+            std::size_t used=0; bool fits=true;
+            if (described) {
+                fits=append(output_,sizeof(output_),used,"%s\nUsage: %s\n",described->name,helpSyntax) &&
+                    append(output_,sizeof(output_),used,"%s",described->description);
+                if (const char* example=helpExample(described->command))
+                    fits=fits && append(output_,sizeof(output_),used,"\nExamples:\n  %s",example);
+                fits=fits && append(output_,sizeof(output_),used,"\nArguments in [brackets] are optional. Use @ID before the command for full JSON evidence.");
+            } else {
+                fits=append(output_,sizeof(output_),used,"MotorControl-RS commands\nUse help COMMAND for syntax. Prefix @ID for JSON.\n");
+                const char* groups[]={"Getting started","Read and observe","Motor operations","Drive settings","Host and setup","Operation results","Diagnostics"};
+                for (const char* group:groups) {
+                    bool heading=false;
+                    for (const Entry& item:COMMANDS) {
+                        if (!callable(item.command) || std::strcmp(helpGroup(item.command),group)) continue;
+                        if (!heading) { fits=fits && append(output_,sizeof(output_),used,"\n[%s]\n",group); heading=true; }
+                        fits=fits && append(output_,sizeof(output_),used,"  %-16s ",item.name) &&
+                            append(output_,sizeof(output_),used,"%s",item.description) && append(output_,sizeof(output_),used,"\n");
+                    }
+                }
+                fits=fits && append(output_,sizeof(output_),used,"\nRead cached state with status; refresh it with read state.\nAccepted operations finish asynchronously. Inspect with result ID, then release ID.\nCancel only cancels local work; stop normal|direct commands the motor.");
+            }
+            if (!fits) { error(id,"help","output_full"); return; }
+            emit(0,true); return;
+        }
         if (described) {
             std::snprintf(output_, sizeof(output_),
                 "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"help\",\"ok\":true,\"syntax\":\"%s\",\"effect\":\"%s\",\"bus_traffic\":%s}",
-                static_cast<unsigned long>(id), described->command == Command::HEALTH && !host_.startTypedRead ? "health" :
-                described->command == Command::HEALTH && !host_.snapshot ? "health check [address]" :
-                described->command == Command::HOME && !(host_.startHome && host_.snapshot && host_.axis) ? "home methods" :
-                described->command == Command::STATS && !host_.snapshot ? "stats reset" :
-                described->command == Command::STATS && !host_.resetStats ? "stats" : described->syntax,
+                static_cast<unsigned long>(id), helpSyntax,
                 described->effect, boolean(described->bus &&
                     (described->command != Command::HEALTH || host_.startTypedRead) &&
                     (described->command != Command::HOME || (host_.startHome && host_.snapshot && host_.axis))));
@@ -1889,6 +2013,8 @@ bool Console::reportProbe(uint32_t id, uint8_t address, uint32_t operationId, co
     setReportSerial(tuple, serialGeneration);
     if (outputPending()) return false;
     for (auto& item : outstanding_) if (item.commandId == id && item.operationId == operationId && !item.transferred) {
+        outputFormat_ = item.format;
+        syntax_=helpCommand_=nullptr;
         if (!formatProbe(id, id, address, operationId, result, false)) return false;
         if (item.operationId == operationId) item.transferred = true;
         return true;
@@ -1943,6 +2069,8 @@ bool Console::reportRecovery(uint32_t id, uint32_t operationId, const Rtu::Recov
     setReportSerial(tuple, serialGeneration);
     if (outputPending()) return false;
     for (auto& item : outstanding_) if (item.commandId == id && item.operationId == operationId && !item.transferred) {
+        outputFormat_ = item.format;
+        syntax_=helpCommand_=nullptr;
         if (!formatRecovery(id, id, operationId, result, false)) return false;
         if (item.operationId == operationId) item.transferred = true;
         return true;
@@ -1956,6 +2084,8 @@ bool Console::reportAction(uint32_t id, uint32_t operationId, const Ess::ActionC
     if (outputPending() || context.operationId != operationId ||
         (context.state != Core::ActionState::SUCCEEDED && context.state != Core::ActionState::FAILED)) return false;
     for (auto& item : outstanding_) if (item.commandId == id && item.operationId == operationId && !item.transferred) {
+        outputFormat_ = item.format;
+        syntax_=helpCommand_=nullptr;
         if (!formatAction(id, id, operationId, context, false, interruptedByStop)) return false;
         // A successful immediate emit may already have cleared this slot.
         if (item.operationId == operationId) item.transferred = true;
@@ -1970,6 +2100,8 @@ bool Console::reportDriver(uint32_t id, uint32_t operationId, const Ess::DriverC
     if (outputPending() || context.operationId != operationId ||
         (context.state != Core::ReadState::SUCCEEDED && context.state != Core::ReadState::FAILED)) return false;
     for (auto& item : outstanding_) if (item.commandId == id && item.operationId == operationId && !item.transferred) {
+        outputFormat_ = item.format;
+        syntax_=helpCommand_=nullptr;
         if (!formatDriver(id, id, operationId, context, false)) return false;
         if (item.operationId == operationId) item.transferred = true;
         return true;
@@ -2108,6 +2240,8 @@ bool Console::reportRead(uint32_t id, uint32_t operationId, const Ess::ReadConte
     if (outputPending() || context.operationId != operationId ||
         (context.state != MotorControlRS::ReadState::SUCCEEDED && context.state != MotorControlRS::ReadState::FAILED)) return false;
     for (auto& item : outstanding_) if (item.commandId == id && item.operationId == operationId && !item.transferred) {
+        outputFormat_ = item.format;
+        syntax_=helpCommand_=nullptr;
         if (!formatRead(id, id, operationId, context, false)) return false;
         if (item.operationId == operationId) item.transferred = true;
         return true;
@@ -2121,6 +2255,8 @@ bool Console::reportHome(uint32_t id, uint32_t operationId, const Ess::HomeConte
     if (outputPending() || context.operationId != operationId ||
         (context.state != Core::ActionState::SUCCEEDED && context.state != Core::ActionState::FAILED)) return false;
     for (auto& item : outstanding_) if (item.commandId == id && item.operationId == operationId && !item.transferred) {
+        outputFormat_ = item.format;
+        syntax_=helpCommand_=nullptr;
         if (!formatHome(id, id, operationId, context, false, interruptedByStop)) return false;
         if (item.operationId == operationId) item.transferred = true;
         return true;
@@ -2162,6 +2298,8 @@ bool Console::reportMove(uint32_t id, uint32_t operationId, const Ess::MoveConte
     if (outputPending() || context.operationId != operationId ||
         (context.state != Core::ActionState::SUCCEEDED && context.state != Core::ActionState::FAILED)) return false;
     for (auto& item : outstanding_) if (item.commandId == id && item.operationId == operationId && !item.transferred) {
+        outputFormat_ = item.format;
+        syntax_=helpCommand_=nullptr;
         if (!formatMove(id, id, operationId, context, false, interruptedByStop)) return false;
         if (item.operationId == operationId) item.transferred = true;
         return true;
@@ -2231,6 +2369,8 @@ bool Console::reportVelocity(uint32_t id, uint32_t operationId, const Ess::Veloc
     if (outputPending() || context.operationId != operationId ||
         (context.state != Core::ActionState::SUCCEEDED && context.state != Core::ActionState::FAILED)) return false;
     for (auto& item : outstanding_) if (item.commandId == id && item.operationId == operationId && !item.transferred) {
+        outputFormat_ = item.format;
+        syntax_=helpCommand_=nullptr;
         if (!formatVelocity(id, id, operationId, context, false, interruptedByStop)) return false;
         if (item.operationId == operationId) item.transferred = true;
         return true;

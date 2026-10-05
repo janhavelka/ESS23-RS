@@ -1,5 +1,9 @@
 # ESP32-S3 standalone motor bench
 
+For interactive use, see the [console guide](console.md): type `help` or `?` for
+grouped commands and `help COMMAND` for syntax. Bare commands produce readable
+text; `@ID` commands preserve machine JSONL for the existing Python tools.
+
 The [native ESP-IDF consumer](esp_idf_probe.md) now compiles this same application
 with small startup/USB adapters. Its read-only smoke and resource evidence are
 in [prompt25's report](reports/ess_release_25_2026-10-05.md).
@@ -245,8 +249,8 @@ query, scan, configuration write or motion command.
 
 | File | Responsibility |
 | --- | --- |
-| [main.cpp](../examples/probe_cli/main.cpp) | Own the application buffers, runner, UART, console, retained probe result, memory snapshots and recovery policy. |
-| [ProbeConsole.h](../examples/probe_cli/ProbeConsole.h) / [ProbeConsole.cpp](../examples/probe_cli/ProbeConsole.cpp) | Parse bounded lines, validate arguments, dispatch the supported commands and format JSON records. Platform neutral. |
+| [ProbeApp.cpp](../examples/probe_cli/ProbeApp.cpp) | Own the application buffers, runner, UART, console, retained results, memory snapshots and recovery policy; shared by Arduino and native IDF. |
+| [ProbeConsole.h](../examples/probe_cli/ProbeConsole.h) / [ProbeConsole.cpp](../examples/probe_cli/ProbeConsole.cpp) | Parse bounded lines, validate arguments, dispatch commands and retain reply format. [ConsoleText.cpp](../examples/probe_cli/ConsoleText.cpp) renders human text from the same evidence. Platform neutral. |
 | [Esp32S3Uart.h](../examples/common/Esp32S3Uart.h) / [Esp32S3Uart.cpp](../examples/common/Esp32S3Uart.cpp) | Set up UART2 and DE, sample the peripheral, preserve timing ranges and report capture/UART errors. ESP32-S3 specific. |
 | [RtuRunner.h](../examples/common/RtuRunner.h) / [RtuRunner.cpp](../examples/common/RtuRunner.cpp) | Apply bus admission, TX drain, DE hold, receive framing, deadlines and recovery interlocks using supplied observations. |
 | [Codec.h](../include/MotorControlRS/profiles/ess_rs/Codec.h) | Build the model read and check slave, function, length, count, CRC and exception response. |
@@ -400,8 +404,9 @@ successful request independently of latest admission/attempt IDs.
 Successful recovery invalidates confidence once, independently of output, and
 an unread recovery result does not erase newer observations.
 
-Every reply is one JSON object per line. A human can enter `probe`; automation
-prefixes a decimal correlation ID from 1 through 4294967295:
+Ordinary commands such as `probe` produce readable multiline replies. Automation
+prefixes a decimal correlation ID from 1 through 4294967295 to retain one JSON
+object per line, including that operation's asynchronous terminal reply:
 
 ```text
 @41 version

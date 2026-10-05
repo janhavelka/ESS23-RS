@@ -34,6 +34,8 @@ enum class Action : uint8_t { OK, BUSY, RECOVERY_REQUIRED, UNAVAILABLE, FAILED,
     TIMING_UNQUALIFIED, UNSUPPORTED, AXIS_CONFLICT, UNRESOLVED, UNIMPLEMENTED };
 
 enum class DebugMode : uint8_t { OFF, RAW, DECODED };
+/** Presentation only; @ID commands always select JSON independently. */
+enum class Format : uint8_t { HUMAN, JSON };
 struct DebugSnapshot {
     DebugMode mode = DebugMode::OFF;
     uint64_t observed = 0, emitted = 0, dropped = 0, missed = 0, skipped = 0, cursor = 0;
@@ -259,8 +261,9 @@ struct ResultView {
     Rtu::RecoveryResult recoveryResult;
 };
 
-/** Single task owner, bounded callbacks. emitLine receives one complete JSON line
- * without a newline and must consume/copy it before returning. It must not call
+/** Single task owner, bounded callbacks. emitLine receives one complete bounded
+ * output block and must consume/copy it before returning. JSON is a single line;
+ * human text may contain embedded newlines. The sink adds the final newline. It must not call
  * back into the console. Return false without copying any bytes for backpressure.
  * The console retains one complete blocked line. With that line pending,
  * valid cancel, monitor off and one reserved stop can dispatch; other complete commands and local
@@ -338,8 +341,9 @@ struct Host {
 /** Fixed-capacity ESS console; no allocation, clocks or platform I/O.
  * Feed at most the application's character budget each loop. CR, LF and CRLF
  * end a line. Reject overflow/control bytes as a whole line, never execute a
- * prefix. Optional @1..4294967295 prefix supplies a host correlation id; plain
- * commands use monotonically increasing local ids (wrapping to 1), skipping
+ * prefix. Optional @1..4294967295 prefix selects JSON and supplies a host
+ * correlation id; plain commands use the configured presentation and
+ * monotonically increasing local ids (wrapping to 1), skipping
  * outstanding correlations. Nine ordinary commands and one reserved stop may be outstanding;
  * duplicate explicit IDs fail before callbacks. Operation result retention
  * belongs to the host and is released only by its explicit release hook.
@@ -348,7 +352,10 @@ struct Host {
  */
 class Console {
 public:
-    explicit Console(const Host& host) noexcept : host_(host) {}
+    explicit Console(const Host& host, Format defaultFormat = Format::HUMAN) noexcept
+        : host_(host), defaultFormat_(defaultFormat), outputFormat_(defaultFormat), trafficFormat_(defaultFormat) {}
+    /** Queue a bounded human startup hint through the ordinary output path. */
+    bool welcome() noexcept;
     /** Best-effort diagnostic copy. Never reserves pending output or touches any
      * command correlation; false drops this display record only. */
     bool reportTraffic(const MotorControlRS::TrafficRecord&, DebugMode,
@@ -386,7 +393,7 @@ private:
     void dispatch() noexcept;
     void error(uint32_t id, const char* command, const char* reason) noexcept;
     void action(uint32_t id, const char* command, Action result, uint8_t address = 0, uint32_t operationId = 0) noexcept;
-    void emit(uint32_t terminalOperation = 0) noexcept;
+    void emit(uint32_t terminalOperation = 0, bool humanText = false) noexcept;
     bool outstanding(uint32_t id) const noexcept;
     bool track(uint32_t id, uint32_t operationId, bool stop = false) noexcept;
     void untrack(uint32_t operationId) noexcept;
@@ -408,6 +415,9 @@ private:
                     const MotorControlRS::ESS_RS::HomeContext&, bool inspection, bool interruptedByStop) noexcept;
 
     Host host_;
+    Format defaultFormat_, outputFormat_, trafficFormat_;
+    const char* syntax_ = nullptr; ///< Current dispatch hint, never retained by a motor operation.
+    const char* helpCommand_ = nullptr;
     HostTuple reportingTuple_;
     uint32_t reportingGeneration_ = 0;
     char line_[LINE_CAPACITY] = {};
@@ -421,7 +431,7 @@ private:
     MotorControlRS::ESS_RS::DriverObservation driverView_;
     std::size_t length_ = 0;
     uint32_t nextId_ = 1;
-    struct Outstanding { uint32_t commandId = 0, operationId = 0; bool transferred = false; } outstanding_[OUTSTANDING_CAPACITY];
+    struct Outstanding { uint32_t commandId = 0, operationId = 0; bool transferred = false; Format format = Format::HUMAN; } outstanding_[OUTSTANDING_CAPACITY];
     uint32_t pendingTerminalOperation_ = 0;
     // Retain one stop admission under output pressure without a second line buffer.
     struct StopReply {
@@ -429,6 +439,7 @@ private:
         uint32_t id = 0, operationId = 0;
         uint8_t address = 0;
         Action result = Action::FAILED;
+        Format format = Format::HUMAN;
     } stopReply_;
     uint64_t inputDropped_ = 0;
     bool outputPending_ = false;

@@ -1,5 +1,8 @@
 # MotorControl-RS
 
+The [interactive console](docs/console.md) now presents readable replies, grouped
+help and usage hints. Type `help` or `?`; automated `@ID` commands retain JSONL.
+
 [Verification and clean packaging](docs/verification.md): run
 `python scripts/verify.py --mode quick`, or `--mode full` with the pinned
 Arduino/native-IDF toolchains. Hosted CI uses the same checks; hardware evidence

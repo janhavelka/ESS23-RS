@@ -3,6 +3,7 @@ idf_component_register(
     SRCS "main.cpp" "IdfPlatform.cpp"
         "${EXAMPLES}/probe_cli/ProbeApp.cpp"
         "${EXAMPLES}/probe_cli/ProbeConsole.cpp"
+        "${EXAMPLES}/probe_cli/ConsoleText.cpp"
         "${EXAMPLES}/probe_cli/Esp32Load.cpp"
         "${EXAMPLES}/common/RtuRunner.cpp"
         "${EXAMPLES}/common/RtuBusOwner.cpp"

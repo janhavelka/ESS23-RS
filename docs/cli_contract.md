@@ -1,5 +1,10 @@
 # MotorControl-RS standalone CLI contract
 
+Ordinary console commands now use a [human-readable presentation](console.md),
+with grouped `help`/`?`, usage examples and operation hints. Explicit `@ID` commands
+retain the existing JSONL schema. Output format is retained per asynchronous
+operation and deferred stop reply; there is one command/API/owner path.
+
 [Named Python scenarios](bench_scenarios.md) reuse this console's strict
 correlation, typed operations and runtime debug events. Default regression
 sends only motor reads; motion/settings/persistence require explicit selection.

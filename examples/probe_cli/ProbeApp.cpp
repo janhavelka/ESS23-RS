@@ -2075,6 +2075,7 @@ bool beginApplication(const Esp32S3Uart::Pins& pins, bool receiverDisabledDuring
 #endif
     app = new (memory) App;
     app->runner.setTrafficCapture(&app->debug.capture);
+    app->console.welcome();
     if (failure) Platform::bootFailure(failure);
     return platformReady;
 }
