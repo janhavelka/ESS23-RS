@@ -8,6 +8,9 @@ Existing no-replay, finite-movement and fixture limitations still apply.
 ## Actual session and fixed cutoff
 
 The single-port Python owner started at **2026-10-05 22:00:35 Europe/Prague**.
+After measuring recording rate, its first segment ended cleanly after 35 cycles
+and six motion cases. The active continuation started at **22:06:52**, retaining
+the same fixed cutoff. There was no uncertain motion replay.
 The fixed cutoff is **2026-10-06 10:00 CEST / 08:00 UTC**. Both UTC and an
 initial monotonic budget constrain the run; a backward clock correction cannot
 extend it. Five minutes are reserved for the final explicit stop, fresh
@@ -66,7 +69,7 @@ decline above 1024 bytes stops the run. Exact values stream for later trend
 analysis; these thresholds do not prove leak freedom.
 
 Raw JSONL evidence streams incrementally and flushes after each record. Capacity
-is finite: 1,000,000 records / 512 MiB; exhaustion stops work. The live heartbeat
+is finite: 3,000,000 records / 2 GiB; exhaustion stops work. The live heartbeat
 contains only the latest fixed-size diagnostics and counters. Final JSON contains
 bounded last-case evidence, before/after settings and cleanup. Diagnostic display
 loss is distinct from protocol/results loss; overwritten trace history remains
@@ -102,21 +105,30 @@ its presence is not evidence that twelve hours completed.
 Archive SHA-256:
 `dd182da58a3970e1b5c904ec2ae341128edff8754f0edfdbf9090ae80c36858c`.
 
+[First segment and revised experiment source](2026-10-05_overnight_hil_segment1.zip)
+retain the clean early stop and exact larger evidence bound. The original
+512-MiB estimate was too small at the measured roughly 1 MiB/minute recording
+rate; it was corrected before exhaustion. Memory remains bounded and records
+still stream directly to disk. Segment 1 had zero transport/capture errors and
+verified standstill/profile restoration; it is a finite segment PASS, not a
+completed overnight result. Archive SHA-256:
+`998deed57d0eda567d5d0d9b7f753b451f0e7cd1d8f480e6ca53416eef37dd02`.
+
 ## Live evidence and operation
 
 ```text
-python build/overnight_20261005/runner.py --until 2026-10-06T08:00:00+00:00 --out build/overnight_20261005/night --firmware build/fast_cli/pio/bench_s3_load_timer/firmware.bin
+python build/overnight_20261005/runner.py --until 2026-10-06T08:00:00+00:00 --out build/overnight_20261005/night2 --firmware build/fast_cli/pio/bench_s3_load_timer/firmware.bin
 ```
 
-`build/overnight_20261005/night.pid` records the background PID (initially 40432).
-`night_heartbeat.json` reports running/finished/failed, last update, counters and
-diagnostics. `night.jsonl` preserves exact commands/responses/events;
-`night_stdout.log` records periodic summaries, `night_stderr.log` exceptions.
-`night.json` is finalized when the owned session closes, including stop and
+`build/overnight_20261005/night2.pid` records the active background PID (36772).
+`night2_heartbeat.json` reports running/finished/failed, last update, counters and
+diagnostics. `night2.jsonl` preserves exact commands/responses/events;
+`night2_stdout.log` records periodic summaries, `night2_stderr.log` exceptions.
+`night2.json` is finalized when the owned session closes, including stop and
 restoration evidence. Do not treat its reserved empty file as a finished result.
 
 For an explicit early orderly stop, create
-`build/overnight_20261005/night.stop`. The runner finishes already admitted bounded
+`build/overnight_20261005/night2.stop`. The runner finishes already admitted bounded
 work, performs its planned cleanup and records `operator_stop_file`; this is an
 early-ended run rather than completion of the requested overnight duration.
 Do not kill the process or open a competing COM13 connection for inspection.
