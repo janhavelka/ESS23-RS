@@ -8,11 +8,13 @@ component under the name `MotorControlRS`; the checkout directory name is not
 an API or component requirement.
 
 The native CMake/Ninja firmware build passed on 2026-10-05 with ESP-IDF 5.5.5.
-Source sharing establishes the command/operation path; it does not establish
-hardware frame, timing or motion parity. Native-board read-only checks pass;
-the [prompt25 report](reports/ess_release_25_2026-10-05.md) records the final image,
-SDK configuration, resource measurements and corrected startup framing. Broader native
-motion and load qualification belongs to prompt26. See the
+Source sharing establishes the command/operation path. The
+[prompt26 qualification](reports/ess_release_26_2026-10-05.md) adds matched
+Arduino/native capture, loaded owner/console, finite motion, both stops and
+reversible native settings checks. Electrical timing and independent physical
+measurements remain unqualified. The
+[prompt25 report](reports/ess_release_25_2026-10-05.md) records the native image,
+SDK configuration and corrected startup framing. See the
 [current Arduino guide](esp32_probe.md) for retained historical evidence and the
 [CLI coverage inventory](ess_api_cli_coverage.md) for supported operations.
 

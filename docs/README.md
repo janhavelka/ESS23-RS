@@ -3,7 +3,9 @@
 [Native ESP-IDF standalone build and recovery](esp_idf_probe.md) reuse the same
 owner, commands and operations as Arduino. [Prompt25 verification](reports/ess_release_25_2026-10-05.md)
 records clean firmware/core builds, startup/backpressure failure tests and
-read-only COM13 evidence; cross-platform motion/load qualification follows in26.
+read-only COM13 evidence. [Prompt26 platform qualification](reports/ess_release_26_2026-10-05.md)
+adds matched capture/load, finite movement/stop and reversible settings evidence;
+S2 is compile-only, and electrical/independent shaft measurements remain open.
 
 Prompt24 delivers [repeatable finite Python scenarios](bench_scenarios.md),
 bounded incremental evidence and same-session cleanup. [Verification](reports/ess_release_24_2026-10-05.md)

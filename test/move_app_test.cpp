@@ -1,28 +1,43 @@
 // SPDX-License-Identifier: MIT
 // Exercise the actual cooperative application with simulated SDK/wire evidence.
 // Qualification below belongs solely to this fake fixture, never the real bench.
+// Both platform variants run these same scenarios and assertions.
 #include "../examples/probe_cli/ProbeApp.cpp"
+#if MOTORCONTROLRS_TEST_IDF
+#include "fakes/esp32_uart/FakeUsb.h"
+#include "../examples/probe_idf/main/IdfPlatform.cpp"
+#include "../examples/common/BoardPins.h"
+#else
 #include "../examples/probe_cli/ArduinoPlatform.cpp"
 #include "../examples/probe_cli/main.cpp"
+#endif
 #include <cassert>
 #include <cstdlib>
 #include <cstdio>
 #include <string>
 #include <vector>
 
+#if !MOTORCONTROLRS_TEST_IDF
 FakeSerial Serial;
+#endif
 namespace {
 using namespace MotorControlRS;
 void fresh() {
     if (app) { app->~App(); std::free(app); app = nullptr; }
     uart.~Esp32S3Uart(); new (&uart) Esp32S3Uart;
     resetHardware(); Serial = FakeSerial(); platformReady = false; writeResponseConfirmed = false;
+#if MOTORCONTROLRS_TEST_IDF
+    resetUsbHardware(); Platform::consoleReady = false; Platform::pendingByte = -1;
+    assert(beginApplication({Board::kRs485TxPin, Board::kRs485RxPin, Board::kRs485DeRePin,
+        Board::kRs485DeReActiveHigh}, Board::kRs485ReceiverDisabledDuringTransmit));
+#else
     setup();
+#endif
     assert(app && uart.ready() && app->owner.valid() && hardware.writes == 0);
     hardware.txCharacterUs = 87;
     assert(uart.startCapture(20, timing().holdUs));
 }
-void step(uint32_t us = 10) { advanceHardware(hardware.time + us); loop(); }
+void step(uint32_t us = 10) { advanceHardware(hardware.time + us); serviceApplication(); }
 void pump(unsigned count = 64) { for (unsigned i = 0; i < count; ++i) step(); }
 Probe::ResultView view(uint32_t operation) {
     Probe::ResultView result;
@@ -300,6 +315,49 @@ void testFullRetainedResultsStillReserveStop() {
     for (const auto id : retained) assert(view(id).probe.outcome == Rtu::Outcome::SUCCESS);
     assert(!axisReserved(*app, 1));
 }
+void testConsoleStopUnderFullUsbBackpressure() {
+    fresh(); qualify();
+    command("@1 move relative 20 steps native 60 configured\n");
+    const uint32_t operation = view(0).operationId;
+    moveStep(operation); moveStep(operation); moveStep(operation, registers(1, {0, 4}));
+    assert(view(operation).pending && view(operation).moveContext->runningObserved);
+    const unsigned writes = hardware.writes;
+    Serial.output.clear(); Serial.writeCapacity = 0;
+    // Fill real output storage with cached queries. Stop uses its reserved
+    // admission/output handoff even when ordinary responses cannot be queued.
+    Serial.input.clear();
+    for (unsigned id = 10; id < 19; ++id)
+        Serial.input += "@" + std::to_string(id) + " status\n";
+    Serial.input += "@50 stop direct\n";
+    for (unsigned i = 0; i < 50 && !Serial.input.empty(); ++i) step();
+    assert(Serial.input.empty() && Serial.output.empty() && app->outputCount == OUTPUT_LINES);
+    const uint32_t stopping = view(0).operationId;
+    assert(stopping != operation && findRecord(*app, stopping)->commandId == 50);
+    // Input is fed after sequence service; the admitted stop's cancellation
+    // handoff is applied on the next cooperative turn, while USB stays blocked.
+    for (unsigned i = 0; i < 100 && view(operation).pending; ++i) step();
+    assert(!view(operation).pending && view(operation).interruptedByStop);
+    actionStep(stopping); actionStep(stopping, registers(1, {0, 1}));
+    assert(!view(stopping).pending && view(stopping).actionContext->completion == ActionCompletion::OBSERVED);
+    assert(hardware.writes == writes + 2 && !app->runner.transmitEnabled() && !axisReserved(*app, 1));
+    const auto retainedMove = *view(operation).moveContext;
+    const auto retainedStop = *view(stopping).actionContext;
+    pump(100);
+    assert(Serial.output.empty() && view(operation).moveContext->outcome == retainedMove.outcome);
+    assert(view(stopping).actionContext->completion == retainedStop.completion);
+    Serial.writeCapacity = 4096; pump(3000);
+    assert(!app->outputCount && !app->console.outputPending());
+    const auto count = [](const std::string& text, const char* token) {
+        unsigned total = 0; std::size_t pos = 0;
+        while ((pos = text.find(token, pos)) != std::string::npos) { ++total; pos += std::strlen(token); }
+        return total;
+    };
+    assert(count(Serial.output, "\"type\":\"move\"") == 1);
+    assert(count(Serial.output, "\"type\":\"action\"") == 1);
+    assert(Serial.output.find("\"id\":50,\"command\":\"stop\"") != std::string::npos);
+    assert(view(operation).moveContext->uncertain && view(stopping).actionContext->completion == ActionCompletion::OBSERVED);
+    assert(hardware.writes == writes + 2); // Output draining never replays motor work.
+}
 void deliverChangedConfiguration(unsigned field) {
     // Supply a completed checked read, then exercise the actual application's
     // delivery/invalidation/cancelUnsent path. These are synthetic core events,
@@ -359,7 +417,7 @@ void testReadinessBoundsActualOwnerWrites() {
     const auto* queuedMove = view(queued).moveContext;
     const uint64_t cap = queuedMove->prerequisites.observedUs + queuedMove->prerequisites.maximumAgeUs;
     const uint64_t operationDeadline = queuedMove->deadlineUs;
-    advanceHardware(cap + 1000); loop(); pump();
+    advanceHardware(cap + 1000); serviceApplication(); pump();
     assert(!view(queued).pending && hardware.writes == 0 && !axisReserved(*app, 1));
     assert(view(queued).moveContext->outcome == ActionOutcome::DEADLINE);
     assert(view(queued).moveContext->status.detail == static_cast<int32_t>(MoveError::READINESS));
@@ -370,7 +428,7 @@ void testReadinessBoundsActualOwnerWrites() {
     for (unsigned i = 0; i < 25000 && !app->runner.transmitEnabled(); ++i) step();
     assert(app->runner.transmitEnabled() && hardware.writes == 0);
     const uint64_t setupCap = view(setup).moveContext->prerequisites.observedUs + 20000;
-    advanceHardware(setupCap + 1000); loop(); pump();
+    advanceHardware(setupCap + 1000); serviceApplication(); pump();
     assert(!view(setup).pending && hardware.writes == 0 && !view(setup).moveContext->uncertain);
     assert(view(setup).moveContext->status.detail == static_cast<int32_t>(MoveError::READINESS));
 
@@ -382,7 +440,7 @@ void testReadinessBoundsActualOwnerWrites() {
     const uint64_t physicalEnd = hardware.writeStarted + hardware.tx.size() * 500;
     const uint64_t txCap = view(transmitting).moveContext->prerequisites.observedUs + 8000;
     assert(physicalEnd > txCap);
-    advanceHardware(txCap + 100); loop();
+    advanceHardware(txCap + 100); serviceApplication();
     assert(app->runner.transmitEnabled() && app->owner.needsRecovery());
     for (unsigned i = 0; i < 5000 && app->runner.transmitEnabled(); ++i) step();
     assert(!view(transmitting).pending && hardware.deReleasedAt >= physicalEnd);
@@ -396,7 +454,7 @@ void testReadinessBoundsActualOwnerWrites() {
     const uint32_t staging = admitMove(); waitTx(staging);
     const uint64_t stageCap = view(staging).moveContext->prerequisites.observedUs + 20000;
     scheduleReply(hardware.writeStarted + hardware.tx.size() * 87 + 1000, acknowledgement());
-    advanceHardware(stageCap + 1000); loop(); pump();
+    advanceHardware(stageCap + 1000); serviceApplication(); pump();
     const auto* settled = view(staging).moveContext;
     assert(!view(staging).pending && settled->stagingApplied && settled->uncertain);
     assert(settled->stagingEvidence.latestUs < stageCap && settled->stagingEvidence.deliveredUs > stageCap);
@@ -410,7 +468,7 @@ void testReadinessBoundsActualOwnerWrites() {
     const uint32_t triggered = admitMove(); moveStep(triggered); waitTx(triggered);
     const uint64_t triggerCap = view(triggered).moveContext->prerequisites.observedUs + 20000;
     scheduleReply(hardware.writeStarted + hardware.tx.size() * 87 + 1000, acknowledgement());
-    advanceHardware(triggerCap + 1000); loop();
+    advanceHardware(triggerCap + 1000); serviceApplication();
     const auto* active = view(triggered).moveContext;
     assert(view(triggered).pending && active->step == 2 && hardware.writes == 2);
     assert(active->triggerEvidence.latestUs < triggerCap && active->triggerEvidence.deliveredUs > triggerCap);
@@ -670,6 +728,7 @@ int main() {
     testCommonAndProfileCliUseExactPreparation();
     testWrongStageEchoAndLostTriggerNeverReplay(); testCancellationAndStopAtSequenceBoundaries();
     testFullRetainedResultsStillReserveStop();
+    testConsoleStopUnderFullUsbBackpressure();
     testConfigurationChangesCancelContinuations();
     testReadinessBoundsActualOwnerWrites(); testDeferredTriggerExpiresBeforeAdmission();
     testCheckedStagingExceptionRetainsPartialSetupUncertainty();

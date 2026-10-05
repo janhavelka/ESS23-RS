@@ -1,5 +1,18 @@
 # Features implementation tasks and open questions
 
+## Prompt26 platform parity and portability
+
+- [x] Matched Arduino/native IDF S3 read/state/control, loaded7/37-byte capture, finite100-increment move, normal/direct stop during250-increment moves, lock-delay200→201→200 and explicit host-fault recovery/restoration.
+- [x] Each image's unchanged software capture bounds verified before motor writes; actual latency/CPU/capture/owner gaps, PSRAM/internal memory and stacks retained.
+- [x] Shared move/control SDK tests run against both USB adapters; full-output console stop admission/settlement/result retention regression;68/68 suites and233 Python probe cases PASS.
+- [x] Installed desktop core compiles all27 public headers without platform/example paths; clean S2 core-only and portable owner/console compile consumers, with no S3 UART or invented board wiring.
+- [x] COM13 ends on documented Arduino timer image, load/monitor/debug off, DE released, fresh standstill and exact settings restoration.
+- [ ] Original native host9600 mismatch returned malformedF9/LENGTH; strict no-response-only experiment remains FAIL. Separate explicit repair and repeated mismatch checks pass; physical source is unresolved, as in19.
+- [ ] S2 hardware/adapter, other SDKs, external fixtures, continuous velocity, restart/persistence, electrical/independent shaft measurements and endurance remain unqualified. Owning-prompt native-family gaps remain in the release denominator.
+
+See [platform evidence/handoff](reports/ess_release_26_2026-10-05.md) and the
+[S2 compile fixture](../test/portability_consumer/README.md).
+
 ## Prompt25 native ESP-IDF consumer
 
 - [x] Real ESP-IDF 5.5.5 S3 firmware; shared complete application/console/owner/operations and small framework startup/USB boundary.
@@ -7,7 +20,7 @@
 - [x] Clean native firmware and staged core-only IDF consumer with all 27 public headers isolated from examples/vendor files; all 66 native suites and three Arduino builds PASS.
 - [x] Read-only COM13 quick/control smoke: 58 final-image frames, no faults, exact raw configuration/state unchanged; full preceding flash backup preserved.
 - [x] Startup bootloader-fragment framing root cause fixed with disabled logs and checked delimiter; retained failure and native regression, no relaxed host correlation.
-- [ ] Native motion/load/stop parity remains for26; other MCU/SDK, endurance and independent shaft/electrical qualification remain open.
+- [x] Available native motion/load/stop functional subset verified in26; other MCU/SDK, endurance and independent shaft/electrical qualification remain open.
 
 See [native build/recovery guide](esp_idf_probe.md) and [evidence/handoff](reports/ess_release_25_2026-10-05.md).
 
@@ -458,7 +471,8 @@ FieldCore remains read-only; typed identity/state and motion/stop retain their g
 - [ ] Extend automation to actual motor state once typed state reads exist.
 - [x] Build standalone ESP32-S3 Arduino and native ESP-IDF consumers sharing
   equivalent complete command semantics. Native read-only/resource checks pass;
-  physical motion/load parity remains for26 and ESP32-S2 remains unqualified.
+  physical finite motion/load/stop parity is recorded in26; ESP32-S2 core and
+  portable application are compile-only, with no S2 board/UART qualification.
 - [x] Verify framework-free native consumption, self-contained headers and
   a clean core source package; exclude vendor downloads from that package.
   A clean core-only native IDF consumer also compiles all installed headers;

@@ -15,6 +15,12 @@ bounded application inventory, not a register schema or another command engine.
 
 ## Installed API roles
 
+[Prompt26](reports/ess_release_26_2026-10-05.md) qualifies the shared Arduino/native
+IDF S3 paths for read/state/control, loaded capture, finite relative motion,
+normal/direct stop and reversible lock-delay updates. Other entries retain their
+individual unresolved/unsupported/unimplemented and fixture dispositions; S2
+compile-only consumption does not create another qualified motor adapter.
+
 The operation inventory classifies every installed free-function declaration separately
 from device obligations. Run `python scripts/check_ess_operations.py --details`
 to inspect all 221 source records, 135 named choices, producing operation routes,

@@ -151,6 +151,24 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
             target_compile_options(idf_app_test PRIVATE -UNDEBUG -Wall -Wextra -Wpedantic)
         endif()
         add_test(NAME idf_app COMMAND idf_app_test)
+        # Reuse identical operation/failure assertions with each real USB adapter.
+        foreach(suite move_app control_app)
+            add_executable(idf_${suite}_test test/${suite}_test.cpp
+                examples/probe_cli/ProbeConsole.cpp
+                examples/common/RtuRunner.cpp examples/common/RtuBusOwner.cpp
+                examples/common/EssRtuValidator.cpp examples/common/Esp32S3Uart.cpp
+                test/fakes/esp32_uart/FakeEsp.cpp test/fakes/esp32_uart/FakeUsb.cpp)
+            target_link_libraries(idf_${suite}_test PRIVATE MotorControlRS)
+            target_include_directories(idf_${suite}_test PRIVATE test/fakes/esp32_uart examples/probe_cli)
+            target_compile_definitions(idf_${suite}_test PRIVATE CONFIG_IDF_TARGET_ESP32S3=1 MOTORCONTROLRS_TEST_IDF=1)
+            set_target_properties(idf_${suite}_test PROPERTIES CXX_STANDARD 11 CXX_STANDARD_REQUIRED YES CXX_EXTENSIONS OFF)
+            if(MSVC)
+                target_compile_options(idf_${suite}_test PRIVATE /UNDEBUG /W4)
+            else()
+                target_compile_options(idf_${suite}_test PRIVATE -UNDEBUG -Wall -Wextra -Wpedantic)
+            endif()
+            add_test(NAME idf_${suite} COMMAND idf_${suite}_test)
+        endforeach()
         if(TARGET units_preview)
             add_test(NAME units_preview COMMAND units_preview)
         endif()

@@ -1,26 +1,38 @@
 // SPDX-License-Identifier: MIT
 // Actual application paths with simulated stopped-state/wire qualifications.
+// Both platform variants run these same scenarios and assertions.
 #include "../examples/probe_cli/ProbeApp.cpp"
+#if MOTORCONTROLRS_TEST_IDF
+#include "fakes/esp32_uart/FakeUsb.h"
+#include "../examples/probe_idf/main/IdfPlatform.cpp"
+#include "../examples/common/BoardPins.h"
+#else
 #include "../examples/probe_cli/ArduinoPlatform.cpp"
 #include "../examples/probe_cli/main.cpp"
+#endif
 #include <MotorControlRS/profiles/ess_rs/Registers.h>
 #include <cassert>
 #include <cstdlib>
 #include <string>
 #include <vector>
+#if !MOTORCONTROLRS_TEST_IDF
 FakeSerial Serial;
+#endif
 namespace {
 using namespace MotorControlRS;
 void fresh() {
     if (app) { app->~App(); std::free(app); app = nullptr; }
     uart.~Esp32S3Uart(); new (&uart) Esp32S3Uart;
     resetHardware(); Serial = FakeSerial(); platformReady = writeResponseConfirmed = false;
+#if MOTORCONTROLRS_TEST_IDF
+    resetUsbHardware(); Platform::consoleReady = false; Platform::pendingByte = -1;
+#endif
     assert(beginApplication({Board::kRs485TxPin, Board::kRs485RxPin, Board::kRs485DeRePin,
         Board::kRs485DeReActiveHigh}, false)); // Explicit alternate/unknown-echo topology.
     assert(app && !hardware.writes && !writeResponseConfirmed);
     hardware.txCharacterUs = 87; assert(uart.startCapture(20, timing().holdUs));
 }
-void step(uint32_t us = 10) { advanceHardware(hardware.time + us); loop(); }
+void step(uint32_t us = 10) { advanceHardware(hardware.time + us); serviceApplication(); }
 Probe::ResultView view(uint32_t operation) {
     Probe::ResultView v; assert(host(app).result(app, operation, v)); return v;
 }

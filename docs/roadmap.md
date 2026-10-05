@@ -1,10 +1,19 @@
 # Roadmap to a supported ESS release
 
+Prompt26 [platform qualification](reports/ess_release_26_2026-10-05.md) verifies
+matched Arduino/native IDF S3 read/state, loaded7/37-byte capture, finite motion,
+normal/direct stop and reversible settings restoration.68 native suites and
+233 Python probe cases pass; installed desktop/all27-header isolation and clean
+S2 core/portable consumers establish compile-only portability. COM13 ends on
+the documented unloaded Arduino image with fresh standstill. The retained
+malformed native host-mismatch attempt, other fixture/native-family gaps,
+electrical/shaft measurements and endurance remain open for release review.
+
 Prompt25 delivers the [native ESP-IDF standalone consumer](esp_idf_probe.md),
 shared complete application logic, clean firmware/core-component builds and
 read-only COM13 evidence. [Verification](reports/ess_release_25_2026-10-05.md)
 passes 66 native suites and records 58 final-image frames/resources; native
-motion/load parity remains for26 and endurance/release evidence remains open.
+motion/load parity is recorded in26; endurance/release evidence remains open.
 
 The [fresh prompt24 audit](reports/ess_release_24_audit_2026-10-05.md) closes
 raw-probe proof and session/startup failure reporting gaps.65 CTest suites and
@@ -173,10 +182,10 @@ this session; integrating there is a separate delivery step.
 | 2. Observable transport | Runner, independent capture, read-only CLI, load and failure tools | Delayed servicing/overflow/late-reply tests; measured load, memory and timing; no automatic replay | Implemented in 0.6.0; measured ESP32-S3 bench load envelope; electrical timing qualification remains open |
 | 3. Small bus-owner reference | Bounded request queue, retained results, fairness, deadlines and priority for a pending stop after settling in-flight TX | Multiple simulated clients, full queue, cancellation and starvation tests; read-only hardware regression under load | Prompts 01–03 implemented/native/build PASS; actual owner console and read-only loaded/interleaved timer bench PASS; no physical stop or electrical qualification |
 | 4. Typed ESS observations | Identity, firmware/configuration, alarms, readiness and position/velocity observations | Original-manual review; exact model readback; validity/freshness independent of communication health | Prompts 05–06 implement typed reads and separate health; bench SKU is user-confirmed ESS23-RS20; wire-code/firmware interpretation, feedback source/sign/units and motion qualification remain unresolved |
-| 5. First controlled motion | Explicit enable/release, small relative move and documented stop | Verified units and limits, acknowledgement vs completion, interrupted/lost replies, stop while another operation is active; bench measurements | Exact preparation in 07 and bounded action/stop software in 08 pass; physical actions remain gated, first move belongs to 09 |
+| 5. First controlled motion | Explicit enable/release, small relative move and documented stop | Verified units and limits, acknowledgement vs completion, interrupted/lost replies, stop while another operation is active; bench measurements | Exact preparation and action/finite sequence software pass; short positive relative motion and normal/direct stops functionally qualify on both S3 frameworks in26; independent shaft/electrical, negative encoding and other fixture cases remain open |
 | 6. Complete common motion API | Absolute/relative position, step/angle/travel modes, velocity, acceleration, homing and fault clear where supported | Same public API in firmware and CLI; unsupported operations fail before TX; origin/rounding/path policy tested | 07–11 implement exact preparation, origins, finite relative/absolute/wrapped positioning, zero clear and finite serial velocity/shared stop; bounded homing33/34/35 implemented in14; acceleration mapping, external-switch methods and physical qualification remain open |
 | 7. ESS native coverage and discovery | Typed documented ESS extensions; bounded non-changing discovery | Coverage matrix for every documented command/field; uncertain firmware behavior marked explicitly; read side effects reviewed | Ledger/codecs and typed identity/config reads exist; complete operation inventory derives remaining obligations; bounded ESS discovery implemented; remaining native families and alternate motor tuple/collision qualification tracked separately |
-| 8. Platform and release qualification | Arduino and native ESP-IDF examples, package/install checks, maintenance documentation | Clean consumer builds; repeatable hardware suite, extended soak, resource budgets, documented exact supported models and limitations | Real shared Arduino/IDF applications and clean core consumers; initial IDF read-only smoke PASS; motion/load parity, endurance and release evidence pending |
+| 8. Platform and release qualification | Arduino and native ESP-IDF examples, package/install checks, maintenance documentation | Clean consumer builds; repeatable hardware suite, extended soak, resource budgets, documented exact supported models and limitations | Shared Arduino/IDF applications; available S3 capture/load/finite motion/stop/settings parity PASS in26; S2 core/portable compile-only and installed core PASS; electrical/fixture/endurance/release evidence remains open |
 
 Stages 3 and 4 can progress while independent electrical captures are being
 arranged. Motion qualification must use reviewed transport evidence and the

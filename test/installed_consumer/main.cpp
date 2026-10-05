@@ -15,6 +15,18 @@
 #include <MotorControlRS/profiles/ess_rs/Tuning.h>
 #include <MotorControlRS/profiles/ess_rs/Communication.h>
 #include <MotorControlRS/profiles/ess_rs/Persistence.h>
+#include <MotorControlRS/ActionOperation.h>
+#include <MotorControlRS/MotorControlRS.h>
+#include <MotorControlRS/MoveOperation.h>
+#include <MotorControlRS/Status.h>
+#include <MotorControlRS/Traffic.h>
+#include <MotorControlRS/Units.h>
+#include <MotorControlRS/Version.h>
+#include <MotorControlRS/profiles/ess_rs/Codec.h>
+#include <MotorControlRS/profiles/ess_rs/Defaults.h>
+#include <MotorControlRS/profiles/ess_rs/Registers.h>
+#include <MotorControlRS/profiles/ess_rs/Traffic.h>
+#include <MotorControlRS/profiles/ess_rs/Types.h>
 
 int main() {
     MotorControlRS::ESS_RS::PersistenceContext persistence;

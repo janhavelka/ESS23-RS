@@ -1,12 +1,23 @@
 # Motor bench and testing authorization
 
+[Prompt26 platform qualification](reports/ess_release_26_2026-10-05.md) passes
+matched Arduino/native IDF S3 loaded capture, finite motion, both stops and
+reversible settings restoration. COM13 now runs Arduino timer firmware SHA-256
+`4f6d5bc82af7ade90689be5d2405c0bba22e69bbded3c364e7ca7072afadbb11`, node1/115200
+8N1. Fresh alarm0/motion0/speed0, raw position2870; profile
+`[30,100,100,60,0,250]` and lock delay200 restored. Load/debug/monitor off,
+DE released, owner/results empty, no recovery required. Native IDF ended equally
+settled before Arduino upload. The original malformed native host-mismatch
+attempt remains failed/unresolved, with separately verified explicit repair.
+Independent shaft/electrical measurements and unavailable fixtures remain open.
+
 [Prompt25 native ESP-IDF evidence](reports/ess_release_25_2026-10-05.md) records
 58 checked read-only frames on its final image, exact unchanged raw identity,
 configuration/state and zero transport/capture faults. First startup framing
 failure was diagnosed and corrected; its failed raw evidence is retained.
-The native image remains installed on COM13; alarm0/motion0/speed0, raw position1961,
+At the prompt25 ending the native image was installed; alarm0/motion0/speed0, raw position1961,
 load/debug/monitor off, DE released, owner/results empty. The preceding Arduino
-full-flash backup is preserved. Native motion/load parity remains for26.
+full-flash backup is preserved. Prompt26 above records later motion/load parity.
 
 The [fresh prompt24 audit](reports/ess_release_24_audit_2026-10-05.md) adds322
 checked frames, bounded load, finite100-increment motion and a normal stop during

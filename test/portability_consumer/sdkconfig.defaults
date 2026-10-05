@@ -1,0 +1,3 @@
+# Compile/link fixture: no board-specific peripherals or external memory.
+CONFIG_COMPILER_CXX_EXCEPTIONS=n
+CONFIG_COMPILER_CXX_RTTI=n
