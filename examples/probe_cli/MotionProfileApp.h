@@ -39,7 +39,7 @@ Probe::Action motionProfileCommand(void* context, Probe::MotionProfileCommand co
     out = view;
     if (command == Probe::MotionProfileCommand::INSPECT) return Probe::Action::OK;
     if (command == Probe::MotionProfileCommand::FORGET) {
-        if (view.pending || session.request.owner || a.owner.active() || a.owner.pending() ||
+        if (view.restoreUnsettled || view.pending || session.request.owner || a.owner.active() || a.owner.pending() ||
             a.owner.recovering() || a.owner.configurationOwned() || a.owner.commissioningOwned() ||
             a.discovery.owned || a.serial.configuring || a.runner.busy() || a.runner.transmitEnabled() ||
             reading(a) || acting(a) || a.monitorState.settings.enabled || a.persistenceCapture ||
@@ -59,8 +59,13 @@ Probe::Action motionProfileCommand(void* context, Probe::MotionProfileCommand co
         !(a.knownTargets[a.axis.target.address / 8] & (1U << (a.axis.target.address % 8))))
         return Probe::Action::UNAVAILABLE;
     const bool restore = command == Probe::MotionProfileCommand::RESTORE;
+    const bool reconcile = view.restoreUnsettled;
+    const bool retainWrite = !restore && view.writeTxLength;
+    if (restore && reconcile) return Probe::Action::BUSY;
     // Preserve the original snapshot; never silently replace it after rebinding.
-    if (view.saved && !motionProfileEndpoint(a)) return Probe::Action::UNAVAILABLE;
+    if (view.saved && !motionProfileEndpoint(a) && !(reconcile && view.address == a.axis.target.address &&
+        std::memcmp(&session.configuration, &a.configuration.raw, sizeof(session.configuration)) == 0))
+        return Probe::Action::UNAVAILABLE;
     if (restore && (!motionProfileEndpoint(a) || !motionProfileStationary(a, nowUs()) ||
         axisReserved(a, a.axis.target.address))) return Probe::Action::UNAVAILABLE;
     if (!view.saved) session.configuration = a.configuration.raw;
@@ -69,17 +74,27 @@ Probe::Action motionProfileCommand(void* context, Probe::MotionProfileCommand co
     view.serialGeneration = a.serial.generation;
     session.bindingGeneration = a.bindingGeneration;
     view.deadlineUs = nowUs() + REQUEST_US;
-    view.phase = restore ? Probe::MotionProfilePhase::RESTORE : Probe::MotionProfilePhase::READ;
+    view.phase = restore ? Probe::MotionProfilePhase::RESTORE :
+        reconcile ? Probe::MotionProfilePhase::READBACK : Probe::MotionProfilePhase::READ;
     view.pending = true;
     view.ok = view.restored = false;
     view.error = "none";
-    view.rxLength = view.writeReplyLength = view.writeTxLength = 0;
-    view.txAccepted = view.writeTxAccepted = 0;
-    view.txComplete = view.writeTxComplete = false;
-    view.writeQualified = view.writeExecutionUnknown = false;
-    view.writeEarliestUs = view.writeLatestUs = view.writeDeliveredUs = 0;
+    view.rxLength = 0; view.txAccepted = 0; view.txComplete = false;
+    // A new read owns its own transport failure; only the retained restoration
+    // write's UNKNOWN survives into a fresh read attempt.
+    view.executionUnknown = retainWrite && view.writeExecutionUnknown;
+    if (!retainWrite) {
+        view.writeReplyLength = view.writeTxLength = 0; view.writeTxAccepted = 0;
+        view.writeTxComplete = view.writeQualified = view.writeExecutionUnknown = false;
+        view.writeEarliestUs = view.writeLatestUs = view.writeDeliveredUs = 0;
+        view.writeDeadlineUs = restore ? view.deadlineUs : 0;
+        view.writeConfigurationGeneration = restore ? view.generation : 0;
+        view.writeSerialGeneration = restore ? view.serialGeneration : 0;
+        view.writeBindingGeneration = restore ? session.bindingGeneration : 0;
+        view.executionUnknown = false;
+    }
     view.deliveredUs = 0;
-    view.executionUnknown = view.closureQualified = false;
+    view.closureQualified = false;
     view.closureEarliestUs = view.closureLatestUs = 0;
     if (!submitMotionProfile(a, restore, nowUs())) {
         view.pending = false;
@@ -94,6 +109,15 @@ void serviceMotionProfile(App& a, uint64_t now) {
     auto& session = a.motionProfile;
     auto& view = session.view;
     if (!view.pending) return;
+    // Invalidate once as soon as this parameter write may have applied, even
+    // while its physical transmission or response is still being settled.
+    if (view.phase == Probe::MotionProfilePhase::RESTORE && !view.restoreUnsettled &&
+        a.owner.txAccepted(session.request)) {
+        view.restoreUnsettled = true;
+        invalidateAxis(a); view.generation = a.axis.generation;
+        a.movePrerequisites = ESS::MovePrerequisites(); a.velocityPrerequisites = ESS::VelocityPrerequisites();
+        a.homePrerequisites = ESS::HomePrerequisites(); a.positionClearQualified = false;
+    }
     const auto* result = a.owner.result(session.request);
     if (!result) return;
     view.txComplete = result->transport.txComplete;
@@ -163,6 +187,13 @@ void serviceMotionProfile(App& a, uint64_t now) {
         view.error = "readback_mismatch";
         return;
     }
+    if (view.phase == Probe::MotionProfilePhase::READBACK &&
+        (!motionProfileStationary(a, now) || ((view.writeExecutionUnknown || !view.writeQualified || !view.writeTxComplete) &&
+         a.stateCache.blocks[static_cast<uint8_t>(ESS::StateBlock::MOTION)].observedEarliestUs < view.writeDeliveredUs))) {
+        view.error = "stationary_required";
+        return;
+    }
     view.restored = view.phase == Probe::MotionProfilePhase::READBACK;
+    if (view.restored) view.restoreUnsettled = false;
     view.ok = true;
 }

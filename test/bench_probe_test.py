@@ -225,18 +225,21 @@ def motion_profile_reply(request_id, action="inspect", restored=False, pending=F
         delivered_us=0 if pending else 3300, deadline_us=10000, execution_unknown=False, error="none",
         write_tx_hex="", write_reply_hex="", write_tx_accepted=0, write_tx_complete=False,
         write_closure_qualified=False, write_closure_earliest_us=0, write_closure_latest_us=0,
-        write_delivered_us=0, write_execution_unknown=False)
+        write_delivered_us=0, write_execution_unknown=False, restore_unsettled=False,
+        write_deadline_us=10000 if restored else 0, write_configuration_generation=3 if restored else 0,
+        write_serial_generation=1 if restored else 0, write_binding_generation=9 if restored else 0)
     if restored and not pending:
         data.update(write_tx_hex=write_tx, write_reply_hex=frame(bytes((1, 16, 0, 0x21, 0, 5))),
             write_tx_accepted=19, write_tx_complete=True, write_closure_qualified=True,
             write_closure_earliest_us=1100, write_closure_latest_us=1200, write_delivered_us=1300)
     if action == "forget":
         for key in ("pending", "saved", "restored", "session_ok", "tx_complete", "closure_qualified",
-                    "execution_unknown", "write_tx_complete", "write_closure_qualified", "write_execution_unknown"):
+                    "execution_unknown", "write_tx_complete", "write_closure_qualified", "write_execution_unknown", "restore_unsettled"):
             data[key] = False
         for key in ("phase", "address", "configuration_generation", "serial_generation", "tx_accepted", "deadline_us",
                     "closure_earliest_us", "closure_latest_us", "delivered_us", "write_tx_accepted",
-                    "write_closure_earliest_us", "write_closure_latest_us", "write_delivered_us"):
+                    "write_closure_earliest_us", "write_closure_latest_us", "write_delivered_us", "write_deadline_us",
+                    "write_configuration_generation", "write_serial_generation", "write_binding_generation"):
             data[key] = 0
         for key in ("tx_hex", "rx_hex", "write_tx_hex", "write_reply_hex"):
             data[key] = ""
@@ -1560,6 +1563,212 @@ class Framing(unittest.TestCase):
         for tokens in (None, (), ("read", "1"), ("write",), ("restore\n",), ["read"]):
             with self.assertRaises(ValueError): console.command("motion-profile", host_args=tokens)
         self.assertEqual(before, len(self.port.writes))
+
+    def test_motion_profile_unknown_restore_can_only_reconcile_with_read_only_evidence(self):
+        attempt = motion_profile_reply(0, restored=True, pending=True)
+        attempt.update(pending=False, error="transaction", execution_unknown=True, restore_unsettled=True,
+            tx_accepted=19, tx_complete=True, delivered_us=2000, write_tx_hex=attempt["tx_hex"],
+            write_tx_accepted=19, write_tx_complete=True, write_delivered_us=2000, write_execution_unknown=True)
+        stage = 0
+        def handler(i, command, args):
+            nonlocal stage
+            if command != "motion-profile": return Serial.normal(i, command, args)
+            action = args[0]
+            if stage == 0 or action in ("forget", "restore"):
+                item = copy.deepcopy(attempt)
+                if action in ("forget", "restore"): item.update(ok=False, result="busy")
+                stage = 1
+            else:
+                item = motion_profile_reply(i, action, restored=True)
+                for key in attempt:
+                    if key.startswith("write_"): item[key] = copy.deepcopy(attempt[key])
+                item.update(deadline_us=20000, execution_unknown=True, restore_unsettled=stage < 4,
+                    closure_earliest_us=6000, closure_latest_us=6200, delivered_us=6300, serial_generation=2)
+                if stage >= 5:
+                    item.update(phase=1, restored=False)
+                if action == "read":
+                    item.update(pending=True, session_ok=False, restored=False, rx_hex="", tx_accepted=0,
+                        tx_complete=False, closure_qualified=False, closure_earliest_us=0,
+                        closure_latest_us=0, delivered_us=0)
+                elif stage == 2:
+                    item.update(session_ok=False, restored=False, error="stationary_required")
+                stage += 1
+            item.update(id=i, request=action)
+            return encoded(item)
+        console = self.session(handler)
+        original = console.command("motion-profile", host_args=("inspect",))
+        for action in ("forget", "restore"):
+            refused = console.command("motion-profile", host_args=(action,))
+            self.assertFalse(refused["ok"])
+            self.assertTrue(refused["restore_unsettled"])
+            self.assertEqual(refused["write_tx_hex"], original["write_tx_hex"])
+        first_read = console.command("motion-profile", host_args=("read",))
+        self.assertEqual(first_read["phase"], 3)
+        self.assertEqual(first_read["serial_generation"], 2)
+        self.assertEqual(first_read["write_serial_generation"], 1)
+        stationary = console.command("motion-profile", host_args=("inspect",))
+        self.assertEqual(stationary["error"], "stationary_required")
+        self.assertTrue(stationary["restore_unsettled"])
+        console.command("motion-profile", host_args=("read",))
+        settled = console.command("motion-profile", host_args=("inspect",))
+        self.assertTrue(settled["session_ok"])
+        self.assertTrue(settled["restored"])
+        self.assertFalse(settled["restore_unsettled"])
+        self.assertTrue(settled["write_execution_unknown"])
+        self.assertTrue(settled["execution_unknown"])
+        self.assertEqual(settled["write_reply_hex"], "")
+        self.assertEqual(settled["write_deadline_us"], 10000)
+        self.assertEqual(settled["deadline_us"], 20000)
+        refreshed = console.command("motion-profile", host_args=("read",))
+        self.assertEqual(refreshed["phase"], 1)
+        self.assertEqual(refreshed["write_tx_hex"], original["write_tx_hex"])
+        refreshed = console.command("motion-profile", host_args=("inspect",))
+        self.assertTrue(refreshed["session_ok"])
+        self.assertFalse(refreshed["restored"])
+        self.assertTrue(refreshed["write_execution_unknown"])
+        self.assertTrue(refreshed["execution_unknown"])
+        self.assertEqual([line.decode().split()[1:] for line in self.port.writes][1:],
+            [["motion-profile", action] for action in ("inspect", "forget", "restore", "read", "inspect", "read", "inspect", "read", "inspect")])
+
+    def test_motion_profile_retained_write_context_cannot_change_or_disappear(self):
+        mutations = [dict(write_deadline_us=11000), dict(write_configuration_generation=4),
+            dict(write_serial_generation=2), dict(write_binding_generation=10),
+            dict(serial_generation=2),
+            dict(write_tx_accepted=18, write_tx_complete=False), dict(write_delivered_us=1500),
+            dict(write_execution_unknown=True, execution_unknown=True), dict(restore_unsettled=True, saved=False)]
+        for fields in mutations:
+            calls = 0
+            def handler(i, command, args):
+                nonlocal calls
+                if command != "motion-profile": return Serial.normal(i, command, args)
+                item = motion_profile_reply(i, restored=True)
+                if calls: item.update(fields)
+                calls += 1
+                return encoded(item)
+            console = self.session(handler)
+            console.command("motion-profile", host_args=("inspect",))
+            with self.subTest(fields=fields), self.assertRaises(bench.BenchError):
+                console.command("motion-profile", host_args=("inspect",))
+            self.assertFalse(console.synchronized)
+            self.assertEqual(len(self.port.writes), 3)
+
+    def test_motion_profile_new_read_resets_only_previous_read_uncertainty(self):
+        def handler(i, command, args):
+            if command != "motion-profile": return Serial.normal(i, command, args)
+            item = motion_profile_reply(i, args[0], restored=True)
+            item.update(phase=1, restored=False, deadline_us=20000)
+            if args[0] == "inspect":
+                item.update(session_ok=False, error="transaction", execution_unknown=True, rx_hex="",
+                    closure_qualified=False, closure_earliest_us=0, closure_latest_us=0)
+            else:
+                item.update(pending=True, session_ok=False, tx_accepted=0, tx_complete=False, rx_hex="",
+                    closure_qualified=False, closure_earliest_us=0, closure_latest_us=0, delivered_us=0)
+            return encoded(item)
+        console = self.session(handler)
+        failed_read = console.command("motion-profile", host_args=("inspect",))
+        self.assertTrue(failed_read["execution_unknown"])
+        self.assertFalse(failed_read["write_execution_unknown"])
+        refresh = console.command("motion-profile", host_args=("read",))
+        self.assertFalse(refresh["execution_unknown"])
+        self.assertFalse(refresh["write_execution_unknown"])
+        self.assertEqual(refresh["write_tx_hex"], failed_read["write_tx_hex"])
+        self.assertEqual(refresh["write_deadline_us"], failed_read["write_deadline_us"])
+        self.assertEqual(len(self.port.writes), 3)
+
+    def test_wiring_query_and_all_terminal_declarations_are_local(self):
+        inputs, outputs = [0] * 4, [0] * 2
+        def handler(i, command, args):
+            if command != "wiring": return Serial.normal(i, command, args)
+            if args:
+                terminal, disposition = bench.wiring_arguments(tuple(args))
+                (inputs if terminal[0] == "x" else outputs)[int(terminal[1])] = disposition
+            return encoded(reply(i, command, result="done", target=17, address=1, generation=9,
+                configuration_generation=3, inputs=inputs, outputs=outputs, bus_traffic=False))
+        console = self.session(handler)
+        self.assertEqual(console.command("wiring", host_args=())["inputs"], [0] * 4)
+        for terminal in ("x0", "x1", "x2", "x3", "y0", "y1"):
+            for disposition in ("unknown", "unconnected", "connected"):
+                result = console.command("wiring", host_args=(terminal, disposition))
+                states = result["inputs" if terminal[0] == "x" else "outputs"]
+                self.assertEqual(states[int(terminal[1])], ("unknown", "unconnected", "connected").index(disposition))
+        self.assertFalse(console.operations)
+        self.assertEqual(len(self.port.writes), 20)  # Version plus 19 local commands; no read/release.
+        self.assertTrue(all(line.decode().split()[1] == "wiring" for line in self.port.writes[1:]))
+
+    def test_wiring_grammar_rejects_before_transmission(self):
+        console = self.session()
+        before = len(self.port.writes)
+        for tokens in (("x0",), ("x0", "unknown", "1"), ("x4", "unknown"), ("y2", "connected"),
+                       ("X0", "unknown"), ("x0", "disabled"), ("x0", "1"), ("x0", "connected\nprobe"),
+                       ("x0", False), (False, "unknown"), ["x0", "unknown"]):
+            with self.subTest(tokens=tokens), self.assertRaises(ValueError):
+                console.command("wiring", host_args=tokens)
+        self.assertEqual(len(self.port.writes), before)
+        self.assertTrue(console.synchronized)
+
+    def test_wiring_context_accepts_full_width_ids_without_truncation(self):
+        for number, address in ((1, 1), (0xFFFFFFFF, 247)):
+            def handler(i, command, args):
+                if command != "wiring": return Serial.normal(i, command, args)
+                return encoded(reply(i, command, result="done", target=number, address=address,
+                    generation=number, configuration_generation=number, inputs=[0, 1, 2, 0],
+                    outputs=[1, 2], bus_traffic=False))
+            console = self.session(handler)
+            result = console.command("wiring", host_args=())
+            self.assertEqual(result["target"], number)
+            self.assertEqual(result["generation"], number)
+            self.assertEqual(result["configuration_generation"], number)
+            self.assertEqual(result["address"], address)
+            self.assertFalse(console.operations)
+
+    def test_wiring_query_preserves_disabled_configuration_generation(self):
+        def handler(i, command, args):
+            if command != "wiring": return Serial.normal(i, command, args)
+            return encoded(reply(i, command, result="done", target=1, address=1, generation=9,
+                configuration_generation=0, inputs=[0] * 4, outputs=[0] * 2, bus_traffic=False))
+        console = self.session(handler)
+        self.assertEqual(console.command("wiring", host_args=())["configuration_generation"], 0)
+        self.assertFalse(console.operations)
+        self.assertEqual(len(self.port.writes), 2)
+
+    def test_wiring_rejects_malformed_context_and_wrong_correlation_without_retry(self):
+        mutations = [dict(id=999), dict(command="config"), dict(profile="another"), dict(ok=1),
+            dict(result="accepted"), dict(result="unknown", ok=False), dict(bus_traffic=True),
+            dict(target=0), dict(target=True), dict(target=0x100000000), dict(address=0),
+            dict(address=248), dict(address=1.0), dict(generation=False), dict(generation=0),
+            dict(configuration_generation=False), dict(configuration_generation=0x100000000),
+            dict(inputs=[0] * 3), dict(inputs=[0, 0, 0, True]), dict(inputs=[0, 0, 0, 3]),
+            dict(outputs=[0]), dict(outputs=[0, -1]), dict(outputs=[0, "0"]),
+            dict(inputs=[1, 0, 0, 0]), dict(operation_id=0), dict(command_id=5),
+            dict(tx_hex=""), dict(rx_bytes=0), dict(tx_accepted=0)]
+        for fields in mutations:
+            def handler(i, command, args):
+                if command != "wiring": return Serial.normal(i, command, args)
+                item = reply(i, command, result="done", target=1, address=1, generation=9,
+                    configuration_generation=3, inputs=[0] * 4, outputs=[0] * 2, bus_traffic=False)
+                item.update(fields)
+                return encoded(item)
+            console = self.session(handler)
+            with self.subTest(fields=fields), self.assertRaises(bench.BenchError):
+                console.command("wiring", host_args=("x0", "unknown"))
+            self.assertFalse(console.synchronized)
+            self.assertEqual(len(self.port.writes), 2)
+            with self.assertRaises(bench.BenchError): console.command("wiring", host_args=())
+            self.assertEqual(len(self.port.writes), 2)
+
+    def test_wiring_refusal_preserves_returned_declarations(self):
+        for refusal in ("busy", "invalid", "ids_exhausted"):
+            def handler(i, command, args):
+                if command != "wiring": return Serial.normal(i, command, args)
+                return encoded(reply(i, command, ok=False, result=refusal, target=1, address=1,
+                    generation=9, configuration_generation=0 if refusal == "ids_exhausted" else 3, inputs=[0] * 4, outputs=[0] * 2,
+                    bus_traffic=False))
+            console = self.session(handler)
+            result = console.command("wiring", host_args=("x0", "connected"))
+            self.assertFalse(result["ok"])
+            self.assertEqual(result["inputs"], [0] * 4)
+            self.assertFalse(console.operations)
+            self.assertTrue(console.synchronized)
 
     def test_useaddr_is_explicit_synchronous_selection_without_operation(self):
         def handler(i, command, args):

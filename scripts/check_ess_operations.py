@@ -84,7 +84,7 @@ def check_cli_route(command, metadata, source, operation_kind):
         valid = len(tail) == 2 and tail[0] == "begin" and tail[1] in {"save", "factory-restore"}
         effects = {"ACTION"}
     elif root == "motion-profile":
-        valid = len(tail) == 1 and tail[0] in {"read", "inspect", "restore"}
+        valid = len(tail) == 1 and tail[0] in {"read", "inspect", "restore", "forget"}
         if valid: effects = {"READ"} if tail[0] == "read" else {"WRITE"} if tail[0] == "restore" else set()
     elif root == "move":
         valid = len(tail) == 1 and tail[0] in {"relative", "absolute", "angle"}

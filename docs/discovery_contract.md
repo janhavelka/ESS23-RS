@@ -1,6 +1,6 @@
 # Drive discovery and non-changing probes
 
-Prompt 05 implements the bounded [typed identity/configuration read API](ess_reads.md), common/profile read routes and minimal read capabilities. The [linked inventory](reference/ess_rs_operations.json) keeps read/write/action and native/hardware evidence separate. Model/firmware compatibility, state and motion remain unqualified; these reads perform no writes.
+Prompt 05 implements the bounded [typed identity/configuration read API](ess_reads.md), common/profile read routes and minimal read capabilities. The [linked inventory](reference/ess_rs_operations.json) keeps read/write/action and native/hardware evidence separate. These reads perform no writes and establish no state or motion qualification by themselves. Later state reads and finite ordinary-firmware motion tests have their own checked drive-reported evidence; exact model/firmware mappings, independent shaft observation and electrical timing remain unresolved or unmeasured.
 
 Discovery and a minimal non-changing presence probe are required design
 considerations for every supported drive profile and manufacturer grouping.

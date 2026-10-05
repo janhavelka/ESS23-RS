@@ -8,6 +8,24 @@ idle-only host selection; it changes no drive address. `motion-profile forget`
 is explicit idle snapshot release. Cached monitor query/off remains usable
 during transport faults; reset/recover preserve terminal uncertainty.
 
+`wiring [x0|x1|x2|x3|y0|y1 unknown|unconnected|connected]` declares
+application wiring only, through the same checked callback as direct callers.
+Queries are passive even during a fault. Changes require idle ownership and
+invalidate dependent host knowledge; they do not change drive assignments or
+terminal levels. `useaddr` resets declarations to unknown, so declare the
+selected fixture explicitly after rebinding.
+
+`profile ess_rs motion-profile` accepts the same read/inspect/restore/forget
+operations as `motion-profile`. An accepted restoration reserves the axis until
+checked readback matches the original snapshot. On failed or uncertain restore,
+`restore_unsettled` blocks another restore, forget, rebinding and competing
+motor writes. Repair transport explicitly if needed, refresh configuration and
+state, then issue `motion-profile read` for read-only reconciliation. An uncertain
+write also needs stationary evidence observed after its delivery. Inspection,
+reset and recovery never erase or replay it. Historical write bytes, outcome,
+deadline and generations remain separate from the reconciliation read; matching
+stored words does not turn a lost acknowledgement into an acknowledged write.
+
 Prompt21 implements `profile ess_rs persistence inspect|snapshot|plan|begin|verify|host before|finish`
 through the public [persistence API](ess_persistence.md). Save and factory restore
 are explicit stopped-state actions. One retained invocation, two nonvolatile
@@ -196,7 +214,7 @@ implemented. Aliases have identical effects on every platform.
 | `result [operation-id]` | Retained operation evidence/result, without consuming it | None |
 | `cancel` | Cancel unsent work/local waiting; settle existing activity | No new device command |
 | `verbose on\|off` | Bounded TX/RX tracing | None beyond scheduled work |
-| `recover` | Idle-only host transport reinitialization; invalidate communication confidence | None |
+| `recover` | Explicit host transport recovery; interrupt queued/active work and settle physical TX/DE before reinitialization; retain outcomes and invalidate communication confidence | None |
 | `flush` | Explicit idle-only host RX discard, recorded in diagnostics | None |
 
 Address syntax and limits belong to the selected protocol/profile. Do not

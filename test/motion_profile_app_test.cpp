@@ -35,8 +35,92 @@ void fixtureReply(const std::vector<uint8_t>& bytes) {
     for (unsigned i=0;i<25000 && app->motionProfile.view.pending && app->motionProfile.view.phase==phase;++i) step();
     assert(!app->motionProfile.view.pending || app->motionProfile.view.phase!=phase);
 }
+void testHostTupleWaitsForProfileHarvest() {
+    resetHardware(); setup(); hardware.txCharacterUs=87;
+    assert(uart.startCapture(20,timing().holdUs)); refresh();
+    Probe::MotionProfileView view;
+    assert(motionProfileCommand(app,Probe::MotionProfileCommand::SNAPSHOT,view)==Probe::Action::OK);
+    // Service the real owner to a terminal result, leaving application harvest
+    // explicitly pending. A cooperative caller must not depend on loop order.
+    const auto request=app->motionProfile.request;
+    for(unsigned i=0;i<25000 && !app->owner.txAccepted(request);++i) {
+        advanceHardware(hardware.time+10); app->owner.service(uart.sample());
+    }
+    assert(app->owner.txAccepted(request));
+    scheduleReply(std::max(hardware.writeStarted+hardware.tx.size()*87+1000,hardware.time+1000),words({10,100,100,30,0,7}));
+    for(unsigned i=0;i<25000 && !app->owner.result(request);++i) {
+        advanceHardware(hardware.time+10); app->owner.service(uart.sample());
+    }
+    assert(app->owner.result(request) && app->motionProfile.view.pending && !app->owner.active() && !app->owner.pending());
+    Probe::HostRequest changed; changed.tuple=app->serial.active; changed.tuple.baud=9600;
+    Probe::HostSnapshot serial;
+    const auto calls=hardware.configCalls, generation=app->serial.generation;
+    assert(hostSerial(app,&changed,serial)==Probe::Action::BUSY);
+    assert(hardware.configCalls==calls && app->serial.generation==generation && app->motionProfile.request.owner);
+    serviceMotionProfile(*app,hardware.time);
+    assert(!app->motionProfile.view.pending && app->motionProfile.view.ok);
+    assert(hostSerial(app,&changed,serial)==Probe::Action::OK && serial.active.baud==9600);
+    Probe::HostRequest restore; restore.restore=true;
+    assert(hostSerial(app,&restore,serial)==Probe::Action::OK && serial.active.baud==115200);
+    app->~App(); std::free(app); app=nullptr;
+    uart.~Esp32S3Uart(); new (&uart) Esp32S3Uart;
+    Serial=FakeSerial(); platformReady=false;
+}
+void testUncertainRestoreRequiresExplicitReadOnlySettlement() {
+    resetHardware(); setup(); hardware.txCharacterUs=87;
+    assert(uart.startCapture(20,timing().holdUs)); refresh();
+    Probe::MotionProfileView view;
+    assert(motionProfileCommand(app,Probe::MotionProfileCommand::SNAPSHOT,view)==Probe::Action::OK);
+    fixtureReply(words({10,100,100,30,0,7}));
+    const auto generation=app->axis.generation;
+    app->axis.originKnown=app->coordinateReference.nativeKnown=true;
+    app->coordinateReference.target=app->axis.target;
+    app->coordinateReference.configurationGeneration=generation;
+    app->coordinateReference.observedUs=hardware.time;
+    app->coordinateReference.maximumAgeUs=1000000;
+    assert(motionProfileCommand(app,Probe::MotionProfileCommand::RESTORE,view)==Probe::Action::OK);
+    auto bad=crc({1,16,0,0x21,0,5}); bad.back()^=0x80;
+    fixtureReply(bad);
+    const auto historical=app->motionProfile.view;
+    assert(historical.restoreUnsettled && historical.writeExecutionUnknown);
+    assert(!historical.ok && historical.writeTxAccepted && axisReserved(*app,1));
+    assert(app->axis.generation==generation+1 && !app->axis.originKnown && !app->coordinateReference.nativeKnown);
+    const auto writes=hardware.writes;
+    assert(motionProfileCommand(app,Probe::MotionProfileCommand::FORGET,view)==Probe::Action::BUSY);
+    assert(motionProfileCommand(app,Probe::MotionProfileCommand::RESTORE,view)!=Probe::Action::OK);
+    assert(selectTarget(app,2)==Probe::Action::BUSY && hardware.writes==writes);
+    uint32_t operation=0;
+    assert(recover(app,1,operation)==Probe::Action::OK);
+    for(unsigned i=0;i<80000 && app->owner.recovering();++i) step();
+    assert(!app->owner.recovering() && !app->owner.needsRecovery());
+    refresh();
+    app->stateCache.blocks[0].observedEarliestUs=historical.writeDeliveredUs-1;
+    assert(motionProfileCommand(app,Probe::MotionProfileCommand::SNAPSHOT,view)==Probe::Action::OK);
+    assert(view.phase==Probe::MotionProfilePhase::READBACK && view.deadlineUs>historical.writeDeadlineUs);
+    fixtureReply(words({10,100,100,30,0,7}));
+    assert(app->motionProfile.view.restoreUnsettled && !app->motionProfile.view.ok &&
+        !std::strcmp(app->motionProfile.view.error,"stationary_required"));
+    refresh();
+    assert(motionProfileCommand(app,Probe::MotionProfileCommand::SNAPSHOT,view)==Probe::Action::OK);
+    fixtureReply(words({10,100,100,30,0,7}));
+    const auto& settled=app->motionProfile.view;
+    assert(settled.restored && settled.ok && !settled.restoreUnsettled && settled.writeExecutionUnknown);
+    assert(settled.writeDeadlineUs==historical.writeDeadlineUs &&
+        settled.writeConfigurationGeneration==historical.writeConfigurationGeneration &&
+        settled.writeSerialGeneration==historical.writeSerialGeneration && settled.writeBindingGeneration==historical.writeBindingGeneration);
+    assert(settled.writeTxAccepted==historical.writeTxAccepted && settled.writeReplyLength==historical.writeReplyLength &&
+        !std::memcmp(settled.writeReply,historical.writeReply,sizeof(settled.writeReply)) &&
+        !std::memcmp(settled.writeTx,historical.writeTx,sizeof(settled.writeTx)));
+    assert(hardware.writes==writes+2); // Explicit reconciliation reads, no replay of FC10.
+    assert(motionProfileCommand(app,Probe::MotionProfileCommand::FORGET,view)==Probe::Action::OK);
+    app->~App(); std::free(app); app=nullptr;
+    uart.~Esp32S3Uart(); new (&uart) Esp32S3Uart;
+    Serial=FakeSerial(); platformReady=false;
+}
 }
 int main() {
+    testHostTupleWaitsForProfileHarvest();
+    testUncertainRestoreRequiresExplicitReadOnlySettlement();
     writeResponseConfirmed=false; // Alternate unknown-echo topology exercises normal API observation.
     resetHardware(); setup(); assert(app); hardware.txCharacterUs=87;
     assert(uart.startCapture(20,timing().holdUs)); refresh();
@@ -158,12 +242,52 @@ int main() {
     assert(motionProfileCommand(app,Probe::MotionProfileCommand::RESTORE,v)==Probe::Action::OK);
     fixtureReply(crc({1,16,0,0x21,0,5})); assert(app->motionProfile.view.phase==Probe::MotionProfilePhase::READBACK);
     fixtureReply(words({10,100,100,30,0,7})); assert(app->motionProfile.view.restored && app->motionProfile.view.ok);
+    // Failed read-only refresh must not turn a known restoration write into
+    // an unknown write on the following successful explicit refresh.
+    const auto knownWrite=app->motionProfile.view;
+    assert(motionProfileCommand(app,Probe::MotionProfileCommand::SNAPSHOT,v)==Probe::Action::OK);
+    auto malformedRefresh=words({10,100,100,30,0,7}); malformedRefresh.back()^=0x80;
+    fixtureReply(malformedRefresh);
+    assert(app->motionProfile.view.executionUnknown && !app->motionProfile.view.writeExecutionUnknown);
+    // Exercise transport-only recovery independently of the application's
+    // deliberate endpoint-generation change, keeping this snapshot binding.
+    uint64_t refreshRecovery=0;
+    assert(app->owner.recover(nowUs(),nowUs()+REQUEST_US,refreshRecovery)==Rtu::RecoveryAdmission::ACCEPTED);
+    assert(uart.clear());
+    for(unsigned i=0;i<50000 && app->owner.recovering();++i) {
+        advanceHardware(hardware.time+10); app->owner.service(uart.sample(),true);
+    }
+    assert(!app->owner.needsRecovery());
+    assert(motionProfileCommand(app,Probe::MotionProfileCommand::SNAPSHOT,v)==Probe::Action::OK);
+    fixtureReply(words({10,100,100,30,0,7}));
+    assert(app->motionProfile.view.ok && !app->motionProfile.view.executionUnknown &&
+        app->motionProfile.view.writeDeadlineUs==knownWrite.writeDeadlineUs &&
+        !std::memcmp(app->motionProfile.view.writeTx,knownWrite.writeTx,sizeof(knownWrite.writeTx)));
+    // A cancelled unsent restore is still a retained attempt, with its original
+    // request and zero accepted bytes. Ordinary reads do not erase its history.
+    assert(motionProfileCommand(app,Probe::MotionProfileCommand::RESTORE,v)==Probe::Action::OK);
+    assert(app->owner.cancelUnsent(app->motionProfile.request,nowUs()));
+    serviceMotionProfile(*app,nowUs());
+    const auto unsent=app->motionProfile.view;
+    assert(unsent.writeTxLength && !unsent.writeTxAccepted && !unsent.restoreUnsettled);
+    assert(motionProfileCommand(app,Probe::MotionProfileCommand::SNAPSHOT,v)==Probe::Action::OK);
+    fixtureReply(words({10,100,100,30,0,7}));
+    assert(app->motionProfile.view.ok && !app->motionProfile.view.executionUnknown &&
+        app->motionProfile.view.writeTxLength==unsent.writeTxLength &&
+        app->motionProfile.view.writeDeadlineUs==unsent.writeDeadlineUs &&
+        !std::memcmp(app->motionProfile.view.writeTx,unsent.writeTx,sizeof(unsent.writeTx)));
     // Refresh preserves originals; a second profile read cannot overwrite them.
     assert(motionProfileCommand(app,Probe::MotionProfileCommand::SNAPSHOT,v)==Probe::Action::OK);
     fixtureReply(words({10,100,100,60,0,100})); assert(app->motionProfile.view.original[3]==30 && app->motionProfile.view.current[3]==60);
     assert(motionProfileCommand(app,Probe::MotionProfileCommand::RESTORE,v)==Probe::Action::OK);
     fixtureReply(crc({1,16,0,0x21,0,5})); fixtureReply(words({10,100,100,60,0,100}));
     assert(!app->motionProfile.view.ok && !app->motionProfile.view.restored && !std::strcmp(app->motionProfile.view.error,"readback_mismatch"));
+    assert(app->motionProfile.view.restoreUnsettled);
+    const auto writesBeforeSettlement=hardware.writes;
+    assert(motionProfileCommand(app,Probe::MotionProfileCommand::FORGET,v)==Probe::Action::BUSY);
+    assert(motionProfileCommand(app,Probe::MotionProfileCommand::SNAPSHOT,v)==Probe::Action::OK);
+    fixtureReply(words({10,100,100,30,0,7}));
+    assert(app->motionProfile.view.restored && !app->motionProfile.view.restoreUnsettled && hardware.writes==writesBeforeSettlement+1);
     Serial.input="@99 motion-profile inspect\n";
     for (unsigned i=0;i<1000;++i) step();
     assert(Serial.output.find("\"command\":\"motion-profile\"")!=std::string::npos);

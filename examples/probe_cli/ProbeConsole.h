@@ -46,9 +46,12 @@ enum class MotionProfilePhase : uint8_t { EMPTY, READ, RESTORE, READBACK };
 /** Explicit position-parameter snapshot and checked restoration. */
 struct MotionProfileView {
     bool pending = false, saved = false, restored = false, ok = false;
+    bool restoreUnsettled = false; ///< Accepted restoration needs fresh stored-value reconciliation.
     MotionProfilePhase phase = MotionProfilePhase::EMPTY;
     uint8_t address = 0;
     uint32_t generation = 0, serialGeneration = 0;
+    uint32_t writeConfigurationGeneration = 0, writeSerialGeneration = 0, writeBindingGeneration = 0;
+    uint64_t writeDeadlineUs = 0; ///< Immutable deadline of retained restoration write, separate from new reads.
     uint16_t original[6] = {}, current[6] = {};
     uint8_t tx[19] = {}, rx[64] = {}, writeReply[8] = {}, writeTx[19] = {};
     std::size_t txLength = 0, rxLength = 0, writeReplyLength = 0, writeTxLength = 0;
@@ -58,6 +61,20 @@ struct MotionProfileView {
     bool closureQualified = false, executionUnknown = false;
     const char* error = "none";
 };
+
+/** Application declaration, separate from drive assignments and observed levels.
+ * Terminals0..3 name X0..X3;4..5 name Y0..Y1. No device or MCU I/O. */
+struct WiringRequest {
+    uint8_t terminal = 0;
+    MotorControlRS::InputWiring state = MotorControlRS::InputWiring::UNKNOWN;
+};
+struct WiringSnapshot {
+    MotorControlRS::ReadTarget target;
+    uint32_t configurationGeneration = 0;
+    MotorControlRS::InputWiring inputs[4] = {}, outputs[2] = {};
+};
+/** Preserve unresolved driver semantics separately from missing prerequisites. */
+Action driverAdmissionStatus(const MotorControlRS::Status&) noexcept;
 
 /** Host-only qualification workload. Changes never configure the motor. */
 struct LoadSettings {
@@ -299,6 +316,9 @@ struct Host {
     /** Idle-only local target selection; preserves historical results and
      * invalidates dependent configuration/reference confidence. No motor I/O. */
     Action (*selectTarget)(void*, uint8_t address) = nullptr;
+    /** Null queries declarations; a change requires idle ownership and advances
+     * configuration context. The request is consumed synchronously. */
+    Action (*wiring)(void*, const WiringRequest*, WiringSnapshot&) = nullptr;
     Action (*communication)(void*, const CommunicationCommand*, CommunicationView&) = nullptr;
     Action (*persistence)(void*, const PersistenceCommand*, PersistenceView&) = nullptr;
     /** Application-owned finite scan; null inspects retained evidence. Request

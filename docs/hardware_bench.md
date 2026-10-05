@@ -1,5 +1,16 @@
 # Motor bench and testing authorization
 
+The [fresh prompt23 audit](reports/ess_release_23_audit_2026-10-05.md) passes
+229 checked frames on its final image, finite relative motion and normal stop
+during finite motion with bounded task/console load. Local wiring declarations
+and current-session profile restoration pass; final alarm0/motion0/speed0 reports
+enabled standstill at raw position1367. Final staged target250 is distinguished
+from archived prior targets100/5000: a failed harness attempt closed before
+restoration and lost its volatile backup. No arbitrary archive import or motion
+replay was used for cleanup. Drive configuration/I/O assignments remain unchanged;
+load/debug/monitor off, host1152008N1, DE released and owner/results empty.
+Independent physical/electrical measurements and endurance remain unmeasured.
+
 The [prompt23 checks](reports/ess_release_23_2026-10-05.md) verify typed aliases, local selection/snapshot/polling controls, finite relative motion, enable/release and moving normal stop on the ordinary firmware. Absolute return passed on the earlier integration image; its later fixture-window refusal is retained separately. Session profile restoration passed, but USB reconnect lost the original host snapshot: the final staged target is100 rather than the initial5000; ramp/speed/flags are unchanged and the drive reports stopped. Final-image read-only regression passes. Independent shaft/electrical measurements and endurance remain separate. The dated entries below retain their original scope.
 
 The [fresh prompt22 audit](reports/ess_release_22_audit_2026-10-05.md) repeats

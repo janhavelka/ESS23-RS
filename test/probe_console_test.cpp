@@ -2041,6 +2041,57 @@ void testIndependentLocalHooksAndNativeAliases() {
         f.contains(route[0] == 's' ? "segment" : std::string(route).substr(0, std::string(route).find(' ')).c_str());
     }
 }
+void testWiringAndProfileRoutes() {
+    Fake f;
+    unsigned calls = 0, changes = 0;
+    struct Local {
+        Fake* fake;
+        unsigned* calls;
+        unsigned* changes;
+        Probe::WiringSnapshot value;
+    } state{&f, &calls, &changes, {}};
+    state.value.target.id = state.value.target.address = 1;
+    state.value.target.generation = state.value.configurationGeneration = 3;
+    Probe::Host h; h.context = &state;
+    h.emitLine = [](void* c, const char* line, std::size_t length) { return Fake::emit(static_cast<Local*>(c)->fake, line, length); };
+    h.wiring = [](void* c, const Probe::WiringRequest* request, Probe::WiringSnapshot& out) {
+        auto& s = *static_cast<Local*>(c); ++*s.calls;
+        if (request) {
+            ++*s.changes;
+            if (request->terminal < 4) s.value.inputs[request->terminal] = request->state;
+            else s.value.outputs[request->terminal - 4] = request->state;
+            ++s.value.configurationGeneration;
+        }
+        out = s.value; return Probe::Action::OK;
+    };
+    Probe::Console local(h);
+    send(local, "@1 wiring\n"); f.contains("\"bus_traffic\":false");
+    assert(calls == 1 && !changes);
+    send(local, "@2 wiring x3 unconnected\n"); f.contains("\"inputs\":[0,0,0,1]");
+    send(local, "@3 wiring y1 connected\n"); f.contains("\"outputs\":[0,2]");
+    send(local, "@4 wiring x3 unknown\n"); f.contains("\"inputs\":[0,0,0,0]");
+    for (const char* invalid : {"wiring x4 unconnected", "wiring y2 connected", "wiring x00 unknown",
+        "wiring x0 none", "wiring x0", "wiring x0 unknown extra", "wiring x0 connected x1 connected"}) {
+        send(local, std::string(invalid)+"\n"); f.contains("invalid_arguments");
+    }
+    assert(calls == 4 && changes == 3); f.untouched();
+    send(local, "help wiring\n"); f.contains("declare_external_wiring");
+
+    auto profileHost = f.host();
+    profileHost.startDriver = Fake::startDriver;
+    profileHost.motionProfile = [](void*, Probe::MotionProfileCommand command, Probe::MotionProfileView& out) {
+        assert(command == Probe::MotionProfileCommand::INSPECT); out.error = "none"; return Probe::Action::OK;
+    };
+    Probe::Console profile(profileHost);
+    send(profile, "@1 motion-profile inspect\n"); const auto plain = f.lines.back();
+    send(profile, "@1 profile ess_rs motion-profile inspect\n"); assert(plain == f.lines.back());
+    using Err = MotorControlRS::Err;
+    using Detail = Ess::DriverError;
+    for (const auto detail : {Detail::SEGMENT_SIGN_UNRESOLVED, Detail::OUTPUT_FUNCTION_UNRESOLVED,
+        Detail::CURRENT_LIMIT_UNRESOLVED, Detail::CURRENT_BASE_UNRESOLVED, Detail::TUNING_ACCESS_UNRESOLVED})
+        assert(Probe::driverAdmissionStatus({Err::UNSUPPORTED, static_cast<int32_t>(detail), "unresolved"}) == Probe::Action::UNRESOLVED);
+    send(profile, "io set y0 11\n"); f.contains("unresolved"); assert(!f.drivers);
+}
 int main(int argc, char** argv) {
     if (argc==2 && !std::strcmp(argv[1],"--debug-fixtures")) { debugFixtures(); return 0; }
     if (argc == 2 && !std::strcmp(argv[1], "--tuning-fixtures")) { tuningFixtures(); return 0; }
@@ -2056,6 +2107,7 @@ int main(int argc, char** argv) {
     if (argc == 2 && std::strcmp(argv[1], "--io-fixtures") == 0) { driverFixtures(true); return 0; }
     testDebugTranslationAndOutputIsolation();
     testIndependentLocalHooksAndNativeAliases();
+    testWiringAndProfileRoutes();
     testSegmentGrammarAndCorrelation();
     testControlRoutes();
     testTuningRoutes();

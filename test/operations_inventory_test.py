@@ -241,7 +241,8 @@ class Coverage(unittest.TestCase):
         for command in ("missing-command", "profile ess_rs missing", "profile other identity",
                         "profile ess_rs tuning filters start", "profile ess_rs driver read extra",
                         "profile ess_rs segment position 17 read", "version", "profile list",
-                        "monitor", "discover inspect", "config", "status", "release"):
+                        "monitor", "discover inspect", "config", "status", "release",
+                        "wiring", "wiring x0 unconnected"):
             with self.subTest(command=command):
                 self.rejected(lambda value: value["operations"][0].update(cli_commands=[command]))
         update = lambda value: next(row for row in value["operations"] if row["id"] == "driver_settings_update")
@@ -257,7 +258,19 @@ class Coverage(unittest.TestCase):
         self.assertEqual(rows["POSITION_START_SPEED"]["gaps"], ["position_start_speed_write"])
         restored = next(row for row in INVENTORY["operations"] if row["id"] == "position_profile_restore")
         self.assertNotIn("POSITION_START_SPEED", restored["records"])
-        self.assertEqual(restored["cli_commands"], ["motion-profile restore"])
+        self.assertEqual(restored["cli_commands"], ["motion-profile restore", "profile ess_rs motion-profile restore"])
+        gap = next(row for row in INVENTORY["gaps"] if row["id"] == "position_profile_candidate_staging")
+        self.assertEqual(gap["owner"], "09/11")
+        self.assertEqual(gap["disposition"], "PARTIAL")
+        self.assertEqual(set(gap["records"]), set(restored["records"]))
+        self.assertIn("volatile original snapshot", gap["reason"])
+        self.assertEqual(result["summary"]["named_gaps"], 8)
+
+    def test_profile_snapshot_inspection_and_forget_do_not_produce_device_coverage(self):
+        restored = lambda value: next(row for row in value["operations"] if row["id"] == "position_profile_restore")
+        for leaf in ("inspect", "forget", "set", "restore extra"):
+            with self.subTest(leaf=leaf):
+                self.rejected(lambda value: restored(value).update(cli_commands=["profile ess_rs motion-profile " + leaf]))
 
     def test_gap_owners_and_unlinked_source_entries_are_mandatory(self):
         self.rejected(lambda value: value.update(gaps=[]))

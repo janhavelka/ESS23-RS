@@ -2,6 +2,12 @@
 
 Prompt23 adds callback-aware help/capabilities, callable typed group aliases, local `useaddr`, fault-independent monitor control and explicit `motion-profile forget`. [The final command/result handoff](ess_api_cli_coverage.md) and [current verification](reports/ess_release_23_2026-10-05.md) supersede earlier probe-only capability descriptions below. Historical measurements remain dated evidence, not current exclusions.
 
+The [fresh23 audit](reports/ess_release_23_audit_2026-10-05.md) adds local
+`wiring` declarations after rebinding and preserves uncertain restoration
+evidence/reservations through explicit read-only reconciliation. It fixes UART
+configuration ownership through terminal harvest and distinguishes unresolved
+native semantics from unsupported operations and missing prerequisites.
+
 Prompt22 adds [bounded ESS discovery](ess_discovery.md), minimal public probes and retained
 scan evidence with explicit recovery/restoration. [Verification](reports/ess_release_22_2026-10-05.md) records
 COM13 address/tuple scans, budget limits and unchanged motor settings/state.

@@ -13,14 +13,14 @@ Prompt16 implements [stored PT/PV records](ess_segments.md) through the existing
 
 Prompt14 implements [ESS homing methods33/34/35](ess_homing.md), with [all35 source dispositions](ess_homing_methods.md), existing active auxiliary7 and qualified zero offset only. No I/O setter, collision alias or new paired span is introduced.
 
-Prompts 05–06 implement bounded [typed identity/configuration/state reads](ess_reads.md), common/profile routes, passive per-block status/health and finite opt-in polling. The [linked inventory](reference/ess_rs_operations.json) separates read/write/action, native and hardware evidence. Model/firmware compatibility, physical feedback units, readiness and motion remain unqualified; these reads perform no writes.
+Prompts 05–06 implement bounded [typed identity/configuration/state reads](ess_reads.md), common/profile routes, passive per-block status/health and finite opt-in polling. The [linked inventory](reference/ess_rs_operations.json) separates read/write/action, native and hardware evidence. Model/firmware mappings and physical feedback units remain unresolved; these reads perform no writes. Later ordinary-firmware finite free-shaft tests provide checked drive-reported action/motion evidence for their recorded subset, not universal readiness or calibrated feedback.
 
 This is the accepted profile-layer design for `MotorControlRS`. It specifies how
 each selected drive exposes its complete documented functionality alongside
 the [common axis API](axis_contract.md). The first implementation supplies the
 [ESS register catalogue](reference/05_ess_register_catalog.md), generated C++
 descriptors and native enums. Checked raw ESS codecs and a minimal probe are
-also implemented, with limited read-only bench evidence. Typed identity/configuration/state reads, bounded actions and finite relative-position sequencing are implemented; physical action/motion and broader hardware qualification remain open. The installed [relative-position API](ess_position.md) shares common target preparation and the existing action evidence boundary.
+also implemented. Typed identity/configuration/state reads, bounded actions and finite position sequencing have available functional bench evidence for the recorded ordinary-firmware subset. Independent shaft observation, electrical timing and wider hardware qualification remain open. The installed [relative-position API](ess_position.md) shares common target preparation and the existing action evidence boundary.
 ESS-RS is the first target; Leadshine iEM-RS
 is a contrasting design case whose concrete model and firmware still require
 selection.

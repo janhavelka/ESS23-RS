@@ -218,6 +218,87 @@ void testOldMotionProfileCannotRestoreAfterRebinding() {
     assert(!std::memcmp(&original, &saved, sizeof(original)) && !saved.view.pending);
     assert(hardware.writes == writes && hardware.rxResets == rxResets && hardware.configCalls == configCalls);
 }
+void testWiringDeclarationsAreLocalAndGenerationChecked() {
+    using namespace MotorControlRS;
+    fresh();
+    assert(selectTarget(app, 2) == Probe::Action::OK && selectTarget(app, 1) == Probe::Action::OK);
+    auto& retained = app->records[0]; retained.operationId = 100; retained.address = 1; retained.actionOperation = true;
+    assert(ESS::prepareNormalStop(retained.action, app->axis.target, 100, nowUs(), nowUs() + REQUEST_US));
+    ActionEvent failure; failure.transport.target = app->axis.target; failure.transport.operationId = 100;
+    failure.transport.kind = ReadEventKind::TRANSPORT_FAILURE; failure.transport.txAccepted = 8;
+    failure.transport.executionUnknown = failure.txComplete = true;
+    assert(ESS::advanceAction(retained.action, failure, nowUs()));
+    updateActionReservation(*app, retained); const auto original = retained.action;
+    const auto binding = app->bindingGeneration, generation = app->axis.generation;
+    app->axis.originKnown = app->axis.softLimitsKnown = app->coordinateReference.nativeKnown = true;
+    app->driverInputsQualified = app->positionClearQualified = true;
+    app->movePrerequisites.readinessQualified = app->homePrerequisites.readinessQualified = true;
+    app->configuration.operationId = 77; app->configuration.target = app->axis.target;
+    app->configuration.raw.inputFunctions[0] = 2;
+    const auto assignments = app->configuration.raw;
+    const auto writes = hardware.writes, resets = hardware.rxResets, configurations = hardware.configCalls;
+    Probe::WiringSnapshot view;
+    platformReady = false; app->serial.blocked = true;
+    assert(host(app).wiring(app, nullptr, view) == Probe::Action::OK && view.inputs[0] == InputWiring::UNKNOWN);
+    platformReady = true; app->serial.blocked = false;
+    Probe::WiringRequest declaration; declaration.state = InputWiring::UNCONNECTED;
+    assert(host(app).wiring(app, &declaration, view) == Probe::Action::OK);
+    assert(view.inputs[0] == InputWiring::UNCONNECTED && view.configurationGeneration == generation + 1);
+    assert(view.target.generation == binding && app->bindingGeneration == binding);
+    assert(!app->axis.originKnown && !app->axis.softLimitsKnown && !app->coordinateReference.nativeKnown);
+    assert(!app->driverInputsQualified && !app->positionClearQualified && !app->movePrerequisites.readinessQualified &&
+        !app->homePrerequisites.readinessQualified);
+    assert(app->configuration.operationId == 77 && !std::memcmp(&assignments, &app->configuration.raw, sizeof(assignments)));
+    assert(!std::memcmp(&original, &retained.action, sizeof(original)) && axisReserved(*app, 1));
+    assert(host(app).wiring(app, &declaration, view) == Probe::Action::OK && app->axis.generation == generation + 1);
+    feed("@90 wiring y1 connected\n"); drain();
+    assert(app->outputWiring[1] == InputWiring::CONNECTED && app->axis.generation == generation + 2);
+    assert(Serial.output.find("\"command\":\"wiring\"") != std::string::npos);
+    feed("@91 wiring x0 unknown\n"); drain();
+    assert(app->inputWiring[0] == InputWiring::UNKNOWN && app->axis.generation == generation + 3);
+    assert(hardware.writes == writes && hardware.rxResets == resets && hardware.configCalls == configurations);
+    // The next actual typed configuration admission snapshots the declaration;
+    // no cached query or declaration performs a drive read itself.
+    uint32_t operation = 0;
+    assert(startTypedRead(app, 92, 1, ESS::ReadKind::CONFIG, operation, false) == Probe::Action::OK);
+    const auto* read = findRecord(*app, operation);
+    assert(read && read->read.wiring[0] == InputWiring::UNKNOWN);
+    assert(read->read.wiring[1] == app->inputWiring[1]);
+    assert(hardware.writes == writes);
+}
+void testWiringRefusesInvalidBusyAndExhaustedRequests() {
+    using namespace MotorControlRS;
+    fresh(); Probe::WiringRequest request; request.state = InputWiring::CONNECTED;
+    Probe::WiringSnapshot view; request.terminal = 6;
+    assert(wiring(app, &request, view) == Probe::Action::INVALID);
+    request.terminal = 0; request.state = static_cast<InputWiring>(255);
+    assert(wiring(app, &request, view) == Probe::Action::INVALID);
+    request.state = InputWiring::CONNECTED;
+    for (unsigned busy = 0; busy < 9; ++busy) {
+        fresh(); const auto generation = app->axis.generation;
+        if (busy == 0) enable();
+        if (busy == 1) app->discovery.owned = true;
+        if (busy == 2) app->persistenceCapture = true;
+        if (busy == 3) app->motionProfile.view.pending = true;
+        if (busy == 4) assert(app->owner.beginConfiguration(nowUs()));
+        if (busy == 5) { uint32_t operation = 0; assert(probe(app, 1, 1, operation) == Probe::Action::OK); }
+        if (busy == 6) app->serial.configuring = true;
+        if (busy == 7) { uint64_t token = 0; assert(app->owner.beginCommissioning(nowUs(), token)); }
+        if (busy == 8) {
+            auto& record = app->records[0]; record.operationId = 1; record.typedRead = true;
+            assert(ESS::prepareState(record.read, app->axis.target, 1, nowUs(), nowUs() + REQUEST_US));
+        }
+        assert(wiring(app, &request, view) == Probe::Action::BUSY);
+        assert(app->axis.generation == generation && app->inputWiring[0] == InputWiring::UNCONNECTED && !hardware.writes);
+        assert(wiring(app, nullptr, view) == Probe::Action::OK && view.inputs[0] == InputWiring::UNCONNECTED);
+    }
+    fresh();
+    for (uint32_t generation : {uint32_t(0), UINT32_MAX}) {
+        app->axis.generation = generation;
+        assert(wiring(app, &request, view) == Probe::Action::IDS_EXHAUSTED);
+        assert(app->axis.generation == generation && app->inputWiring[0] == InputWiring::UNCONNECTED && !hardware.writes);
+    }
+}
 }
 int main() {
     testCachedQueryAndOffUnderHostFailures();
@@ -227,5 +308,7 @@ int main() {
     testTargetSelectionRefusesBusyInvalidAndExhaustedRequests();
     testHomeAvailabilityReasonsBeforeTraffic();
     testOldMotionProfileCannotRestoreAfterRebinding();
+    testWiringDeclarationsAreLocalAndGenerationChecked();
+    testWiringRefusesInvalidBusyAndExhaustedRequests();
     std::puts("Production monitor local-control tests passed");
 }

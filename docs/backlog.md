@@ -8,9 +8,11 @@
 - [x] Complete221-record/135-choice inventory plus130 installed free-function classifications and producing-route validation.
 - [x] Native/package/Python/four-build and COM13 feature/motion/stop evidence, plus final-image read-only regression; session restoration is distinguished from initial values.
 - [ ] Host USB reset loses the in-memory motion-profile backup. Initial staged target5000 is archived, final target100 is stopped; restoring arbitrary archived parameters without a move needs the owning09/11 typed-parameter work. Do not replay a move for cleanup.
-- [ ] Seven named prerequisite gaps remain in the inventory, including native parameter access, switch homing and unresolved pair/collision semantics; integration does not close the whole ESS release.
+- [x] Fresh23 audit: explicit local wiring redeclaration after rebinding, profile alias parity, UART ownership through terminal harvest and distinct unresolved/missing-prerequisite classifications.
+- [x] Failed profile restoration retains original write evidence and axis reservation until explicit matching readback/stationary reconciliation; no restore replay or uncertainty erasure.
+- [ ] Eight named prerequisite gaps remain in the inventory, including arbitrary archived profile staging, native parameter access, switch homing and unresolved pair/collision semantics; integration does not close the whole ESS release.
 
-See [handoff](reports/ess_release_23_2026-10-05.md) and [API/CLI coverage](ess_api_cli_coverage.md).
+See [handoff](reports/ess_release_23_2026-10-05.md), [fresh audit](reports/ess_release_23_audit_2026-10-05.md) and [API/CLI coverage](ess_api_cli_coverage.md).
 
 ## Explicit save, factory restore and persistence evidence (prompt21)
 

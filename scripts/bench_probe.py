@@ -30,7 +30,7 @@ MAX_LINE = 8192
 MAX_INPUT = 32768
 MAX_TRAFFIC_INPUT = 1048576  # Independent finite diagnostic budget per command/drain.
 COMMANDS = frozenset({"version", "config", "probe", "capture-read", "status", "health", "memory", "stats", "load",
-                      "drv", "result", "release", "cancel", "recover", "reset", "caps", "host", "useaddr", "communication", "persistence", "motion-profile", "debug",
+                      "drv", "result", "release", "cancel", "recover", "reset", "caps", "host", "useaddr", "wiring", "communication", "persistence", "motion-profile", "debug",
                       "read-identity", "read-config", "read-state", "health-check", "monitor", "axis", "prepare", "enable", "motor-release", "alarm-clear", "stop", "position-clear", "move-relative", "move-absolute", "move-angle", "velocity", "driver", "io", "segment", "control", "tuning", "home", "discover", "profile-list"})
 MAX_COMMANDS = 11  # Eight ordinary operations, recovery, reserved stop and local query.
 MAX_OPERATIONS = 10  # Eight ordinary operations, one recovery and one reserved stop.
@@ -171,6 +171,19 @@ def motion_profile_arguments(tokens: tuple[str, ...]) -> str:
     if not isinstance(tokens, tuple) or len(tokens) != 1 or tokens[0] not in ("read", "inspect", "restore", "forget"):
         raise ValueError("motion-profile requires read, inspect, restore or forget")
     return tokens[0]
+
+
+def wiring_arguments(tokens: tuple[str, ...]) -> tuple[str, int] | None:
+    """Declared host wiring only; no drive assignment or observed level changes."""
+    if not isinstance(tokens, tuple) or any(type(token) is not str for token in tokens):
+        raise ValueError("wiring requires a tuple of exact terminal/disposition tokens")
+    if not tokens:
+        return None
+    terminals = ("x0", "x1", "x2", "x3", "y0", "y1")
+    dispositions = ("unknown", "unconnected", "connected")
+    if len(tokens) != 2 or tokens[0] not in terminals or tokens[1] not in dispositions:
+        raise ValueError("wiring requires x0..x3|y0..y1 unknown|unconnected|connected")
+    return tokens[0], dispositions.index(tokens[1])
 
 
 def communication_arguments(tokens: tuple[str, ...]) -> dict:
@@ -2876,15 +2889,16 @@ class Console:
         require(item.get("request") == action, "request differs")
         for key in ("pending", "saved", "restored", "session_ok",
                     "tx_complete", "closure_qualified", "execution_unknown", "write_tx_complete",
-                    "write_closure_qualified", "write_execution_unknown"):
+                    "write_closure_qualified", "write_execution_unknown", "restore_unsettled"):
             require(type(item.get(key)) is bool, "invalid " + key)
         require(integer(item.get("phase"), 0, 3) and integer(item.get("address"), 0, 247), "invalid phase/target")
-        for key in ("configuration_generation", "serial_generation"):
+        for key in ("configuration_generation", "serial_generation", "write_configuration_generation",
+                    "write_serial_generation", "write_binding_generation"):
             require(integer(item.get(key), 0, 0xFFFFFFFF), "invalid " + key)
         for key in ("deadline_us", "delivered_us", "tx_accepted", "closure_earliest_us", "closure_latest_us",
-                    "write_tx_accepted", "write_closure_earliest_us", "write_closure_latest_us", "write_delivered_us"):
+                    "write_tx_accepted", "write_closure_earliest_us", "write_closure_latest_us", "write_delivered_us", "write_deadline_us"):
             require(integer(item.get(key)), "invalid " + key)
-        require(item.get("error") in ("none", "admission", "transaction", "readback_admission", "decode", "readback_mismatch"),
+        require(item.get("error") in ("none", "admission", "transaction", "readback_admission", "decode", "readback_mismatch", "stationary_required"),
                 "invalid session error")
         for key in ("original", "current"):
             require(isinstance(item.get(key), list) and len(item[key]) == 6 and
@@ -2902,16 +2916,18 @@ class Console:
                 "invalid successful session")
         require(item["restored"] == (item["session_ok"] and phase == 3), "restoration flag differs")
         if item["ok"] and action in ("read", "restore"):
-            require(item["pending"] and phase == (1 if action == "read" else 2), "accepted request did not start its explicit phase")
+            require(item["pending"] and (phase in (1, 3) if action == "read" else phase == 2),
+                    "accepted request did not start its explicit phase")
         forgotten = item["ok"] and action == "forget"
         if forgotten:
             require(phase == 0 and item["address"] == 0 and item["error"] == "none" and
                     item["original"] == item["current"] == [0] * 6 and not any(frames.values()) and
                     all(item[key] == 0 for key in ("configuration_generation", "serial_generation", "deadline_us",
                         "delivered_us", "tx_accepted", "closure_earliest_us", "closure_latest_us", "write_tx_accepted",
-                        "write_closure_earliest_us", "write_closure_latest_us", "write_delivered_us")) and
+                        "write_closure_earliest_us", "write_closure_latest_us", "write_delivered_us", "write_deadline_us",
+                        "write_configuration_generation", "write_serial_generation", "write_binding_generation")) and
                     not any(item[key] for key in ("pending", "saved", "restored", "session_ok", "tx_complete",
-                        "closure_qualified", "execution_unknown", "write_tx_complete", "write_closure_qualified", "write_execution_unknown")),
+                        "closure_qualified", "execution_unknown", "write_tx_complete", "write_closure_qualified", "write_execution_unknown", "restore_unsettled")),
                     "forgotten snapshot retained state or wire evidence")
         address = item["address"]
         read_prefix = bytes((address, 3, 0, 0x20, 0, 6))
@@ -2933,14 +2949,22 @@ class Console:
                 require(complete and 0 < first <= last <= delivered, "invalid closure interval")
             else:
                 require(first == last == 0, "unqualified interval has bounds")
-        if phase == 3:
+        write_context = ("write_deadline_us", "write_configuration_generation", "write_serial_generation", "write_binding_generation")
+        require(all(item[key] > 0 for key in write_context) if phase == 2 or frames["write_tx_hex"] else
+                all(item[key] == 0 for key in write_context), "invalid retained write context")
+        if frames["write_tx_hex"]:
             write = frames["write_tx_hex"]; response = frames["write_reply_hex"]
-            require(write[:-2] == write_prefix and wire_crc(write) == 0 and
-                    response[:-2] == bytes((address, 16, 0, 0x21, 0, 5)) and len(response) == 8 and wire_crc(response) == 0 and
-                    item["write_tx_complete"] and item["write_closure_qualified"] and not item["write_execution_unknown"] and
-                    item["write_closure_latest_us"] <= item["deadline_us"], "readback lacks checked restoration write")
-            if item["closure_qualified"]:
+            require(write[:-2] == write_prefix and wire_crc(write) == 0, "retained restoration request differs")
+            if not item["write_execution_unknown"] and item["write_tx_accepted"]:
+                echo = response[:-2] == bytes((address, 16, 0, 0x21, 0, 5)) and len(response) == 8
+                exception = len(response) == 5 and response[:2] == bytes((address, 0x90))
+                require((echo or exception) and wire_crc(response) == 0 and item["write_tx_complete"] and
+                        item["write_closure_qualified"] and item["write_closure_latest_us"] <= item["write_deadline_us"],
+                        "known restoration outcome lacks checked on-time reply")
+            if phase == 3 and item["closure_qualified"]:
                 require(item["write_delivered_us"] <= item["closure_earliest_us"], "readback precedes restoration")
+        if phase == 3:
+            require(frames["write_tx_hex"] and item["write_tx_accepted"], "readback lacks retained restoration attempt")
         elif phase == 2 and frames["write_tx_hex"]:
             require(not item["pending"] and not item["session_ok"] and item["error"] == "transaction" and
                     frames["write_tx_hex"] == frames["tx_hex"] and
@@ -2948,22 +2972,49 @@ class Console:
             for key in ("tx_accepted", "tx_complete", "closure_qualified", "closure_earliest_us", "closure_latest_us",
                         "delivered_us", "execution_unknown"):
                 require(item["write_" + key] == item[key], "failed restoration evidence differs")
-        else:
+        elif not frames["write_tx_hex"]:
             require(not frames["write_tx_hex"] and not frames["write_reply_hex"] and
                     not item["write_tx_accepted"] and not item["write_tx_complete"] and not item["write_closure_qualified"] and
                     not item["write_delivered_us"] and not item["write_execution_unknown"], "unexpected retained restoration proof")
-        if item["session_ok"]:
+        require(not item["restore_unsettled"] or (item["saved"] and
+                (item["write_tx_accepted"] > 0 or (phase == 2 and item["pending"]))),
+                "unsettled restoration lacks transmitted write")
+        require(not item["write_execution_unknown"] or item["execution_unknown"],
+                "historical unknown write was relabelled known")
+        if phase == 2 and not item["pending"] and item["write_tx_accepted"]:
+            require(item["restore_unsettled"], "failed transmitted restoration lost its interlock")
+        if item["session_ok"] or item["error"] == "stationary_required":
             rx = frames["rx_hex"]
-            require(item["tx_complete"] and item["closure_qualified"] and not item["execution_unknown"] and
+            require(item["tx_complete"] and item["closure_qualified"] and
+                    (not item["execution_unknown"] or item["write_execution_unknown"]) and
                     item["closure_latest_us"] <= item["deadline_us"] and len(rx) == 17 and
                     rx[:3] == bytes((address, 3, 12)) and wire_crc(rx) == 0 and
                     item["current"] == [int.from_bytes(rx[i:i+2], "big") for i in range(3, 15, 2)],
                     "successful snapshot lacks checked FC03 payload")
             require(not item["restored"] or item["current"] == item["original"], "restoration differs from original")
+            if item["error"] == "stationary_required":
+                require(phase == 3 and not item["session_ok"] and not item["restored"] and item["restore_unsettled"] and
+                        item["current"] == item["original"], "stationary refusal lacks matching readback/interlock")
         old = self.motion_profile
         if old and old["saved"] and not forgotten:
             require(item["saved"] and item["original"] == old["original"] and item["address"] == old["address"] and
-                    item["serial_generation"] == old["serial_generation"], "retained original/binding changed")
+                    (item["serial_generation"] == old["serial_generation"] or
+                     (old["restore_unsettled"] and item["ok"] and action == "read" and phase == 3)),
+                    "retained original/binding changed")
+        if old and old["restore_unsettled"]:
+            require(not forgotten and not (item["ok"] and action == "restore"), "unsettled restoration was forgotten or replayed")
+            require(not (item["ok"] and action == "read") or phase == 3,
+                    "unsettled restoration bypassed read-only reconciliation")
+            require(item["restore_unsettled"] or (item["session_ok"] and phase == 3 and
+                    item["current"] == item["original"] and item["closure_earliest_us"] >= old["write_delivered_us"]),
+                    "restoration interlock cleared without fresh matching readback")
+        if old and (old["write_tx_hex"] or (old["phase"] == 2 and old["pending"])) and not forgotten and not (item["ok"] and action == "restore"):
+            require(all(item[key] == old[key] for key in write_context), "immutable restoration context changed")
+        if old and old["write_tx_hex"] and not (old["phase"] == 2 and old["pending"]) and not forgotten and not (item["ok"] and action == "restore"):
+            keys = (*write_context, "write_tx_hex", "write_reply_hex", "write_tx_accepted", "write_tx_complete",
+                    "write_closure_qualified", "write_closure_earliest_us", "write_closure_latest_us",
+                    "write_delivered_us", "write_execution_unknown")
+            require(all(item[key] == old[key] for key in keys), "immutable restoration evidence changed")
         self.motion_profile = json.loads(json.dumps(item))
 
     @staticmethod
@@ -2980,6 +3031,32 @@ class Console:
                 any(key in item for key in ("command_id", "tx_bytes", "rx_bytes", "tx_hex", "rx_hex")) or
                 ("bus_traffic" in item and item["bus_traffic"] is not False)):
             raise BenchError("useaddr reply claims a bus operation or different target")
+
+    @staticmethod
+    def _check_wiring(handle: Command, item: dict) -> None:
+        """A local declaration/query carries bounded context and never an operation."""
+        requested = wiring_arguments(handle.host_args)
+        def require(condition, message):
+            if not condition:
+                raise BenchError("wiring: " + message)
+        def integer(value, low, high):
+            return type(value) is int and low <= value <= high
+        require(item.get("result") == "done" if item["ok"] else
+                item.get("result") in ("busy", "invalid", "ids_exhausted"), "invalid disposition")
+        require(item.get("bus_traffic") is False, "local command claims bus traffic")
+        require(integer(item.get("target"), 1, 0xFFFFFFFF) and integer(item.get("address"), 1, 247) and
+                integer(item.get("generation"), 1, 0xFFFFFFFF) and
+                integer(item.get("configuration_generation"), 0, 0xFFFFFFFF), "invalid target/generation")
+        for key, capacity in (("inputs", 4), ("outputs", 2)):
+            values = item.get(key)
+            require(isinstance(values, list) and len(values) == capacity and
+                    all(integer(value, 0, 2) for value in values), "invalid " + key + " declarations")
+        require(not any(key in item for key in ("operation_id", "command_id", "tx_bytes", "rx_bytes",
+                    "tx_hex", "rx_hex", "read_kind", "tx_accepted")), "local command claims wire/admission evidence")
+        if item["ok"] and requested:
+            terminal, disposition = requested
+            values = item["inputs" if terminal[0] == "x" else "outputs"]
+            require(values[int(terminal[1])] == disposition, "declaration differs from requested terminal")
 
     @staticmethod
     def _check_admission_refusal(handle: Command, item: dict) -> None:
@@ -3204,6 +3281,8 @@ class Console:
             self._check_motion_profile(handle, item)
         if handle.command == "useaddr":
             self._check_useaddr(handle, item)
+        if handle.command == "wiring":
+            self._check_wiring(handle, item)
         if handle.command == "profile-list" and item["ok"]:
             expected = dict(manufacturer="stepperonline", manufacturer_name="STEPPERONLINE", profile="ess_rs", name="ESS-RS",
                             probe=True, identity=True, nonchanging=True, exact_model=False, firmware=False,
@@ -3467,6 +3546,9 @@ class Console:
             debug_arguments(host_args)
         elif command == "motion-profile":
             motion_profile_arguments(host_args)
+        elif command == "wiring":
+            host_args = () if host_args is None else host_args
+            wiring_arguments(host_args)
         elif command == "discover":
             host_args = () if host_args is None else host_args
             discovery_arguments(host_args)

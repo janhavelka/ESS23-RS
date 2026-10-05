@@ -235,7 +235,8 @@ bool terminal(const App& a, const App::Record& record) {
     return record.typedRead ? record.read.state != ReadState::ACTIVE : a.owner.result(record.requestId) != nullptr;
 }
 bool axisReserved(const App& a, uint8_t address = 0) {
-    if (a.motionProfile.view.pending && (!address || a.motionProfile.view.address == address)) return true;
+    if ((a.motionProfile.view.pending || a.motionProfile.view.restoreUnsettled) &&
+        (!address || a.motionProfile.view.address == address)) return true;
     // Recovery changes correlation generation, not the physical target's uncertainty.
     if (address) {
         if (a.actionConflicts[address / 8] & (1U << (address % 8))) return true;
@@ -1173,7 +1174,7 @@ Probe::Action startDriver(void* context, uint32_t commandId, uint8_t address, ES
             ESS::prepareTuningSettings(record->driver, target, a.nextOperationId, request, prerequisites, now, now + 3000000) :
             ESS::prepareDriverSettings(record->driver, target, a.nextOperationId, request, prerequisites, now, now + 3000000);
     } else return Probe::Action::INVALID;
-    if (!checked) { clearRecord(*record); return checked.code == Err::UNSUPPORTED ? Probe::Action::UNSUPPORTED : Probe::Action::INVALID; }
+    if (!checked) { clearRecord(*record); return Probe::driverAdmissionStatus(checked); }
     ESS::PreparedDriver work;
     if (!ESS::nextDriver(record->driver, now, work)) { clearRecord(*record); return Probe::Action::FAILED; }
     const auto admitted = admitDriverStep(a, *record, work, now);
@@ -1804,7 +1805,8 @@ Probe::Action selectTarget(void* context, uint8_t address) {
         a.discovery.owned || a.owner.active() || a.owner.pending() || a.owner.recovering() ||
         a.runner.busy() || a.runner.transmitEnabled() || reading(a) || acting(a) ||
         a.monitorState.settings.enabled || a.persistenceCapture || a.persistenceRequest.owner ||
-        a.persistenceReadRequest.owner || a.commissioningRequest.owner || a.motionProfile.view.pending)
+        a.persistenceReadRequest.owner || a.commissioningRequest.owner || a.motionProfile.view.pending ||
+        a.motionProfile.view.restoreUnsettled)
         return Probe::Action::BUSY;
     if (!a.axis.generation || a.axis.generation == UINT32_MAX || a.bindingGeneration == UINT32_MAX)
         return Probe::Action::IDS_EXHAUSTED;
@@ -1831,6 +1833,37 @@ Probe::Action selectTarget(void* context, uint8_t address) {
     // endpoint. Rebinding creates no traffic and does not release either.
     return Probe::Action::OK;
 }
+Probe::Action wiring(void* context, const Probe::WiringRequest* requested, Probe::WiringSnapshot& out) {
+    using MotorControlRS::InputWiring;
+    App& a = *static_cast<App*>(context);
+    out.target = a.axis.target; out.configurationGeneration = a.axis.generation;
+    std::memcpy(out.inputs, a.inputWiring, sizeof(out.inputs));
+    std::memcpy(out.outputs, a.outputWiring, sizeof(out.outputs));
+    if (!requested) return Probe::Action::OK;
+    if (requested->terminal >= 6 || requested->state > InputWiring::CONNECTED) return Probe::Action::INVALID;
+    auto& declaration = requested->terminal < 4 ? a.inputWiring[requested->terminal] :
+        a.outputWiring[requested->terminal - 4];
+    if (declaration == requested->state) return Probe::Action::OK;
+    if (a.serial.configuring || a.owner.configurationOwned() || a.owner.commissioningOwned() ||
+        a.discovery.owned || a.owner.active() || a.owner.pending() || a.owner.recovering() ||
+        a.runner.busy() || a.runner.transmitEnabled() || reading(a) || acting(a) ||
+        a.monitorState.settings.enabled || a.persistenceCapture || a.persistenceRequest.owner ||
+        a.persistenceReadRequest.owner || a.commissioningRequest.owner || a.motionProfile.view.pending ||
+        a.motionProfile.request.owner) return Probe::Action::BUSY;
+    if (!a.axis.generation || a.axis.generation == UINT32_MAX) return Probe::Action::IDS_EXHAUSTED;
+    declaration = requested->state;
+    invalidateAxis(a);
+    a.driverInputsQualified = false; a.positionClearQualified = false;
+    a.movePrerequisites = ESS::MovePrerequisites(); a.velocityPrerequisites = ESS::VelocityPrerequisites();
+    a.homePrerequisites = ESS::HomePrerequisites();
+    for (auto& block : a.stateCache.blocks) block.invalidatedUs = nowUs();
+    // This changes an application declaration only. Drive assignments, binding,
+    // stored settings and historical results keep their original evidence.
+    out.configurationGeneration = a.axis.generation;
+    std::memcpy(out.inputs, a.inputWiring, sizeof(out.inputs));
+    std::memcpy(out.outputs, a.outputWiring, sizeof(out.outputs));
+    return Probe::Action::OK;
+}
 Probe::Action hostSerialImpl(void* context, const Probe::HostRequest* requested, Probe::HostSnapshot& out, bool ownedSession) {
     App& a = *static_cast<App*>(context);
     if (!requested) {
@@ -1844,7 +1877,8 @@ Probe::Action hostSerialImpl(void* context, const Probe::HostRequest* requested,
     if (!platformReady) return Probe::Action::UNAVAILABLE;
     if (a.serial.configuring || a.owner.active() || a.owner.pending() || a.owner.recovering() ||
         a.runner.busy() || a.runner.transmitEnabled() || reading(a) || (acting(a) && !(ownedSession && a.records[REQUEST_CAPACITY + 1].discoveryStop)) ||
-        a.monitorState.settings.enabled) return Probe::Action::BUSY;
+        a.monitorState.settings.enabled || a.motionProfile.view.pending || a.motionProfile.request.owner)
+        return Probe::Action::BUSY;
     if (!a.serial.blocked && (a.owner.needsRecovery() || uart.needsRecovery())) return Probe::Action::RECOVERY_REQUIRED;
     if (!a.serial.blocked && a.serial.activeKnown && sameTuple(tuple, a.serial.active)) {
         out = a.serial; return Probe::Action::OK;
@@ -1893,6 +1927,7 @@ Probe::Host host(App* a) {
     h.startAction = startAction; h.startMove = startMove; h.startVelocity = startVelocity; h.startDriver = startDriver; h.startHome = startHome;
     h.monitor = monitor; h.motionProfile = motionProfileCommand; h.debug = debugCommand;
     h.axis = axisCommand; h.hostSerial = hostSerial; h.selectTarget = selectTarget;
+    h.wiring = wiring;
     h.communication = communication; h.persistence = persistence;
     h.discovery = discoveryCommand;
     h.result = lookup; h.cancel = cancel; h.release = release;

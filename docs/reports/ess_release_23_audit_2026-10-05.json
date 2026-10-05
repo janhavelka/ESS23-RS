@@ -1,0 +1,637 @@
+{
+  "baseline_commit": "5293fbd0b583e9668895d39afffd72141ad822a5",
+  "final_source": "containing Git commit",
+  "fieldcore_readonly_head": "60023936c2caf166eaf43f82254c1d9540b8522f",
+  "firmware": {
+    "environment": "bench_s3_load_timer",
+    "size": 575424,
+    "sha256": "4ae880946615c4828992f864e983da36417123df39c15c82a045dd38f30487d3"
+  },
+  "port": {
+    "name": "COM13",
+    "usb": "303A:1001",
+    "serial": "3C:0F:02:CD:6B:98"
+  },
+  "verification": {
+    "ctest": 64,
+    "python_transport": 220,
+    "python_motion": 21,
+    "inventory_failures": 26,
+    "generator": 18,
+    "contrast_hashes": 5,
+    "platformio": [
+      "bench_s3_probe",
+      "bench_s3_load_poll",
+      "bench_s3_load_timer",
+      "bench_s3_units"
+    ]
+  },
+  "coverage": {
+    "records": 221,
+    "choices": 135,
+    "operations": 49,
+    "public_functions": 130,
+    "named_gaps": 8
+  },
+  "hardware": {
+    "status": "PASS functional subset",
+    "frames": 229,
+    "rx_bytes": 2244,
+    "stop_intervals_us": [
+      115033,
+      118193
+    ],
+    "load": {
+      "type": "reply",
+      "profile": "ess_rs",
+      "id": 73,
+      "command": "load",
+      "ok": true,
+      "result": "done",
+      "ready": true,
+      "capture_mode": "timer",
+      "workload_us": 1000,
+      "owner_delay_us": 0,
+      "console_bytes": 64,
+      "elapsed_us": 666941,
+      "work_us": 66160,
+      "work_iterations": 66,
+      "console_lines": 66,
+      "console_dropped": 0,
+      "capture_us": 141901,
+      "capture_samples": 35496,
+      "timer_callbacks": 33333,
+      "sample_gap_limit_us": 85,
+      "sample_gap_exceeded": false,
+      "capture_high_water": 11,
+      "owner_gap_max_us": 3079,
+      "capture_gap_max_us": 54,
+      "work_stack_free_bytes": 3268,
+      "cpu_valid": true,
+      "cpu0_busy_pct": 0,
+      "cpu1_busy_pct": 49
+    },
+    "host": {
+      "type": "reply",
+      "profile": "ess_rs",
+      "id": 2,
+      "command": "host",
+      "ok": true,
+      "result": "done",
+      "original": {
+        "baud": 115200,
+        "format": "8N1"
+      },
+      "requested": {
+        "baud": 115200,
+        "format": "8N1"
+      },
+      "active": {
+        "baud": 115200,
+        "format": "8N1"
+      },
+      "active_known": true,
+      "blocked": false,
+      "configuring": false,
+      "serial_generation": 1,
+      "actual_baud": 115211,
+      "failure": "none",
+      "device_settings_changed": false,
+      "supported_bauds": [
+        9600,
+        19200,
+        38400,
+        115200
+      ],
+      "supported_formats": [
+        "8N1",
+        "8N2",
+        "8E1",
+        "8O1"
+      ],
+      "timing": {
+        "character_min_us": 85,
+        "character_max_us": 89,
+        "stop_guard_us": 11,
+        "capture_period_us": 20,
+        "gap15_us": 750,
+        "gap35_us": 1750,
+        "reply_gap_us": 304,
+        "response_timeout_us": 200000,
+        "request_timeout_us": 500000,
+        "recovery_guard_us": 500000,
+        "tx_timeout_us": 20000
+      }
+    },
+    "ending_driver": {
+      "type": "reply",
+      "profile": "ess_rs",
+      "id": 125,
+      "command": "drv",
+      "ok": true,
+      "phase": "DONE",
+      "busy": false,
+      "transmit_enabled": false,
+      "recovery_required": false,
+      "pending": 0,
+      "retained": 0,
+      "reserved": 0,
+      "pending_capacity": 4,
+      "result_capacity": 8,
+      "outstanding_capacity": 10,
+      "operation_id": 75,
+      "output_queued": 0,
+      "output_blocked": 0,
+      "output_short_writes": 0,
+      "input_bytes": 4094,
+      "input_lines": 264,
+      "input_dropped": 0,
+      "recovery_guard_until_us": 132016030,
+      "request_deadline_us": 0,
+      "capture_mode": "timer",
+      "read_budget": 64,
+      "model_address": 1,
+      "model_operation_id": 72,
+      "observed_earliest_us": 131258664,
+      "observed_latest_us": 131258712,
+      "delivered_us": 131259024
+    },
+    "ending_memory": {
+      "type": "reply",
+      "profile": "ess_rs",
+      "id": 126,
+      "command": "memory",
+      "ok": true,
+      "valid": true,
+      "internal_free": 336608,
+      "internal_min": 331448,
+      "internal_largest": 278516,
+      "psram_free": 8177196,
+      "psram_min": 8177196,
+      "psram_largest": 8126452,
+      "stack_free_bytes": 2036
+    },
+    "ending_state": {
+      "0": {
+        "block": 0,
+        "config_operation_id": 73,
+        "raw_alarm": 0,
+        "alarm_known": true,
+        "raw_motion": 0,
+        "unknown_motion_bits": 0,
+        "in_position": false,
+        "homing_complete": false,
+        "running": false,
+        "alarm_flag": false,
+        "released": false,
+        "enabled": true,
+        "positive_soft_limit": false,
+        "negative_soft_limit": false
+      },
+      "1": {
+        "block": 1,
+        "config_operation_id": 73,
+        "raw_inputs": 0,
+        "raw_outputs": 0,
+        "unknown_input_bits": 0,
+        "unknown_output_bits": 0,
+        "inputs": [
+          false,
+          false,
+          false,
+          false
+        ],
+        "outputs": [
+          false,
+          false
+        ],
+        "levels": "logical_valid_not_voltage"
+      },
+      "2": {
+        "block": 2,
+        "config_operation_id": 73,
+        "position_words": [
+          0,
+          1367
+        ],
+        "raw_speed": 0,
+        "pair_known": true,
+        "raw_position": 1367,
+        "position_source": 0,
+        "word_order_resolution": 0,
+        "position_source_resolution": 10,
+        "position_signed_resolution": 7,
+        "position_scale_resolution": 5,
+        "speed_signed_resolution": 7,
+        "speed_unit_resolution": 8,
+        "physical_units": "unresolved",
+        "raw_encoder_counts": null
+      }
+    },
+    "ending_configuration": {
+      "type": "read",
+      "profile": "ess_rs",
+      "id": 118,
+      "command": "read-config",
+      "command_id": 118,
+      "operation_id": 73,
+      "read_kind": "config",
+      "ok": true,
+      "state": "succeeded",
+      "outcome": "success",
+      "status": "OK",
+      "detail": 0,
+      "target": 1,
+      "address": 1,
+      "generation": 5,
+      "started_us": 131334924,
+      "deadline_us": 131834924,
+      "serviced_us": 131371989,
+      "completed_steps": 5,
+      "active_serial": {
+        "known": true,
+        "baud": 115200,
+        "data_bits": 8,
+        "parity": 1,
+        "stop_bits": 1
+      },
+      "config": {
+        "raw": {
+          "direction": 0,
+          "subdivision": 1000,
+          "custom_node": 0,
+          "baud": 0,
+          "format": 0,
+          "over_limit_stop": 0,
+          "soft_limit_enable": 0,
+          "word_order": 0,
+          "input_polarity": 0,
+          "algorithm": 3,
+          "encoder_resolution": 4000
+        },
+        "known": {
+          "direction": true,
+          "baud": true,
+          "format": true,
+          "over_limit_stop": true,
+          "soft_limit_enable": true,
+          "word_order": true,
+          "algorithm": false
+        },
+        "unknown_polarity_bits": 0,
+        "subdivision_resolution": 5,
+        "encoder_resolution": 0,
+        "subdivision_issues": 4,
+        "custom_node_issues": 64,
+        "over_limit_stop_issues": 1024,
+        "soft_limit_issues": 256,
+        "encoder_scale_source": 3,
+        "inputs": [
+          {
+            "function": 1,
+            "known": true,
+            "inverted": false,
+            "wiring": 1,
+            "level_known": false,
+            "level": null,
+            "assignment": "assigned",
+            "declared_wiring": "unconnected"
+          },
+          {
+            "function": 2,
+            "known": true,
+            "inverted": false,
+            "wiring": 1,
+            "level_known": false,
+            "level": null,
+            "assignment": "assigned",
+            "declared_wiring": "unconnected"
+          },
+          {
+            "function": 3,
+            "known": true,
+            "inverted": false,
+            "wiring": 1,
+            "level_known": false,
+            "level": null,
+            "assignment": "assigned",
+            "declared_wiring": "unconnected"
+          },
+          {
+            "function": 0,
+            "known": true,
+            "inverted": false,
+            "wiring": 1,
+            "level_known": false,
+            "level": null,
+            "assignment": "disabled",
+            "declared_wiring": "unconnected"
+          }
+        ],
+        "stored_serial": {
+          "baud_code": 0,
+          "format_code": 0,
+          "activation": "power_cycle_required"
+        },
+        "units": "command_scale_unresolved_encoder_readback_only"
+      },
+      "steps": [
+        {
+          "step": 0,
+          "first": 16,
+          "count": 2,
+          "event": 0,
+          "status": "OK",
+          "detail": 0,
+          "frame_error": 0,
+          "qualified": true,
+          "attempted_us": 131334924,
+          "earliest_us": 131342872,
+          "latest_us": 131342901,
+          "delivered_us": 131343095,
+          "tx": "010300100002C5CE",
+          "rx": "010304000003E8FA8D",
+          "received_length": 9,
+          "tx_accepted": 8,
+          "execution_unknown": false,
+          "transport_detail": 1
+        },
+        {
+          "step": 1,
+          "first": 19,
+          "count": 3,
+          "event": 0,
+          "status": "OK",
+          "detail": 0,
+          "frame_error": 0,
+          "qualified": true,
+          "attempted_us": 131343095,
+          "earliest_us": 131349941,
+          "latest_us": 131349993,
+          "delivered_us": 131350140,
+          "tx": "010300130003F40E",
+          "rx": "0103060000000000002175",
+          "received_length": 11,
+          "tx_accepted": 8,
+          "execution_unknown": false,
+          "transport_detail": 1
+        },
+        {
+          "step": 2,
+          "first": 23,
+          "count": 3,
+          "event": 0,
+          "status": "OK",
+          "detail": 0,
+          "frame_error": 0,
+          "qualified": true,
+          "attempted_us": 131350140,
+          "earliest_us": 131356965,
+          "latest_us": 131357000,
+          "delivered_us": 131357190,
+          "tx": "010300170003B5CF",
+          "rx": "0103060000000000002175",
+          "received_length": 11,
+          "tx_accepted": 8,
+          "execution_unknown": false,
+          "transport_detail": 1
+        },
+        {
+          "step": 3,
+          "first": 64,
+          "count": 5,
+          "event": 0,
+          "status": "OK",
+          "detail": 0,
+          "frame_error": 0,
+          "qualified": true,
+          "attempted_us": 131357190,
+          "earliest_us": 131364328,
+          "latest_us": 131364363,
+          "delivered_us": 131364512,
+          "tx": "010300400005841D",
+          "rx": "01030A00000001000200030000BDB6",
+          "received_length": 15,
+          "tx_accepted": 8,
+          "execution_unknown": false,
+          "transport_detail": 1
+        },
+        {
+          "step": 4,
+          "first": 256,
+          "count": 2,
+          "event": 0,
+          "status": "OK",
+          "detail": 0,
+          "frame_error": 0,
+          "qualified": true,
+          "attempted_us": 131364512,
+          "earliest_us": 131371794,
+          "latest_us": 131371827,
+          "delivered_us": 131371989,
+          "tx": "010301000002C5F7",
+          "rx": "01030400030FA00FBB",
+          "received_length": 9,
+          "tx_accepted": 8,
+          "execution_unknown": false,
+          "transport_detail": 1
+        }
+      ],
+      "host_serial": {
+        "known": true,
+        "baud": 115200,
+        "format": "8N1",
+        "generation": 1
+      }
+    },
+    "ending_profile": {
+      "type": "reply",
+      "profile": "ess_rs",
+      "id": 130,
+      "command": "motion-profile",
+      "ok": true,
+      "result": "accepted",
+      "pending": false,
+      "saved": true,
+      "restored": true,
+      "session_ok": true,
+      "phase": 3,
+      "address": 1,
+      "configuration_generation": 19,
+      "serial_generation": 1,
+      "original": [
+        30,
+        100,
+        100,
+        60,
+        0,
+        250
+      ],
+      "current": [
+        30,
+        100,
+        100,
+        60,
+        0,
+        250
+      ],
+      "tx_hex": "010300200006C402",
+      "rx_hex": "01030C001E00640064003C000000FA9C1A",
+      "write_reply_hex": "0110002100055000",
+      "tx_accepted": 8,
+      "closure_qualified": true,
+      "closure_earliest_us": 130390413,
+      "closure_latest_us": 130390445,
+      "execution_unknown": false,
+      "error": "none",
+      "request": "inspect",
+      "tx_complete": true,
+      "write_tx_complete": true,
+      "deadline_us": 130873538,
+      "delivered_us": 130390575,
+      "write_tx_hex": "0110002100050A00640064003C000000FA4F9B",
+      "write_tx_accepted": 19,
+      "write_closure_qualified": true,
+      "write_closure_earliest_us": 130382813,
+      "write_closure_latest_us": 130382849,
+      "write_delivered_us": 130383015,
+      "write_execution_unknown": false,
+      "restore_unsettled": false,
+      "write_deadline_us": 130873538,
+      "write_configuration_generation": 18,
+      "write_serial_generation": 1,
+      "write_binding_generation": 5
+    }
+  },
+  "cleanup": {
+    "session_original_restored": true,
+    "audit_initial_staged_target100_restored": false,
+    "historical_staged_target5000_restored": false,
+    "final_staged_target": 250,
+    "stopped": true,
+    "save_restore_restart_run": false,
+    "automatic_write_replay": false
+  },
+  "not_run": [
+    "independent shaft/electrical measurement",
+    "external-input/load physical behavior",
+    "persistence/restart activation",
+    "several-hour soak"
+  ],
+  "artifacts": [
+    {
+      "path": "build/audit23_evidence/session.json",
+      "bytes": 50536,
+      "sha256": "e762a90abb7b08d51859607142d7d923e08da01a2b57ef69af61df174ee199fd"
+    },
+    {
+      "path": "build/audit23_evidence/session.jsonl",
+      "bytes": 62401,
+      "sha256": "51dae0e110dc76b9db02c455278b3f676726db00b00238894469ee6845f018fa"
+    },
+    {
+      "path": "build/audit23_evidence2/session.json",
+      "bytes": 174767,
+      "sha256": "dd37e4fa0a6b931306f897fd5aa8bbc26cabb38c7c21d0465b1a2d3ecb3b167c"
+    },
+    {
+      "path": "build/audit23_evidence2/session.jsonl",
+      "bytes": 233175,
+      "sha256": "3e6d042a54e43df1373d5e1953ef3e99d85fbbc20de8785d325ac0de2f4a0fe8"
+    },
+    {
+      "path": "build/audit23_evidence3/session.json",
+      "bytes": 292022,
+      "sha256": "12b539282a97428481b054d113313e6e08ad79a24f1743ba7e1508f55404a437"
+    },
+    {
+      "path": "build/audit23_evidence3/session.jsonl",
+      "bytes": 373656,
+      "sha256": "90f25ac6e67c8e2318685b7e6c5dd9d6e68fb551d8a81ea68933aef801add6dc"
+    },
+    {
+      "path": "build/audit23_evidence4/session.json",
+      "bytes": 268932,
+      "sha256": "50fbdb9cb36f38c0f9fd63648d0448a7d43baafe2294989dd985532c44257912"
+    },
+    {
+      "path": "build/audit23_evidence4/session.jsonl",
+      "bytes": 339610,
+      "sha256": "2575dd932a5998c06be2c9fe863a4edb36a85f535e69eeea45d9eef7b0a28dc6"
+    },
+    {
+      "path": "build/audit23_bench.py",
+      "bytes": 6092,
+      "sha256": "8765817e19cd8f8e928891f1fe53ac6409e696b72e6b06dffd7d25383446f1bd"
+    },
+    {
+      "path": ".pio/build/bench_s3_load_timer/firmware.bin",
+      "bytes": 575424,
+      "sha256": "4ae880946615c4828992f864e983da36417123df39c15c82a045dd38f30487d3"
+    },
+    {
+      "path": "build/audit23_ctest_final.log",
+      "bytes": 13664,
+      "sha256": "2a4d449b6a37a60d77eb9a3ff0a9daced8a50f7dcdf8e5283a1135c65bd1194d"
+    },
+    {
+      "path": "build/audit23_build_final.log",
+      "bytes": 4078,
+      "sha256": "c98ca6e53ba7a7e7cbe9e758375dc6798348ed687fabca0caec0023696e4257b"
+    },
+    {
+      "path": "build/audit23_pio_final.log",
+      "bytes": 25620,
+      "sha256": "9571ac9fccd037e75e9ff0e974bdf0c4176c5d6ae4c0604dfab958cf0d616bba"
+    },
+    {
+      "path": "build/audit23_upload_final.log",
+      "bytes": 14238,
+      "sha256": "fb71f4acc2cb666c3788fa703c04ccd636184917e7fedb37b26a9a4610089e49"
+    },
+    {
+      "path": "build/audit23_units.log",
+      "bytes": 4792,
+      "sha256": "655a4d474b04ee3e9c426485d3b65f2325e61fdbcf2981cc626f438eadbcd3f1"
+    },
+    {
+      "path": "build/audit23_python.log",
+      "bytes": 1320,
+      "sha256": "a7dac6808b95992f97d0e0b179c6533c754f758eb77ff1d96bca02278723509b"
+    },
+    {
+      "path": "build/audit23_motion_tests.log",
+      "bytes": 924,
+      "sha256": "62d05a752c5cbe60909b1a4bd18fe540c2c9f65ac1b9929023d2ea6ead46f719"
+    },
+    {
+      "path": "build/audit23_ctest.log",
+      "bytes": 15582,
+      "sha256": "7ac4e9481da2eb49bddc345691f558451ecb3dcc5fffce8359a1c462c2d79ad6"
+    },
+    {
+      "path": "build/audit23_build_initial.log",
+      "bytes": 11674,
+      "sha256": "2884bc8468b4795006628821146f3fae01977860c1253cc09eeb1d7d90ace53f"
+    },
+    {
+      "path": "build/audit23_pio.log",
+      "bytes": 26344,
+      "sha256": "0937e76068c1a4a1387fc1a0cdbebfed3900ca0f6ecd203d869e8a8e31be5556"
+    },
+    {
+      "path": "build/audit23_upload.log",
+      "bytes": 14238,
+      "sha256": "05fd9e72bd16d4d3036c1ccedd2856e9771395de767a8ce0b80f969a81fe045c"
+    },
+    {
+      "path": "build/audit23_source.diff",
+      "bytes": 87312,
+      "sha256": "c00a20bf6eb9f3a996b766802ba108c2fb68a1f69ec4570ce6855d8a1b27e629"
+    }
+  ],
+  "evidence_archive": {
+    "path": "ess_release_23_audit_2026-10-05_evidence.zip",
+    "sha256": "f68339adf3fa9998f3e66deaa67ce343477c1847ac86e9b3749a86c26451f6cb"
+  }
+}

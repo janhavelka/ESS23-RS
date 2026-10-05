@@ -2490,7 +2490,8 @@
         ]
       },
       "cli_commands": [
-        "motion-profile read"
+        "motion-profile read",
+        "profile ess_rs motion-profile read"
       ],
       "implementation": "IMPLEMENTED",
       "cli": "REACHABLE",
@@ -2528,7 +2529,8 @@
         ]
       },
       "cli_commands": [
-        "motion-profile restore"
+        "motion-profile restore",
+        "profile ess_rs motion-profile restore"
       ],
       "implementation": "IMPLEMENTED",
       "cli": "REACHABLE",
@@ -2548,7 +2550,7 @@
         ],
         "reason": "Historical ordinary-firmware checked snapshot and exact restoration; no new-image or independent electrical/motion credit."
       },
-      "reason": "Existing typed PositionProfile via production owner. Restores only0021/5; observed start-speed0020 is never written. Matching stored readback does not prove persistence."
+      "reason": "Restricted whole-profile restoration via production owner: only the retained original0021/5 snapshot can be supplied. Arbitrary candidates or archived values cannot be staged through this CLI; see position_profile_candidate_staging. Observed start-speed0020 is never written. Matching stored readback does not prove persistence."
     }
   ],
   "coverage_notes": [
@@ -2568,10 +2570,26 @@
     "Fresh16/17audit fixes closure-budget certainty and optional-host help parity, repeats all48 indexed reads and reversible lock-delay stored restoration. The original shared-start write FAIL remains unresolved; no pair permission, current formula or physical trigger qualification is inferred.",
     "Prompt18 accounts for all20 reviewed scalar tuning fields with group-local masks and fixed bounded read/write sequences. Native filter coefficients, arrival-time/deviation/LA-node/gain codes retain unspecified physical units. Earlier COLLISION_THRESHOLD_003B/COLLISION_CURRENT_003C have unspecified access and remain separate unresolved records, never aliased to0122/0123 or read through a forbidden window. Native gain/collision/arrival writes require exact independent effects qualification; physical effects remain separately unqualified.",
     "Prompt21 implements explicit save/factory-restore choices via typed PersistenceContext and existing commissioning ownership. Per-field source-access notation remains ledger-derived; known raw before-values and post-action reads are separate from durability. Physical nonvolatile writes, motor restart and factory restoration remain NOT_RUN; partial snapshots and read-only regression receive no persistence hardware credit.",
-    "Prompt23 reconciles existing PositionProfile read/restore and names missing native families owning09/11/14/18 without shrinking221 records/135 choices. Installed function roles are separate from typed device obligations. Static CLI prefix checking uses production metadata and implemented family grammar; runtime reachability requires console/application tests.",
+    "Prompt23 reconciles existing PositionProfile read/restore, including matching ESS profile aliases, and names missing native families owning09/11/14/18 without shrinking221 records/135 choices. PositionProfile write credit is restricted whole-snapshot restoration, not general candidate/archive staging. Installed function roles are separate from typed device obligations. Static CLI prefix checking uses production metadata and implemented family grammar; runtime reachability requires console/application tests.",
+    "Local wiring declarations distinguish unknown, unconnected and connected terminals. They assign no drive function, observe no electrical state and receive no device read/write/action credit.",
     "Local profile list and discover inspect/cancel/restore/finish are host/session controls, not READ implementation credit; the discovery device obligation maps to the producing discover route only. Plain monitor is passive; READ coverage maps to monitor INTERVAL_MS COUNT."
   ],
   "gaps": [
+    {
+      "id": "position_profile_candidate_staging",
+      "records": [
+        "POSITION_ACCELERATION_TIME",
+        "POSITION_DECELERATION_TIME",
+        "POSITION_SPEED",
+        "POSITION_PULSES"
+      ],
+      "kinds": [
+        "WRITE"
+      ],
+      "owner": "09/11",
+      "disposition": "PARTIAL",
+      "reason": "The public typed0021/5 builder accepts valid caller-supplied profiles, but the application/CLI exposes only restoration of its volatile original snapshot. General native parameter candidates and archived restoration after host restart require a bounded checked staging operation; no arbitrary CLI setter or archive import exists. Existing restricted restoration and finite-move staging do not close this obligation."
+    },
     {
       "id": "position_start_speed_write",
       "records": [

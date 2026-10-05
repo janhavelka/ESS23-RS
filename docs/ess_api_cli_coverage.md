@@ -20,7 +20,7 @@ to identify related command families without claiming additional device access.
 | Public role | Existing callable surface | Console relationship |
 | --- | --- | --- |
 | Typed device operations | ESS read/action/move/velocity/home/settings/communication/persistence preparations; common wrappers reuse ESS preparations | Producing common/profile routes call these functions through one application owner |
-| Typed position profile | `buildReadPositionProfile`, `parsePositionProfile`, `buildWritePositionProfile` | `motion-profile read/inspect/restore/forget` manages an original six-word snapshot; restore writes only `0x0021/5`, excluding observed start speed; forget is local release |
+| Typed position profile | `buildReadPositionProfile`, `parsePositionProfile`, `buildWritePositionProfile` | `motion-profile read/inspect/restore/forget` and matching `profile ess_rs motion-profile ...` manage an original six-word snapshot; restore writes only `0x0021/5`, excluding observed start speed; arbitrary candidate/archive staging remains a named gap; forget is local release |
 | Sequencers | `next*`, `advance*`, `serviceVelocity`, settings write deadline and persistence verification | Cooperatively executed by the owner; inspecting a context is not a second device operation |
 | Observations | Checked `getIdentity/getConfig/getStateBlock`, settings observations, `checkProbe`, `getHomeReference` | Terminal/result/status formatting uses retained evidence; reads and cached inspection remain separate |
 | Host configuration | `validateAxisConfig/configureAxis/setAxisOrigin/invalidateAxisReference`; explicitly assumed bench units | Axis commands change host interpretation, with idle/reference/generation rules; no implicit device write |
@@ -51,9 +51,9 @@ the installed core performs no UART, clock, retry, queue, heap or logging work.
 | Stored records | `segment position|speed|start INDEX read|set`; matching profile route | One indexed helper per real layout; no serial record trigger |
 | Control and tuning | `control read|set`, `tuning GROUP read|set`; matching profile routes | ESS typed parameter validation and common settings sequence |
 | Commissioning/persistence | `communication ...`, `persistence ...`; matching profile routes | Explicit public preparations and exclusive application sessions |
-| Host session | `useaddr ADDRESS`, `host ...` | Idle local target selection and settled UART tuple callback; no drive setting change |
+| Host session and wiring | `useaddr ADDRESS`, `host ...`, `wiring [x0..x3|y0..y1 unknown|unconnected|connected]` | Idle local target selection, explicit wiring declarations and settled UART tuple callback; no drive setting change |
 | Local lifecycle | `result [ID]`, `release ID`, `cancel [ID]`, `monitor ...`, `reset`, `recover` | Non-consuming retained inspection, explicit release/cancel, finite polling, host recovery |
-| Diagnostics/profile snapshot | `debug off|raw|decoded`, `motion-profile read|inspect|restore|forget`, `load ...`, `capture-read` | Installed traffic capture/decoder, typed position-profile codecs, bounded application adapters |
+| Diagnostics/profile snapshot | `debug off|raw|decoded`, `motion-profile read|inspect|restore|forget`, `profile ess_rs motion-profile ...`, `load ...`, `capture-read` | Installed traffic capture/decoder, typed position-profile codecs, bounded application adapters |
 
 `help COMMAND` describes exact syntax. Parameter group aliases call the same
 parser and callback as their profile routes. Relative previews require an
@@ -89,7 +89,19 @@ the other target, and retained historical results remain unchanged.
 An old saved motion profile cannot restore into a new binding. Explicit idle
 `motion-profile forget` releases that snapshot without clearing uncertain
 operations, transport faults or physical reservations; archive/restore originals
-before discarding a snapshot that is still needed.
+before discarding a snapshot that is still needed. Both bare and explicit ESS
+routes use the same checked snapshot/restoration callback. The public builder
+can encode valid caller-supplied profiles, but the console currently supplies
+only its retained original snapshot; it has no arbitrary staging/archive import.
+
+An accepted restore reserves the axis until matching readback settles it.
+`restore_unsettled` remains visible after failed/uncertain transport and blocks
+forget, rebinding and replay. After explicit transport repair, fresh configuration
+and stationary reads, `motion-profile read` performs read-only reconciliation.
+An uncertain write needs stationary evidence later than its delivery. Its raw
+frame, UNKNOWN outcome, original deadline and configuration/tuple/binding
+generations remain immutable while the new read has its own deadline/context.
+Successful stored reconciliation does not manufacture an acknowledgement.
 
 The snapshot is volatile application storage. On this bench, opening another
 USB session reset that storage while the motor retained its staged parameters.
@@ -97,7 +109,10 @@ The prompt23 report preserves the original target5000 and final stopped
 target100 separately. Session restoration cannot recover an archive lost on
 host restart; arbitrary archived parameter preparation belongs to09/11.
 
-Input reports distinguish declared wiring (`unknown`, `unconnected`,
+The local `wiring` command queries declarations or explicitly changes one
+terminal's declaration while idle. It supplies operation prerequisites without
+assigning drive functions or observing a voltage. Its changes have no device
+read/write credit in the operation inventory. Input reports distinguish declared wiring (`unknown`, `unconnected`,
 `connected`), assignment (`unresolved`, `disabled`, `assigned`) and observed
 levels. Typed `io set x0 none`/`y0 none` use the same checked function setter
 with documented value0. Neither polarity nor unconnected wiring disables an
@@ -116,6 +131,7 @@ Substantial prerequisite gaps remain assigned to their original prompts:
 | Owning prompt | Open obligation | Actual boundary |
 | --- | --- | --- |
 | 09/11 | Native positioning start-speed setter | Profile snapshot reads start speed; restoration never writes it |
+| 09/11 | Arbitrary native five-word profile candidates and archived restoration | Typed builder exists, but CLI restoration accepts only the volatile original snapshot; finite-move staging is not standalone parameter access |
 | 11 | Standalone typed velocity parameter reads | Finite velocity stages qualified supplied words; that is write sequencing, not a parameter-read API |
 | 14 | Standalone typed homing parameter reads and auxiliary setter | Existing homing requires independently qualified active auxiliary 7 |
 | 14 | Remaining homing trajectories | Three methods implemented, 27 unimplemented, five unresolved; I/O configuration does not implement a switch trajectory |

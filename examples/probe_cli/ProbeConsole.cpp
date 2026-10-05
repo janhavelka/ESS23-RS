@@ -13,20 +13,38 @@
 #include <limits>
 
 namespace MotorControlRSExample { namespace Probe {
+Action driverAdmissionStatus(const MotorControlRS::Status& status) noexcept {
+    using MotorControlRS::Err;
+    using MotorControlRS::ESS_RS::DriverError;
+    if (status) return Action::OK;
+    if (status.code != Err::UNSUPPORTED) return Action::INVALID;
+    switch (static_cast<DriverError>(status.detail)) {
+    case DriverError::OUTPUT_FUNCTION_UNRESOLVED:
+    case DriverError::SEGMENT_SIGN_UNRESOLVED:
+    case DriverError::CURRENT_LIMIT_UNRESOLVED:
+    case DriverError::CURRENT_BASE_UNRESOLVED:
+    case DriverError::TUNING_ACCESS_UNRESOLVED: return Action::UNRESOLVED;
+    case DriverError::IO_EFFECTS_REQUIRED:
+    case DriverError::CONTROL_EFFECTS_REQUIRED:
+    case DriverError::TUNING_EFFECTS_REQUIRED: return Action::INVALID;
+    default: return Action::UNSUPPORTED;
+    }
+}
 namespace {
 
-enum class Command : uint8_t { HELP, VERSION, CONFIG, STATUS, HEALTH, STATS, PROBE, CAPTURE_READ, RECOVER, RESET, MEMORY, LOAD, DRV, RESULT, CANCEL, RELEASE, READ, PROFILE, CAPS, READ_IDENTITY, READ_CONFIG, READ_STATE, HEALTH_CHECK, MONITOR, AXIS, PREPARE, ENABLE, MOTOR_RELEASE, ALARM_CLEAR, STOP, MOVE, POSITION_CLEAR, VELOCITY, DRIVER, IO, HOME, SEGMENT, CONTROL, TUNING, HOST, COMMUNICATION, PERSISTENCE, MOTION_PROFILE, DEBUG, DISCOVER, USEADDR };
+enum class Command : uint8_t { HELP, VERSION, CONFIG, STATUS, HEALTH, STATS, PROBE, CAPTURE_READ, RECOVER, RESET, MEMORY, LOAD, DRV, RESULT, CANCEL, RELEASE, READ, PROFILE, CAPS, READ_IDENTITY, READ_CONFIG, READ_STATE, HEALTH_CHECK, MONITOR, AXIS, PREPARE, ENABLE, MOTOR_RELEASE, ALARM_CLEAR, STOP, MOVE, POSITION_CLEAR, VELOCITY, DRIVER, IO, HOME, SEGMENT, CONTROL, TUNING, HOST, COMMUNICATION, PERSISTENCE, MOTION_PROFILE, DEBUG, DISCOVER, USEADDR, WIRING };
 struct Entry { const char* name; Command command; const char* syntax; const char* effect; bool bus; };
 const Entry COMMANDS[] = {
     {"discover", Command::DISCOVER, "discover [profile ess_rs|manufacturer stepperonline] [addresses FIRST LAST] [tuple BAUD FORMAT] [query-ms 1..5000] [overall-ms 1..60000] [requests 1..256] [results 1..8] [identity] | discover inspect|cancel|restore|finish; max4 distinct tuples,128bytes,20tokens; defaults selected endpoint/current tuple,query500ms,overall5000ms,requests16,results8,no identity,no retries", "bounded_nonchanging_queries_retained_findings_host_restoration", true},
     {"debug", Command::DEBUG, "debug [off|raw|decoded]", "observe_regular_operations_and_cached_diagnostics", false},
-    {"motion-profile", Command::MOTION_PROFILE, "motion-profile read|inspect|restore|forget", "snapshot_position_parameters_restore_or_explicitly_release_snapshot", true},
+    {"motion-profile", Command::MOTION_PROFILE, "motion-profile read|inspect|restore|forget | profile ess_rs motion-profile ...", "snapshot_position_parameters_restore_or_explicitly_release_snapshot", true},
     {"help", Command::HELP, "help [command]", "show_callable_commands", false},
     {"version", Command::VERSION, "version", "show_build", false},
     {"ver", Command::VERSION, "ver", "show_build", false},
     {"config", Command::CONFIG, "config", "show_host_settings", false},
     {"settings", Command::CONFIG, "settings", "show_host_settings", false},
     {"useaddr", Command::USEADDR, "useaddr 1..247", "idle_host_selection_invalidates_dependent_confidence_no_motor_io", false},
+    {"wiring", Command::WIRING, "wiring [x0|x1|x2|x3|y0|y1 unknown|unconnected|connected]", "declare_external_wiring_only_no_device_assignment_or_io", false},
     {"host", Command::HOST, "host [baud RATE | fmt 8N1|8N2|8E1|8O1 | set RATE FORMAT | restore | caps]", "settled_host_serial_only_no_motor_settings", false},
     {"communication", Command::COMMUNICATION, "communication [inspect | plan|begin address|baud|format VALUE [address] | host before|requested | confirm before|requested | finish]", "explicit_communication_session_no_save_restart_or_replay", true},
     {"persistence", Command::PERSISTENCE, "persistence [inspect | snapshot | plan|begin save|factory-restore | verify | host before | finish]", "one_explicit_save_or_factory_restore_no_retry_or_inferred_durability", true},
@@ -37,7 +55,7 @@ const Entry COMMANDS[] = {
     {"ping", Command::PROBE, "ping [address]", "read_model_word_only", true},
     {"capture-read", Command::CAPTURE_READ, "capture-read [address]", "read_0x0130_16_words_for_capture_qualification", true},
     {"read", Command::READ, "read identity|config|state [address]", "checked_nonchanging_read", true},
-    {"profile", Command::PROFILE, "profile list | profile ess_rs identity|config|state|enable|release|clear-alarm|clear-position|normal-stop|emergency-stop [address] | profile ess_rs move-relative|move-absolute|move-angle ... | profile ess_rs velocity ... | profile ess_rs driver read|set ... | profile ess_rs io read|set ... | profile ess_rs segment ... | profile ess_rs control read|set ... | profile ess_rs tuning GROUP read|set ... | profile ess_rs communication ... | profile ess_rs persistence ... | profile ess_rs home ... | profile ess_rs caps", "public_profile_operations", true},
+    {"profile", Command::PROFILE, "profile list | profile ess_rs identity|config|state|enable|release|clear-alarm|clear-position|normal-stop|emergency-stop [address] | profile ess_rs move-relative|move-absolute|move-angle ... | profile ess_rs velocity ... | profile ess_rs driver read|set ... | profile ess_rs io read|set ... | profile ess_rs segment ... | profile ess_rs control read|set ... | profile ess_rs tuning GROUP read|set ... | profile ess_rs communication ... | profile ess_rs persistence ... | profile ess_rs home ... | profile ess_rs motion-profile ... | profile ess_rs caps", "public_profile_operations", true},
     {"driver", Command::DRIVER, "driver read [address] | driver set field integer [field integer ...] [address] | profile ess_rs driver ...", "typed_drive_settings_with_checked_readback", true},
     {"io", Command::IO, "io read [address] | io set input-polarity|x0|x1|x2|x3|output-polarity|y0|y1|custom value [field value ...] [address]; none assigns function 0 | profile ess_rs io ...", "explicit_typed_terminal_settings_and_readback", true},
     {"segment", Command::SEGMENT, "segment position|speed|start INDEX read [address] | segment position|speed|start INDEX set FIELD INTEGER [FIELD INTEGER ...] [address] | profile ess_rs segment ...", "indexed_stored_records_only_external_execution", true},
@@ -933,6 +951,10 @@ void Console::dispatch() noexcept {
         else error(id,"debug","output_capacity");
         return;
     }
+    if (entry->command == Command::PROFILE && count > first + 2 &&
+        !std::strcmp(tokens[first + 1], "ess_rs") && !std::strcmp(tokens[first + 2], "motion-profile")) {
+        entry = find("motion-profile"); first += 2;
+    }
     if (entry->command == Command::MOTION_PROFILE) {
         if (outputPending()) { ++inputDropped_; return; }
         if (!host_.motionProfile) { error(id, "motion-profile", "unavailable"); return; }
@@ -958,7 +980,13 @@ void Console::dispatch() noexcept {
             static_cast<unsigned long long>(v.txAccepted),boolean(v.closureQualified),static_cast<unsigned long long>(v.closureEarliestUs),static_cast<unsigned long long>(v.closureLatestUs),boolean(v.executionUnknown),v.error)) {
             --used;
             if (append(output_,sizeof(output_),used,",\"request\":\"%s\",\"tx_complete\":%s,\"write_tx_complete\":%s,\"deadline_us\":%llu,\"delivered_us\":%llu,\"write_tx_hex\":\"%s\",\"write_tx_accepted\":%llu,\"write_closure_qualified\":%s,\"write_closure_earliest_us\":%llu,\"write_closure_latest_us\":%llu,\"write_delivered_us\":%llu,\"write_execution_unknown\":%s}",
-                tokens[first+1],boolean(v.txComplete),boolean(v.writeTxComplete),static_cast<unsigned long long>(v.deadlineUs),static_cast<unsigned long long>(v.deliveredUs),writeTx,static_cast<unsigned long long>(v.writeTxAccepted),boolean(v.writeQualified),static_cast<unsigned long long>(v.writeEarliestUs),static_cast<unsigned long long>(v.writeLatestUs),static_cast<unsigned long long>(v.writeDeliveredUs),boolean(v.writeExecutionUnknown))) emit();
+                tokens[first+1],boolean(v.txComplete),boolean(v.writeTxComplete),static_cast<unsigned long long>(v.deadlineUs),static_cast<unsigned long long>(v.deliveredUs),writeTx,static_cast<unsigned long long>(v.writeTxAccepted),boolean(v.writeQualified),static_cast<unsigned long long>(v.writeEarliestUs),static_cast<unsigned long long>(v.writeLatestUs),static_cast<unsigned long long>(v.writeDeliveredUs),boolean(v.writeExecutionUnknown))) {
+                --used;
+                if (append(output_,sizeof(output_),used,",\"restore_unsettled\":%s,\"write_deadline_us\":%llu,\"write_configuration_generation\":%lu,\"write_serial_generation\":%lu,\"write_binding_generation\":%lu}",
+                    boolean(v.restoreUnsettled),static_cast<unsigned long long>(v.writeDeadlineUs),static_cast<unsigned long>(v.writeConfigurationGeneration),
+                    static_cast<unsigned long>(v.writeSerialGeneration),static_cast<unsigned long>(v.writeBindingGeneration))) emit();
+                else error(id,"motion-profile","output_capacity");
+            }
             else error(id,"motion-profile","output_capacity");
         }
         else error(id,"motion-profile","output_capacity");
@@ -1260,7 +1288,7 @@ void Console::dispatch() noexcept {
                 else if (field == 0) request.inputPolarity = word;
                 else if (field == 5) request.outputPolarity = word;
                 else request.customOutput = word;
-                if (!checked) { error(id, command, "invalid_value"); return; }
+                if (!checked) { error(id, command, driverAdmissionStatus(checked) == Action::UNRESOLVED ? "unresolved" : "invalid_value"); return; }
                 continue;
             }
             switch (field) {
@@ -1448,6 +1476,35 @@ void Console::dispatch() noexcept {
         action(id, "useaddr", host_.selectTarget(host_.context, static_cast<uint8_t>(address)), static_cast<uint8_t>(address));
         return;
     }
+    if (entry->command == Command::WIRING) {
+        if (outputPending()) { ++inputDropped_; return; }
+        if (!host_.wiring) { error(id, "wiring", "unavailable"); return; }
+        const bool change = count == first + 3;
+        if (count != first + 1 && !change) { error(id, "wiring", "invalid_arguments"); return; }
+        WiringRequest request;
+        if (change) {
+            const char* terminal = tokens[first + 1];
+            if (std::strlen(terminal) != 2 ||
+                !((terminal[0] == 'x' && terminal[1] >= '0' && terminal[1] <= '3') ||
+                  (terminal[0] == 'y' && terminal[1] >= '0' && terminal[1] <= '1'))) {
+                error(id, "wiring", "invalid_arguments"); return;
+            }
+            request.terminal = static_cast<uint8_t>(terminal[1] - '0' + (terminal[0] == 'y' ? 4 : 0));
+            const char* state = tokens[first + 2];
+            if (!std::strcmp(state, "connected")) request.state = Core::InputWiring::CONNECTED;
+            else if (!std::strcmp(state, "unconnected")) request.state = Core::InputWiring::UNCONNECTED;
+            else if (std::strcmp(state, "unknown")) { error(id, "wiring", "invalid_arguments"); return; }
+        }
+        WiringSnapshot view;
+        const Action result = host_.wiring(host_.context, change ? &request : nullptr, view);
+        std::snprintf(output_, sizeof(output_),
+            "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"wiring\",\"ok\":%s,\"result\":\"%s\",\"target\":%lu,\"address\":%u,\"generation\":%lu,\"configuration_generation\":%lu,\"inputs\":[%u,%u,%u,%u],\"outputs\":[%u,%u],\"bus_traffic\":false}",
+            static_cast<unsigned long>(id), boolean(result == Action::OK), result == Action::OK ? "done" : actionName(result),
+            static_cast<unsigned long>(view.target.id), view.target.address, static_cast<unsigned long>(view.target.generation),
+            static_cast<unsigned long>(view.configurationGeneration), static_cast<unsigned>(view.inputs[0]), static_cast<unsigned>(view.inputs[1]),
+            static_cast<unsigned>(view.inputs[2]), static_cast<unsigned>(view.inputs[3]), static_cast<unsigned>(view.outputs[0]), static_cast<unsigned>(view.outputs[1]));
+        emit(); return;
+    }
     // Cancellation, monitor off and the validated stop path above remain responsive.
     const bool monitorOff = entry->command == Command::MONITOR && count == first + 2 && std::strcmp(tokens[first + 1], "off") == 0;
     if (outputPending() && entry->command != Command::CANCEL && !monitorOff) { ++inputDropped_; return; }
@@ -1545,6 +1602,7 @@ void Console::dispatch() noexcept {
         case Command::LOAD: return host_.load != nullptr;
         case Command::HOST: return host_.hostSerial != nullptr;
         case Command::USEADDR: return host_.selectTarget != nullptr;
+        case Command::WIRING: return host_.wiring != nullptr;
         case Command::DEBUG: return host_.debug && host_.snapshot;
         case Command::MOTION_PROFILE: return host_.motionProfile != nullptr;
         case Command::COMMUNICATION: return host_.communication != nullptr;
