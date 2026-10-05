@@ -126,6 +126,107 @@ class RepositoryChecks(unittest.TestCase):
         self.assertTrue(any("absent.md" in item for item in findings))
         self.assertTrue(any("missing.md" in item for item in findings))
 
+    def test_nested_and_continued_list_links_are_prose(self):
+        self.write("docs/guide.md", """- outer
+    - [nested](nested-missing.md)
+
+      [continued](continued-missing.md)
+- sibling
+
+    [paragraph](paragraph-missing.md)
+1. ordered
+    [ordered paragraph](ordered-missing.md)
+""")
+        findings = checker.check_docs(self.root)
+        self.assertEqual(len(findings), 4, findings)
+        for name in ("nested", "continued", "paragraph", "ordered"):
+            self.assertTrue(any(name + "-missing.md" in item for item in findings), findings)
+
+    def test_list_indented_and_fenced_code_stays_excluded(self):
+        self.write("docs/guide.md", """- item
+
+      [indented sample](missing.md)
+    ```text
+    [fenced sample](missing.md)
+    ```
+    [real link](real-missing.md)
+
+Outside the list.
+
+    [top-level code](missing.md)
+-     [item starts with code](missing.md)
+- ```text
+  [unterminated item fence](missing.md)
+
+Outside [real link](outside-missing.md).
+""")
+        findings = checker.check_docs(self.root)
+        self.assertEqual(len(findings), 2, findings)
+        self.assertIn("real-missing.md", findings[0])
+        self.assertIn("outside-missing.md", findings[1])
+
+    def test_multiline_inline_and_reference_labels(self):
+        self.write("docs/guide.md", """[inline
+label](inline-missing.md)
+[reference
+label][definition label]
+[shortcut
+label]
+[definition
+label]: reference-missing.md
+[shortcut label]: shortcut-missing.md
+""")
+        findings = checker.check_docs(self.root)
+        self.assertEqual(len(findings), 3, findings)
+        for name in ("inline", "reference", "shortcut"):
+            self.assertTrue(any(name + "-missing.md" in item for item in findings), findings)
+
+    def test_fence_closure_requires_only_trailing_whitespace(self):
+        self.write("docs/guide.md", """```text
+```not-a-close
+[code](missing.md)
+````\x20\x20
+[prose](prose-missing.md)
+~~~text
+~~~not-a-close
+[code](missing.md)
+~~~~
+[prose](other-missing.md)
+""")
+        findings = checker.check_docs(self.root)
+        self.assertEqual(len(findings), 2, findings)
+        for name in ("prose", "other"):
+            self.assertTrue(any(name + "-missing.md" in item for item in findings), findings)
+
+    def test_lazy_list_and_adjacent_indentation_stay_prose(self):
+        self.write("docs/guide.md", """- list paragraph
+lazy continuation
+    [four-space prose](four-missing.md)
+      [six-space prose](six-missing.md)
+
+      [actual list code](missing.md)
+
+Outside paragraph.
+    [adjacent indentation](outside-missing.md)
+
+    [actual document code](missing.md)
+""")
+        findings = checker.check_docs(self.root)
+        self.assertEqual(len(findings), 3, findings)
+        for name in ("four", "six", "outside"):
+            self.assertTrue(any(name + "-missing.md" in item for item in findings), findings)
+
+    def test_nested_and_escaped_label_brackets(self):
+        self.write("docs/guide.md", r"""[text [nested]](nested-missing.md)
+[text \[escaped\]](escaped-missing.md)
+[outer [inner](inner-missing.md)]
+\[literal](missing.md)
+""")
+        findings = checker.check_docs(self.root)
+        self.assertEqual(len(findings), 3, findings)
+        for name in ("nested", "escaped", "inner"):
+            self.assertTrue(any(name + "-missing.md" in item for item in findings), findings)
+
     def test_historical_and_generated_sources_excluded_targets_still_checked(self):
         self.write("docs/reports/old.md", "[historical](missing.md)")
         self.write("docs/pdf-extracted-md/raw.md", "[raw](missing.md)")

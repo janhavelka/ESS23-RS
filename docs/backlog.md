@@ -2,6 +2,11 @@
 
 ## Prompt27 verification and packaging
 
+- [x] Fresh independent audit closes command/check-mode, optimized-assertion,
+  CTest success-override and ZIP-consumer proof gaps; list/code/link regressions
+  and qualified compiler requirements are explicit.
+  See [fresh audit](reports/ess_release_27_audit_2026-10-05.md).
+
 - [x] One fail-closed quick/full verifier: every registered native/Python suite,
   generated files, exact offline reference bytes and maintained local links.
 - [x] Clean source/install static core, exact package version, relocated include

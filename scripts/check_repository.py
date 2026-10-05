@@ -117,17 +117,55 @@ def prose_only(text):
     blank = lambda match: re.sub(r"[^\n]", " ", match.group())
     lines = text.splitlines(keepends=True)
     fence = None
+    fence_indent = 0
+    list_indents = []
+    paragraph = False
     for index, line in enumerate(lines):
-        match = re.match(r"^ {0,3}(`{3,}|~{3,})", line)
+        expanded = line.expandtabs(4)
         if fence:
-            lines[index] = re.sub(r"[^\n]", " ", line)
-            if match and match[1][0] == fence[0] and len(match[1]) >= len(fence):
+            indent = len(expanded) - len(expanded.lstrip(" "))
+            if fence_indent and line.strip() and indent < fence_indent:
+                # Leaving a list also ends a fence contained by that item.
                 fence = None
-        elif match:
+            else:
+                match = re.match(r"^ {0,3}(`{3,}|~{3,})[ \t]*$", expanded[fence_indent:].rstrip("\r\n"))
+                lines[index] = re.sub(r"[^\n]", " ", line)
+                if match and match[1][0] == fence[0] and len(match[1]) >= len(fence):
+                    fence = None
+                paragraph = False
+                continue
+        if not line.strip():
+            paragraph = False
+            continue
+        indent = len(expanded) - len(expanded.lstrip(" "))
+        marker = re.match(r"^ *(?:[-+*]|[0-9]{1,9}[.)])([ \t]+)", expanded)
+        block_start = re.match(r"^ {0,3}(?:#{1,6}(?:[ \t]|$)|>|`{3,}|~{3,}|(?:[-*_][ \t]*){3,}$)", expanded.rstrip("\r\n"))
+        continuing = paragraph and not marker and not block_start
+        lazy = continuing and list_indents and indent < list_indents[-1]
+        while list_indents and indent < list_indents[-1] and not lazy:
+            list_indents.pop()
+        base_indent = list_indents[-1] if list_indents and not lazy else 0
+        if marker and indent - base_indent < 4:
+            # List prose is measured from the item's content column. Four
+            # spaces at the document edge can therefore be ordinary nested
+            # prose; code needs four additional spaces inside the item.
+            base_indent = marker.start(1) + (1 if len(marker[1]) > 4 else len(marker[1]))
+            list_indents.append(base_indent)
+            content = expanded[base_indent:]
+        else:
+            content = expanded[base_indent:]
+        if len(content) - len(content.lstrip(" ")) >= 4 and not continuing:
+            lines[index] = re.sub(r"[^\n]", " ", line)
+            paragraph = False
+            continue
+        match = re.match(r"^ {0,3}(`{3,}|~{3,})", content)
+        if match:
             fence = match[1]
+            fence_indent = base_indent
             lines[index] = re.sub(r"[^\n]", " ", line)
-        elif line.startswith("    ") or line.startswith("\t"):
-            lines[index] = re.sub(r"[^\n]", " ", line)
+            paragraph = False
+        else:
+            paragraph = bool(marker) or not block_start
     text = "".join(lines)
     text = re.sub(r"<!--.*?-->", blank, text, flags=re.S)
     return re.sub(r"(`+)(?!`).*?(?<!`)\1(?!`)", blank, text, flags=re.S)
@@ -160,32 +198,72 @@ def destination(text, start):
     return re.sub(r"\\([() ])", r"\1", text[start:end]), end
 
 
+def label_end(text, start):
+    """Find the matching bracket, respecting nested and escaped brackets."""
+    depth = 1
+    position = start + 1
+    while position < len(text):
+        char = text[position]
+        if char == "\\":
+            position += 2
+            continue
+        if char == "[":
+            depth += 1
+        elif char == "]":
+            depth -= 1
+            if depth == 0:
+                return position
+        position += 1
+    return -1
+
+
 def markdown_links(text):
     text = prose_only(text)
     definitions = {}
-    for match in re.finditer(r"^ {0,3}\[([^]\n]+)\]:[ \t]*(.*)$", text, flags=re.M):
+    for match in re.finditer(r"^ {0,3}\[([^]]+)\]:[ \t]*(.*)$", text, flags=re.M):
         target, _ = destination(match[2], 0)
         definitions[" ".join(match[1].lower().split())] = target
         # Definitions are checked when used, not merely declared.
         text = text[:match.start()] + re.sub(r"[^\n]", " ", match.group()) + text[match.end():]
-    for match in re.finditer(r"(?<!\\)\[([^]\n]*)\]", text):
-        after = match.end()
+    position = 0
+    while position < len(text):
+        if text[position] == "\\":
+            position += 2
+            continue
+        if text[position] != "[":
+            position += 1
+            continue
+        start = position
+        end = label_end(text, start)
+        if end < 0:
+            position += 1
+            continue
+        label = text[start + 1:end]
+        after = end + 1
         if after < len(text) and text[after] == "(":
-            target, _ = destination(text, after + 1)
-            yield match.start(), target
+            target, end = destination(text, after + 1)
+            position = end + 1
+            yield start, target
         elif after < len(text) and text[after] == "[":
-            end = text.find("]", after + 1)
+            end = label_end(text, after)
             if end >= 0:
-                label = text[after + 1:end] or match[1]
+                position = end + 1
+                label = text[after + 1:end] or label
                 key = " ".join(label.lower().split())
                 if key in definitions:
-                    yield match.start(), definitions[key]
+                    yield start, definitions[key]
                 else:
-                    yield match.start(), "!undefined-reference:" + label
+                    yield start, "!undefined-reference:" + label
+            else:
+                position = start + 1
         else:
-            key = " ".join(match[1].lower().split())
+            key = " ".join(label.lower().split())
             if key in definitions:
-                yield match.start(), definitions[key]
+                position = after
+                yield start, definitions[key]
+            else:
+                # An ordinary bracketed phrase may contain an actual link.
+                position = start + 1
 
 
 def markdown_files(root):

@@ -29,28 +29,60 @@ def tool(name):
     return found
 
 
-def check_inventory(root, listing):
+def check_inventory(root, listing, build):
     tests = listing.get("tests", [])
     if not tests:
         raise RuntimeError("CTest registered no tests")
-    commands = {Path(argument.replace("\\", "/")).name for t in tests for argument in t.get("command", [])}
-    names = {t["name"] for t in tests}
-    for path in sorted((root / "test").glob("*_test.cpp")):
-        registered = next((t for t in tests if t["name"] == path.stem[:-5]), None)
-        if not registered or Path(registered.get("command", [""])[0]).stem != path.stem:
-            raise RuntimeError(f"unregistered native test: {path.name}")
+    by_name = {t["name"]: t for t in tests}
+    if len(by_name) != len(tests):
+        raise RuntimeError("duplicate CTest names obscure check identity")
+    for test in tests:
+        for prop in test.get("properties", []):
+            if prop["name"] in ("WILL_FAIL", "PASS_REGULAR_EXPRESSION") and prop["value"]:
+                raise RuntimeError(f"test must preserve exit-code failure: {test['name']}")
+    suffix = ".exe" if os.name == "nt" else ""
+    native = {p.stem[:-5]: p.stem for p in (root / "test").glob("*_test.cpp")}
+    native.update({name: name+"_test" for name in
+                   ("codec_independent", "probe_app_load", "idf_move_app", "idf_control_app")})
+    native["units_preview"] = "units_preview"
+    for name, binary in native.items():
+        command = by_name.get(name, {}).get("command", [])
+        if len(command) != 1 or Path(command[0]).resolve() != (build / (binary+suffix)).resolve():
+            raise RuntimeError(f"missing or wrong native test command: {name}")
+
+    def python_command(test, script, arguments=None):
+        command = test.get("command", [])
+        if len(command) < 2 or Path(command[0]).resolve() != Path(sys.executable).resolve() or Path(command[1]).resolve() != script.resolve():
+            raise RuntimeError(f"wrong Python test command: {script.name}")
+        if arguments is not None and command[2:] != arguments:
+            raise RuntimeError(f"wrong check arguments: {script.name}")
+        for prop in test.get("properties", []):
+            if prop["name"] in ("ENVIRONMENT", "ENVIRONMENT_MODIFICATION"):
+                values = prop["value"] if isinstance(prop["value"], list) else prop["value"].split(";")
+                if any(value.partition("=")[0].upper() == "PYTHONOPTIMIZE" for value in values):
+                    raise RuntimeError(f"test must not override PYTHONOPTIMIZE: {script.name}")
+
     for path in sorted((root / "test").glob("*_test.py")):
-        if path.name not in commands:
+        registered = next((t for t in tests if len(t.get("command", [])) > 1 and Path(t["command"][1]).resolve() == path.resolve()), None)
+        if not registered:
             raise RuntimeError(f"unregistered Python test: {path.name}")
-    for name in ("codec_independent", "probe_app_load", "idf_move_app", "idf_control_app", "units_preview",
-                 "register_gaps", "operations_inventory_failures"):
-        if name not in names:
+        if path.name == "idf_config_test.py":
+            python_command(registered, path)
+            if len(registered["command"]) != 4:
+                raise RuntimeError("idf_config requires compiler and compiler ID")
+        elif path.name.endswith("_console_parity_test.py") or path.name == "discovery_harness_test.py":
+            target = "discovery_console_test" if path.name == "discovery_harness_test.py" else "probe_console_test"
+            python_command(registered, path)
+            if len(registered["command"]) != 3 or Path(registered["command"][2]).resolve() != (build / (target+suffix)).resolve():
+                raise RuntimeError(f"wrong console fixture: {path.name}")
+        else:
+            python_command(registered, path, [])
+    for name, script, arguments in (("version_generated", "generate_version.py", ["check"]),
+            ("registers_generated", "generate_ess_registers.py", ["--check"]),
+            ("repository_checks", "check_repository.py", []), ("operations_inventory", "check_ess_operations.py", [])):
+        if name not in by_name:
             raise RuntimeError(f"missing required CTest check: {name}")
-    for name, script in (("version_generated", "generate_version.py"), ("registers_generated", "generate_ess_registers.py"),
-                         ("repository_checks", "check_repository.py"), ("operations_inventory", "check_ess_operations.py")):
-        registered = next((t for t in tests if t["name"] == name), None)
-        if not registered or script not in {Path(arg.replace("\\", "/")).name for arg in registered.get("command", [])}:
-            raise RuntimeError(f"missing required CTest check: {name}")
+        python_command(by_name[name], root / "scripts" / script, arguments)
     return len(tests)
 
 
@@ -82,6 +114,18 @@ def export_core(root, destination):
                 info.external_attr = 0o644 << 16
                 output.writestr(info, path.read_bytes())
     return metadata["version"], archive
+
+
+def unpack_core(archive, stage, destination):
+    """Check and build the actual exported ZIP, including every private helper."""
+    expected = {p.relative_to(stage).as_posix(): p for p in stage.rglob("*") if p.is_file()}
+    with zipfile.ZipFile(archive) as package:
+        if len(package.namelist()) != len(expected) or set(package.namelist()) != set(expected):
+            raise RuntimeError("exported archive has missing, duplicate or unexpected files")
+        for name, path in expected.items():
+            if package.read(name) != path.read_bytes():
+                raise RuntimeError(f"exported archive bytes differ: {name}")
+        package.extractall(destination)
 
 
 class Verification:
@@ -153,10 +197,12 @@ def main(argv=None):
                          "-DCMAKE_BUILD_TYPE=Release", "-DBUILD_TESTING=ON", f"-DPython3_EXECUTABLE={sys.executable}"])
         verification.run("native-build", ["cmake", "--build", native, "--parallel", "4"])
         listing = subprocess.check_output(["ctest", "--test-dir", str(native), "--show-only=json-v1"], text=True)
-        summary["registered_tests"] = check_inventory(ROOT, json.loads(listing))
+        summary["registered_tests"] = check_inventory(ROOT, json.loads(listing), native)
         verification.tests("native-tests", native)
+        stage = output / "package-stage"
+        version, archive = export_core(ROOT, stage)
         core = output / "MotorControlRS"
-        version, archive = export_core(ROOT, core)
+        unpack_core(archive, stage, core)
         summary["package"] = {"version": version, "file": archive.name,
                               "sha256": hashlib.sha256(archive.read_bytes()).hexdigest()}
         install = output / "install"

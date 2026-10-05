@@ -1,5 +1,10 @@
 # Roadmap to a supported ESS release
 
+The [fresh27 audit](reports/ess_release_27_audit_2026-10-05.md) tightens actual
+test command/mode identity, assertion and exit-status guards, exported archive
+consumption and maintained Markdown links. Qualified verifier compilers are
+explicit; runtime and hardware dispositions remain unchanged.
+
 Prompt27 supplies [repeatable quick/full verification](verification.md), hosted
 compiler/firmware CI and clean static source/install packages.72 registered
 checks, strict C++11/C++17 noRTTI consumers, all27 isolated public headers and

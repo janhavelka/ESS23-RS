@@ -1,7 +1,9 @@
 # Repeatable verification and core packages
 
-Run from the repository root with Python 3.10+, CMake/CTest 3.26+, Ninja and a C++
-compiler. Tests require unoptimized Python: do not set `PYTHONOPTIMIZE`.
+Run from the repository root with Python 3.10+, CMake/CTest 3.26+, Ninja and
+GCC or Clang with GNU/LLVM `nm` available to CMake. The verifier is qualified
+on Windows MinGW GCC and hosted Linux GCC/Clang; MSVC verification remains
+unqualified. Tests require unoptimized Python: do not set `PYTHONOPTIMIZE`.
 Install the offline PDF checker dependencies once:
 
 ```sh
@@ -16,7 +18,8 @@ which requires 3.26.
 
 Quick runs all registered Release native/Python suites, generated register and
 version checks, operation inventory, offline reference hashes and local Markdown
-links. It then exports the reviewed core-only package, builds/installs it, and
+links. It then exports the reviewed core-only package, checks every ZIP member
+and its bytes, extracts that archive, builds/installs it, and
 builds/runs independent source and exact-version `find_package` consumers.
 Every public header compiles alone in strict C++11 and C++17; C++17 consumers
 disable RTTI. Both codec-only consumers must omit descriptive catalogue strings
@@ -42,7 +45,10 @@ chosen with `--build-dir PATH`. Existing output is rejected. Logs and
 `summary.json` retain exact commands, durations, failure status and package
 SHA-256. The ZIP uses stable entry order, timestamps and permissions. A missing
 tool/input, unregistered suite, empty/skipped test or failing command is a
-failure. Reference checks are offline; original vendor bytes remain separately
+failure. Registration checks require the actual interpreter, script, native
+executable and check arguments; per-test Python optimization overrides fail.
+CTest properties that turn a failing exit into PASS are also rejected.
+Reference checks are offline; original vendor bytes remain separately
 licensed. Local links are checked in maintained documents, excluding historical
 reports/PDF extracts; external URLs, anchors and explicitly named sibling
 reference repositories are not availability claims.
