@@ -6,6 +6,9 @@ headers, restores the umbrella velocity API and reconciles coverage roles.
 The full verifier passes74 checks, strict source/install consumers with28 public
 headers and eight firmware/core builds. Nine named native-family gaps remain;
 prompt29 qualification and prompt30 release are separately dispatched work.
+The107-frame final-image COM13 regression passes grouped configuration reads,
+discovery, reversible lock-delay and finite relative motion with stop/profile
+restoration; physical fault injection, electrical/shaft and endurance proof remain open.
 
 The [human console](console.md) now provides grouped help, examples and readable
 operation/traffic output on the existing application path. `@ID` automation keeps

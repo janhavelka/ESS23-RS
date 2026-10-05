@@ -2,7 +2,7 @@
   "prompt": 28,
   "baseline": "ca43e7946d8d1726e48370c372dd5af20244c47a",
   "software_audit": "PASS",
-  "physical_qualification": "NOT RUN on corrected image",
+  "physical_qualification": "PASS for short recorded functional subset; physical fault injection/electrical/shaft/endurance remain unqualified",
   "next_prompt": 29,
   "next_prompt_executed": false,
   "verification": {
@@ -199,22 +199,39 @@
     "named_gaps": 9
   },
   "hardware": {
-    "status": "NOT_RUN",
-    "reason": "COM13 repeatedly occupied; brief baseline access refused with8 retained results",
-    "uploaded": false,
-    "motor_writes": 0,
-    "results_released": 0,
-    "recovery_or_reset": false,
-    "stale_cached_position": 3639,
-    "fresh_standstill_established": false,
-    "pending": [
-      "archive/inspect retained results before explicit release",
-      "fresh baseline",
-      "candidate upload",
-      "configuration/native read regression",
-      "bounded discovery/restore",
-      "finite100 move, stop and profile restoration"
-    ]
+    "status": "PASS",
+    "initial_failures": "COM13 occupied; baseline results_full retained; five remaining settled results archived/released later",
+    "uploaded": true,
+    "results_released_before_upload": 5,
+    "transport_recovery": false,
+    "frames": 107,
+    "failures": 0,
+    "timeouts": 0,
+    "capture_faults": 0,
+    "rx_errors": 0,
+    "position_before": 3639,
+    "position_after": 3738,
+    "requested_native_displacement": 100,
+    "fresh_standstill_established": true,
+    "alarm": 0,
+    "speed": 0,
+    "motion_profile_restored": [
+      30,
+      100,
+      100,
+      60,
+      0,
+      250
+    ],
+    "lock_delay_restored": 200,
+    "bench_record": "build/p28/evidence/final.json",
+    "final_counters": "build/p28/evidence/final-cached.json",
+    "firmware_sha256": "8de8f7198d0cccd44ebf5a3ddd0c0a4801fe6bb82d998c23872e42e4500c1c4f",
+    "independent_shaft_observation": "unmeasured",
+    "electrical_timing": "unmeasured",
+    "physical_changed_window_followed_by_exception": "NOT_RUN; native injection only",
+    "debug_display_drops": 31,
+    "normal_protocol_capture_faults": 0
   },
   "production_file_sha256": {
     "CMakeLists.txt": "09644c25668ca10c94044bef4744ef0feb7e4533aaf39df7df21771a0e187a7b",
@@ -237,8 +254,8 @@
   },
   "archive": {
     "file": "ess_release_28_2026-10-05_evidence.zip",
-    "bytes": 450842,
-    "sha256": "251f2f0ef14ed90e4f1e34cae70c2038940d8ac312b6294c74c2ea82b89afc58"
+    "bytes": 582321,
+    "sha256": "c983a25e7b2b3ab34113a9187b202a9a64fc81988dc4ab65ebc2ba3546098865"
   },
   "ci": {
     "required": "all exact-pushed-commit jobs; root checks after push",

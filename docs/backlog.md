@@ -16,9 +16,11 @@
   are in the [audit report](reports/ess_release_28_2026-10-05.md).
 - [ ] Prompt29 fault/endurance qualification and remaining named native-family,
   fixture, electrical and shaft evidence; no broad release completion claim.
-- [ ] Upload28 candidate and run short configuration/discovery/finite-motion
-  regression: COM13 occupied; archive/inspect the eight retained baseline results
-  before explicit release or flashing. No current-image physical PASS claimed.
+- [x] Upload28 candidate and run107-frame configuration/discovery/finite-motion
+  regression with stop, profile and lock-delay restoration. Initial occupied-port
+  and full-result refusals retained; remaining settled results archived/released
+  before baseline and upload. Physical contradiction/exception injection remains
+  NOT RUN; native regression reproduces it.
 
 ## Human console
 
