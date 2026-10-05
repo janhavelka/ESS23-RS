@@ -22,7 +22,8 @@
 #if !CONFIG_GPTIMER_ISR_HANDLER_IN_IRAM || !CONFIG_GPTIMER_OBJ_CACHE_SAFE
 #error Capture requires the reviewed IRAM driver handler and internal timer objects
 #endif
-#if CONFIG_LOG_DEFAULT_LEVEL != 0
+// GPTimer's force-debug option overrides the pinned SDK's global log filter.
+#if CONFIG_LOG_DEFAULT_LEVEL != 0 || CONFIG_GPTIMER_ENABLE_DEBUG_LOG
 #error SDK logging must remain disabled on the correlated standalone USB console
 #endif
 #if !CONFIG_SPIRAM || !CONFIG_SPIRAM_BOOT_INIT

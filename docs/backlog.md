@@ -1,5 +1,15 @@
 # Features implementation tasks and open questions
 
+## Fresh prompt25/26 audit
+
+- [x] Native SDK logging guard rejects forced GPTimer debug logging; actual SDK negative compilation and normal clean firmware build verified.
+- [x] Ordinary console reset during uncertain trigger TX/USB backpressure preserves DE settlement, generations, unknown results and conflicts on both adapters;69 native suites PASS.
+- [x] Clean native firmware/core-only S3/S2, portable S2 and installed all27-header consumer checks; short matched loaded capture/motion/stop/settings/host-repair regression and documented Arduino ending.
+- [ ] USB RX ring overflow is not reported by the pinned native SDK; `drv.input_dropped` measures console-level discards only. Saturated incoming USB traffic remains unqualified; no larger-buffer workaround or loss-free claim.
+- [ ] Both audit forward commands requested100 native increments and reported raw delta99. Functional activity/standstill checks pass; exact feedback mapping/positioning accuracy remains unresolved without correlated independent shaft measurement. No target/scale/threshold correction was inferred.
+
+See [independent audit/evidence](reports/ess_release_25_26_audit_2026-10-05.md).
+
 ## Prompt26 platform parity and portability
 
 - [x] Matched Arduino/native IDF S3 read/state/control, loaded7/37-byte capture, finite100-increment move, normal/direct stop during250-increment moves, lock-delay200→201→200 and explicit host-fault recovery/restoration.

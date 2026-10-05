@@ -30,13 +30,15 @@ limit pairs, activation/persistence and physical qualification remain explicit.
 Prompt09 implements [finite relative positioning](ess_position.md) with pure
 exact preparation and bounded supplied events. The existing application action
 loop owns staging/trigger reservations and priority stop, with one bus queue.
-Physical motion/dynamic stop remains unqualified.
+The bounded positive relative move and normal/direct stops have matched
+[functional evidence on both S3 frameworks](reports/ess_release_26_2026-10-05.md).
+Independent shaft measurements and other motion subsets remain unqualified.
 
 Prompt10 extends that same mover with absolute endpoints and explicit wrapped
 paths, and the same action sequencer with zero-only device position clear.
 Host origins and coordinate confidence use the public supplied-reference API.
 
-Prompts 05–06 implement bounded [typed identity/configuration/state reads](ess_reads.md), common/profile routes, passive per-block status/health and finite opt-in polling. The [linked inventory](reference/ess_rs_operations.json) separates read/write/action, native and hardware evidence. Model/firmware compatibility, physical feedback units, readiness and motion remain unqualified; these reads perform no writes.
+Prompts 05–06 implement bounded [typed identity/configuration/state reads](ess_reads.md), common/profile routes, passive per-block status/health and finite opt-in polling. The [linked inventory](reference/ess_rs_operations.json) separates read/write/action, native and hardware evidence. These reads perform no writes and alone do not qualify model/firmware compatibility, physical feedback units, readiness or motion.
 
 This is the accepted design baseline for a general, framework-independent
 serial motion library. ESS23-RS is its first implementation target. A common
@@ -63,8 +65,8 @@ is implemented and tested with a native fake adapter; see [runner.md](runner.md)
 The [ESP32-S3 polling adapter and probe CLI](esp32_probe.md) now have native and bench
 evidence, with external timing qualification still open. Exact host coordinate preparation
 is implemented in [Axis.h](axis_preparation.md); finite ESS motion sequencing
-uses the installed position API. Discovery orchestration, the full CLI and FieldCore adapters remain contracts
-for later blocks. See the root
+uses the installed position API. Bounded discovery and typed CLI integration are
+implemented; FieldCore adapters remain separately authorized future work. See the root
 README for current callable APIs and build commands. Recorded probes and typed identity/configuration/state reads have response evidence; no motion or electrical qualification is implied.
 The [application bus reference](bus_owner.md) adds copied admission, per-producer
 FIFO/cyclic fairness, immutable deadlines, reserved urgent/results storage,

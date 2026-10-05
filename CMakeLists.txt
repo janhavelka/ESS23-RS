@@ -174,6 +174,9 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
         endif()
         find_package(Python3 3.10 COMPONENTS Interpreter)
         if(Python3_Interpreter_FOUND)
+            add_test(NAME idf_config COMMAND ${Python3_EXECUTABLE}
+                ${CMAKE_CURRENT_SOURCE_DIR}/test/idf_config_test.py
+                ${CMAKE_CXX_COMPILER} ${CMAKE_CXX_COMPILER_ID})
             add_test(NAME bench_scenarios COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test/bench_scenarios_test.py)
             add_test(NAME motion_campaign COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test/motion_campaign_test.py)
             add_test(NAME communication_harness COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test/communication_harness_test.py)

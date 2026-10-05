@@ -84,7 +84,7 @@ configuration at compile time:
 | Capture operating envelope | Power management disabled; `GPTIMER_ISR_CACHE_SAFE` disabled |
 | Driver storage | IRAM interrupt handler and `GPTIMER_OBJ_CACHE_SAFE` required |
 | Startup failure output | Primary USB Serial/JTAG console enabled |
-| Correlated output | Default SDK logging disabled; bootloader logs disabled in defaults |
+| Correlated output | Default SDK logging and forced GPTimer debug logging disabled; bootloader logs disabled in defaults |
 
 Defaults also place the SDK GPTimer interrupt handler in IRAM, which selects
 internal timer-object storage. The application's capture callback and helpers
@@ -118,6 +118,10 @@ retained results, caches, traces and console queues use one explicit
 fallback. USB uses the native driver with a 1024-byte TX ring, 256-byte RX ring
 and zero-tick reads/writes; normal output attempts at most 64 bytes per service
 turn and retains unsent bytes. Startup failure emits one bounded boot record.
+The pinned SDK does not expose failed insertion into its USB receive ring.
+`drv.input_dropped` counts console-level discards, not transport RX loss;
+saturated incoming USB traffic is unqualified. Strict command correlation
+remains required after missing or malformed input/output.
 Bootloader and application default logging are both disabled. Driver startup
 queues a checked newline before any JSON record so retained ROM/bootloader USB
 bytes cannot concatenate with the first correlated reply. Failure to queue that

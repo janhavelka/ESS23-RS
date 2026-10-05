@@ -1,5 +1,12 @@
 # Roadmap to a supported ESS release
 
+The [fresh25/26 audit](reports/ess_release_25_26_audit_2026-10-05.md) rejects
+forced GPTimer debug logging on the native correlated console, tests ordinary
+reset during uncertain physical TX with blocked output on both frameworks,
+and repeats clean firmware/core/S2/package and matched COM13 qualification.
+69 native suites pass. Console input-discard counters do not measure USB RX
+ring overflow; that qualification and earlier fixture/endurance gaps stay open.
+
 Prompt26 [platform qualification](reports/ess_release_26_2026-10-05.md) verifies
 matched Arduino/native IDF S3 read/state, loaded7/37-byte capture, finite motion,
 normal/direct stop and reversible settings restoration.68 native suites and

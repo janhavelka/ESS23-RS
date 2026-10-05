@@ -2,10 +2,12 @@
 
 The [native ESP-IDF example](docs/esp_idf_probe.md) now shares the complete
 standalone application with Arduino. Clean firmware/core-component builds,
-68 native suites, installed core/S2 compile checks and matched S3 capture/load,
+69 native suites, installed core/S2 compile checks and matched S3 capture/load,
 finite movement/stop and settings restoration pass. See
 [the prompt26 evidence](docs/reports/ess_release_26_2026-10-05.md) for the qualified
 subset, current working image and remaining electrical/fixture/endurance limits.
+The [fresh25/26 audit](docs/reports/ess_release_25_26_audit_2026-10-05.md)
+closes a native SDK logging configuration gap and repeats the qualified subset.
 
 Prompt24 adds [finite Python scenarios](docs/bench_scenarios.md) with a read-only
 default, shared session/evidence ownership and same-session motion/settings

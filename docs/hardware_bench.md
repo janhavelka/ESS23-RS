@@ -1,5 +1,14 @@
 # Motor bench and testing authorization
 
+The [fresh25/26 audit](reports/ess_release_25_26_audit_2026-10-05.md) repeats
+matched loaded capture, finite motion, both stops, native settings restoration
+and explicit stopped-state host mismatch/recovery. COM13 ends on the Arduino
+timer image below, node1/1152008N1, raw position3644, fresh alarm0/runningfalse/
+speed0. Profile`[30,100,100,60,0,250]` and lock delay200 restored; load/debug/
+monitor off, DE released, owner/results empty, no recovery. The final native
+image also passes before Arduino restoration. USB RX overflow, independent
+shaft/electrical measurements, endurance and unavailable fixtures remain open.
+
 [Prompt26 platform qualification](reports/ess_release_26_2026-10-05.md) passes
 matched Arduino/native IDF S3 loaded capture, finite motion, both stops and
 reversible settings restoration. COM13 now runs Arduino timer firmware SHA-256

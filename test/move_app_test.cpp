@@ -315,6 +315,56 @@ void testFullRetainedResultsStillReserveStop() {
     for (const auto id : retained) assert(view(id).probe.outcome == Rtu::Outcome::SUCCESS);
     assert(!axisReserved(*app, 1));
 }
+void testConsoleResetPreservesUncertainTriggerUnderBackpressure() {
+    fresh(); qualify();
+    command("@1 move relative 20 steps native 60 configured\n");
+    const uint32_t operation = view(0).operationId;
+    moveStep(operation); waitTx(operation); // Trigger accepted, acknowledgement absent.
+    assert(hardware.tx[1] == 6 && hardware.tx[3] == 0x27 && hardware.tx[5] == 1);
+    const uint64_t physicalEnd = hardware.writeStarted + hardware.tx.size() * 87;
+    const auto releasedBefore = hardware.deReleasedAt;
+    const auto writes = hardware.writes, resets = hardware.rxResets;
+    const auto binding = app->bindingGeneration, configuration = app->axis.generation;
+    const auto serial = app->serial.generation;
+    const auto trigger = hardware.tx;
+    assert(hardware.time < physicalEnd && app->runner.transmitEnabled() && hardware.de == 1);
+
+    Serial.output.clear(); Serial.writeCapacity = 0;
+    Serial.input = "@2 cancel " + std::to_string(operation) + "\n@3 reset\n";
+    step();
+    assert(Serial.input.empty() && Serial.output.empty() && app->outputCount);
+    assert(app->runner.stats().started == 0); // The ordinary console reset executed.
+    assert(view(operation).pending && app->runner.transmitEnabled() && hardware.de == 1);
+    assert(hardware.deReleasedAt == releasedBefore && hardware.writes == writes && hardware.tx == trigger);
+    assert(app->bindingGeneration == binding && app->axis.generation == configuration && app->serial.generation == serial);
+
+    for (unsigned i = 0; i < 1000 && view(operation).pending; ++i) step();
+    assert(!view(operation).pending && axisReserved(*app, 1));
+    const auto retained = *view(operation).moveContext;
+    assert(retained.outcome == ActionOutcome::CANCELLED && retained.uncertain);
+    assert(retained.execution == ActionExecution::UNKNOWN && retained.triggerEvidence.txAccepted == trigger.size());
+    assert(app->owner.needsRecovery());
+    assert(hardware.deReleasedAt >= physicalEnd && !app->runner.transmitEnabled() && hardware.de == 0);
+    const auto releasedAfter = hardware.deReleasedAt;
+
+    // Output remains blocked while reset runs again against the retained unknown
+    // trigger. Counter reset is neither transport recovery nor a motor stop.
+    command("@4 reset\n");
+    assert(Serial.output.empty() && app->runner.stats().started == 0);
+    assert(view(operation).moveContext->outcome == retained.outcome && view(operation).moveContext->uncertain);
+    assert(view(operation).moveContext->execution == retained.execution && axisReserved(*app, 1));
+    assert(app->bindingGeneration == binding && app->axis.generation == configuration && app->serial.generation == serial);
+    assert(hardware.writes == writes && hardware.tx == trigger && hardware.rxResets == resets);
+    assert(hardware.deReleasedAt == releasedAfter && !app->runner.transmitEnabled() && hardware.de == 0);
+    assert(!app->owner.pending() && !app->owner.recovering() && !app->persistenceInvocations);
+    assert(app->owner.needsRecovery());
+
+    Serial.writeCapacity = 4096; pump(3000);
+    assert(Serial.output.find("\"id\":3,\"command\":\"reset\",\"ok\":true") != std::string::npos);
+    assert(Serial.output.find("\"id\":4,\"command\":\"reset\",\"ok\":true") != std::string::npos);
+    assert(hardware.writes == writes && view(operation).moveContext->uncertain && axisReserved(*app, 1));
+    assert(app->owner.needsRecovery());
+}
 void testConsoleStopUnderFullUsbBackpressure() {
     fresh(); qualify();
     command("@1 move relative 20 steps native 60 configured\n");
@@ -728,6 +778,7 @@ int main() {
     testCommonAndProfileCliUseExactPreparation();
     testWrongStageEchoAndLostTriggerNeverReplay(); testCancellationAndStopAtSequenceBoundaries();
     testFullRetainedResultsStillReserveStop();
+    testConsoleResetPreservesUncertainTriggerUnderBackpressure();
     testConsoleStopUnderFullUsbBackpressure();
     testConfigurationChangesCancelContinuations();
     testReadinessBoundsActualOwnerWrites(); testDeferredTriggerExpiresBeforeAdmission();
