@@ -50,8 +50,10 @@ struct MovePrerequisites {
     uint64_t observedUs = 0, maximumAgeUs = 0; ///< Zero disables age expiry; otherwise admission/new writes require age below this immutable budget. Operation deadlines still apply.
 };
 enum class MoveAdmission : uint8_t { OBSERVED_STATE, NATIVE_INTENT };
-/** Caller-owned, read-only between API calls. step0 stages 0x0021/5; step1
- * triggers 0x0001 relative or 0x0005 absolute; later tokens read alarm/motion words.
+/** Caller-owned, read-only between API calls. WRITE_ALL stages then starts.
+ * VERIFY_AND_UPDATE reads 0x0021/5, writes only a changed scalar or target pair
+ * (full block for mixed changes), then starts. USE_STORED starts without setup.
+ * triggerStep identifies the start token; later tokens read alarm/motion words.
  * One axis reservation must survive every staging/trigger/wait boundary.
  * uncertain includes a possibly/definitely applied setup on terminal failure;
  * execution separately describes the trigger, never physical completion. */
@@ -73,6 +75,12 @@ struct MoveContext {
     uint16_t words[5] = {}, rawAlarm = 0, rawMotion = 0;
     uint64_t startedUs = 0, deadlineUs = 0, servicedUs = 0, eligibleUs = 0;
     uint8_t step = 0, polls = 0;
+    uint8_t triggerStep = 1, setupOffset = 0, setupCount = 5;
+    bool verificationKnown = false;
+    uint16_t verificationWords[5] = {};
+    uint8_t verificationRaw[15] = {};
+    std::size_t verificationLength = 0;
+    ActionEvidence verificationEvidence;
     ActionEvidence stagingEvidence, triggerEvidence, activityEvidence, lastObservation, failureEvidence;
     Status status;
 };
@@ -88,8 +96,11 @@ struct PreparedMove {
     uint64_t deadlineUs = 0, eligibleUs = 0; ///< Optional readiness expiry caps writes; the operation deadline always applies.
 };
 /** Remembered caller intent, not a motor-state cache. Each preparation copies
- * these settings into an independent MoveContext and always stages 0x0021/5
- * before start. Use nextMove/advanceMove and the application's existing owner,
+ * these settings into an independent MoveContext. WRITE_ALL (default) stages
+ * 0x0021/5; VERIFY_AND_UPDATE compares a new read before selecting one documented
+ * write; USE_STORED sends start only and explicitly relies on existing settings.
+ * No cache is treated as proof that motor power/settings stayed unchanged.
+ * Use nextMove/advanceMove and the application's existing owner,
  * reservation and priority-stop path; no I/O, clock, allocation or retries.
  *
  * This native route requires no prior motor observations. It does not establish
@@ -100,7 +111,7 @@ struct PreparedMove {
  * Generic units/limits and observation-aware admission use prepareMove* instead.
  * The context retains NATIVE_INTENT; its prerequisites/reference/PreparedTarget
  * do not pretend that observations or coordinate conversion took place.
- * Success means setup and start were acknowledged: outcome ACKNOWLEDGED and
+ * Success means the selected sequence was acknowledged: outcome ACKNOWLEDGED and
  * completion NOT_OBSERVED. No status polling can attribute an already running
  * motion to this noninterrupting start without a prior stationary observation.
  * Use typed state reads for feedback, or prepareMove* for observed completion.
@@ -109,6 +120,7 @@ struct PositionCommand {
     ReadTarget target;
     WordOrder wordOrder = WordOrder::HIGH_WORD_FIRST;
     uint16_t accelerationTime = 0, decelerationTime = 0, speedRpm = 0;
+    MoveSetup setup = MoveSetup::WRITE_ALL;
     Status prepareRelative(MoveContext&, uint32_t operationId, uint32_t targetBits,
                            uint64_t nowUs, uint64_t deadlineUs) const noexcept;
     Status prepareAbsolute(MoveContext&, uint32_t operationId, uint32_t targetBits,

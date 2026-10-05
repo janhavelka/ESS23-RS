@@ -1,5 +1,14 @@
 # Motor bench and testing authorization
 
+The [repeated-motion comparison](reports/2026-10-05_repeat_motion_timing.md)
+leaves the new Arduino timer image on COM13 after 33 completed finite moves,
+direct stop and exact profile restoration. Final position 9265, alarm 0,
+enabled/non-running, speed 0; profile `[30,100,100,60,0,250]`, node 1/115200/8N1.
+No queued motion, recovery or retained results; load/monitor/debug off and DE
+released. The first campaign stopped after two completed moves because a single
+post-arrival speed sample was nonzero; its failure and successful cleanup remain
+separate from the corrected campaign using bounded zero-speed observation.
+
 The [unit-aware move follow-up](reports/2026-10-05_user_move_functions.md)
 uploads the new Arduino timer image and passes a finite degree-to-native move,
 normal-stop interruption and exact profile/host-scale restoration. Ending

@@ -1,5 +1,10 @@
 # Roadmap to a supported ESS release
 
+The [repeated-motion timing follow-up](reports/2026-10-05_repeat_motion_timing.md)
+adds explicit setup policies without changing the default. Ten trials per path
+measure median start acknowledgement at 18.40 ms full setup, 18.48 ms read/compare
+and 8.51 ms start-only. These software timings do not qualify shaft reaction time.
+
 The [ESP32 C++ move example](move_example.md) adds `moveBy` / `moveTo` with units
 and cached progress while the existing owner polls. Unit conversions are shared
 with direct core/CLI paths; physical angle/linear calibration remains separate.

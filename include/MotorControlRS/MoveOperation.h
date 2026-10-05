@@ -8,10 +8,14 @@
 
 namespace MotorControlRS {
 enum class MoveRamp : uint8_t { UNSPECIFIED, VERIFIED_CONFIGURED };
+/** Parameter handling before start. USE_STORED explicitly trusts the drive's
+ * current parameters; requested values are intent, not verified readback. */
+enum class MoveSetup : uint8_t { WRITE_ALL, VERIFY_AND_UPDATE, USE_STORED };
 struct MoveRequest {
     PositionRequest position;
     uint16_t speedRpm = 0; ///< Positive native motor speed; no acceleration conversion is implied.
     MoveRamp ramp = MoveRamp::UNSPECIFIED;
+    MoveSetup setup = MoveSetup::WRITE_ALL;
 };
 enum class MoveError : int32_t {
     NONE, INVALID_TARGET, INVALID_OPERATION, INVALID_DEADLINE, INVALID_OPTIONS,

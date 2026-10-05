@@ -168,6 +168,9 @@ struct App {
         Rtu::RequestId request;
         uint32_t bindingGeneration = 0;
     } motionProfile;
+    // Remembered checked parameters, separate from the preserved raw readback.
+    uint16_t rememberedMoveWords[5] = {};
+    uint32_t rememberedMoveGeneration = 0, rememberedMoveBinding = 0, rememberedMoveSerial = 0;
     ESS::MovePrerequisites movePrerequisites; // Supplied commissioning evidence; false until verified.
     ESS::HomePrerequisites homePrerequisites; // Explicit method/active-auxiliary/native/reference qualification.
     ESS::VelocityPrerequisites velocityPrerequisites; // Independent commissioning evidence, initially unqualified.
@@ -288,7 +291,7 @@ bool triggeredMotion(const App& a, uint8_t address) {
             (record.home.phase == ESS::HomePhase::TRIGGER && record.requestId.owner && a.owner.txAccepted(record.requestId)))) return true;
         if (!record.moveOperation) continue;
         if (record.move.triggerEvidence.txAccepted ||
-            (record.move.step == 1 && record.requestId.owner && a.owner.txAccepted(record.requestId))) return true;
+            (record.move.step == record.move.triggerStep && record.requestId.owner && a.owner.txAccepted(record.requestId))) return true;
     }
     return false;
 }
@@ -714,7 +717,7 @@ Probe::Action admitMoveStep(App& a, App::Record& record, const ESS::PreparedMove
     request.expected.target = prepared.target.id; request.expected.targetGeneration = prepared.target.generation;
     request.expected.first = prepared.reg; request.expected.count = prepared.count;
     request.expected.value = prepared.value; request.validator = Rtu::essValidator();
-    if (!record.operationId) {
+    if (!record.operationId && prepared.write) {
         const Probe::Action checked = checkAxisWrite(a, request);
         if (checked != Probe::Action::OK) return checked;
     }
@@ -729,6 +732,7 @@ Probe::Action startMove(void* context, uint32_t commandId, uint8_t address,
     if (a.serial.blocked || a.serial.configuring || a.owner.configurationOwned()) return Probe::Action::RECOVERY_REQUIRED;
     if (!ESS::isValidAddress(address) || !supplied.speedRpm ||
         supplied.ramp != MoveRamp::VERIFIED_CONFIGURED) return Probe::Action::INVALID;
+    if (!(a.knownTargets[address / 8] & (1U << (address % 8)))) return Probe::Action::UNAVAILABLE;
     if (!a.commandPolarityKnown && supplied.position.frame != CoordinateFrame::NATIVE)
         return Probe::Action::UNAVAILABLE;
     if (!a.nextOperationId) return Probe::Action::IDS_EXHAUSTED;
@@ -764,6 +768,12 @@ Probe::Action startMove(void* context, uint32_t commandId, uint8_t address,
     const Status checked = prepare(prepared, a.axis, reference.nativeKnown ? &reference : nullptr,
         a.nextOperationId, request, prerequisites, now, deadline, options);
     if (!checked) return checked.code == Err::UNSUPPORTED ? Probe::Action::UNSUPPORTED : Probe::Action::INVALID;
+    if (request.setup == MoveSetup::USE_STORED &&
+        (a.rememberedMoveGeneration != a.axis.generation || a.rememberedMoveBinding != a.bindingGeneration ||
+         a.rememberedMoveSerial != a.serial.generation ||
+         std::memcmp(a.rememberedMoveWords, prepared.words, sizeof(prepared.words)))) {
+        clearRecord(*record); return Probe::Action::UNAVAILABLE;
+    }
     // Proposed free-shaft software envelope, not a qualified physical envelope.
     if ((!prepared.prepared.displacementKnown && !absoluteMoveInEnvelope(a, request, now)) || prepared.prepared.displacementNative < -250 ||
         prepared.prepared.displacementNative > 250 || request.speedRpm > 60) {
@@ -1519,6 +1529,7 @@ void updateActionReservation(App& a, App::Record& record) {
         (record.velocityOperation && record.velocity.triggerEvidence.txAccepted)) &&
         record.address == a.axis.target.address && coordinateKnowledge(a)) invalidateAxis(a);
     record.axisReserved = false;
+    if (record.moveOperation && record.move.uncertain) a.rememberedMoveGeneration = 0;
     const uint8_t mask = static_cast<uint8_t>(1U << (record.address % 8));
     if (record.velocityOperation ? record.velocity.needsStop || record.velocity.uncertain : record.moveOperation ? record.move.uncertain :
         (record.action.execution == ActionExecution::UNKNOWN ||
@@ -1570,11 +1581,15 @@ void advanceActions(App& a, uint64_t now) {
                         if (progress.selected && progress.reg == work.reg)
                             driverEffects(a, record, static_cast<uint32_t>(progress.field), now);
             }
-            if (((record.moveOperation && record.move.step == 1) ||
+            if (((record.moveOperation && record.move.step == record.move.triggerStep) ||
                 (record.velocityOperation && record.velocity.phase == ESS::VelocityPhase::TRIGGER)) && record.address == a.axis.target.address &&
                 a.owner.txAccepted(record.requestId)) a.coordinateReference.nativeKnown = false;
-            if (!record.driverOperation && !record.homeOperation && !record.effectsInvalidated && (record.velocityOperation ? record.velocity.step == 0 : record.moveOperation ? record.move.step == 0 : record.action.step == 0) && a.owner.txAccepted(record.requestId)) {
+            if (!record.driverOperation && !record.homeOperation && !record.effectsInvalidated &&
+                (record.velocityOperation ? record.velocity.step == 0 : record.moveOperation ?
+                    (record.move.step <= record.move.triggerStep && !(record.move.request.setup == MotorControlRS::MoveSetup::VERIFY_AND_UPDATE && record.move.step == 0)) :
+                    record.action.step == 0) && a.owner.txAccepted(record.requestId)) {
                 record.effectsInvalidated = true;
+                if (record.moveOperation && record.move.step < record.move.triggerStep) a.rememberedMoveGeneration = 0;
                 for (auto& block : a.stateCache.blocks)
                     if (block.valid && block.value.target.address == record.address) block.invalidatedUs = now;
                 if (!record.moveOperation && !record.velocityOperation && (record.action.request.kind == MotorControlRS::ActionKind::RELEASE ||
@@ -1621,6 +1636,18 @@ void advanceActions(App& a, uint64_t now) {
                 if (!advanceOperation(record, failed, now)) continue;
             }
             observeCommunication(a, *result);
+            if (record.moveOperation) {
+                const auto& move = record.move;
+                if (move.uncertain) a.rememberedMoveGeneration = 0;
+                else if ((move.stagingApplied || move.verificationKnown) &&
+                    move.prepared.configurationGeneration == a.axis.generation &&
+                    move.target.generation == a.bindingGeneration && record.serialGeneration == a.serial.generation) {
+                    const uint16_t* words = move.stagingApplied ? move.words : move.verificationWords;
+                    std::memcpy(a.rememberedMoveWords, words, sizeof(a.rememberedMoveWords));
+                    a.rememberedMoveGeneration = move.prepared.configurationGeneration;
+                    a.rememberedMoveBinding = move.target.generation; a.rememberedMoveSerial = record.serialGeneration;
+                }
+            }
             reconcileDriverRead(a, record, now);
             a.owner.release(record.requestId); record.requestId = Rtu::RequestId();
         }
@@ -2180,11 +2207,12 @@ bool beginApplication(const Esp32S3Uart::Pins& pins, bool receiverDisabledDuring
     return platformReady;
 }
 MotorControlRS::Status submitMove(const MotorControlRS::PositionRequest& position, uint16_t speedRpm,
-                            uint32_t& operationId) {
+                            uint32_t& operationId, MotorControlRS::MoveSetup setup) {
     using namespace MotorControlRS;
     if (!app) return Status(Err::INVALID_CONFIG, 0, "application is not started");
     MoveRequest request; request.position = position;
     request.speedRpm = speedRpm; request.ramp = MoveRamp::VERIFIED_CONFIGURED;
+    request.setup = setup;
     const auto admitted = startMove(app, 0, app->axis.target.address, request, operationId);
     if (admitted != Probe::Action::OK)
         return Status(admitted == Probe::Action::UNSUPPORTED ? Err::UNSUPPORTED : Err::INVALID_CONFIG,
@@ -2193,21 +2221,21 @@ MotorControlRS::Status submitMove(const MotorControlRS::PositionRequest& positio
     return Ok();
 }
 static MotorControlRS::Status moveValue(MotorControlRS::Rational value, MotorControlRS::PositionUnit unit,
-                            bool relative, uint32_t& operationId, uint16_t speedRpm) {
+                            bool relative, uint32_t& operationId, uint16_t speedRpm, MotorControlRS::MoveSetup setup) {
     using namespace MotorControlRS;
     PositionRequest request; request.value = value; request.unit = unit; request.relative = relative;
     request.frame = unit == PositionUnit::STEPS ? CoordinateFrame::NATIVE :
         unit == PositionUnit::MILLIMETRES ? CoordinateFrame::LOAD : CoordinateFrame::MOTOR;
     request.configurationGeneration = app ? app->axis.generation : 0;
-    return submitMove(request, speedRpm, operationId);
+    return submitMove(request, speedRpm, operationId, setup);
 }
 MotorControlRS::Status moveBy(MotorControlRS::Rational value, MotorControlRS::PositionUnit unit,
-                            uint32_t& operationId, uint16_t speedRpm) {
-    return moveValue(value, unit, true, operationId, speedRpm);
+                            uint32_t& operationId, uint16_t speedRpm, MotorControlRS::MoveSetup setup) {
+    return moveValue(value, unit, true, operationId, speedRpm, setup);
 }
 MotorControlRS::Status moveTo(MotorControlRS::Rational value, MotorControlRS::PositionUnit unit,
-                            uint32_t& operationId, uint16_t speedRpm) {
-    return moveValue(value, unit, false, operationId, speedRpm);
+                            uint32_t& operationId, uint16_t speedRpm, MotorControlRS::MoveSetup setup) {
+    return moveValue(value, unit, false, operationId, speedRpm, setup);
 }
 bool moveProgress(uint32_t operationId, MoveProgress& output) {
     if (!app || !operationId) return false;

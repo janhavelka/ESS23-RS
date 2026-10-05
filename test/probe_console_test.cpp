@@ -1224,12 +1224,19 @@ void testAbsoluteAngleAndClearRoutesUsePublicRequests() {
     send(console, "move relative 1 rad motor 60 configured round nearest 1 approx 0.001\n");
     assert(fake.moveRequest.position.approximate && fake.moveRequest.position.rationalRadians);
     assert(fake.moveRequest.position.maximumApproximationError > 0);
+    send(console, "move relative 1 steps native 60 configured setup verify\n");
+    assert(fake.moveRequest.setup == Core::MoveSetup::VERIFY_AND_UPDATE);
+    send(console, "profile ess_rs move-relative 1 steps native 60 configured setup stored\n");
+    assert(fake.moveRequest.setup == Core::MoveSetup::USE_STORED);
+    send(console, "move relative 1 steps native 60 configured setup write\n");
+    assert(fake.moveRequest.setup == Core::MoveSetup::WRITE_ALL);
     send(console, "move relative 1 steps native 60 configured basis commanded\n");
     assert(fake.moveRequest.position.basis == Core::RelativeBasis::COMMANDED);
     const unsigned admitted = fake.moves;
     for (const char* input : {"move angle 0 deg motor shortest 60 configured", "move angle 0 deg motor wrong reject 60 configured",
         "move absolute 1 steps native 60 configured basis actual", "move relative 1 deg motor 60 configured round nearest 1 approx 0.01",
-        "move relative 1 rad motor 60 configured round nearest 1 approx 0", "move absolute 1 steps native 60 configured round nearest"}) {
+        "move relative 1 rad motor 60 configured round nearest 1 approx 0", "move absolute 1 steps native 60 configured round nearest",
+        "move relative 1 steps native 60 configured setup", "move relative 1 steps native 60 configured setup guess"}) {
         send(console, std::string(input) + "\n"); fake.contains("\"ok\":false"); assert(fake.moves == admitted);
     }
     send(console, "prepare angle 90 deg motor positive reject\n");

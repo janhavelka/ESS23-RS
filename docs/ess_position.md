@@ -43,10 +43,17 @@ const auto status = motor.prepareRelative(operation, 7, 100, 1000, 1001000);
 ```
 
 This native route does not require prior state observations, host origin or
-engineering-unit conversion. It always stages `0x0021/5`, then yields the
+engineering-unit conversion. By default it stages `0x0021/5`, then yields the
 relative/absolute start only after checked, confirmed staging acknowledgement.
+Both native intent and observed moves expose `MoveSetup`: `WRITE_ALL` retains
+that default, `VERIFY_AND_UPDATE` compares a new `0x0021/5` read and writes only
+a changed scalar (FC06), target pair (`0x0024/2`) or full block for mixed changes;
+`USE_STORED` explicitly relies on existing drive settings and sends start only.
+No read failure yields a write. No failed write yields start or a retry.
+See [repeat usage](move_example.md#repeating-a-move) and the
+[measured comparison](reports/2026-10-05_repeat_motion_timing.md).
 The application uses its existing owner and holds the same-axis reservation
-across both writes, preserving deadlines, uncertainty and explicit stop handling.
+across verification, setup and start, preserving deadlines, uncertainty and explicit stop handling.
 Successful start ends with outcome `ACKNOWLEDGED`
 and completion `NOT_OBSERVED`; it does not poll for completion without a prior
 stationary baseline. Use separate typed state reads for feedback or the
@@ -123,9 +130,12 @@ polarity, soft limits or saved settings. Required I/O changes remain for 15.
 The caller owns `MoveContext`, retains it read-only between API calls, and feeds
 copied transaction evidence through `ActionEvent`. Preparation snapshots the
 request, effective target and prerequisites. Borrowed frame memory is consumed
-only during `advanceMove`, with bounded nine-byte reply-prefix copies. The
+only during `advanceMove`, with bounded nine-byte reply-prefix copies and a
+separate full fifteen-byte verification-read frame. The
 application must correlate its retained owner transaction before supplying an
 event and must independently qualify FC06 response source against local echo.
+
+Default `WRITE_ALL` tokens:
 
 | Step | Yielded work and requirement |
 | --- | --- |
@@ -133,6 +143,13 @@ event and must independently qualify FC06 response source against local echo.
 | 1 | Only after checked, qualified, confirmed staging acknowledgement: FC06 `0x0027=0x0001` relative or `0x0005` absolute/wrapped, both finite and noninterrupting |
 | 2 onward | Bounded FC03 `0x0006/2` observations, separated by waits which hold no bus transaction |
 | Completion | Fresh post-trigger RUNNING report, then a later checked ARRIVED and not-RUNNING report without alarm/release/limit interruption |
+
+`VERIFY_AND_UPDATE` uses token 0 for the read, optional token 1 for its selected
+write, token 2 for start and token 3 onward for observations. `USE_STORED` begins
+at token 1, with no setup evidence. `triggerStep` records the selected boundary;
+`setupOffset`/`setupCount` describe the actual write (zero count means skipped).
+`verificationKnown`/words describe checked readback, separately from desired
+words and any acknowledged write. Failed verification publishes no decoded words.
 
 The operation retains one immutable absolute deadline. With age expiry enabled,
 staging and trigger transactions also retain the earlier readiness cutoff

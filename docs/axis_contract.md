@@ -318,6 +318,11 @@ The ESS profile also exposes native `PositionCommand` intent and
 `buildStartPosition` without the common axis conversion/readiness contract.
 `PositionCommand` remembers the desired speed/raw ramps and uses the same
 `MoveContext`, `nextMove` and `advanceMove` for checked staging followed by start.
+`MoveSetup` also permits a fresh read-and-update or explicit stored-parameter
+reuse in that same sequence. Default full staging remains unchanged; requested
+intent is never published as a new parameter readback. Applications own the
+binding/invalidation policy for remembered settings and retain start-only's
+reliance on the actual stored drive values.
 It requires no prior observation and fabricates none: success is
 `ACKNOWLEDGED`, completion is `NOT_OBSERVED`. The application still owns exact
 endpoint binding, same-axis reservation, deadlines, transport and explicit stop.

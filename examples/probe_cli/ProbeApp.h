@@ -27,15 +27,20 @@ void serviceApplication();
  * moveBy requests relative motion: steps are native command
  * increments; other units use the motor frame, except millimetres (load frame).
  * Scales come from ApplicationOptions::positionUnits or host axis configuration.
+ * Optional setup policy defaults to full write. USE_STORED requires a matching
+ * remembered profile/binding in this example; it does not detect an unseen reset.
  */
 MotorControlRS::Status moveBy(MotorControlRS::Rational value, MotorControlRS::PositionUnit unit,
-                            uint32_t& operationId, uint16_t speedRpm = 60);
+                            uint32_t& operationId, uint16_t speedRpm = 60,
+                            MotorControlRS::MoveSetup = MotorControlRS::MoveSetup::WRITE_ALL);
 /// Absolute target. Engineering coordinates require their configured origin/scales.
 MotorControlRS::Status moveTo(MotorControlRS::Rational value, MotorControlRS::PositionUnit unit,
-                            uint32_t& operationId, uint16_t speedRpm = 60);
+                            uint32_t& operationId, uint16_t speedRpm = 60,
+                            MotorControlRS::MoveSetup = MotorControlRS::MoveSetup::WRITE_ALL);
 /// Advanced units/frame/rounding/absolute request; configuration generation is checked, not rebound.
 MotorControlRS::Status submitMove(const MotorControlRS::PositionRequest&, uint16_t speedRpm,
-                            uint32_t& operationId);
+                            uint32_t& operationId,
+                            MotorControlRS::MoveSetup = MotorControlRS::MoveSetup::WRITE_ALL);
 /// Copy current host coordinates/scales/generation for an advanced request; no bus traffic.
 bool positionConfiguration(MotorControlRS::AxisConfig&);
 /** Small copied progress/result. Observation flags describe drive reports;

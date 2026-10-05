@@ -29,9 +29,52 @@ are also available when their scales are supplied. A missing scale/origin is an
 error, never an assumed zero or guessed conversion.
 
 The optional fourth argument is native motor RPM (default 60). Ramps come from
-the example's checked motion-profile snapshot. Every move stages the selected
-ramps, speed and converted target together. This is the ordinary observed move
+the example's checked motion-profile snapshot. By default every move stages the
+selected ramps, speed and converted target together. This is the ordinary observed move
 path; the lower-level `ESS_RS::PositionCommand` remains available separately.
+
+## Repeating a move
+
+Select the setup policy with the optional fifth argument:
+
+```cpp
+// Default: send all five parameter words, then start.
+moveBy(100, PositionUnit::STEPS, operation, 60, MoveSetup::WRITE_ALL);
+// Read the five words; change them only if necessary; then start.
+moveBy(100, PositionUnit::STEPS, operation, 60, MoveSetup::VERIFY_AND_UPDATE);
+// Explicitly reuse stored settings and send only start.
+moveBy(100, PositionUnit::STEPS, operation, 60, MoveSetup::USE_STORED);
+```
+
+These are alternatives for separate requests after the preceding operation has
+settled. `moveTo` and `submitMove` accept the same policy. The core `MoveRequest`
+and native `ESS_RS::PositionCommand` expose it as `.setup`; raw builders remain
+available. Full setup remains the default.
+
+Read-and-update compares a fresh five-word read against the requested ramps,
+speed and target. One changed scalar uses FC06; a changed target uses the
+reviewed FC10 pair; mixed changes use one full five-word write. An unchanged
+profile goes directly to start. It never splits a paired value into FC06 halves.
+
+The example remembers parameters from checked reads and acknowledged setup.
+Start-only requires the requested words to match those remembered values and
+their current target/configuration/serial bindings. Known invalidation or an
+uncertain failed move prevents reuse until reconciled. Remembered values are
+not proof against an unseen drive reset or another controller changing settings;
+choosing start-only accepts that reliance. The core's native start-only path
+leaves that policy to its caller.
+
+Keep the upper firmware's state polling between repeated requests. The existing
+example invalidates state after motion; `read state` refreshes it. Arrival flags
+and speed feedback are separate observations, so the bench runner uses bounded
+read-only polling until both non-running and zero speed are reported. No elapsed
+age limit is introduced. Changing setup policy does not enable the drive, alter
+I/O, save parameters or replay a failed command.
+
+Equivalent console syntax is `move relative 100 steps native 60 configured
+setup verify 1`, with `write` or `stored` as alternatives. The finite timing
+comparison is `python scripts/bench_repeat.py --out build/repeat/check --count 10`;
+use `--plan-only` to print its complete bounds without opening the port.
 
 ## Configure once, request moves, keep servicing
 

@@ -21,13 +21,19 @@ constexpr uint16_t FAULTS = static_cast<uint16_t>(MotionStatusBit::ALARM) |
     static_cast<uint16_t>(MotionStatusBit::RELEASED) |
     static_cast<uint16_t>(MotionStatusBit::POSITIVE_SOFT_LIMIT) |
     static_cast<uint16_t>(MotionStatusBit::NEGATIVE_SOFT_LIMIT);
-std::size_t requestLength(const MoveContext& c) { return c.step == 0 ? MOVE_REQUEST_BYTES : READ_REQUEST_LEN; }
+bool verifying(const MoveContext& c) {
+    return c.request.setup == MoveSetup::VERIFY_AND_UPDATE && c.step == 0;
+}
+bool staging(const MoveContext& c) { return !verifying(c) && c.step < c.triggerStep; }
+std::size_t requestLength(const MoveContext& c) {
+    return staging(c) && c.setupCount > 1 ? 9 + 2 * c.setupCount : READ_REQUEST_LEN;
+}
 uint64_t readinessDeadline(const MoveContext& c) {
     return evidenceAgeDeadline(c.prerequisites.observedUs, c.prerequisites.maximumAgeUs);
 }
 uint64_t stepDeadline(const MoveContext& c) {
     const uint64_t readiness = readinessDeadline(c);
-    return c.step < 2 && readiness < c.deadlineUs ? readiness : c.deadlineUs;
+    return c.step <= c.triggerStep && readiness < c.deadlineUs ? readiness : c.deadlineUs;
 }
 Status expiredStep(const MoveContext& c) {
     return stepDeadline(c) < c.deadlineUs ?
@@ -63,6 +69,8 @@ void beginMove(MoveContext& c, const ReadTarget& target, uint32_t id,
     c.target = target; c.operationId = id; c.options = options;
     c.state = ActionState::ACTIVE;
     c.startedUs = c.servicedUs = c.eligibleUs = now; c.deadlineUs = deadline;
+    c.triggerStep = c.request.setup == MoveSetup::VERIFY_AND_UPDATE ? 2 : 1;
+    if (c.request.setup == MoveSetup::USE_STORED) { c.step = c.triggerStep; c.setupCount = 0; }
 }
 uint16_t startValue(bool relative) {
     return static_cast<uint16_t>(MotionCommandBit::START_POSITION) |
@@ -103,12 +111,14 @@ static Status prepareNative(MoveContext& output, const PositionCommand& command,
         return invalid(MoveError::INVALID_TARGET, "invalid native position target");
     if (!id) return invalid(MoveError::INVALID_OPERATION, "zero move id");
     if (deadline <= now) return invalid(MoveError::INVALID_DEADLINE, "expired move deadline");
+    if (command.setup > MoveSetup::USE_STORED) return invalid(MoveError::INVALID_OPTIONS, "invalid move setup policy");
     if (!command.speedRpm || command.speedRpm > 3000 || command.accelerationTime > 2000 ||
         command.decelerationTime > 2000 || (relative && !bits))
         return invalid(MoveError::INVALID_REQUEST, "invalid native position parameters");
     MoveContext prepared;
     prepared.admission = MoveAdmission::NATIVE_INTENT;
     prepared.request.position.relative = relative;
+    prepared.request.setup = command.setup;
     prepared.words[0] = command.accelerationTime; prepared.words[1] = command.decelerationTime;
     prepared.words[2] = command.speedRpm;
     const Status encoded = encodeUint32(bits, command.wordOrder, prepared.words + 3, 2);
@@ -131,6 +141,7 @@ Status PositionCommand::prepareAbsolute(MoveContext& out, uint32_t id, uint32_t 
 static Status prepareMove(MoveContext& output, const AxisConfig& axis, const AxisReference* reference,
         uint32_t operationId, const MoveRequest& request, const MovePrerequisites& prerequisites,
         uint64_t nowUs, uint64_t deadlineUs, const ActionOptions& options) noexcept {
+    if (request.setup > MoveSetup::USE_STORED) return invalid(MoveError::INVALID_OPTIONS, "invalid move setup policy");
     if (!axis.target.id || !axis.target.generation || !isValidAddress(axis.target.address))
         return invalid(MoveError::INVALID_TARGET, "invalid move target");
     if (!operationId) return invalid(MoveError::INVALID_OPERATION, "zero move id");
@@ -234,12 +245,19 @@ Status nextMove(const MoveContext& c, uint64_t nowUs, PreparedMove& output) noex
     if (nowUs >= c.deadlineUs) return failed(MoveError::DEADLINE_EXPIRED, "move deadline expired");
     if (nowUs >= next.deadlineUs) return expiredStep(c);
     if (nowUs < c.eligibleUs) { next.kind = ActionWork::WAIT; output = next; return Ok(); }
-    next.kind = ActionWork::TRANSACTION; next.write = c.step < 2;
-    if (c.step == 0) {
-        next.function = 16; next.reg = Registers::POSITION_ACCELERATION_TIME; next.count = 5;
-        next.length = buildWriteMultipleRegisters(c.target.address, next.reg, c.words, next.count,
-            next.bytes, sizeof(next.bytes));
-    } else if (c.step == 1) {
+    next.kind = ActionWork::TRANSACTION; next.write = !verifying(c) && c.step <= c.triggerStep;
+    if (verifying(c)) {
+        next.function = 3; next.reg = Registers::POSITION_ACCELERATION_TIME; next.count = 5;
+        next.length = buildReadRegisters(c.target.address, next.reg, next.count, next.bytes, sizeof(next.bytes));
+    } else if (staging(c)) {
+        next.function = c.setupCount == 1 ? 6 : 16;
+        next.reg = Registers::POSITION_ACCELERATION_TIME + c.setupOffset; next.count = c.setupCount;
+        next.value = c.words[c.setupOffset];
+        next.length = c.setupCount == 1 ?
+            buildWriteSingleRegister(c.target.address, next.reg, next.value, next.bytes, sizeof(next.bytes)) :
+            buildWriteMultipleRegisters(c.target.address, next.reg, c.words + c.setupOffset, next.count,
+                next.bytes, sizeof(next.bytes));
+    } else if (c.step == c.triggerStep) {
         next.function = 6; next.reg = Registers::MOTION_COMMAND;
         next.value = startValue(c.request.position.relative); next.count = 1;
         next.length = buildStartPosition(c.target.address, c.request.position.relative, next.bytes, sizeof(next.bytes));
@@ -279,11 +297,17 @@ Status advanceMove(MoveContext& c, const ActionEvent& supplied, uint64_t nowUs) 
     evidence.receivedLength = event.length;
     evidence.length = event.length < ACTION_MAX_REPLY_BYTES ? event.length : ACTION_MAX_REPLY_BYTES;
     if (evidence.length) std::memcpy(evidence.raw, event.frame, evidence.length);
-    uint16_t words[2] = {}; std::size_t count = 0;
+    const bool checking = verifying(c), setting = staging(c), triggering = c.step == c.triggerStep;
+    uint16_t words[5] = {}; std::size_t count = 0;
     if (event.kind == ReadEventKind::FRAME) {
-        if (c.step == 0) evidence.status = parseWriteMultipleRegisters(event.frame, event.length, c.target.address,
-            Registers::POSITION_ACCELERATION_TIME, 5, &evidence.frameError);
-        else if (c.step == 1) evidence.status = parseWriteSingleRegister(event.frame, event.length, c.target.address,
+        if (checking) evidence.status = parseRegisters(event.frame, event.length, c.target.address, 5,
+            words, 5, count, &evidence.frameError);
+        else if (setting) evidence.status = c.setupCount == 1 ?
+            parseWriteSingleRegister(event.frame, event.length, c.target.address,
+                Registers::POSITION_ACCELERATION_TIME + c.setupOffset, c.words[c.setupOffset], &evidence.frameError) :
+            parseWriteMultipleRegisters(event.frame, event.length, c.target.address,
+                Registers::POSITION_ACCELERATION_TIME + c.setupOffset, c.setupCount, &evidence.frameError);
+        else if (triggering) evidence.status = parseWriteSingleRegister(event.frame, event.length, c.target.address,
             Registers::MOTION_COMMAND, startValue(c.request.position.relative), &evidence.frameError);
         else evidence.status = parseRegisters(event.frame, event.length, c.target.address, 2,
             words, 2, count, &evidence.frameError);
@@ -292,10 +316,14 @@ Status advanceMove(MoveContext& c, const ActionEvent& supplied, uint64_t nowUs) 
     else if (event.kind == ReadEventKind::DEADLINE)
         evidence.status = expiredStep(c);
     else evidence.status = failed(MoveError::TRANSPORT_FAILURE, "move transport failed");
-    if (c.step == 0) {
+    if (checking) {
+        c.verificationEvidence = evidence;
+        c.verificationLength = event.length < sizeof(c.verificationRaw) ? event.length : sizeof(c.verificationRaw);
+        if (c.verificationLength) std::memcpy(c.verificationRaw, event.frame, c.verificationLength);
+    } else if (setting) {
         c.stagingEvidence = evidence; c.setupExecution = execution(evidence);
         c.stagingApplied = c.setupExecution == ActionExecution::ACKNOWLEDGED;
-    } else if (c.step == 1) { c.triggerEvidence = evidence; c.execution = execution(evidence); }
+    } else if (triggering) { c.triggerEvidence = evidence; c.execution = execution(evidence); }
     c.servicedUs = nowUs;
     if (event.kind == ReadEventKind::CANCEL) finish(c, ActionOutcome::CANCELLED, evidence.status);
     else if (event.kind == ReadEventKind::DEADLINE) finish(c, ActionOutcome::DEADLINE, evidence.status);
@@ -304,17 +332,30 @@ Status advanceMove(MoveContext& c, const ActionEvent& supplied, uint64_t nowUs) 
         failed(MoveError::TIMING_UNQUALIFIED, "move closure timing is unqualified"));
     else if (event.latestUs > stepDeadline(c)) finish(c, ActionOutcome::DEADLINE, expiredStep(c));
     else if (!evidence.status) finish(c, ActionOutcome::REPLY_ERROR, evidence.status);
-    else if (!supplied.responseConfirmed && (c.step != 1 || c.admission == MoveAdmission::NATIVE_INTENT))
+    else if (!supplied.responseConfirmed && (!triggering || c.admission == MoveAdmission::NATIVE_INTENT))
         finish(c, ActionOutcome::UNCONFIRMED_RESPONSE,
         failed(MoveError::UNCONFIRMED_RESPONSE, "frame source is not confirmed as the drive"));
-    else if (c.step == 1 && c.admission == MoveAdmission::NATIVE_INTENT)
+    else if (triggering && c.admission == MoveAdmission::NATIVE_INTENT)
         finish(c, ActionOutcome::ACKNOWLEDGED, Ok());
-    else if (c.step < 2) {
+    else if (c.step <= c.triggerStep) {
         if (nowUs >= c.deadlineUs) finish(c, ActionOutcome::DEADLINE,
             failed(MoveError::DEADLINE_EXPIRED, "no budget for the next move step"));
-        else if (c.step == 0 && nowUs >= stepDeadline(c))
+        else if (!triggering && nowUs >= stepDeadline(c))
             finish(c, ActionOutcome::DEADLINE, expiredStep(c));
-        else if (c.step == 0) { ++c.step; c.eligibleUs = nowUs; }
+        else if (checking) {
+            c.verificationKnown = true;
+            std::memcpy(c.verificationWords, words, sizeof(words));
+            unsigned scalars = 0, changed = 0;
+            for (unsigned i = 0; i < 3; ++i) if (words[i] != c.words[i]) { ++scalars; changed = i; }
+            const bool pairChanged = words[3] != c.words[3] || words[4] != c.words[4];
+            if (!scalars && !pairChanged) c.setupCount = 0;
+            else if (scalars == 1 && !pairChanged) { c.setupOffset = changed; c.setupCount = 1; }
+            else if (!scalars) { c.setupOffset = 3; c.setupCount = 2; }
+            // Mixed changes use one reviewed full block, faster than several round trips.
+            c.step = c.setupCount ? c.triggerStep - 1 : c.triggerStep;
+            c.eligibleUs = nowUs;
+        }
+        else if (setting) { ++c.step; c.eligibleUs = nowUs; }
         else wait(c, nowUs);
     } else {
         ++c.polls; c.lastObservation = evidence; c.observationKnown = true;

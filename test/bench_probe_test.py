@@ -1174,6 +1174,66 @@ class Framing(unittest.TestCase):
         t["stop_write_evidence"].update(earliest_us=501200, latest_us=501250, delivered_us=501300)
         bench.Console._check_velocity(t, 1, self.VELOCITY_ARGS)
 
+    def test_move_setup_policies_and_checked_partial_writes(self):
+        import copy
+        for setup, changes, selected in (("stored", [], (0, 0)), ("verify", [], (0, 0)),
+                ("verify", [0], (0, 1)), ("verify", [1], (1, 1)), ("verify", [2], (2, 1)),
+                ("verify", [3], (3, 2)), ("verify", [4], (3, 2)), ("verify", [0, 2], (0, 5))):
+            t = move_terminal(2)
+            empty = dict(t["failure_evidence"])
+            t.update(setup=setup, trigger_step=2 if setup == "verify" else 1,
+                     setup_offset=selected[0], setup_count=selected[1], verification_known=setup == "verify",
+                     verification_words=[0] * 5, verification_raw_hex="", verification_evidence=dict(empty))
+            if setup == "verify":
+                before = list(t["staging_words"])
+                for i in changes: before[i] += 1
+                raw = bytes((1, 3, 10)) + b"".join(word.to_bytes(2, "big") for word in before)
+                raw += bench.wire_crc(raw).to_bytes(2, "little")
+                t.update(verification_words=before, verification_raw_hex=raw.hex(),
+                         verification_evidence=dict(t["staging_evidence"], raw_hex=raw[:9].hex(),
+                             received_length=15, tx_accepted=8, earliest_us=1010, latest_us=1020, delivered_us=1030))
+                for name in ("staging_evidence", "trigger_evidence", "activity_evidence", "last_observation"):
+                    t[name]["step"] += 1
+            if selected[1] == 0:
+                t.update(staging_applied=False, setup_execution="not_transmitted", staging_evidence=dict(empty))
+            else:
+                offset, count = selected
+                value = t["staging_words"][offset]
+                prefix = bytes((1, 6, 0, 0x21 + offset, value >> 8, value & 255)) if count == 1 else bytes((1, 16, 0, 0x21 + offset, 0, count))
+                t["staging_evidence"].update(raw_hex=(prefix + bench.wire_crc(prefix).to_bytes(2, "little")).hex(),
+                                             tx_accepted=8 if count == 1 else 13 if count == 2 else 19)
+            args = self.MOVE_ARGS + ("setup", setup)
+            bench.Console._check_move(t, 1, args)
+            bad = copy.deepcopy(t)
+            bad["trigger_step"] = 3
+            with self.assertRaises(bench.BenchError): bench.Console._check_move(bad, 1, args)
+            if setup == "verify":
+                for key, value in (("verification_raw_hex", t["verification_raw_hex"][:-2] + "ff"),
+                                   ("verification_known", False), ("setup_count", 4)):
+                    bad = copy.deepcopy(t); bad[key] = value
+                    with self.assertRaises(bench.BenchError): bench.Console._check_move(bad, 1, args)
+        for tokens in (("setup",), ("setup", "unknown"), ("setup", "verify", "setup", "stored")):
+            with self.assertRaises(ValueError): bench.move_arguments("relative", self.MOVE_ARGS + tokens)
+
+    def test_move_verification_timeout_is_read_failure_without_write_uncertainty(self):
+        t = move_terminal(2)
+        empty = dict(t["failure_evidence"])
+        failure = dict(empty, event=1, tx_accepted=8, tx_complete=True, delivered_us=1100,
+                       status="ILLEGAL_VALUE", detail=1)
+        t.update(setup="verify", trigger_step=2, setup_offset=0, setup_count=5,
+                 verification_known=False, verification_words=[0] * 5, verification_raw_hex="",
+                 verification_evidence=failure, failure_evidence=dict(failure),
+                 ok=False, state="failed", outcome="transport_error", status="ILLEGAL_VALUE", detail=1,
+                 setup_execution="not_transmitted", execution="not_transmitted", completion="not_observed",
+                 staging_applied=False, uncertain=False, running_observed=False, observation_known=False,
+                 raw_alarm=None, raw_motion=None, serviced_us=1100, polls=0)
+        for key in ("staging_evidence", "trigger_evidence", "activity_evidence", "last_observation"):
+            t[key] = dict(empty)
+        bench.Console._check_move(t, 1, self.MOVE_ARGS + ("setup", "verify"))
+        t["uncertain"] = True
+        with self.assertRaisesRegex(bench.BenchError, "uncertainty"):
+            bench.Console._check_move(t, 1, self.MOVE_ARGS + ("setup", "verify"))
+
     def test_absolute_and_angle_preserve_coordinates_and_start_flags(self):
         for kind in ("absolute", "angle"):
             def converted(t):

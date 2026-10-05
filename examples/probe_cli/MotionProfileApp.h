@@ -177,6 +177,9 @@ void serviceMotionProfile(App& a, uint64_t now) {
         return;
     }
     std::memcpy(view.current, words, sizeof(words));
+    std::memcpy(a.rememberedMoveWords, words + 1, sizeof(a.rememberedMoveWords));
+    a.rememberedMoveGeneration = a.axis.generation;
+    a.rememberedMoveBinding = a.bindingGeneration; a.rememberedMoveSerial = a.serial.generation;
     if (!view.saved) {
         std::memcpy(view.original, words, sizeof(words));
         view.saved = true;

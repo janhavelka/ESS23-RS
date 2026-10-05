@@ -68,7 +68,7 @@ const Entry COMMANDS[] = {
     {"motor-release", Command::MOTOR_RELEASE, "motor-release [address]", "request_release_then_observe_flags", true, "Request motor release and observe the resulting flags."},
     {"alarm-clear", Command::ALARM_CLEAR, "alarm-clear [address]", "request_clear_resettable_alarm_then_observe_flags", true, "Request alarm clearing and check the drive flags."},
     {"stop", Command::STOP, "stop normal|direct [address]", "priority_stop_with_explicit_policy_then_observe_flags", true, "Request a priority normal or direct motor stop."},
-    {"move", Command::MOVE, "move relative|absolute value unit frame native_rpm configured [basis actual|commanded|queued] [round mode error [approx error]] [address] | move angle value unit frame positive|negative|shortest reject|positive|negative native_rpm configured [round mode error [approx error]] [address]", "finite_move_through_public_coordinate_preparation", true, "Request a finite relative, absolute or wrapped-angle move with explicit units."},
+    {"move", Command::MOVE, "move relative|absolute value unit frame native_rpm configured [setup write|verify|stored] [basis actual|commanded|queued] [round mode error [approx error]] [address] | move angle value unit frame positive|negative|shortest reject|positive|negative native_rpm configured [setup write|verify|stored] [round mode error [approx error]] [address]", "finite_move_through_public_coordinate_preparation", true, "Request a finite relative, absolute or wrapped-angle move with explicit units."},
     {"position-clear", Command::POSITION_CLEAR, "position-clear [address]", "explicit_device_position_zero_only", true, "Explicitly set the drive position counter to zero."},
     {"velocity", Command::VELOCITY, "velocity value rpm|steps/s|fullsteps/s|counts/s|turns/s|deg/s|rad/s|mm/s native|motor|load duration_ms configured normal|direct [round mode error [approx error]] [address]", "finite_serial_velocity_with_explicit_stop", true, "Request a bounded velocity operation with an explicit stop policy."},
     {"monitor", Command::MONITOR, "monitor [off | interval_ms count]", "finite_nonconsuming_state_polling", true, "Read drive state a finite number of times; off ends local polling."},
@@ -917,7 +917,7 @@ bool discoveryScan(char* out, std::size_t capacity, std::size_t& used, const Dis
 }
 
 void Console::dispatch() noexcept {
-    char* tokens[20] = {}; // Full-width rationals, path policies and bounded preview options.
+    char* tokens[22] = {}; // Full-width rationals, path policies and bounded preview options.
     std::size_t count = 0;
     char* next = line_;
     while (*next) {
@@ -1483,6 +1483,14 @@ void Console::dispatch() noexcept {
         if (!Core::parseExactNumber(tokens[next++], speed) || speed.denominator != 1 || speed.numerator <= 0 || speed.numerator > UINT16_MAX ||
             std::strcmp(tokens[next++], "configured") != 0) { error(id, command, "invalid_arguments"); return; }
         move.speedRpm = static_cast<uint16_t>(speed.numerator); move.ramp = Core::MoveRamp::VERIFIED_CONFIGURED;
+        if (next < count && std::strcmp(tokens[next], "setup") == 0) {
+            if (++next >= count) { error(id, command, "invalid_arguments"); return; }
+            if (std::strcmp(tokens[next], "write") == 0) move.setup = Core::MoveSetup::WRITE_ALL;
+            else if (std::strcmp(tokens[next], "verify") == 0) move.setup = Core::MoveSetup::VERIFY_AND_UPDATE;
+            else if (std::strcmp(tokens[next], "stored") == 0) move.setup = Core::MoveSetup::USE_STORED;
+            else { error(id, command, "invalid_arguments"); return; }
+            ++next;
+        }
         if (next < count && std::strcmp(tokens[next], "basis") == 0) {
             if (!move.position.relative || ++next >= count || !relativeBasis(tokens[next++], move.position.basis)) { error(id, command, "invalid_arguments"); return; }
         }
@@ -2341,7 +2349,14 @@ bool Console::formatMove(uint32_t id, uint32_t commandId, uint32_t operationId,
         static_cast<unsigned>(r.frame), boolean(r.relative), boolean(r.wrapped), static_cast<unsigned>(r.path), static_cast<unsigned>(r.tie), static_cast<unsigned>(r.basis), static_cast<unsigned>(r.rounding), boolean(r.approximate), boolean(r.rationalRadians), radians, r.maximumQuantizationError, approximationLimit,
         static_cast<long long>(p.effectiveNative), boolean(p.endpointKnown), static_cast<long long>(p.endpointNative),
         boolean(p.displacementKnown), static_cast<long long>(p.displacementNative), boolean(p.zeroDisplacement), p.roundingError, p.approximationErrorBound, boolean(p.exactArithmetic), approximateNative) &&
-        actionEvidence(output_, sizeof(output_), used, c.stagingEvidence) && append(output_, sizeof(output_), used, ",\"trigger_evidence\":") &&
+        actionEvidence(output_, sizeof(output_), used, c.stagingEvidence) && append(output_, sizeof(output_), used,
+        ",\"setup\":\"%s\",\"trigger_step\":%u,\"setup_offset\":%u,\"setup_count\":%u,\"verification_known\":%s,\"verification_words\":[%u,%u,%u,%u,%u],\"verification_raw_hex\":\"",
+        c.request.setup == Core::MoveSetup::VERIFY_AND_UPDATE ? "verify" : c.request.setup == Core::MoveSetup::USE_STORED ? "stored" : "write",
+        c.triggerStep, c.setupOffset, c.setupCount, boolean(c.verificationKnown),
+        c.verificationWords[0], c.verificationWords[1], c.verificationWords[2], c.verificationWords[3], c.verificationWords[4]);
+    char verificationRaw[31]; hex(c.verificationRaw, c.verificationLength, verificationRaw, sizeof(verificationRaw));
+    fits = fits && append(output_, sizeof(output_), used, "%s\",\"verification_evidence\":", verificationRaw) &&
+        actionEvidence(output_, sizeof(output_), used, c.verificationEvidence) && append(output_, sizeof(output_), used, ",\"trigger_evidence\":") &&
         actionEvidence(output_, sizeof(output_), used, c.triggerEvidence) && append(output_, sizeof(output_), used, ",\"activity_evidence\":") &&
         actionEvidence(output_, sizeof(output_), used, c.activityEvidence) && append(output_, sizeof(output_), used, ",\"last_observation\":") &&
         actionEvidence(output_, sizeof(output_), used, c.lastObservation) && append(output_, sizeof(output_), used, ",\"failure_evidence\":") &&

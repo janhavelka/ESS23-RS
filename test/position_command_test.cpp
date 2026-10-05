@@ -132,5 +132,76 @@ void acknowledgementEvidence() {
     reply(c, 4, false, true, 1001, 1100);
     assert(c.outcome == ActionOutcome::DEADLINE && c.uncertain);
 }
+void setupPolicies() {
+    for (auto order : {E::WordOrder::HIGH_WORD_FIRST, E::WordOrder::LOW_WORD_FIRST}) {
+        for (unsigned difference = 0; difference < 7; ++difference) {
+            auto m = motor(); m.setup = MoveSetup::VERIFY_AND_UPDATE; m.wordOrder = order;
+            E::MoveContext c; E::PreparedMove w;
+            assert(m.prepareRelative(c, 1, 0x12345678, 10, 100000));
+            assert(E::nextMove(c, 10, w) && w.function == 3 && w.reg == 0x21 && w.count == 5 && !w.write);
+            uint16_t old[5]; std::memcpy(old, c.words, sizeof(old));
+            if (difference && difference <= 5) ++old[difference - 1];
+            if (difference == 6) { ++old[0]; ++old[4]; }
+            std::vector<uint8_t> b{1,3,10};
+            for (auto word : old) { b.push_back(word >> 8); b.push_back(word); }
+            b = crc(b);
+            ActionEvent e; e.transport.target = c.target; e.transport.operationId = 1;
+            e.transport.frame = b.data(); e.transport.length = b.size(); e.transport.txAccepted = 8;
+            e.transport.qualified = e.txComplete = e.responseConfirmed = true;
+            e.transport.earliestUs = 11; e.transport.latestUs = 12;
+            const auto unchanged = c;
+            e.transport.step = 9;
+            assert(!E::advanceMove(c,e,13) && !std::memcmp(&c,&unchanged,sizeof(c)));
+            e.transport.step = 0;
+            assert(E::advanceMove(c,e,13) && c.verificationKnown && c.verificationLength == 15);
+            assert(!std::memcmp(c.verificationWords,old,sizeof(old)));
+            assert(E::nextMove(c,13,w));
+            if (!difference) assert(w.function == 6 && w.reg == 0x27 && c.setupCount == 0 && c.step == 2);
+            else {
+                assert(c.step == 1 && w.write);
+                if (difference <= 3) assert(w.function == 6 && w.reg == 0x20 + difference && w.count == 1);
+                else if (difference <= 5) assert(w.function == 16 && w.reg == 0x24 && w.count == 2);
+                else assert(w.function == 16 && w.reg == 0x21 && w.count == 5);
+                b.assign(w.bytes,w.bytes+6); b=crc(b);
+                e.transport.step = 1; e.transport.txAccepted = w.length;
+                e.transport.frame = b.data(); e.transport.length = b.size();
+                e.transport.earliestUs = 14; e.transport.latestUs = 15;
+                assert(E::advanceMove(c,e,16) && c.stagingApplied);
+                assert(E::nextMove(c,16,w) && w.function == 6 && w.reg == 0x27 && c.step == 2);
+            }
+            b.assign(w.bytes,w.bytes+w.length);
+            e.transport.step = 2; e.transport.txAccepted = 8;
+            e.transport.frame = b.data(); e.transport.length = b.size();
+            e.transport.earliestUs = 17; e.transport.latestUs = 18;
+            assert(E::advanceMove(c,e,19) && c.outcome == ActionOutcome::ACKNOWLEDGED);
+            assert(c.completion == ActionCompletion::NOT_OBSERVED);
+        }
+    }
+    auto m=motor(); m.setup=MoveSetup::USE_STORED; E::MoveContext c; E::PreparedMove w;
+    assert(m.prepareRelative(c,1,100,10,1000));
+    assert(E::nextMove(c,10,w) && w.reg==0x27 && c.step==1 && c.setupCount==0);
+    reply(c); assert(c.outcome==ActionOutcome::ACKNOWLEDGED && !c.stagingApplied);
+    m.setup=static_cast<MoveSetup>(99); auto before=c;
+    assert(!m.prepareRelative(c,1,100,10,1000) && !std::memcmp(&before,&c,sizeof(c)));
+    m.setup=MoveSetup::VERIFY_AND_UPDATE;
+    for (unsigned failure=0;failure<5;++failure) {
+        assert(m.prepareRelative(c,1,100,10,1000));
+        auto b=crc({1,3,10,0,100,0,100,0,60,0,0,0,100});
+        ActionEvent e; e.transport.target=c.target;e.transport.operationId=1;
+        e.transport.frame=b.data();e.transport.length=b.size();e.transport.txAccepted=8;
+        e.transport.qualified=e.txComplete=e.responseConfirmed=true;
+        e.transport.earliestUs=11;e.transport.latestUs=12;
+        if(failure==0)b.back()^=1;
+        if(failure==1)e.responseConfirmed=false;
+        if(failure==2)e.transport.earliestUs=e.transport.latestUs=1001;
+        if(failure>=3) {e.transport=ReadEvent();e.transport.target=c.target;e.transport.operationId=1;
+            e.transport.kind=failure==3?ReadEventKind::CANCEL:ReadEventKind::TRANSPORT_FAILURE;
+            e.txComplete=e.responseConfirmed=false;}
+        assert(E::advanceMove(c,e,failure==2?1002:13));
+        assert(c.state==ActionState::FAILED && !c.uncertain && !c.verificationKnown);
+        assert(c.execution==ActionExecution::NOT_TRANSMITTED);
+        assert(E::nextMove(c,c.servicedUs,w) && w.kind==E::ActionWork::DONE);
+    }
 }
-int main() { intentSnapshotAndNormalSequence(); rejectionAndRawAccess(); failuresNeverStartOrReplay(); acknowledgementEvidence(); }
+}
+int main() { setupPolicies(); intentSnapshotAndNormalSequence(); rejectionAndRawAccess(); failuresNeverStartOrReplay(); acknowledgementEvidence(); }

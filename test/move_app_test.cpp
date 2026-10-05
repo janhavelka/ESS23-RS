@@ -901,7 +901,102 @@ static void testUserMoveInUnits() {
     moveStep(id); moveStep(id); moveStep(id, registers(1, {0, 4})); moveStep(id, registers(1, {0, 1})); pump();
     assert(releaseMove(id));
 }
+static void testRepeatedMovePolicies() {
+    fresh(); readProductionMoveBaseline();
+    const auto refreshState=[]() {
+        command("@99 read state\n"); const uint32_t read=view(0).operationId;
+        assert(view(read).typedRead && view(read).pending);
+        for(const auto& response : {registers(1,{0,1}),registers(1,{0,0}),registers(1,{0,100,0})}) {
+            const auto token=view(read).typedRead->step;waitTx(read);scheduleReply(hardware.time+2000,response);
+            for(unsigned i=0;i<25000 && view(read).pending && view(read).typedRead->step==token;++i)step();
+        }
+        assert(!view(read).pending);pump();assert(release(app,read)==Probe::Action::OK);
+    };
+    uint32_t id=0;
+    assert(MotorControlRSExample::moveBy(100,PositionUnit::STEPS,id,60,MoveSetup::VERIFY_AND_UPDATE));
+    moveStep(id,registers(1,{100,100,60,0,100}));
+    assert(view(id).moveContext->step==2 && !view(id).moveContext->stagingApplied);
+    assert(app->rememberedMoveWords[4]==100);
+    moveStep(id); assert(hardware.tx[1]==6 && hardware.tx[3]==0x27);
+    moveStep(id,registers(1,{0,4}));moveStep(id,registers(1,{0,1}));pump();
+    assert(releaseMove(id));
+    refreshState();
+    // A caller explicitly chooses cached reuse, and can repeat without profile reads.
+    assert(MotorControlRSExample::moveBy(100,PositionUnit::STEPS,id,60,MoveSetup::USE_STORED));
+    moveStep(id); assert(hardware.tx[1]==6 && hardware.tx[3]==0x27);
+    moveStep(id,registers(1,{0,4}));moveStep(id,registers(1,{0,1}));pump();
+    assert(releaseMove(id));
+    refreshState();
+    id=777;const auto writes=hardware.writes;
+    assert(!MotorControlRSExample::moveBy(101,PositionUnit::STEPS,id,60,MoveSetup::USE_STORED));
+    assert(id==777 && hardware.writes==writes);
+    assert(MotorControlRSExample::moveBy(101,PositionUnit::STEPS,id,60,MoveSetup::VERIFY_AND_UPDATE));
+    moveStep(id,registers(1,{100,100,60,0,100}));
+    assert(view(id).moveContext->setupOffset==3 && view(id).moveContext->setupCount==2);
+    moveStep(id); assert(hardware.tx[1]==16 && hardware.tx[3]==0x24);
+    assert(app->rememberedMoveWords[4]==101);
+    moveStep(id);moveStep(id,registers(1,{0,4}));moveStep(id,registers(1,{0,1}));pump();
+    assert(releaseMove(id));
+    ++app->axis.generation;
+    assert(!MotorControlRSExample::moveBy(101,PositionUnit::STEPS,id,60,MoveSetup::USE_STORED));
+    // A stopped/interrupted verification owns the same reservation and never starts.
+    fresh();readProductionMoveBaseline();
+    assert(MotorControlRSExample::moveBy(100,PositionUnit::STEPS,id,60,MoveSetup::VERIFY_AND_UPDATE));
+    waitTx(id);const auto stop=admitStop();
+    moveStep(id,registers(1,{100,100,60,0,100}));
+    actionStep(stop);actionStep(stop,registers(1,{0,0}));pump();
+    MoveProgress progress;assert(moveProgress(id,progress) && !progress.pending && progress.interruptedByStop);
+    assert(view(id).moveContext->triggerEvidence.txAccepted==0);
+}
+static void testVerificationReadDoesNotAdoptNewGeneration() {
+    fresh(); readProductionMoveBaseline();
+    const auto previousGeneration = app->rememberedMoveGeneration;
+    const auto previousTarget = app->rememberedMoveWords[4];
+    uint32_t id = 0;
+    assert(MotorControlRSExample::moveBy(100, PositionUnit::STEPS, id, 60, MoveSetup::VERIFY_AND_UPDATE));
+    waitTx(id);
+    const unsigned writes = hardware.writes;
+    // An external observation/recovery may invalidate assumptions while the
+    // already transmitted read settles. Its result keeps its original binding.
+    invalidateAxis(*app);
+    assert(app->axis.generation != previousGeneration);
+    moveStep(id, registers(1, {100, 100, 60, 0, 100}));
+    pump();
+    const auto& result = *view(id).moveContext;
+    assert(!view(id).pending && result.outcome == ActionOutcome::CANCELLED);
+    assert(result.verificationKnown && !result.uncertain);
+    assert(!result.stagingEvidence.txAccepted && !result.triggerEvidence.txAccepted);
+    assert(hardware.writes == writes && !axisReserved(*app, 1));
+    assert(app->rememberedMoveGeneration == previousGeneration);
+    assert(app->rememberedMoveWords[4] == previousTarget);
+    assert(app->rememberedMoveGeneration != app->axis.generation);
+}
+static void testLocalMoveCancellationInvalidatesRememberedSettings() {
+    fresh(); qualify();
+    const uint32_t id = admitMove(); waitTx(id);
+    auto* record = findRecord(*app, id);
+    scheduleReply(hardware.writeStarted + hardware.tx.size() * 87 + 1000, acknowledgement());
+    // Occupy ordinary queue slots before delivering the actual stage reply,
+    // leaving the next move step unadmitted for direct local cancellation.
+    for (unsigned i = 0; i < 25000 && !app->owner.result(record->requestId); ++i) {
+        advanceHardware(hardware.time + 10); app->owner.service(uart.sample());
+    }
+    assert(app->owner.result(record->requestId));
+    uint32_t producers[4] = {};
+    for (unsigned i = 0; i < 4; ++i)
+        assert(probe(app, 20 + i, 2, producers[i]) == Probe::Action::OK);
+    advanceActions(*app, nowUs());
+    assert(record->move.stagingApplied && record->move.step == record->move.triggerStep);
+    assert(!record->requestId.owner && app->rememberedMoveGeneration == app->axis.generation);
+    assert(cancel(app, id) == Probe::Action::OK);
+    assert(!view(id).pending && record->move.uncertain && record->move.outcome == ActionOutcome::CANCELLED);
+    assert(!app->rememberedMoveGeneration && !record->move.triggerEvidence.txAccepted);
+    assert(hardware.writes == 1 && axisReserved(*app, 1));
+}
 int main() {
+    testVerificationReadDoesNotAdoptNewGeneration();
+    testLocalMoveCancellationInvalidatesRememberedSettings();
+    testRepeatedMovePolicies();
     testUserMoveInUnits();
     testProductionMoveOptionalObservationAge();
     testProductionGateAndImmutableAdmission(); testIndependentWritesRespectQualificationAndMoveStartup();

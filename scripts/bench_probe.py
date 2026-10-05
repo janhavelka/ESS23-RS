@@ -553,14 +553,14 @@ class Evidence:
 def move_arguments(kind: str, arguments: tuple[str, ...]) -> dict:
     """Validate the finite console grammar; conversions stay in the public API."""
     if (kind not in ("relative", "absolute", "angle") or not isinstance(arguments, tuple) or
-            not 5 <= len(arguments) <= 14 or any(type(token) is not str or not token or
+            not 5 <= len(arguments) <= 16 or any(type(token) is not str or not token or
             any(ord(char) < 33 or ord(char) > 126 for char in token) for token in arguments)):
         raise ValueError("move requires bounded ASCII coordinate and ramp tokens")
     value, unit, frame = arguments[:3]
     if unit not in ("steps", "fullsteps", "counts", "turn", "deg", "rad", "mm") or frame not in ("native", "motor", "load"):
         raise ValueError("move unit or frame is invalid")
     result = dict(value=value, unit=unit, frame=frame, path=2, tie=0, rounding=0,
-                  error="0", approximate=False, approximation_error="0", basis=0)
+                  error="0", approximate=False, approximation_error="0", basis=0, setup="write")
     index = 3
     if kind == "angle":
         if unit not in ("turn", "deg", "rad") or frame == "native":
@@ -574,6 +574,11 @@ def move_arguments(kind: str, arguments: tuple[str, ...]) -> dict:
     if result["ramp"] != "configured":
         raise ValueError("move requires configured ramp")
     index += 2
+    if index < len(arguments) and arguments[index] == "setup":
+        if index + 1 >= len(arguments) or arguments[index + 1] not in ("write", "verify", "stored"):
+            raise ValueError("move setup requires write, verify or stored")
+        result["setup"] = arguments[index + 1]
+        index += 2
     if index < len(arguments) and arguments[index] == "basis":
         if kind != "relative" or index + 1 >= len(arguments) or arguments[index + 1] not in ("actual", "commanded", "queued"):
             raise ValueError("relative basis is invalid")
@@ -1114,6 +1119,18 @@ class Console:
         else:
             require(displacement_known and item["displacement_native"] != 0, "displacement is absent or zero")
         require(integer(item.get("native_rpm"), 1, 3000) and item.get("ramp") == "configured", "speed or ramp is invalid")
+        setup = item.get("setup", "write")
+        trigger_step = item.get("trigger_step", 1)
+        setup_offset, setup_count = item.get("setup_offset", 0), item.get("setup_count", 5)
+        require(setup in ("write", "verify", "stored") and type(trigger_step) is int and
+                trigger_step == (2 if setup == "verify" else 1) and
+                integer(setup_offset, 0, 3) and integer(setup_count, 0, 5) and
+                (setup_offset, setup_count) in ((0, 0), (0, 1), (1, 1), (2, 1), (3, 2), (0, 5)), "setup policy is invalid")
+        require(setup != "write" or (setup_offset, setup_count) == (0, 5), "full write omitted settings")
+        require(setup != "stored" or (setup_offset, setup_count) == (0, 0), "stored policy writes settings")
+        verification_known = item.get("verification_known", False)
+        require(type(verification_known) is bool and (setup == "verify" or not verification_known), "verification validity differs")
+        setup_size = 8 if setup_count == 1 else 13 if setup_count == 2 else 19
         words = item.get("staging_words")
         require(isinstance(words, list) and len(words) == 5 and all(integer(word, 0, 65535) for word in words) and
                 words[0] <= 2000 and words[1] <= 2000 and words[2] == item["native_rpm"], "staged parameter words are inconsistent")
@@ -1198,7 +1215,7 @@ class Console:
             require(Fraction(parsed["value"]) == Fraction(requested["numerator"], requested["denominator"]) and
                     parsed["unit"] == requested["unit"] and ("native", "motor", "load")[requested["frame"]] == parsed["frame"] and
                     Fraction(parsed["speed"]) == item["native_rpm"] and parsed["ramp"] == item["ramp"] and
-                    parsed["basis"] == requested["basis"] and
+                    parsed["basis"] == requested["basis"] and parsed["setup"] == setup and
                     parsed["rounding"] == requested["rounding"] and
                     retained_allowance(parsed["error"], requested["maximum_quantization_error"]) and
                     parsed["approximate"] == requested["approximate"], "request differs from admitted input")
@@ -1207,11 +1224,13 @@ class Console:
             if parsed["approximate"]:
                 require(retained_allowance(parsed["approximation_error"], requested["maximum_approximation_error"]), "radian error differs")
         evidence = {}
-        for name, token, tx_size in (("staging_evidence", 0, 19), ("trigger_evidence", 1, 8),
-                                    ("activity_evidence", None, 8), ("last_observation", None, 8), ("failure_evidence", None, None)):
+        specs = [("staging_evidence", trigger_step - 1, setup_size), ("trigger_evidence", trigger_step, 8),
+                 ("activity_evidence", None, 8), ("last_observation", None, 8), ("failure_evidence", None, None)]
+        if "setup" in item or setup == "verify": specs.append(("verification_evidence", 0, 8))
+        for name, token, tx_size in specs:
             entry = item.get(name)
             require(isinstance(entry, dict), "missing " + name)
-            require(all(integer(entry.get(key), 0, limit) for key, limit in (("event", 3), ("step", 65),
+            require(all(integer(entry.get(key), 0, limit) for key, limit in (("event", 3), ("step", 66),
                     ("received_length", 0xFFFFFFFF), ("tx_accepted", 19), ("frame_error", 255))), name + " bounds are invalid")
             require(all(integer(entry.get(key)) for key in ("earliest_us", "latest_us", "delivered_us")) and
                     all(type(entry.get(key)) is bool for key in ("tx_complete", "response_confirmed", "qualified", "execution_unknown")) and
@@ -1228,7 +1247,7 @@ class Console:
             if not empty:
                 require(token is None or entry["step"] == token, name + " token differs")
                 require(item["started_us"] <= entry["delivered_us"] <= item["serviced_us"], name + " is outside operation lifetime")
-                size = tx_size or (19 if entry["step"] == 0 else 8)
+                size = tx_size or (setup_size if entry["step"] == trigger_step - 1 else 8)
                 require(entry["tx_accepted"] <= size and (not entry["tx_complete"] or entry["tx_accepted"] == size), name + " TX evidence differs")
                 require(entry["event"] == 0 or not entry["response_confirmed"], name + " local event claims a response")
                 if entry["qualified"]:
@@ -1245,15 +1264,47 @@ class Console:
                     (name in ("staging_evidence", "trigger_evidence") or entry["latest_us"] <= item["deadline_us"]),
                     name + " lacks a checked response")
             return entry, raw
+        if "verification_evidence" in evidence:
+            verification, prefix, empty = evidence["verification_evidence"]
+            full_hex = item.get("verification_raw_hex")
+            require(isinstance(full_hex, str) and re.fullmatch(r"(?:[0-9a-fA-F]{2}){0,15}", full_hex) is not None,
+                    "verification raw bytes are invalid")
+            full = bytes.fromhex(full_hex)
+            require(len(full) == min(verification["received_length"], 15) and full[:9] == prefix,
+                    "verification raw retention differs")
+            verified_words = item.get("verification_words")
+            require(isinstance(verified_words, list) and len(verified_words) == 5 and all(integer(word, 0, 65535) for word in verified_words),
+                    "verification words are invalid")
+            if setup != "verify":
+                require(empty and not full and verified_words == [0] * 5, "non-verifying setup claims a read")
+            if verification_known:
+                require(not empty and verification["event"] == 0 and verification["qualified"] and verification["response_confirmed"] and
+                        verification["tx_complete"] and verification["status"] == "OK" and
+                        verification["detail"] == verification["frame_error"] == 0 and verification["received_length"] == 15 and
+                        full[:3] == bytes((item["address"], 3, 10)) and wire_crc(full) == 0 and
+                        verified_words == [int.from_bytes(full[i:i + 2], "big") for i in range(3, 13, 2)],
+                        "verification lacks a checked parameter read")
+                changed = [i for i in range(5) if words[i] != verified_words[i]]
+                selected = ((0, 0) if not changed else (changed[0], 1) if len(changed) == 1 and changed[0] < 3 else
+                            (3, 2) if all(i >= 3 for i in changed) else (0, 5))
+                require((setup_offset, setup_count) == selected, "write selection differs from checked parameters")
+            else:
+                require(verified_words == [0] * 5, "unknown verification publishes parameter values")
+        if setup_count == 1:
+            stage_prefix = (item["address"], 6, 0, 0x21 + setup_offset, words[setup_offset] >> 8, words[setup_offset] & 255)
+            stage_function = 6
+        else:
+            stage_prefix = (item["address"], 16, 0, 0x21 + setup_offset, 0, setup_count)
+            stage_function = 16
         for execution, name in (("setup_execution", "staging_evidence"), ("execution", "trigger_evidence")):
             require(item.get(execution) in ("not_transmitted", "acknowledged", "rejected", "unknown"), execution + " is invalid")
             entry, raw, empty = evidence[name]
             if item[execution] == "acknowledged":
-                confirmed(name, (item["address"], 16, 0, 0x21, 0, 5) if execution == "setup_execution" else (item["address"], 6, 0, 0x27, 0, 1 if kind == "relative" else 5), 8)
+                confirmed(name, stage_prefix if execution == "setup_execution" else (item["address"], 6, 0, 0x27, 0, 1 if kind == "relative" else 5), 8)
             elif item[execution] == "rejected":
                 require(not empty and entry["qualified"] and entry["response_confirmed"] and entry["tx_complete"] and
                         entry["status"] == "EXCEPTION" and entry["frame_error"] == 10 and len(raw) == 5 and
-                        raw[:2] == bytes((item["address"], 0x90 if execution == "setup_execution" else 0x86)) and
+                        raw[:2] == bytes((item["address"], (stage_function | 0x80) if execution == "setup_execution" else 0x86)) and
                         1 <= raw[2] <= 7 and raw[2] == entry["detail"] and wire_crc(raw) == 0, name + " rejection is unproven")
             elif item[execution] == "not_transmitted":
                 require(entry["tx_accepted"] == 0 and not entry["execution_unknown"], name + " contradicts non-transmission")
@@ -1264,6 +1315,11 @@ class Console:
                     name + " unknown execution contradicts checked acknowledgement/rejection")
         require(item["staging_applied"] == (item["setup_execution"] == "acknowledged"), "staging validity differs")
         stage, trigger = evidence["staging_evidence"][0], evidence["trigger_evidence"][0]
+        if setup_count == 0:
+            require(evidence["staging_evidence"][2] and item["setup_execution"] == "not_transmitted", "skipped staging contains a write")
+        if setup == "verify" and not evidence["staging_evidence"][2]:
+            require(verification_known and verification["delivered_us"] <= stage["delivered_us"] and
+                    (not stage["qualified"] or verification["delivered_us"] <= stage["earliest_us"]), "staging precedes verification")
         trigger_raw = evidence["trigger_evidence"][1]
         unconfirmed_trigger = (item["execution"] == "unknown" and
             trigger["event"] == 0 and trigger["qualified"] and not trigger["response_confirmed"] and
@@ -1273,21 +1329,26 @@ class Console:
             wire_crc(trigger_raw) == 0 and trigger["latest_us"] <= write_deadline)
         observable_trigger = item["execution"] == "acknowledged" or unconfirmed_trigger
         if not evidence["trigger_evidence"][2]:
-            require(item["staging_applied"] and stage["delivered_us"] <= trigger["delivered_us"] and
-                    (not trigger["qualified"] or stage["delivered_us"] <= trigger["earliest_us"]), "trigger precedes checked staging")
-            require(stage["latest_us"] <= write_deadline and stage["delivered_us"] < write_deadline,
-                    "trigger follows expired staging readiness")
+            if setup == "verify": require(verification_known, "trigger precedes verification")
+            if setup_count:
+                require(item["staging_applied"], "trigger precedes checked staging")
+            prior = stage if setup_count else verification if setup == "verify" else None
+            if prior is not None:
+                require(prior["delivered_us"] <= trigger["delivered_us"] and
+                        (not trigger["qualified"] or prior["delivered_us"] <= trigger["earliest_us"]), "trigger precedes setup")
+                require(prior["latest_us"] <= write_deadline and prior["delivered_us"] < write_deadline,
+                        "trigger follows expired setup readiness")
         if item["running_observed"]:
             activity, raw = confirmed("activity_evidence", (item["address"], 3, 4), 9)
             motion = int.from_bytes(raw[5:7], "big")
-            require(item["observation_known"] and 2 <= activity["step"] <= item["polls"] + 1 and
+            require(item["observation_known"] and trigger_step + 1 <= activity["step"] <= item["polls"] + trigger_step and
                     trigger["delivered_us"] < activity["earliest_us"] and int.from_bytes(raw[3:5], "big") == 0 and
                     bool(motion & 4) and not motion & 0x78, "activity is stale, faulted or lacks RUNNING")
         else:
             require(evidence["activity_evidence"][2], "unobserved activity retains a report")
         if item["observation_known"]:
             observed, raw = confirmed("last_observation", (item["address"], 3, 4), 9)
-            require(observable_trigger and item["polls"] >= 1 and observed["step"] == item["polls"] + 1 and
+            require(observable_trigger and item["polls"] >= 1 and observed["step"] == item["polls"] + trigger_step and
                     trigger["delivered_us"] < observed["earliest_us"] and
                     item.get("raw_alarm") == int.from_bytes(raw[3:5], "big") and item.get("raw_motion") == int.from_bytes(raw[5:7], "big"),
                     "last report differs from retained RX")
@@ -1305,14 +1366,14 @@ class Console:
             require(not evidence["failure_evidence"][2] and evidence["failure_evidence"][0]["delivered_us"] == item["serviced_us"],
                     "failure lacks terminal evidence")
             failure, raw, _ = evidence["failure_evidence"]
-            if failure["step"] < 2:
-                require(failure == evidence["staging_evidence" if failure["step"] == 0 else "trigger_evidence"][0],
+            if failure["step"] <= trigger_step:
+                require(failure == evidence["verification_evidence" if setup == "verify" and failure["step"] == 0 else "staging_evidence" if failure["step"] < trigger_step else "trigger_evidence"][0],
                         "failed write differs from retained evidence")
             else:
-                require(observable_trigger and failure["step"] in (item["polls"] + 1, item["polls"] + 2),
+                require(observable_trigger and failure["step"] in (item["polls"] + trigger_step, item["polls"] + trigger_step + 1),
                         "failure token skips an observation")
                 previous = evidence["last_observation"][0] if item["observation_known"] else trigger
-                if failure["step"] == item["polls"] + 1:
+                if failure["step"] == item["polls"] + trigger_step:
                     require(failure == previous, "terminal observation differs from retained report")
                 else:
                     require(previous["delivered_us"] <= failure["delivered_us"] and
@@ -1320,23 +1381,23 @@ class Console:
             if failure["event"] != 0:
                 expected = {1: "transport_error", 2: "cancelled", 3: "deadline"}[failure["event"]]
                 if failure["event"] == 3:
-                    require(item["serviced_us"] >= (write_deadline if failure["step"] < 2 else item["deadline_us"]),
+                    require(item["serviced_us"] >= (write_deadline if failure["step"] <= trigger_step else item["deadline_us"]),
                             "local deadline precedes its transaction budget")
             elif not failure["qualified"]:
                 expected = "timing_unqualified"
-            elif failure["latest_us"] > (write_deadline if failure["step"] < 2 else item["deadline_us"]):
+            elif failure["latest_us"] > (write_deadline if failure["step"] <= trigger_step else item["deadline_us"]):
                 expected = "deadline"
             elif failure["status"] != "OK":
                 expected = "reply_error"
-            elif not failure["response_confirmed"] and not (failure["step"] == 1 and unconfirmed_trigger):
+            elif not failure["response_confirmed"] and not (failure["step"] == trigger_step and unconfirmed_trigger):
                 expected = "unconfirmed_response"
-            elif failure["step"] >= 2 and len(raw) == 9 and (int.from_bytes(raw[3:5], "big") or int.from_bytes(raw[5:7], "big") & 0x78):
+            elif failure["step"] > trigger_step and len(raw) == 9 and (int.from_bytes(raw[3:5], "big") or int.from_bytes(raw[5:7], "big") & 0x78):
                 expected = "reply_error"
             else:
                 require(item["outcome"] in ("deadline", "observation_limit") and
                         (item["outcome"] != "deadline" or item["serviced_us"] >=
-                            (write_deadline if failure["step"] == 0 else item["deadline_us"])) and
-                        (item["outcome"] != "observation_limit" or failure["step"] >= 2), "checked reply does not establish failure")
+                            (write_deadline if failure["step"] <= trigger_step else item["deadline_us"])) and
+                        (item["outcome"] != "observation_limit" or failure["step"] > trigger_step), "checked reply does not establish failure")
                 expected = item["outcome"]
             require(item["outcome"] == expected, "failure outcome contradicts terminal evidence")
         require(item["uncertain"] == (not item["ok"] and bool(stage["tx_accepted"] or stage["execution_unknown"] or
@@ -4552,6 +4613,7 @@ def arguments(argv: list[str] | None) -> argparse.Namespace:
             move.add_argument("tie", choices=("reject", "positive", "negative"))
         move.add_argument("native_rpm", help="positive exact integer native motor rpm")
         move.add_argument("ramp", choices=("configured",))
+        move.add_argument("--setup", choices=("write", "verify", "stored"), help="write all parameters (default), read and update differences, or trust stored parameters")
         move.add_argument("--round", choices=("exact", "nearest", "zero", "floor", "ceil"))
         move.add_argument("--maximum-error", default="0", help="exact maximum native quantization error")
         move.add_argument("--approximation-error", help="explicit positive native error allowance for radians")
@@ -4658,6 +4720,7 @@ def arguments(argv: list[str] | None) -> argparse.Namespace:
         tokens = [result.value, result.unit, result.frame]
         if result.mode == "move-angle": tokens.extend((result.path, result.tie))
         tokens.extend((result.native_rpm, result.ramp))
+        if result.setup: tokens.extend(("setup", result.setup))
         if getattr(result, "basis", None): tokens.extend(("basis", result.basis))
         if result.round: tokens.extend(("round", result.round, result.maximum_error))
         elif result.maximum_error != "0" or result.approximation_error:

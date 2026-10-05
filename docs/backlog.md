@@ -1,5 +1,15 @@
 # Features implementation tasks and open questions
 
+## Repeated motion setup policies
+
+- [x] Keep full setup by default; expose read/compare/selective update and explicit
+  start-only through the same core sequence, example API and CLI.
+- [x] Bind remembered settings to the target/configuration/serial generation;
+  preserve unknown writes and checked parameter-read evidence separately.
+- [x] Compare ten repeats per policy and all selected write shapes on COM13;
+  retain the original one-shot standstill-check failure and corrected bounded
+  polling campaign in the [timing record](reports/2026-10-05_repeat_motion_timing.md).
+
 ## Unit-aware ESP32 move functions
 
 - [x] `moveBy` / `moveTo`, advanced `submitMove`, copied progress and explicit

@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import bench_motion as campaign
+import bench_repeat as repeat
 
 
 class FakeConsole:
@@ -456,6 +457,103 @@ class FunctionalCampaignTest(unittest.TestCase):
             campaign.run_phase(BrokenDiagnostics(move_ok=False), "forward", record)
         self.assertIn("finite move did not", record["phase_error"])
         self.assertIn("memory diagnostics missing", record["ending_error"])
+
+
+class RepeatConsole(FakeConsole):
+    def __init__(self, *, fail_move=False, lose_framing=False, **kwargs):
+        super().__init__(**kwargs)
+        self.now = 0
+        self.fail_move = fail_move
+        self.lose_framing = lose_framing
+        self.moves = 0
+        self.sleeps = []
+
+    def clock(self):
+        return self.now
+
+    def sleep(self, duration):
+        self.sleeps.append(duration)
+        self.now += duration
+
+    def command(self, name, **kwargs):
+        if name != 'move-relative':
+            return super().command(name, **kwargs)
+        self.calls.append((name, kwargs))
+        self.moves += 1
+        if self.lose_framing:
+            self.synchronized = False
+            raise campaign.BenchError('original admission lost')
+        if self.fail_move:
+            raise campaign.BenchError('original move uncertain')
+        offset, count = ((0, 5), (0, 0), (0, 0), (2, 1), (3, 2), (0, 5))[self.moves - 1]
+        return dict(ok=True, completion='observed', uncertain=False, started_us=100,
+                    trigger_evidence=dict(delivered_us=600, latest_us=550),
+                    setup_offset=offset, setup_count=count, operation_id=self.moves)
+
+
+class RepeatCampaignTest(unittest.TestCase):
+    def test_nonatomic_arrival_speed_requires_bounded_read_wait_before_next_move(self):
+        # Reproduce the observed transition: ARRIVED/non-running with speed4,
+        # then a later zero-speed sample. No extra motion/stop is sent to settle it.
+        console = RepeatConsole(speeds=(0, 0, 4, 0, 0, 0, 0, 0))
+        record = {}
+        repeat.campaign(console, record, 1)
+        self.assertEqual(console.moves, 6)
+        calls = [name for name, _ in console.calls]
+        move_indexes = [i for i, name in enumerate(calls) if name == 'move-relative']
+        self.assertEqual(calls[move_indexes[1] + 1:move_indexes[2]], ['read-state', 'read-state'])
+        self.assertEqual(console.sleeps, [.05])
+        self.assertEqual(len(console.commands('stop')), 1)
+        self.assertEqual([x['host_args'] for x in console.commands('motion-profile')], [('read',), ('restore',)])
+        self.assertEqual(record['cleanup'], 'stopped_and_restored')
+        self.assertEqual(len(console.commands('probe')), 10)
+        self.assertTrue(record['workload_verified'])
+
+    def test_standstill_budget_exhaustion_never_replays_motion(self):
+        console = RepeatConsole(speeds=(0,) + (4,) * 10)
+        record = {}
+        with self.assertRaisesRegex(campaign.BenchError, 'observation bound exhausted'):
+            repeat.campaign(console, record, 1)
+        self.assertEqual(console.moves, 1)
+        self.assertEqual(len(console.commands('read-state')), 12)  # Initial + ten bounded reads + cleanup.
+        self.assertEqual(console.sleeps, [.05] * 9)
+        self.assertEqual(len(console.commands('stop')), 1)
+        self.assertEqual(record['cleanup'], 'stopped_and_restored')
+        self.assertEqual(console.commands('probe'), [])
+        self.assertIn('observation bound exhausted', record['failure'])
+
+    def test_uncertain_motion_gets_one_cleanup_and_remains_failed(self):
+        console = RepeatConsole(fail_move=True)
+        record = {}
+        with self.assertRaisesRegex(campaign.BenchError, 'original move uncertain'):
+            repeat.campaign(console, record, 1)
+        self.assertEqual(console.moves, 1)
+        self.assertEqual(len(console.commands('stop')), 1)
+        self.assertEqual(record['cleanup'], 'stopped_and_restored')
+        self.assertNotIn('workload_verified', record)
+        self.assertEqual(record['failure'], 'original move uncertain')
+
+    def test_failed_cleanup_preserves_primary_failure_and_never_retries_stop(self):
+        console = RepeatConsole(fail_move=True, stop_ok=False)
+        record = {}
+        with self.assertRaisesRegex(campaign.BenchError, 'stop refused/failed'):
+            repeat.campaign(console, record, 1)
+        self.assertEqual(record['failure'], 'original move uncertain')
+        self.assertEqual(record['cleanup'], 'unknown')
+        self.assertEqual(console.moves, 1)
+        self.assertEqual(len(console.commands('stop')), 1)
+        self.assertEqual([x['host_args'] for x in console.commands('motion-profile')], [('read',)])
+
+    def test_lost_framing_retains_primary_error_and_sends_no_cleanup_writes(self):
+        console = RepeatConsole(lose_framing=True)
+        record = {}
+        with self.assertRaisesRegex(campaign.BenchError, 'framing unavailable'):
+            repeat.campaign(console, record, 1)
+        self.assertEqual(record['failure'], 'original admission lost')
+        self.assertEqual(record['cleanup'], 'unknown')
+        self.assertEqual(console.moves, 1)
+        self.assertEqual(console.commands('stop'), [])
+        self.assertEqual([x['host_args'] for x in console.commands('motion-profile')], [('read',)])
 
 
 if __name__ == "__main__":
