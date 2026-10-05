@@ -5,6 +5,24 @@ with grouped `help`/`?`, usage examples and operation hints. Explicit `@ID` comm
 retain the existing JSONL schema. Output format is retained per asynchronous
 operation and deferred stop reply; there is one command/API/owner path.
 
+The interactive `moveby VALUE [steps|deg|turn|mm]` / `moveto ...` workflow owns
+one finite preparation session in the application. `speed`, `accel`, `decel`,
+`motion write|stored` and `stepsperturn` retain host intent. Missing checked
+configuration/profile data is read through existing typed executors; fresh
+state is obtained before admission. Default movement still writes parameters
+and then starts through the public move sequence. Host scales, origins, enable
+and I/O changes are not inferred. Native ramp values are not physical acceleration.
+No core scheduler, additional bus owner or conversion path is introduced.
+
+Simple session IDs own their read/move child records. `result N` inspects the
+session; its `move_operation_id` exposes full ordinary move evidence via
+`@ID result CHILD`. Release uses the session ID. Only a delivered successful
+session is reclaimed when the next simple move is requested. Failed/uncertain
+sessions require explicit review/release and existing recovery constraints.
+Accepted stop interrupts preparation only after urgent admission succeeds.
+Human motion/action replies are compact; diagnostic evidence remains available
+through explicit JSON inspection and copied `debug raw|decoded` traffic.
+
 [Named Python scenarios](bench_scenarios.md) reuse this console's strict
 correlation, typed operations and runtime debug events. Default regression
 sends only motor reads; motion/settings/persistence require explicit selection.

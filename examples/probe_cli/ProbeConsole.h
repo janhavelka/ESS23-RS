@@ -7,6 +7,7 @@
 #include "../common/HostSerial.h"
 #include "StateCache.h"
 #include "AxisConsole.h"
+#include "SimpleMotion.h"
 #include "DiscoveryScan.h"
 #include "MotorControlRS/profiles/ess_rs/Codec.h"
 #include "MotorControlRS/profiles/ess_rs/Reads.h"
@@ -245,6 +246,7 @@ struct ProbeResult {
  * Raw frame pointers are borrowed only
  * until the result callback's caller finishes formatting this view. */
 struct ResultView {
+    const SimpleMotionView* simpleMotion = nullptr;
     HostTuple serialTuple;
     uint32_t serialGeneration = 0; ///< Zero means historical tuple unavailable.
     uint32_t commandId = 0, operationId = 0;
@@ -298,6 +300,7 @@ struct Host {
     /** One finite move admission through the installed preparation API; no request pointer is retained. */
     Action (*startMove)(void*, uint32_t commandId, uint8_t address,
                        const MotorControlRS::MoveRequest&, uint32_t& operationId) = nullptr;
+    Action (*simpleMotion)(void*, uint32_t commandId, const SimpleMotionCommand*, SimpleMotionView&) = nullptr;
     Action (*startVelocity)(void*, uint32_t commandId, uint8_t address,
                            const MotorControlRS::VelocityRequest&, uint32_t& operationId) = nullptr;
     /** Typed drive settings; request is copied by the host before returning.
@@ -380,6 +383,7 @@ public:
                       bool interruptedByStop = false, const HostTuple* tuple = nullptr, uint32_t serialGeneration = 0) noexcept;
     bool reportMove(uint32_t id, uint32_t operationId, const MotorControlRS::ESS_RS::MoveContext&,
                     bool interruptedByStop = false, const HostTuple* tuple = nullptr, uint32_t serialGeneration = 0) noexcept;
+    bool reportSimpleMotion(uint32_t id, uint32_t operationId, const SimpleMotionView&) noexcept;
     bool reportVelocity(uint32_t id, uint32_t operationId, const MotorControlRS::ESS_RS::VelocityContext&,
                         bool interruptedByStop = false, const HostTuple* tuple = nullptr, uint32_t serialGeneration = 0) noexcept;
     bool reportDriver(uint32_t id, uint32_t operationId, const MotorControlRS::ESS_RS::DriverContext&,
@@ -388,6 +392,7 @@ public:
                     bool interruptedByStop = false, const HostTuple* tuple = nullptr, uint32_t serialGeneration = 0) noexcept;
 
 private:
+    bool formatSimpleMotion(uint32_t id, const SimpleMotionView&, bool inspection) noexcept;
     void setReportSerial(const HostTuple*, uint32_t generation) noexcept;
     bool appendReportSerial(std::size_t& used) noexcept;
     void dispatch() noexcept;

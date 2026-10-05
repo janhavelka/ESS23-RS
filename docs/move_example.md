@@ -1,5 +1,13 @@
 # Move by an amount, or move to a target
 
+For interactive use, the existing console now accepts `moveby 100 steps` and
+`moveto 100 steps`, plus `speed`, `accel`, `decel` and `stepsperturn`. It performs
+missing read-only preparation and prints a short outcome. See the
+[console guide](console.md) for units, current example bounds and error handling.
+The C++ calls below remain direct application submissions using the prepared
+configuration/state/profile caches; they do not run that interactive preparation
+session or automatically release previous results.
+
 The existing ESP32 example exposes ordinary C++ functions in
 [`ProbeApp.h`](../examples/probe_cli/ProbeApp.h). They submit work to the same
 owner used by the console. `serviceApplication()` sends the parameters, waits
@@ -94,13 +102,14 @@ beginApplication({Board::kRs485TxPin, Board::kRs485RxPin, Board::kRs485DeRePin,
                  Board::kRs485ReceiverDisabledDuringTransmit, options);
 ```
 
-The existing example must first have checked configuration/state and a saved
-motion profile. Its setup procedure remains `read config`, `read state`,
+Direct C++ submissions must first have checked configuration/state and a saved
+motion profile. Their setup procedure remains `read config`, `read state`,
 `motion-profile read`; these are non-changing reads. For a manual console session,
 `axis config set command 1000` supplies the same host scale (then reread the
 motion profile to bind the new host configuration). No timed refresh is needed
 by default. A changed setting, recovery or other known invalidation still needs
-reconciliation. This change does not add hidden enable, calibration or I/O writes.
+reconciliation. The simple interactive commands perform those missing reads
+themselves. Neither path adds hidden enable, calibration or I/O writes.
 
 The application loop can inspect progress without parsing console output:
 

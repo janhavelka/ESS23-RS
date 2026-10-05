@@ -22,9 +22,7 @@ void statusAndAdmission() {
     contains(output, "Age (ms): 14");
     assert(!std::strchr(output, '{') && !std::strchr(output, '}'));
     assert(renderHuman("{\"command\":\"enable\",\"ok\":true,\"result\":\"accepted\",\"operation_id\":18}", output, sizeof(output)));
-    contains(output, "[WAIT] enable");
-    contains(output, "Operation: 18");
-    contains(output, "result 18; release 18");
+    assert(std::strcmp(output, "Enable accepted (operation 18).\n") == 0);
     // These local callbacks use accepted as the host return code, with no
     // asynchronous operation implied by the word alone.
     assert(renderHuman("{\"command\":\"debug\",\"ok\":true,\"result\":\"accepted\",\"mode\":\"raw\"}", output, sizeof(output)));
@@ -36,21 +34,80 @@ void evidenceAndHints() {
     char output[2048];
     const char* failure = "{\"type\":\"move\",\"command\":\"move-relative\",\"ok\":false,\"operation_id\":9,\"state\":\"failed\",\"outcome\":\"transport_error\",\"execution\":\"unknown\",\"setup_execution\":\"acknowledged\",\"completion\":\"not_observed\",\"uncertain\":true,\"failure_evidence\":{\"tx_accepted\":3,\"tx_complete\":false,\"raw_hex\":\"0103\"}}";
     assert(renderHuman(failure, output, sizeof(output)));
-    contains(output, "[ERROR] move-relative");
-    contains(output, "Outcome: transport_error");
-    contains(output, "Execution: unknown");
-    contains(output, "Setup execution: acknowledged");
-    contains(output, "Completion: not_observed");
-    contains(output, "Hint: inspect result 9; execution is unknown. Do not repeat the write.");
-    contains(output, "Failure evidence:\n  Tx accepted: 3");
-    assert(std::strstr(output,"Execution:") < std::strstr(output,"Failure evidence:"));
+    contains(output, "Move uncertain (operation 9).");
+    contains(output, "Reason: communication failed.");
+    contains(output, "Execution is unknown. Do not repeat the write.");
+    contains(output, "Motion settings were acknowledged.");
+    contains(output, "completion was not observed.");
+    contains(output, "Details: @1 result 9.");
+    assert(!std::strstr(output, "Failure evidence:") && !std::strstr(output, "Tx accepted"));
     assert(renderHuman("{\"command\":\"move-relative\",\"ok\":false,\"error\":\"invalid_arguments\"}", output, sizeof(output)));
-    contains(output, "Error: invalid_arguments");
-    contains(output, "Hint: help move");
+    contains(output, "Move rejected.");
+    contains(output, "check the arguments, motor setup and readiness");
     assert(renderHuman("{\"command\":\"stop\",\"ok\":false,\"error\":\"recovery_required\"}", output, sizeof(output)));
-    contains(output, "recover restores host transport only");
+    contains(output, "host transport needs explicit recovery");
     assert(renderHuman("{\"command\":\"cancel\",\"ok\":false,\"operation_id\":4,\"outcome\":\"cancelled\"}", output, sizeof(output)));
     contains(output, "Local cancellation does not stop the motor.");
+}
+void conciseMotion() {
+    char output[2048];
+    const char* complete = "{\"type\":\"move\",\"command\":\"move-relative\",\"ok\":true,\"operation_id\":118,\"state\":\"succeeded\",\"outcome\":\"observed\",\"completion\":\"observed\",\"execution\":\"acknowledged\",\"running_observed\":true,\"observation_known\":true,\"raw_alarm\":0,\"staging_words\":[100,100,60,0,100],\"prerequisites\":{\"raw_motion\":1}}";
+    assert(renderHuman(complete, output, sizeof(output)));
+    assert(std::strcmp(output, "Move complete (operation 118).\nDrive reported running, then target reached.\nNo drive alarm reported.\nDetails: @1 result 118.\n") == 0);
+    // Retained result inspection is equally concise; the JSON report remains
+    // the authoritative detailed view, selected before this adapter is called.
+    assert(renderHuman("{\"command\":\"result\",\"move_kind\":\"absolute\",\"ok\":true,\"state\":\"succeeded\",\"completion\":\"observed\",\"running_observed\":false,\"operation_id\":12}", output, sizeof(output)));
+    contains(output, "running was not observed");
+    assert(!std::strstr(output, "reported running"));
+    assert(renderHuman("{\"command\":\"moveto\",\"ok\":true,\"result\":\"accepted\",\"operation_id\":20}", output, sizeof(output)));
+    assert(std::strcmp(output, "Move accepted (operation 20).\n") == 0);
+    assert(renderHuman("{\"command\":\"result\",\"move_kind\":\"relative\",\"result\":\"pending\",\"operation_id\":20}", output, sizeof(output)));
+    contains(output, "Move in progress (operation 20)");
+    assert(renderHuman("{\"command\":\"move-relative\",\"state\":\"succeeded\",\"ok\":true,\"outcome\":\"acknowledged\",\"execution\":\"acknowledged\",\"completion\":\"not_observed\"}", output, sizeof(output)));
+    contains(output, "Move not confirmed complete");
+    contains(output, "Command acknowledged by the drive");
+    assert(!std::strstr(output, "Move complete"));
+    assert(renderHuman("{\"command\":\"move-relative\",\"ok\":false,\"state\":\"failed\",\"outcome\":\"cancelled\",\"interrupted_by_stop\":true,\"operation_id\":21}", output, sizeof(output)));
+    contains(output, "Move interrupted by stop");
+    contains(output, "Check the separate stop result");
+    assert(!std::strstr(output, "Local cancellation"));
+    assert(renderHuman("{\"command\":\"move-relative\",\"ok\":false,\"state\":\"failed\",\"outcome\":\"cancelled\"}", output, sizeof(output)));
+    contains(output, "Move cancelled locally");
+    contains(output, "Local cancellation does not stop the motor");
+    assert(renderHuman("{\"command\":\"stop\",\"ok\":true,\"state\":\"succeeded\",\"completion\":\"observed\",\"operation_id\":22}", output, sizeof(output)));
+    contains(output, "Stop complete (operation 22)");
+    contains(output, "Drive reported stopped");
+    assert(renderHuman("{\"command\":\"moveby\",\"ok\":false,\"state\":\"failed\",\"outcome\":\"reply_error\",\"observation_known\":true,\"raw_alarm\":4}", output, sizeof(output)));
+    contains(output, "Drive alarm code: 4");
+    assert(!std::strstr(output, "No drive alarm"));
+    // A contradictory optimistic flag cannot hide execution uncertainty.
+    assert(renderHuman("{\"command\":\"moveby\",\"ok\":true,\"state\":\"succeeded\",\"completion\":\"observed\",\"execution\":\"unknown\"}", output, sizeof(output)));
+    contains(output, "Move uncertain");
+    contains(output, "Do not repeat the write");
+    assert(!std::strstr(output, "Move complete"));
+    assert(renderHuman("{\"type\":\"simple_move\",\"command\":\"moveby\",\"ok\":false,\"state\":\"failed\",\"operation_id\":99,\"move_operation_id\":0,\"no_motion_sent\":true,\"message\":\"Command scale is not configured.\",\"hint\":\"Set steps-per-turn before using degrees.\"}", output, sizeof(output)));
+    contains(output, "Command scale is not configured.");
+    contains(output, "No motion command was sent.");
+    contains(output, "Next: Set steps-per-turn before using degrees.");
+    contains(output, "Details: @1 result 99.");
+    contains(output, "After reviewing: release 99.");
+    assert(!std::strstr(output, "result 0") && !std::strstr(output, "completion was not observed"));
+    assert(renderHuman("{\"type\":\"simple_move\",\"command\":\"moveby\",\"ok\":false,\"state\":\"failed\",\"operation_id\":99,\"move_operation_id\":0,\"read_operation_id\":100,\"no_motion_sent\":true,\"message\":\"Configuration read failed; motor settings are unknown.\"}", output, sizeof(output)));
+    contains(output, "Configuration read failed; motor settings are unknown.");
+    contains(output, "No motion command was sent.");
+    contains(output, "Details: @1 result 100.");
+    contains(output, "After reviewing: release 99.");
+    assert(renderHuman("{\"type\":\"simple_move\",\"command\":\"moveby\",\"ok\":true,\"state\":\"succeeded\",\"completion\":\"observed\",\"running_observed\":true,\"operation_id\":99,\"move_operation_id\":101}", output, sizeof(output)));
+    contains(output, "Move complete (operation 99)");
+    contains(output, "Details: @1 result 101.");
+    assert(!std::strstr(output, "result 99"));
+    assert(!std::strstr(output, "After reviewing"));
+    assert(renderHuman("{\"type\":\"simple_move\",\"command\":\"moveby\",\"ok\":false,\"state\":\"failed\",\"execution\":\"unknown\",\"operation_id\":99,\"move_operation_id\":101}", output, sizeof(output)));
+    contains(output, "Do not repeat the write.");
+    contains(output, "Details: @1 result 101.");
+    contains(output, "After reviewing: release 99.");
+    char tiny[100];
+    assert(!renderHuman(complete, tiny, sizeof(tiny)) && tiny[0] == '\0');
 }
 void nestedFamiliesAndTraffic() {
     char output[4096];
@@ -113,10 +170,11 @@ void boundsAndMalformed() {
     assert(sentinel[0] == 'A' && sentinel[1] == '\0' && sentinel[2] == 'C');
     const std::string bounded = "{\"command\":\"move-relative\",\"ok\":false,\"operation_id\":4,\"execution\":\"unknown\",\"completion\":\"not_observed\",\"evidence\":\"" + std::string(2000, 'x') + "\"}";
     assert(renderHuman(bounded.c_str(), output, sizeof(output)));
-    contains(output, "[ERROR] move-relative");
-    contains(output, "Execution: unknown");
-    contains(output, "Completion: not_observed");
-    contains(output, "[Details truncated. Inspect retained results with @ID result N; do not repeat writes.]");
+    contains(output, "Move uncertain (operation 4)");
+    contains(output, "Execution is unknown");
+    contains(output, "completion was not observed");
+    // Long debug-only evidence does not overwhelm or truncate the summary.
+    assert(!std::strstr(output, "truncated") && !std::strstr(output, "xxxx"));
     assert(std::strlen(output) < sizeof(output));
     const std::string nested = "{\"command\":\"communication\",\"ok\":true,\"snapshot\":\"" + std::string(2000, 'x') + "\",\"context\":{\"operation_id\":12,\"execution\":4,\"uncertain\":true,\"activation_unknown\":true}}";
     assert(renderHuman(nested.c_str(), output, sizeof(output)));
@@ -132,6 +190,7 @@ void boundsAndMalformed() {
 int main() {
     statusAndAdmission();
     evidenceAndHints();
+    conciseMotion();
     nestedFamiliesAndTraffic();
     boundsAndMalformed();
 }

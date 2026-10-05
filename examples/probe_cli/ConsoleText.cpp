@@ -385,6 +385,110 @@ bool heading(Writer& writer, const Value& report) {
     return writer.text(failed ? "[ERROR] " : pending ? "[WAIT] " : ok.begin ? "[OK] " : "[INFO] ") &&
         (command.begin ? writer.string(command) : writer.text("response")) && writer.character('\n');
 }
+
+// Ordinary motion output answers what happened. The original report remains
+// available through @ID result N; none of the evidence or ownership is changed.
+const char* motionSubject(const Value& report) {
+    const Value command = member(report, "command"), kind = member(report, "action_kind");
+    if (equal(member(report, "type"), "simple_move") || equal(command, "moveby") || equal(command, "moveto") ||
+        equal(command, "move-relative") || equal(command, "move-absolute") ||
+        equal(command, "move-angle") || member(report, "move_kind").kind == Kind::STRING) return "Move";
+    if (equal(command, "stop") || equal(kind, "stop")) return "Stop";
+    if (equal(command, "enable") || equal(kind, "enable")) return "Enable";
+    if (equal(command, "motor-release") || equal(kind, "release")) return "Motor release";
+    if (equal(command, "alarm-clear") || equal(kind, "clear_alarm")) return "Alarm clear";
+    if (equal(command, "position-clear") || equal(kind, "clear_position")) return "Position clear";
+    return nullptr;
+}
+bool operationNumber(Writer& writer, const Value& report) {
+    const Value operation = member(report, "operation_id");
+    return !operation.begin || equal(operation, "0") ||
+        (writer.text(" (operation ") && writer.scalar(operation) && writer.character(')'));
+}
+bool motionDetails(Writer& writer, const Value& report) {
+    Value operation = member(report, "move_operation_id");
+    if (operation.kind != Kind::NUMBER || equal(operation, "0")) operation = member(report, "read_operation_id");
+    if (operation.kind != Kind::NUMBER || equal(operation, "0")) operation = member(report, "operation_id");
+    return !operation.begin || equal(operation, "0") ||
+        (writer.text("Details: @1 result ") && writer.scalar(operation) && writer.text(".\n"));
+}
+const char* motionReason(const Value& reason) {
+    if (equal(reason, "busy") || equal(reason, "axis_conflict")) return "another operation still owns this motor";
+    if (equal(reason, "queue_full")) return "the request queue is full";
+    if (equal(reason, "results_full")) return "retained results are full; inspect and release a terminal result";
+    if (equal(reason, "recovery_required")) return "host transport needs explicit recovery";
+    if (equal(reason, "invalid") || equal(reason, "invalid_arguments")) return "check the arguments, motor setup and readiness";
+    if (equal(reason, "unsupported") || equal(reason, "unavailable") || equal(reason, "unresolved")) return "this request is not supported with the current setup";
+    if (equal(reason, "transport_error")) return "communication failed";
+    if (equal(reason, "reply_error")) return "the drive reply or state did not pass validation";
+    if (equal(reason, "unconfirmed_response")) return "the response could be an echo; acknowledgement was not confirmed";
+    if (equal(reason, "deadline")) return "the operation timed out";
+    if (equal(reason, "observation_limit")) return "the required completion was not seen during polling";
+    if (equal(reason, "timing_unqualified")) return "communication timing could not be validated";
+    return nullptr;
+}
+bool motionReport(Writer& writer, const Value& report, const char* subject) {
+    const Value state = member(report, "state"), result = member(report, "result");
+    const Value outcome = member(report, "outcome"), execution = member(report, "execution");
+    const Value completion = member(report, "completion");
+    const bool uncertain = equal(member(report, "uncertain"), "true") || equal(execution, "unknown") ||
+        equal(member(report, "execution_unknown"), "true");
+    const bool accepted = equal(member(report, "ok"), "true") && equal(result, "accepted") && !state.begin;
+    const bool pending = equal(result, "pending") || equal(state, "active");
+    const bool cancelled = equal(outcome, "cancelled");
+    const bool noMotionSent = equal(member(report, "no_motion_sent"), "true");
+    const bool interrupted = equal(member(report, "interrupted_by_stop"), "true");
+    const bool observed = equal(member(report, "ok"), "true") && equal(state, "succeeded") &&
+        equal(completion, "observed");
+    const bool terminal = state.begin || outcome.begin || execution.begin;
+    const char* disposition = uncertain ? " uncertain" : interrupted ? " interrupted by stop" :
+        cancelled ? " cancelled locally" : accepted ? " accepted" : pending ? " in progress" :
+        observed ? " complete" : !terminal ? " rejected" : " not confirmed complete";
+    if (!writer.text(subject) || !writer.text(disposition) || !operationNumber(writer, report) || !writer.text(".\n")) return false;
+    if (accepted || pending) return true;
+    if (observed && !uncertain && !interrupted && !cancelled) {
+        const char* observation = !std::strcmp(subject, "Move") ?
+            (equal(member(report, "running_observed"), "true") ? "Drive reported running, then target reached." : "Drive reported target reached; running was not observed.") :
+            !std::strcmp(subject, "Stop") ? "Drive reported stopped." :
+            !std::strcmp(subject, "Enable") ? "Drive reported enabled." :
+            !std::strcmp(subject, "Motor release") ? "Drive reported released." :
+            !std::strcmp(subject, "Alarm clear") ? "Drive reported alarm cleared." : "Drive position reset was read back.";
+        if (!writer.text(observation) || !writer.character('\n')) return false;
+    } else {
+        const Value message = member(report, "message");
+        Value reason = member(report, "error");
+        if (!reason.begin) reason = terminal ? outcome : result;
+        if (message.kind == Kind::STRING && message.begin != message.end) {
+            if (!writer.string(message) || !writer.character('\n')) return false;
+        } else if (reason.begin && !cancelled) {
+            const char* explanation = motionReason(reason);
+            if (!writer.text("Reason: ") || !(explanation ? writer.text(explanation) : writer.scalar(reason)) || !writer.text(".\n")) return false;
+        }
+        if (uncertain && !writer.text("Execution is unknown. Do not repeat the write.\n")) return false;
+        if (noMotionSent && !writer.text("No motion command was sent.\n")) return false;
+        if (interrupted) {
+            if (!writer.text("Check the separate stop result; interruption does not prove the motor stopped.\n")) return false;
+        } else if (cancelled && !writer.text("Local cancellation does not stop the motor.\n")) return false;
+        if (!cancelled && !noMotionSent && terminal && !writer.text(equal(completion, "observed") ?
+            "Completion was observed; the operation still has an error.\n" : "Motion/state completion was not observed.\n")) return false;
+        if (equal(execution, "acknowledged") && !writer.text("Command acknowledged by the drive.\n")) return false;
+        if (equal(member(report, "setup_execution"), "acknowledged") && !writer.text("Motion settings were acknowledged.\n")) return false;
+    }
+    const Value alarm = member(report, "raw_alarm");
+    if (equal(member(report, "observation_known"), "true") && alarm.kind == Kind::NUMBER) {
+        if (equal(alarm, "0")) { if (!writer.text("No drive alarm reported.\n")) return false; }
+        else if (!writer.text("Drive alarm code: ") || !writer.scalar(alarm) || !writer.text(".\n")) return false;
+    }
+    const Value suppliedHint = member(report, "hint");
+    if (suppliedHint.kind == Kind::STRING && suppliedHint.begin != suppliedHint.end &&
+        (!writer.text("Next: ") || !writer.string(suppliedHint) || !writer.character('\n'))) return false;
+    if (!motionDetails(writer, report)) return false;
+    const Value wrapper = member(report, "operation_id");
+    if (equal(member(report, "type"), "simple_move") && equal(member(report, "ok"), "false") &&
+        wrapper.kind == Kind::NUMBER && !equal(wrapper, "0"))
+        return writer.text("After reviewing: release ") && writer.scalar(wrapper) && writer.text(".\n");
+    return true;
+}
 } // namespace
 
 bool renderHuman(const char* json, char* output, std::size_t capacity) noexcept {
@@ -400,6 +504,12 @@ bool renderHuman(const char* json, char* output, std::size_t capacity) noexcept 
     reader.space();
     if (reader.at != json + length) return false;
     Writer writer(output, capacity);
+    const char* subject = motionSubject(report);
+    if (subject) {
+        if (!motionReport(writer, report, subject)) { output[0] = '\0'; return false; }
+        writer.finish();
+        return true;
+    }
     if (equal(member(report, "type"), "traffic")) {
         // Dropping a best-effort diagnostic is preferable to showing an event
         // whose byte count, completion flag or error was silently cut off.

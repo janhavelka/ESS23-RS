@@ -1,0 +1,278 @@
+// SPDX-License-Identifier: MIT
+// Reuse the real application's platform/wire fixture; no alternative executor.
+#define main advancedMoveFixtureMain
+#include "move_app_test.cpp"
+#undef main
+namespace {
+void simpleReadStep(uint16_t rawSpeed = 0) {
+    for (unsigned i=0;i<100 && !app->simple.view.readOperationId;++i) step();
+    const auto id=app->simple.view.readOperationId; assert(id);
+    const auto kind=findRecord(*app,id)->read.kind;
+    const auto token=findRecord(*app,id)->read.step;
+    std::vector<uint8_t> reply;
+    if (kind==ESS::ReadKind::CONFIG) {
+        switch(token) {
+        case 0: reply=registers(1,{0,1000}); break;
+        case 1: reply=registers(1,{1,3,0}); break;
+        case 2: reply=registers(1,{0,0,0}); break;
+        case 3: reply=registers(1,{0,1,2,3,0}); break;
+        case 4: reply=registers(1,{3,4000}); break;
+        default: assert(false);
+        }
+    } else {
+        assert(kind==ESS::ReadKind::STATE);
+        switch(token) {
+        case 0: reply=registers(1,{0,1}); break;
+        case 1: reply=registers(1,{0,0}); break;
+        case 2: reply=registers(1,{0,0,rawSpeed}); break;
+        default: assert(false);
+        }
+    }
+    waitTx(id); assert(hardware.tx[1]==3);
+    scheduleReply(std::max(hardware.writeStarted+hardware.tx.size()*87+1000,hardware.time+1000),reply);
+    for(unsigned i=0;i<25000;++i) {
+        step(); const auto* r=findRecord(*app,id);
+        if(!r || r->read.step!=token || r->read.state!=ReadState::ACTIVE) return;
+    }
+    assert(false);
+}
+void prepareSimple() {
+    for(unsigned i=0;i<20 && app->simple.view.pending && app->simple.view.phase!=Probe::SimpleMotionPhase::PROFILE;++i)
+        simpleReadStep();
+    assert(app->simple.view.pending && app->simple.view.phase==Probe::SimpleMotionPhase::PROFILE);
+    if (!app->motionProfile.view.pending) { pump(); return; }
+    const auto id=app->motionProfile.request;
+    for(unsigned i=0;i<25000 && !app->owner.txAccepted(id);++i) step();
+    assert(app->owner.txAccepted(id) && hardware.tx[1]==3 && hardware.tx[3]==0x20);
+    scheduleReply(std::max(hardware.writeStarted+hardware.tx.size()*87+1000,hardware.time+1000),registers(1,{30,100,100,60,0,5000}));
+    for(unsigned i=0;i<25000 && app->motionProfile.view.pending;++i) step();
+    pump();
+}
+void completeSimple() {
+    const auto child=app->simple.view.moveOperationId; assert(child);
+    if (findRecord(*app,child)->move.request.setup != MoveSetup::USE_STORED) moveStep(child);
+    moveStep(child);
+    moveStep(child,registers(1,{0,4})); moveStep(child,registers(1,{0,1})); pump(1000);
+}
+void testSimpleAbsoluteMoveUsesOrdinaryAbsoluteTrigger() {
+    fresh(); command("@1 moveto 100 steps\n");
+    const auto wrapper=app->simple.view.operationId;
+    assert(wrapper && !app->simple.view.relative);
+    prepareSimple();
+    const auto child=app->simple.view.moveOperationId;
+    assert(child && app->simple.view.moveAdmitted);
+    const auto& move=findRecord(*app,child)->move;
+    assert(!move.request.position.relative && move.request.position.frame==CoordinateFrame::NATIVE);
+    assert(move.prepared.endpointKnown && move.prepared.effectiveNative==100);
+    assert(!move.reference.nativeKnown && !move.prepared.displacementKnown);
+    moveStep(child); // Checked ordinary 0x0021/5 staging.
+    assert(hardware.tx[1]==16 && hardware.tx[3]==0x21);
+    moveStep(child); // Absolute-position bit plus position-start bit.
+    assert(hardware.tx.size()==8 && hardware.tx[1]==6 && hardware.tx[3]==0x27);
+    assert(hardware.tx[4]==0 && hardware.tx[5]==5);
+    moveStep(child,registers(1,{0,4}));
+    moveStep(child,registers(1,{0,1})); pump(1000);
+    assert(!view(wrapper).pending && app->simple.view.ok && app->simple.view.delivered);
+    assert(app->simple.view.runningObserved && app->simple.view.completion==ActionCompletion::OBSERVED);
+    assert(app->simple.view.execution==ActionExecution::ACKNOWLEDGED);
+}
+void testColdSettingsReadPreparationAndRepeat() {
+    fresh();
+    command("@1 speed 50\n@2 accel 125\n@3 decel 175\n");
+    assert(hardware.writes==0 && app->simple.desired.speedRpm==50);
+    command("@4 moveby 100\n"); const auto wrapper=app->simple.view.operationId;
+    assert(wrapper && view(wrapper).simpleMotion && axisReserved(*app,1));
+    prepareSimple();
+    const auto child=app->simple.view.moveOperationId;
+    assert(child && child!=wrapper && app->simple.view.moveAdmitted);
+    assert(findRecord(*app,child)->commandId == 4); // Full evidence retains the user's command correlation.
+    const auto& move=findRecord(*app,child)->move;
+    assert(move.words[0]==125 && move.words[1]==175 && move.words[2]==50 && move.words[4]==100);
+    assert(app->motionProfile.view.current[1]==100 && app->motionProfile.view.original[1]==100);
+    completeSimple();
+    assert(app->simple.view.ok && app->simple.view.delivered && app->simple.view.runningObserved);
+    assert(view(wrapper).simpleMotion && view(child).moveContext);
+    command("@8 speed 45\n");
+    assert(view(wrapper).simpleMotion->speedRpm==50 && app->simple.desired.speedRpm==45);
+    command("@9 speed 50\n");
+    command("@5 moveby 50\n");
+    assert(app->simple.view.operationId!=wrapper && app->simple.view.pending);
+    assert(!findRecord(*app,child)); Probe::ResultView missing; assert(!lookup(app,wrapper,missing));
+    prepareSimple(); completeSimple(); assert(app->simple.view.ok);
+    const auto before=hardware.writes;
+    command("@6 motion stored\n@7 moveby 50\n");
+    assert(app->simple.view.phase==Probe::SimpleMotionPhase::STATE);
+    prepareSimple(); assert(app->simple.view.moveAdmitted);
+    assert(app->simple.view.move->request.setup==MoveSetup::USE_STORED);
+    completeSimple(); assert(app->simple.view.ok && hardware.writes==before+6);
+}
+void testUnknownScaleAndExplicitColdScale() {
+    fresh(); command("@1 moveby 36 deg\n"); prepareSimple(); pump(1000);
+    assert(!app->simple.view.moveAdmitted && !app->simple.view.ok && app->simple.view.delivered);
+    assert(hardware.writes==9); // Five config + three state + one profile, all FC03.
+    const auto failed=app->simple.view.operationId;
+    command("@2 moveby 100\n"); assert(app->simple.view.operationId==failed);
+    assert(release(app,failed)==Probe::Action::OK);
+    command("@3 stepsperturn 1000\n"); assert(hardware.writes==9);
+    command("@4 moveby 36 deg\n"); prepareSimple();
+    assert(app->simple.view.moveAdmitted);
+    assert(app->simple.view.move->prepared.effectiveNative==100);
+    assert(app->axis.units.commandStepsPerMotorTurn.source==ScaleSource::ASSUMED);
+    completeSimple();
+}
+void testRejectedAndAcceptedStopDuringPreparation() {
+    fresh(); command("@1 moveby 100\n");
+    ActionRequest stop; stop.kind=ActionKind::STOP; stop.stop.behavior=StopBehavior::CONFIGURED_DECELERATION;
+    uint32_t stopId=0;
+    assert(startAction(app,2,1,stop,stopId)==Probe::Action::UNAVAILABLE);
+    assert(!app->simple.cancelled && app->simple.view.pending);
+    simpleReadStep(); // First checked reply establishes the physical target.
+    assert(startAction(app,3,1,stop,stopId)==Probe::Action::OK);
+    assert(app->simple.cancelled && app->simple.view.interruptedByStop);
+    // Settle the already admitted read (possibly cancelled unsent), then stop.
+    for(unsigned i=0;i<25000 && app->simple.view.pending;++i) step();
+    assert(!app->simple.view.pending && !app->simple.view.moveAdmitted);
+    assert(app->simple.view.outcome==ActionOutcome::CANCELLED);
+    assert(!app->simple.view.moveOperationId);
+    actionStep(stopId); actionStep(stopId,registers(1,{0,1}));
+    pump(); assert(!app->simple.view.moveAdmitted);
+}
+void testCancelledWrapperKeepsOwnerUntilReadSettles() {
+    fresh(); command("@1 moveby 100\n"); const auto wrapper=app->simple.view.operationId;
+    const auto read=app->simple.view.readOperationId; waitTx(read);
+    assert(cancel(app,wrapper)==Probe::Action::OK);
+    assert(view(wrapper).pending && release(app,wrapper)==Probe::Action::BUSY);
+    scheduleReply(std::max(hardware.writeStarted+hardware.tx.size()*87+1000,hardware.time+1000),registers(1,{0,1000}));
+    for(unsigned i=0;i<25000 && view(wrapper).pending;++i) step();
+    pump(1000);
+    assert(!view(wrapper).pending && !app->simple.view.moveAdmitted && !app->simple.view.interruptedByStop);
+    assert(hardware.writes==1 && release(app,wrapper)==Probe::Action::OK);
+}
+void refreshStateForExplicitAxisConfiguration() {
+    uint32_t id=0;
+    assert(startTypedRead(app,50,1,ESS::ReadKind::STATE,id,false)==Probe::Action::OK);
+    findRecord(*app,id)->simpleChild=true; // Fixture owns this ordinary read's delivery.
+    for (const auto& response : {registers(1,{0,1}),registers(1,{0,0}),registers(1,{0,0,0})}) {
+        const auto token=findRecord(*app,id)->read.step;
+        waitTx(id);
+        scheduleReply(std::max(hardware.writeStarted+hardware.tx.size()*87+1000,hardware.time+1000),response);
+        for (unsigned i=0;i<25000 && findRecord(*app,id)->read.state==ReadState::ACTIVE &&
+             findRecord(*app,id)->read.step==token;++i) step();
+    }
+    pump(); assert(findRecord(*app,id)->read.state==ReadState::SUCCEEDED);
+    assert(release(app,id)==Probe::Action::OK);
+}
+void testExplicitAxisScaleSupersedesSimpleDeclaration() {
+    for (const bool cli : {false, true}) {
+        fresh(); command("@1 stepsperturn 1000\n@2 moveby 36 deg\n");
+        prepareSimple(); completeSimple();
+        const auto first=app->simple.view.operationId;
+        refreshStateForExplicitAxisConfiguration();
+        const auto before=hardware.writes;
+        if (cli) command("@3 axis config set command 500\n");
+        else {
+            Probe::AxisCommand change; change.kind=Probe::AxisCommandKind::CONFIGURE;
+            change.field=Probe::AxisField::COMMAND_SCALE; change.value=Rational(500);
+            Probe::AxisView result; assert(axisCommand(app,change,result));
+        }
+        assert(hardware.writes==before && app->simple.desired.scaleKnown);
+        assert(app->simple.desired.stepsPerTurn.numerator==500);
+        assert(view(first).simpleMotion->stepsPerTurn.numerator==1000);
+        command("@4 moveby 36 deg\n"); prepareSimple();
+        assert(app->simple.view.moveAdmitted && app->simple.view.move->prepared.effectiveNative==50);
+        completeSimple(); refreshStateForExplicitAxisConfiguration();
+        if (cli) command("@5 axis config set command none\n");
+        else {
+            Probe::AxisCommand change; change.kind=Probe::AxisCommandKind::CONFIGURE;
+            change.field=Probe::AxisField::COMMAND_SCALE; change.clear=true;
+            Probe::AxisView result; assert(axisCommand(app,change,result));
+        }
+        assert(!app->simple.desired.scaleKnown && !app->axis.units.commandStepsPerMotorTurn.numerator);
+        command("@6 moveby 36 deg\n"); prepareSimple(); pump(1000);
+        assert(!app->simple.view.moveAdmitted && !app->simple.view.ok);
+        assert(!app->axis.units.commandStepsPerMotorTurn.numerator);
+    }
+}
+void testDesiredScaleDoesNotCrossTargets() {
+    fresh(); command("@1 stepsperturn 1000\n@2 speed 50\n");
+    assert(app->simple.desired.scaleKnown);
+    assert(selectTarget(app,2)==Probe::Action::OK);
+    Probe::SimpleMotionView settings;
+    assert(simpleMotion(app,3,nullptr,settings)==Probe::Action::OK);
+    assert(!settings.scaleKnown && settings.speedRpm==50 && hardware.writes==0);
+}
+void testFailedReadIsInspectableAndOwned() {
+    fresh(); command("@1 moveby 100\n");
+    const auto wrapper=app->simple.view.operationId, child=app->simple.view.readOperationId;
+    waitTx(child);
+    scheduleReply(std::max(hardware.writeStarted+hardware.tx.size()*87+1000,hardware.time+1000),crc({1,0x83,2}));
+    for(unsigned i=0;i<25000 && view(wrapper).pending;++i) step();
+    pump(1000);
+    assert(!view(wrapper).pending && app->simple.view.readOperationId==child);
+    assert(view(child).typedRead && view(child).typedRead->status.code==Err::EXCEPTION);
+    assert(release(app,child)==Probe::Action::BUSY);
+    assert(release(app,wrapper)==Probe::Action::OK && !findRecord(*app,child));
+}
+void testReportedArrivalWaitsForStoppedFeedback() {
+    fresh(); command("@1 moveby 100\n");
+    for(unsigned i=0;i<7;++i) simpleReadStep();
+    simpleReadStep(4); // ARRIVED flag with residual speed is not stationary.
+    assert(app->simple.view.phase==Probe::SimpleMotionPhase::STATE);
+    assert(app->simple.view.pending && !app->simple.view.moveAdmitted && hardware.writes==8);
+    prepareSimple(); assert(app->simple.view.moveAdmitted && hardware.writes==12);
+    completeSimple(); assert(app->simple.view.ok);
+
+    fresh(); command("@1 moveby 100\n");
+    for(unsigned i=0;i<7;++i) simpleReadStep();
+    simpleReadStep(4);
+    app->simple.deadlineUs=hardware.time;
+    serviceSimpleMotion(*app,hardware.time); pump(1000);
+    assert(!app->simple.view.pending && !app->simple.view.moveAdmitted && hardware.writes==8);
+}
+void testRetainedChildAndBlockedTerminal() {
+    fresh(); command("@1 moveby 100\n"); prepareSimple();
+    const auto wrapper=app->simple.view.operationId, child=app->simple.view.moveOperationId;
+    assert(release(app,child)==Probe::Action::BUSY);
+    // Saturate the real application sink, then hold an ordinary console reply.
+    Serial.writeCapacity=0;
+    while(app->outputCount<OUTPUT_LINES) assert(emit(app,"blocked",7));
+    for (const char c : std::string("@2 status\n")) app->console.feed(c);
+    assert(app->console.outputPending());
+    completeSimple();
+    assert(!view(wrapper).pending && app->simple.view.ok && !app->simple.view.delivered);
+    assert(view(child).moveContext && release(app,child)==Probe::Action::BUSY);
+    Probe::SimpleMotionCommand next; next.kind=Probe::SimpleMotionCommandKind::MOVE_BY;
+    next.position.value=Rational(10); Probe::SimpleMotionView unchanged;
+    assert(simpleMotion(app,3,&next,unchanged)==Probe::Action::BUSY);
+    assert(app->simple.view.operationId==wrapper);
+    Serial.writeCapacity=64; pump(6000);
+    assert(app->simple.view.delivered && view(child).moveContext);
+    assert(release(app,wrapper)==Probe::Action::OK && !findRecord(*app,child));
+}
+void testBoundsAndUncertainResultNotReplayed() {
+    fresh(); command("@1 moveby 251\n"); prepareSimple(); pump(1000);
+    assert(!app->simple.view.moveAdmitted && hardware.writes==9 && app->simple.view.status.code==Err::ILLEGAL_VALUE);
+    fresh(); command("@1 moveby 100\n"); prepareSimple();
+    const auto child=app->simple.view.moveOperationId;
+    moveStep(child); waitTx(child);
+    for(unsigned i=0;i<50000 && view(child).pending;++i) step();
+    pump(1000); assert(app->simple.view.uncertain && !app->simple.view.ok);
+    const auto previous=app->simple.view.operationId, writes=hardware.writes;
+    command("@2 moveby 100\n");
+    assert(app->simple.view.operationId==previous && hardware.writes==writes);
+}
+}
+int main() {
+    testColdSettingsReadPreparationAndRepeat();
+    testSimpleAbsoluteMoveUsesOrdinaryAbsoluteTrigger();
+    testUnknownScaleAndExplicitColdScale();
+    testRejectedAndAcceptedStopDuringPreparation();
+    testCancelledWrapperKeepsOwnerUntilReadSettles();
+    testBoundsAndUncertainResultNotReplayed();
+    testRetainedChildAndBlockedTerminal();
+    testReportedArrivalWaitsForStoppedFeedback();
+    testDesiredScaleDoesNotCrossTargets();
+    testExplicitAxisScaleSupersedesSimpleDeclaration();
+    testFailedReadIsInspectableAndOwned();
+    std::puts("Simple motion application tests passed");
+}

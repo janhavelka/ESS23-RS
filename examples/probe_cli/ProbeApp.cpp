@@ -110,7 +110,7 @@ struct App {
         uint64_t deliveredUs = 0;
         uint64_t deadlineUs = 0;
         bool observed = false, delivered = false, captureRead = false;
-        bool typedRead = false, monitored = false;
+        bool typedRead = false, monitored = false, simpleChild = false;
         bool cancelContinuation = false; ///< Cancel the operation after its current frame settles.
         ESS::ReadContext read;
         bool actionOperation = false, axisReserved = false, effectsInvalidated = false, interruptedByStop = false;
@@ -168,6 +168,14 @@ struct App {
         Rtu::RequestId request;
         uint32_t bindingGeneration = 0;
     } motionProfile;
+    struct SimpleMotionSession {
+        Probe::SimpleMotionView view;
+        Probe::SimpleMotionSettings desired;
+        MotorControlRS::PositionRequest position;
+        uint32_t bindingGeneration = 0, serialGeneration = 0;
+        uint64_t deadlineUs = 0;
+        bool admitting = false, cancelled = false;
+    } simple;
     // Remembered checked parameters, separate from the preserved raw readback.
     uint16_t rememberedMoveWords[5] = {};
     uint32_t rememberedMoveGeneration = 0, rememberedMoveBinding = 0, rememberedMoveSerial = 0;
@@ -245,6 +253,7 @@ bool terminal(const App& a, const App::Record& record) {
     return record.typedRead ? record.read.state != ReadState::ACTIVE : a.owner.result(record.requestId) != nullptr;
 }
 bool axisReserved(const App& a, uint8_t address = 0) {
+    if (a.simple.view.pending && !a.simple.admitting && (!address || address == a.simple.view.address)) return true;
     if ((a.motionProfile.view.pending || a.motionProfile.view.restoreUnsettled) &&
         (!address || a.motionProfile.view.address == address)) return true;
     // Recovery changes correlation generation, not the physical target's uncertainty.
@@ -256,6 +265,7 @@ bool axisReserved(const App& a, uint8_t address = 0) {
     return false;
 }
 bool acting(const App& a) {
+    if (a.simple.view.pending && !a.simple.admitting) return true;
     for (const auto& record : a.records)
         if ((record.actionOperation || record.moveOperation || record.velocityOperation || record.driverOperation || record.homeOperation) && !terminal(a, record)) return true;
     return false;
@@ -340,6 +350,7 @@ MotorControlRS::Status axisCommand(void* context, const Probe::AxisCommand& comm
     view.commandPolarityKnown = a.commandPolarityKnown;
     if (command.kind == Probe::AxisCommandKind::QUERY) { view.configuration = a.axis; return Ok(); }
     if (a.owner.commissioningOwned() || a.discovery.owned) return Status(Err::INVALID_CONFIG, 0, "bus session owns the endpoint");
+    if (a.simple.view.pending && !a.simple.admitting) return Status(Err::INVALID_CONFIG, 0, "simple move owns the axis");
     const AxisReference evidence = axisReference(a);
     if (command.kind == Probe::AxisCommandKind::PREPARE) {
         if (!a.commandPolarityKnown && command.position.frame != CoordinateFrame::NATIVE)
@@ -384,6 +395,13 @@ MotorControlRS::Status axisCommand(void* context, const Probe::AxisCommand& comm
         UnitScale(static_cast<uint32_t>(command.value.numerator), static_cast<uint32_t>(command.value.denominator), ScaleSource::ASSUMED);
     const Status status = configureAxis(a.axis, candidate, evidence, &a.coordinateReference);
     if (status) {
+        if (command.field == Probe::AxisField::COMMAND_SCALE) {
+            // The explicit axis API is authoritative for future simple moves.
+            // Keep admitted/retained session settings unchanged.
+            const auto& commandScale = a.axis.units.commandStepsPerMotorTurn;
+            a.simple.desired.scaleKnown = commandScale.numerator != 0;
+            a.simple.desired.stepsPerTurn = Rational(commandScale.numerator, commandScale.denominator);
+        }
         if (command.field == Probe::AxisField::POLARITY) a.commandPolarityKnown = true;
         view.commandPolarityKnown = a.commandPolarityKnown;
         view.configuration = a.axis;
@@ -587,6 +605,7 @@ Rtu::BusAdmission admitActionStep(App& a, App::Record& record, const ESS::Prepar
 }
 #include "MotionReadinessApp.h"
 #include "MotionProfileApp.h"
+void cancelSimplePreparation(App&, uint8_t, uint64_t);
 
 Probe::Action startAction(void* context, uint32_t commandId, uint8_t address,
                           const MotorControlRS::ActionRequest& request, uint32_t& operationId) {
@@ -652,6 +671,7 @@ Probe::Action startAction(void* context, uint32_t commandId, uint8_t address,
         if (a.discoveryRequest.owner) a.owner.cancelUnsent(a.discoveryRequest, now);
     }
     operationId = a.latestOperationId = record->operationId;
+    if (stop) cancelSimplePreparation(a, address, now);
     if (stop) for (auto& interrupted : a.records) {
         if (&interrupted == record || (!interrupted.actionOperation && !interrupted.moveOperation && !interrupted.velocityOperation && !interrupted.driverOperation && !interrupted.homeOperation) || interrupted.address != address ||
             terminal(a, interrupted)) continue;
@@ -758,10 +778,14 @@ Probe::Action startMove(void* context, uint32_t commandId, uint8_t address,
     }
     prerequisites.wordOrderKnown = a.configuration.wordOrderKnown;
     prerequisites.wordOrder = a.configuration.wordOrder;
+    if (a.simple.admitting) {
+        if (a.simple.view.accelerationKnown) prerequisites.accelerationTime = a.simple.view.acceleration;
+        if (a.simple.view.decelerationKnown) prerequisites.decelerationTime = a.simple.view.deceleration;
+    }
     const MoveRequest& request = supplied;
     AxisReference reference = axisReference(a);
     ESS::MoveContext& prepared = record->move;
-    const uint64_t deadline = now + 3000000;
+    const uint64_t deadline = a.simple.admitting ? std::min(now + 3000000, a.simple.deadlineUs) : now + 3000000;
     ActionOptions options; options.maxPolls = ESS::ACTION_MAX_POLLS; options.pollIntervalUs = 20000;
     const auto prepare = request.position.wrapped ? ESS::prepareMoveAngle :
         request.position.relative ? ESS::prepareMoveRelative : ESS::prepareMoveAbsolute;
@@ -1742,8 +1766,15 @@ Probe::Action recover(void* context, uint32_t commandId, uint32_t& operationId) 
     a.recoveryGuardUntilUs = std::max(a.recoveryGuardUntilUs, now + RECOVER_US);
     operationId = a.latestOperationId = a.recovery.operationId; return Probe::Action::OK;
 }
+#include "SimpleMotionApp.h"
+
 bool lookup(void* context, uint32_t operationId, Probe::ResultView& out) {
     App& a = *static_cast<App*>(context); if (!operationId) operationId = a.latestOperationId;
+    if (operationId && operationId == a.simple.view.operationId) {
+        out = Probe::ResultView(); out.operationId = operationId;
+        out.commandId = a.simple.view.commandId; out.address = a.simple.view.address;
+        out.pending = a.simple.view.pending; out.simpleMotion = &a.simple.view; return true;
+    }
     if (operationId && operationId == a.recovery.operationId) {
         out = Probe::ResultView();
         out.operationId = operationId; out.commandId = a.recovery.commandId;
@@ -1811,6 +1842,13 @@ Probe::Action cancel(void* context, uint32_t operationId) {
         return Probe::Action::OK;
     }
     if (!operationId) operationId = a.latestOperationId;
+    if (operationId && operationId == a.simple.view.operationId) {
+        if (!a.simple.view.pending) return Probe::Action::ALREADY_TERMINAL;
+        cancelSimplePreparation(a, a.simple.view.address, nowUs());
+        a.simple.view.interruptedByStop = false;
+        if (!a.simple.view.moveOperationId) return Probe::Action::OK;
+        operationId = a.simple.view.moveOperationId;
+    }
     auto* record = findRecord(a, operationId); if (!record) return Probe::Action::INVALID;
     if (record->actionOperation || record->moveOperation || record->velocityOperation || record->driverOperation || record->homeOperation) {
         if (terminal(a, *record)) return Probe::Action::ALREADY_TERMINAL;
@@ -1837,6 +1875,9 @@ Probe::Action cancel(void* context, uint32_t operationId) {
 }
 Probe::Action release(void* context, uint32_t operationId) {
     App& a = *static_cast<App*>(context);
+    if (operationId && operationId == a.simple.view.operationId) return releaseSimpleMotion(a);
+    if (operationId && (operationId == a.simple.view.moveOperationId || operationId == a.simple.view.readOperationId))
+        return Probe::Action::BUSY;
     if (operationId && operationId == a.recovery.operationId) {
         if (!a.recovery.delivered || !a.owner.releaseRecovery(a.recovery.id)) return Probe::Action::BUSY;
         a.recovery = App::Recovery(); return Probe::Action::OK;
@@ -1944,6 +1985,10 @@ Probe::Action selectTarget(void* context, uint8_t address) {
     candidate.units.settings = a.axis.units.settings;
     ++a.bindingGeneration;
     a.axis = candidate;
+    // Command scale belongs to the selected axis. Generic desired speed/ramp
+    // settings may be reused, but a new target needs its own explicit scale.
+    a.simple.desired.scaleKnown = false;
+    a.simple.desired.stepsPerTurn = Rational();
     a.coordinateReference = AxisReference();
     a.commandPolarityKnown = true;
     a.positionClearQualified = false;
@@ -2051,6 +2096,7 @@ Probe::Host host(App* a) {
     h.startProbe = probe; h.startCaptureRead = captureRead; h.recover = recover; h.resetStats = reset;
     h.startTypedRead = typedRead;
     h.startAction = startAction; h.startMove = startMove; h.startVelocity = startVelocity; h.startDriver = startDriver; h.startHome = startHome;
+    h.simpleMotion = simpleMotion;
     h.monitor = monitor; h.motionProfile = motionProfileCommand; h.debug = debugCommand;
     h.axis = axisCommand; h.hostSerial = hostSerial; h.selectTarget = selectTarget;
     h.wiring = wiring;
@@ -2088,7 +2134,7 @@ void deliver(App& a) {
             record.delivered = true; record.deliveredUs = nowUs(); continue;
         }
         if (record.moveOperation) {
-            if (record.programmaticMove) {
+            if (record.programmaticMove || record.simpleChild) {
                 record.delivered = true; record.deliveredUs = nowUs(); continue;
             }
             if (!a.console.reportMove(record.commandId, record.operationId, record.move, record.interruptedByStop, &record.serialTuple, record.serialGeneration)) continue;
@@ -2145,7 +2191,7 @@ void deliver(App& a) {
                     }
                 }
             }
-            if (!a.console.reportRead(record.commandId, record.operationId, record.read, &record.serialTuple, record.serialGeneration)) continue;
+            if (!record.simpleChild && !a.console.reportRead(record.commandId, record.operationId, record.read, &record.serialTuple, record.serialGeneration)) continue;
             record.delivered = true; record.deliveredUs = nowUs(); continue;
         }
         const auto* retained = a.owner.result(record.requestId);
@@ -2297,6 +2343,7 @@ void serviceApplication() {
     advanceActions(a, nowUs());
     serviceCoordinates(a, nowUs());
     a.console.serviceOutput(); deliver(a);
+    serviceSimpleMotion(a, nowUs());
     serviceMonitor(a, nowUs());
     for (unsigned i = 0; i < 32 && Platform::availableConsole(); ++i) {
         const char c = static_cast<char>(Platform::readConsole()); ++a.inputBytes;

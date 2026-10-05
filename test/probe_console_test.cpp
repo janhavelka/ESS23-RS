@@ -28,6 +28,24 @@ struct Fake {
     unsigned debugCalls = 0;
     Probe::DebugSnapshot debugState;
     unsigned moves = 0;
+    unsigned simpleCalls = 0;
+    Probe::SimpleMotionCommand simpleRequest;
+    Probe::SimpleMotionView simpleView;
+    static Probe::Action simpleMotion(void* context, uint32_t commandId,
+        const Probe::SimpleMotionCommand* request, Probe::SimpleMotionView& out) {
+        Fake& self = *static_cast<Fake*>(context); ++self.simpleCalls;
+        if (request) {
+            self.simpleRequest = *request;
+            using Kind = Probe::SimpleMotionCommandKind;
+            if (request->kind == Kind::MOVE_BY || request->kind == Kind::MOVE_TO) {
+                self.simpleView.operationId = self.nextOperation++;
+                self.simpleView.commandId = commandId;
+                self.simpleView.pending = true;
+                self.simpleView.relative = request->kind == Kind::MOVE_BY;
+            }
+        }
+        out = self.simpleView; return self.actionResult;
+    }
     unsigned velocities = 0;
     MotorControlRS::VelocityRequest velocityRequest;
     MotorControlRS::MoveRequest moveRequest;
@@ -2102,6 +2120,43 @@ void testWiringAndProfileRoutes() {
         assert(Probe::driverAdmissionStatus({Err::UNSUPPORTED, static_cast<int32_t>(detail), "unresolved"}) == Probe::Action::UNRESOLVED);
     send(profile, "io set y0 11\n"); f.contains("unresolved"); assert(!f.drivers);
 }
+void testSimpleMotionGrammarAndReports() {
+    using Kind = Probe::SimpleMotionCommandKind;
+    Fake f; auto h = f.host(false, true); h.simpleMotion = Fake::simpleMotion;
+    Probe::Console c(h, Probe::Format::JSON);
+    send(c, "@40 moveby 1/4 deg\n");
+    assert(f.simpleRequest.kind == Kind::MOVE_BY && f.simpleRequest.position.relative);
+    assert(f.simpleRequest.position.value.numerator == 1 && f.simpleRequest.position.value.denominator == 4);
+    assert(f.simpleRequest.position.unit == MotorControlRS::PositionUnit::DEGREES);
+    f.contains("\"pending\":true");
+    auto done = f.simpleView; done.pending = false; done.error = "Missing \"scale\"\nUse stepsperturn";
+    assert(c.reportSimpleMotion(40, done.operationId, done));
+    f.contains("Missing \\\"scale\\\"\\u000aUse stepsperturn");
+    f.contains("\"no_motion_sent\":true");
+    assert(!c.reportSimpleMotion(40, done.operationId, done));
+    f.view.simpleMotion = &done;
+    send(c, "@41 result 100\n"); f.contains("\"type\":\"simple_move\"");
+    Ess::MoveContext active; active.state = MotorControlRS::ActionState::ACTIVE;
+    done.move = &active; done.pending = true;
+    send(c, "@43 result 100\n"); f.contains("\"no_motion_sent\":false");
+    done.move = nullptr; done.pending = false;
+    send(c, "@42 moveto 25\n");
+    assert(f.simpleRequest.kind == Kind::MOVE_TO && !f.simpleRequest.position.relative);
+    assert(f.simpleRequest.position.unit == MotorControlRS::PositionUnit::STEPS);
+    assert(f.simpleRequest.position.frame == MotorControlRS::CoordinateFrame::NATIVE);
+    send(c, "speed 30\n"); assert(f.simpleRequest.kind == Kind::SPEED && f.simpleRequest.nativeValue == 30);
+    send(c, "accel 0\n"); assert(f.simpleRequest.kind == Kind::ACCEL && f.simpleRequest.nativeValue == 0);
+    send(c, "decel 2000\n"); assert(f.simpleRequest.kind == Kind::DECEL && f.simpleRequest.nativeValue == 2000);
+    send(c, "motion stored\n"); assert(f.simpleRequest.setup == MotorControlRS::MoveSetup::USE_STORED);
+    send(c, "motion write\n"); assert(f.simpleRequest.setup == MotorControlRS::MoveSetup::WRITE_ALL);
+    send(c, "stepsperturn 1000\n"); assert(f.simpleRequest.kind == Kind::SCALE && f.simpleRequest.position.value.numerator == 1000);
+    const auto calls = f.simpleCalls;
+    for (const char* bad : {"moveby nan", "moveto 1 unknown", "moveby 1 rad", "moveby 1 steps extra", "speed 0", "speed 61",
+        "speed 1/2", "accel -1", "decel 2001", "motion verify", "stepsperturn 0", "stepsperturn -1", "stepsperturn 4294967296"}) {
+        send(c, std::string(bad) + "\n"); f.contains("\"ok\":false"); assert(f.simpleCalls == calls);
+    }
+    send(c, "help moveby\n"); f.contains("moveby VALUE");
+}
 int main(int argc, char** argv) {
     if (argc==2 && !std::strcmp(argv[1],"--debug-fixtures")) { debugFixtures(); return 0; }
     if (argc == 2 && !std::strcmp(argv[1], "--tuning-fixtures")) { tuningFixtures(); return 0; }
@@ -2116,6 +2171,7 @@ int main(int argc, char** argv) {
     if (argc == 2 && std::strcmp(argv[1], "--home-fixtures") == 0) { homeFixtures(); return 0; }
     if (argc == 2 && std::strcmp(argv[1], "--io-fixtures") == 0) { driverFixtures(true); return 0; }
     testDebugTranslationAndOutputIsolation();
+    testSimpleMotionGrammarAndReports();
     testIndependentLocalHooksAndNativeAliases();
     testWiringAndProfileRoutes();
     testSegmentGrammarAndCorrelation();

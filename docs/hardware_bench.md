@@ -1,5 +1,13 @@
 # Motor bench and testing authorization
 
+The [simple console follow-up](reports/2026-10-05_simple_motion_console.md) leaves
+its final Arduino timer image on COM13 after four completed finite moves and
+an explicit stop. Final raw position 9866, speed/alarm zero, enabled/non-running;
+actual saved profile `[30,100,100,60,0,100]` restored, host command scale unknown.
+Node 1/115200/8N1, load/monitor/debug off, DE released, owner/results empty and no
+recovery or queued motion. The initial child-correlation checker failure, its
+one completed move and separately recorded cleanup remain preserved.
+
 The [repeated-motion comparison](reports/2026-10-05_repeat_motion_timing.md)
 leaves the new Arduino timer image on COM13 after 33 completed finite moves,
 direct stop and exact profile restoration. Final position 9265, alarm 0,

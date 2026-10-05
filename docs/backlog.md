@@ -1,5 +1,16 @@
 # Features implementation tasks and open questions
 
+## Simple interactive movement
+
+- [x] Add `moveby` / `moveto`, remembered speed/native ramps and explicit angular
+  scale to the existing console, using the ordinary typed API and owner.
+- [x] Perform missing read-only preparation and bounded stopped-state settlement;
+  preserve uncertainty, cancellation/stop, exact conversions and example bounds.
+- [x] Show compact motion/action outcomes; retain full diagnostic results and
+  explicit failure cleanup. Reclaim only the preceding delivered successful move.
+- [x] Test cold preparation, repetition, units, output pressure, child ownership,
+  stale target scales and pending/failed result reporting on both platform fixtures.
+
 ## Repeated motion setup policies
 
 - [x] Keep full setup by default; expose read/compare/selective update and explicit
@@ -19,8 +30,9 @@
 - [x] Verify C++ entry/result ownership with Arduino/IDF fixtures and the shared
   unit-aware motion path on COM13; see the
   [verification record](reports/2026-10-05_user_move_functions.md).
-- [ ] Automatic initial configuration/state/profile refresh remains a separate
-  convenience; the [C++ example](move_example.md) documents the existing setup.
+- [x] The interactive `moveby` / `moveto` convenience performs missing initial
+  configuration/state/profile reads. Direct C++ submissions retain their explicit
+  prepared-cache contract; see the [C++ example](move_example.md).
 
 ## Optional age policy and native position intent
 

@@ -281,7 +281,7 @@ void reservedStopAndBlockedOutput() {
     stopped = actionResult(humanStop);
     assert(second.reportAction(humanStop.command, humanStop.operation, stopped));
     assert(!json(other.lines.back()));
-    contains(other.lines.back(), "observed");
+    contains(other.lines.back(), "Drive reported stopped");
 }
 
 void debugStreamPresentation() {

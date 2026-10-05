@@ -1015,4 +1015,5 @@ int main() {
     testExternalFeedbackInvalidatesOnlyCurrentTarget();
     testExternalFeedbackDuringStopInvalidatesCoordinates(); testPositionClearBadObservationKeepsConflict();
     std::puts("Actual move application tests passed");
+    return 0;
 }

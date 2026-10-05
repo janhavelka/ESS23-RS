@@ -1,5 +1,11 @@
 # Roadmap to a supported ESS release
 
+The [simple motion console follow-up](reports/2026-10-05_simple_motion_console.md)
+adds `moveby` / `moveto`, remembered speed/native ramps and concise outcomes.
+Missing preparation and finite stopped-state polling use the same typed API and
+owner. Four final-image finite moves, rejection diagnostics and restoration pass;
+absolute/negative/physical measurement limits remain explicit.
+
 The [repeated-motion timing follow-up](reports/2026-10-05_repeat_motion_timing.md)
 adds explicit setup policies without changing the default. Ten trials per path
 measure median start acknowledgement at 18.40 ms full setup, 18.48 ms read/compare
