@@ -1,5 +1,12 @@
 # MotorControl-RS architecture
 
+Prompt25 adds a [real native ESP-IDF consumer](esp_idf_probe.md). Arduino and IDF
+compile the same `ProbeApp.cpp`, console, owner, UART/capture and core operations.
+Small example-only platform functions provide USB, idle scheduling and boot
+diagnostics; framework startup supplies pins/topology and the owner task.
+The installed core retains no platform dependency. [Verification](reports/ess_release_25_2026-10-05.md)
+separates initial read-only evidence from prompt26's motion/load qualification.
+
 Prompt23 completes the [API/CLI integration handoff](ess_api_cli_coverage.md) with bounded host target selection, explicit snapshot release and retained uncertainty through reset/recovery. The installed core remains unchanged in platform ownership; named native-family gaps stay in the complete coverage denominator.
 
 Prompt22 adds [bounded ESS discovery](ess_discovery.md), minimal public probes and retained

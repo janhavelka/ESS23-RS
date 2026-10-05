@@ -1,5 +1,13 @@
 # Motor bench and testing authorization
 
+[Prompt25 native ESP-IDF evidence](reports/ess_release_25_2026-10-05.md) records
+58 checked read-only frames on its final image, exact unchanged raw identity,
+configuration/state and zero transport/capture faults. First startup framing
+failure was diagnosed and corrected; its failed raw evidence is retained.
+The native image remains installed on COM13; alarm0/motion0/speed0, raw position1961,
+load/debug/monitor off, DE released, owner/results empty. The preceding Arduino
+full-flash backup is preserved. Native motion/load parity remains for26.
+
 The [fresh prompt24 audit](reports/ess_release_24_audit_2026-10-05.md) adds322
 checked frames, bounded load, finite100-increment motion and a normal stop during
 finite250-increment motion. Both restore `[30,100,100,60,0,250]`; final checked

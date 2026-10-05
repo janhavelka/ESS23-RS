@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: MIT
+#include "../examples/probe_cli/ProbeApp.cpp"
+#include "../examples/probe_cli/ArduinoPlatform.cpp"
 #include "../examples/probe_cli/main.cpp"
 #include <cassert>
 #include <cstdlib>
@@ -122,7 +124,10 @@ int main() {
     testHostTupleWaitsForProfileHarvest();
     testUncertainRestoreRequiresExplicitReadOnlySettlement();
     writeResponseConfirmed=false; // Alternate unknown-echo topology exercises normal API observation.
-    resetHardware(); setup(); assert(app); hardware.txCharacterUs=87;
+    resetHardware();
+    assert(beginApplication({Board::kRs485TxPin, Board::kRs485RxPin, Board::kRs485DeRePin,
+        Board::kRs485DeReActiveHigh}, false));
+    assert(app && !writeResponseConfirmed); hardware.txCharacterUs=87;
     assert(uart.startCapture(20,timing().holdUs)); refresh();
     Probe::MotionProfileView v;
     v.address = 77;

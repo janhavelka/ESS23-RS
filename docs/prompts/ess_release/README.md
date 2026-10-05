@@ -7,8 +7,8 @@ this interface and its same-session harness; no subsequent numbered prompt is
 executed by this refactor.
 
 Prepared 2026-10-03 against MotorControl-RS `4ae0c4d` (0.6.0).
-Preparing this set executed no numbered prompt. **Prompts 01-24 have implementation and available verification dispositions;
-25-30 remain prepared and unexecuted. Prompt23 integration and prompt24 scenarios are verified while named prerequisite/native-family gaps remain open. Independent electrical and shaft-motion qualification remain open; short functional motion has drive-reported evidence.**
+Preparing this set executed no numbered prompt. **Prompts 01-25 have implementation and available verification dispositions;
+26-30 remain prepared and unexecuted. Prompt23 integration and prompt24 scenarios are verified while named prerequisite/native-family gaps remain open. Independent electrical and shaft-motion qualification remain open; short functional motion has drive-reported evidence.**
 The current core, runner, ESP32-S3 capture and probe/load tools are existing work;
 do not rebuild them from an old prompt as if they were missing.
 
@@ -80,7 +80,7 @@ Never mark all preceding physical work qualified just because code compiles.
 | [22 - Bounded discovery and minimal probe capabilities](22_bounded_discovery.md) | 7 | Implemented and independently audited; native/build and bounded COM13 scan/restoration PASS; collisions and alternate motor tuples unqualified | [Handoff](../../reports/ess_release_22_2026-10-05.md), [audit](../../reports/ess_release_22_audit_2026-10-05.md) |
 | [23 — Complete public API and CLI coverage](23_cli_and_capability_parity.md) | 6 / 7 | Integrated and freshly independently audited; native/Python/package/build and COM13 features/finite-motion/loaded stop PASS; session restoration verified separately from archived initial-target cleanup; eight named native-family gaps remain open | [Handoff](../../reports/ess_release_23_2026-10-05.md), [fresh audit](../../reports/ess_release_23_audit_2026-10-05.md), [API/CLI coverage](../../ess_api_cli_coverage.md) |
 | [24 — Consolidate automated feature and regression testing](24_python_feature_and_regression_scenarios.md) | 8 | Implemented and freshly independently audited;65 CTest suites/three required firmware builds PASS;461 implementation and322 audit COM13 frames, finite motion/stop, exact session restoration, raw proof and retained failures; broader physical/native gaps remain open | [Scenarios](../../bench_scenarios.md), [handoff/evidence](../../reports/ess_release_24_2026-10-05.md), [fresh audit](../../reports/ess_release_24_audit_2026-10-05.md) |
-| [25 — Native ESP-IDF standalone consumer](25_native_esp_idf_consumer.md) | 8 | Prepared | — |
+| [25 — Native ESP-IDF standalone consumer](25_native_esp_idf_consumer.md) | 8 | Implemented and independently reviewed; 66 CTest/three Arduino/clean native firmware/core consumer builds PASS; 58 final-image read-only COM13 frames and resources PASS; native motion/load parity pending26 | [Handoff](../../reports/ess_release_25_2026-10-05.md), [build/recovery](../../esp_idf_probe.md) |
 | [26 — Qualify platform parity and document portability](26_platform_parity_and_portability.md) | 8 | Prepared | — |
 | [27 — Repeatable verification, CI and clean packaging](27_repeatable_verification_and_packaging.md) | 8 | Prepared | — |
 | [28 — Integrated architecture, code and coverage audit](28_integrated_code_and_coverage_audit.md) | 8 | Prepared | — |

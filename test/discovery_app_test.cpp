@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Actual setup/loop, owner, profile parsers and UART adapter; SDK/wire are faked.
+#include "../examples/probe_cli/ProbeApp.cpp"
+#include "../examples/probe_cli/ArduinoPlatform.cpp"
 #include "../examples/probe_cli/main.cpp"
 #include <cassert>
 #include <cstdlib>

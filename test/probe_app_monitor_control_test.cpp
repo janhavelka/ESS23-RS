@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Local polling controls exercise the production application and console paths.
+#include "../examples/probe_cli/ProbeApp.cpp"
+#include "../examples/probe_cli/ArduinoPlatform.cpp"
 #include "../examples/probe_cli/main.cpp"
 #include <cassert>
 #include <cstdio>

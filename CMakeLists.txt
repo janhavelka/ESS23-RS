@@ -22,7 +22,9 @@ set(MOTORCONTROLRS_SOURCES
 
 # ESP-IDF component consumption requires no Arduino or FieldCore dependency.
 if(COMMAND idf_component_register)
-    idf_component_register(SRCS ${MOTORCONTROLRS_SOURCES} INCLUDE_DIRS "include")
+    list(TRANSFORM MOTORCONTROLRS_SOURCES PREPEND "${CMAKE_CURRENT_LIST_DIR}/")
+    idf_component_register(SRCS ${MOTORCONTROLRS_SOURCES}
+        INCLUDE_DIRS "${CMAKE_CURRENT_LIST_DIR}/include")
     target_compile_features(${COMPONENT_LIB} PUBLIC cxx_std_11)
     return()
 endif()
@@ -133,6 +135,22 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
             target_compile_options(probe_app_load_test PRIVATE -UNDEBUG -Wall -Wextra -Wpedantic)
         endif()
         add_test(NAME probe_app_load COMMAND probe_app_load_test)
+        add_executable(idf_app_test test/idf_app_test.cpp
+            examples/probe_cli/ProbeConsole.cpp examples/probe_cli/Esp32Load.cpp
+            examples/common/RtuRunner.cpp examples/common/RtuBusOwner.cpp
+            examples/common/EssRtuValidator.cpp examples/common/Esp32S3Uart.cpp
+            test/fakes/esp32_uart/FakeEsp.cpp test/fakes/esp32_uart/FakeUsb.cpp)
+        target_link_libraries(idf_app_test PRIVATE MotorControlRS)
+        target_include_directories(idf_app_test PRIVATE test/fakes/esp32_uart examples/probe_cli)
+        target_compile_definitions(idf_app_test PRIVATE CONFIG_IDF_TARGET_ESP32S3=1
+            MOTORCONTROLRS_LOAD_FIXTURE=1 MOTORCONTROLRS_TIMER_CAPTURE=1)
+        set_target_properties(idf_app_test PROPERTIES CXX_STANDARD 11 CXX_STANDARD_REQUIRED YES CXX_EXTENSIONS OFF)
+        if(MSVC)
+            target_compile_options(idf_app_test PRIVATE /UNDEBUG /W4)
+        else()
+            target_compile_options(idf_app_test PRIVATE -UNDEBUG -Wall -Wextra -Wpedantic)
+        endif()
+        add_test(NAME idf_app COMMAND idf_app_test)
         if(TARGET units_preview)
             add_test(NAME units_preview COMMAND units_preview)
         endif()

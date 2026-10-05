@@ -1,5 +1,11 @@
 # Roadmap to a supported ESS release
 
+Prompt25 delivers the [native ESP-IDF standalone consumer](esp_idf_probe.md),
+shared complete application logic, clean firmware/core-component builds and
+read-only COM13 evidence. [Verification](reports/ess_release_25_2026-10-05.md)
+passes 66 native suites and records 58 final-image frames/resources; native
+motion/load parity remains for26 and endurance/release evidence remains open.
+
 The [fresh prompt24 audit](reports/ess_release_24_audit_2026-10-05.md) closes
 raw-probe proof and session/startup failure reporting gaps.65 CTest suites and
 three firmware builds pass;322 additional COM13 frames include finite motion,
@@ -170,7 +176,7 @@ this session; integrating there is a separate delivery step.
 | 5. First controlled motion | Explicit enable/release, small relative move and documented stop | Verified units and limits, acknowledgement vs completion, interrupted/lost replies, stop while another operation is active; bench measurements | Exact preparation in 07 and bounded action/stop software in 08 pass; physical actions remain gated, first move belongs to 09 |
 | 6. Complete common motion API | Absolute/relative position, step/angle/travel modes, velocity, acceleration, homing and fault clear where supported | Same public API in firmware and CLI; unsupported operations fail before TX; origin/rounding/path policy tested | 07–11 implement exact preparation, origins, finite relative/absolute/wrapped positioning, zero clear and finite serial velocity/shared stop; bounded homing33/34/35 implemented in14; acceleration mapping, external-switch methods and physical qualification remain open |
 | 7. ESS native coverage and discovery | Typed documented ESS extensions; bounded non-changing discovery | Coverage matrix for every documented command/field; uncertain firmware behavior marked explicitly; read side effects reviewed | Ledger/codecs and typed identity/config reads exist; complete operation inventory derives remaining obligations; bounded ESS discovery implemented; remaining native families and alternate motor tuple/collision qualification tracked separately |
-| 8. Platform and release qualification | Arduino and native ESP-IDF examples, package/install checks, maintenance documentation | Clean consumer builds; repeatable hardware suite, extended soak, resource budgets, documented exact supported models and limitations | CMake/IDF core consumption exists; native IDF application and release evidence pending |
+| 8. Platform and release qualification | Arduino and native ESP-IDF examples, package/install checks, maintenance documentation | Clean consumer builds; repeatable hardware suite, extended soak, resource budgets, documented exact supported models and limitations | Real shared Arduino/IDF applications and clean core consumers; initial IDF read-only smoke PASS; motion/load parity, endurance and release evidence pending |
 
 Stages 3 and 4 can progress while independent electrical captures are being
 arranged. Motion qualification must use reviewed transport evidence and the

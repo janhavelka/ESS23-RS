@@ -1,5 +1,12 @@
 # API and console coverage handoff
 
+Prompt25's Arduino/native-IDF consumers compile the same complete application
+and command inventory. No native family is omitted by framework selection.
+[Build and read-only evidence](reports/ess_release_25_2026-10-05.md) cover startup,
+console pressure, probe/typed reads and core header isolation; cross-platform
+motion/load qualification remains for26 and existing native-family gaps remain
+in this inventory.
+
 Prompt23 reconciles the implemented surface. The installed library remains
 independent of the console, runner and platform. The command metadata in
 `examples/probe_cli/ProbeConsole.cpp` supplies names, help, effects and dispatch;

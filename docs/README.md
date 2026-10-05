@@ -1,5 +1,10 @@
 # MotorControl-RS documentation
 
+[Native ESP-IDF standalone build and recovery](esp_idf_probe.md) reuse the same
+owner, commands and operations as Arduino. [Prompt25 verification](reports/ess_release_25_2026-10-05.md)
+records clean firmware/core builds, startup/backpressure failure tests and
+read-only COM13 evidence; cross-platform motion/load qualification follows in26.
+
 Prompt24 delivers [repeatable finite Python scenarios](bench_scenarios.md),
 bounded incremental evidence and same-session cleanup. [Verification](reports/ess_release_24_2026-10-05.md)
 separates read-only/finite functional PASS from remaining fixtures and native gaps.

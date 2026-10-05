@@ -33,4 +33,7 @@ struct FakeSerial {
 };
 extern FakeSerial Serial;
 inline void delay(unsigned ms) { advanceHardware(hardware.time + static_cast<uint64_t>(ms) * 1000); }
+#ifndef MOTORCONTROLRS_FAKE_STACK_WATERMARK
+#define MOTORCONTROLRS_FAKE_STACK_WATERMARK
 inline unsigned uxTaskGetStackHighWaterMark(void*) { return 4096; }
+#endif

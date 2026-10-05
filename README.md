@@ -1,5 +1,10 @@
 # MotorControl-RS
 
+The [native ESP-IDF example](docs/esp_idf_probe.md) now shares the complete
+standalone application with Arduino. Clean firmware/core-component builds,
+66 native suites and a read-only COM13 smoke pass; native motion/load parity
+remains for prompt26. See [the prompt25 evidence](docs/reports/ess_release_25_2026-10-05.md).
+
 Prompt24 adds [finite Python scenarios](docs/bench_scenarios.md) with a read-only
 default, shared session/evidence ownership and same-session motion/settings
 cleanup. [Verification](docs/reports/ess_release_24_2026-10-05.md) records native
@@ -242,8 +247,10 @@ ctest --test-dir build/native --output-on-failure
 Use another available CMake generator if Ninja is absent. An application can
 use `add_subdirectory` and link `MotorControlRS::MotorControlRS`, or install the CMake
 package and use `find_package(MotorControlRS CONFIG REQUIRED)`. The root CMake file
-also supports ESP-IDF `EXTRA_COMPONENT_DIRS`; native ESP-IDF firmware validation
-is still pending. Public headers require no framework headers.
+also supports ESP-IDF `EXTRA_COMPONENT_DIRS`. A clean core-only IDF consumer
+compiles all public headers without examples or vendor resources; the native
+standalone firmware has read-only bench evidence. Public headers require no
+framework headers.
 
 The same [unit preview](examples/units_preview/main.cpp) builds for the
 ESP32-S3 bench with 16 MB flash and 8 MB PSRAM:

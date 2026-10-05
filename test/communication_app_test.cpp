@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Actual standalone application with fake UART/SDK and explicit simulated fixture evidence.
+#include "../examples/probe_cli/ProbeApp.cpp"
+#include "../examples/probe_cli/ArduinoPlatform.cpp"
 #include "../examples/probe_cli/main.cpp"
 #include <cassert>
 #include <cstdlib>

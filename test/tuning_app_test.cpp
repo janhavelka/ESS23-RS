@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Actual application and console paths; supplied SDK evidence is simulated.
+#include "../examples/probe_cli/ProbeApp.cpp"
+#include "../examples/probe_cli/ArduinoPlatform.cpp"
 #include "../examples/probe_cli/main.cpp"
 #include <cassert>
 #include <cstdlib>
@@ -12,7 +14,9 @@ void fresh() {
     if (app) { app->~App(); std::free(app); app = nullptr; }
     uart.~Esp32S3Uart(); new (&uart) Esp32S3Uart;
     resetHardware(); Serial = FakeSerial(); platformReady = writeResponseConfirmed = false;
-    setup(); assert(app && !hardware.writes);
+    assert(beginApplication({Board::kRs485TxPin, Board::kRs485RxPin, Board::kRs485DeRePin,
+        Board::kRs485DeReActiveHigh}, false)); // Explicit alternate/unknown-echo topology.
+    assert(app && !hardware.writes && !writeResponseConfirmed);
     hardware.txCharacterUs = 87; assert(uart.startCapture(20, timing().holdUs));
 }
 void step() { advanceHardware(hardware.time + 10); loop(); }

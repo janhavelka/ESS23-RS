@@ -16,3 +16,11 @@ __pycache__/
 .DS_Store
 Thumbs.db
 docs/doxygen/
+examples/probe_idf/sdkconfig
+examples/probe_idf/sdkconfig.*
+!examples/probe_idf/sdkconfig.defaults
+examples/probe_idf/dependencies.lock
+examples/probe_idf/managed_components/
+test/idf_consumer/sdkconfig
+test/idf_consumer/sdkconfig.*
+!test/idf_consumer/sdkconfig.defaults

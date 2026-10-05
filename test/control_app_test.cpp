@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Actual application paths with simulated stopped-state/wire qualifications.
+#include "../examples/probe_cli/ProbeApp.cpp"
+#include "../examples/probe_cli/ArduinoPlatform.cpp"
 #include "../examples/probe_cli/main.cpp"
 #include <MotorControlRS/profiles/ess_rs/Registers.h>
 #include <cassert>
@@ -13,7 +15,9 @@ void fresh() {
     if (app) { app->~App(); std::free(app); app = nullptr; }
     uart.~Esp32S3Uart(); new (&uart) Esp32S3Uart;
     resetHardware(); Serial = FakeSerial(); platformReady = writeResponseConfirmed = false;
-    setup(); assert(app && !hardware.writes);
+    assert(beginApplication({Board::kRs485TxPin, Board::kRs485RxPin, Board::kRs485DeRePin,
+        Board::kRs485DeReActiveHigh}, false)); // Explicit alternate/unknown-echo topology.
+    assert(app && !hardware.writes && !writeResponseConfirmed);
     hardware.txCharacterUs = 87; assert(uart.startCapture(20, timing().holdUs));
 }
 void step(uint32_t us = 10) { advanceHardware(hardware.time + us); loop(); }

@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: MIT
 #include "Esp32Load.h"
-#include <Arduino.h>
 #include <esp_timer.h>
 #include <cstring>
 

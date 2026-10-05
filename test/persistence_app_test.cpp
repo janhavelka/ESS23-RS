@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: MIT
 // The actual standalone application and SDK adapter; fixture evidence is simulated.
+#include "../examples/probe_cli/ProbeApp.cpp"
+#include "../examples/probe_cli/ArduinoPlatform.cpp"
 #include "../examples/probe_cli/main.cpp"
 #include <cassert>
 #include <cstdlib>

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 // Exercise the actual cooperative application with simulated SDK/wire evidence.
 // Qualification below belongs solely to this fake fixture, never the real bench.
+#include "../examples/probe_cli/ProbeApp.cpp"
+#include "../examples/probe_cli/ArduinoPlatform.cpp"
 #include "../examples/probe_cli/main.cpp"
 #include <cassert>
 #include <cstdlib>

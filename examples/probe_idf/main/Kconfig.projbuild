@@ -1,0 +1,26 @@
+menu "MotorControl-RS standalone board"
+    config MOTORCONTROLRS_RS485_TX_PIN
+        int "RS485 UART2 TX pin"
+        range 0 48
+        default 47
+        help
+            GPIO19 and GPIO20 are reserved for the USB console.
+    config MOTORCONTROLRS_RS485_RX_PIN
+        int "RS485 UART2 RX pin"
+        range 0 48
+        default 48
+        help
+            GPIO19 and GPIO20 are reserved for the USB console.
+    config MOTORCONTROLRS_RS485_DE_PIN
+        int "Combined DE/RE pin"
+        range 0 48
+        default 21
+        help
+            GPIO19 and GPIO20 are reserved for the USB console.
+    config MOTORCONTROLRS_DE_ACTIVE_HIGH
+        bool "High selects transmit"
+        default y
+    config MOTORCONTROLRS_RECEIVER_DISABLED_DURING_TX
+        bool "Declared topology disables local receiver during TX"
+        default y
+endmenu

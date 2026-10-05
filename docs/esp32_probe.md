@@ -1,5 +1,10 @@
 # ESP32-S3 standalone motor bench
 
+The [native ESP-IDF consumer](esp_idf_probe.md) now compiles this same application
+with small startup/USB adapters. Its read-only smoke and resource evidence are
+in [prompt25's report](reports/ess_release_25_2026-10-05.md); native motion/load
+qualification is separate. The build commands below select Arduino.
+
 The [fresh prompt24 audit](reports/ess_release_24_audit_2026-10-05.md) verifies
 strict raw probe bytes and interrupted/failed session ownership, plus322 new
 COM13 frames and repeated finite move/stop restoration on the unchanged image.

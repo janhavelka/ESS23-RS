@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Actual cooperative application; all qualifications are simulated fixtures.
+#include "../examples/probe_cli/ProbeApp.cpp"
+#include "../examples/probe_cli/ArduinoPlatform.cpp"
 #include "../examples/probe_cli/main.cpp"
 #include <cassert>
 #include <cstdlib>

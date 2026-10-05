@@ -50,8 +50,11 @@ layout is unnecessary for decoupling and would complicate the preserved
 firmware restoration procedure. ISR/capture state and stacks remain internal;
 large example buffers use PSRAM. This is an example allocation policy only.
 
-Native ESP-IDF can consume the core through CMake. A standalone native-IDF
-application remains planned; Arduino USB macros do not configure it.
+Native ESP-IDF consumes the core through CMake. The
+[standalone native-IDF application](../esp_idf_probe.md) uses ESP-IDF5.5.5,
+example Kconfig board settings and explicitly checked native SDK options;
+Arduino USB macros do not configure it. Its initial read-only smoke passes;
+cross-platform motion/load qualification remains for prompt26.
 Another platform can use the same core and [portable runner](../runner.md)
 with its own callbacks and caller-owned storage.
 

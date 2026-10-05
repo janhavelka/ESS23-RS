@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Exercise the actual application owner, serial callback and console with SDK fakes.
+#include "../examples/probe_cli/ProbeApp.cpp"
+#include "../examples/probe_cli/ArduinoPlatform.cpp"
 #include "../examples/probe_cli/main.cpp"
 #include <cassert>
 #include <cstdlib>

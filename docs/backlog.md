@@ -1,5 +1,16 @@
 # Features implementation tasks and open questions
 
+## Prompt25 native ESP-IDF consumer
+
+- [x] Real ESP-IDF 5.5.5 S3 firmware; shared complete application/console/owner/operations and small framework startup/USB boundary.
+- [x] Explicit board Kconfig, native SDK compatibility guards, required PSRAM allocation, internal UART/capture/driver/task state and measured resource placement.
+- [x] Clean native firmware and staged core-only IDF consumer with all 27 public headers isolated from examples/vendor files; all 66 native suites and three Arduino builds PASS.
+- [x] Read-only COM13 quick/control smoke: 58 final-image frames, no faults, exact raw configuration/state unchanged; full preceding flash backup preserved.
+- [x] Startup bootloader-fragment framing root cause fixed with disabled logs and checked delimiter; retained failure and native regression, no relaxed host correlation.
+- [ ] Native motion/load/stop parity remains for26; other MCU/SDK, endurance and independent shaft/electrical qualification remain open.
+
+See [native build/recovery guide](esp_idf_probe.md) and [evidence/handoff](reports/ess_release_25_2026-10-05.md).
+
 ## Prompt24 automated scenarios
 
 - [x] Fifteen named finite scenarios; default quick read-only, explicit settings/motion/persistence selection, shared strict Console and one connection owner.
@@ -445,11 +456,13 @@ FieldCore remains read-only; typed identity/state and motion/stop retain their g
   evidence validation; test the actual application loop with shared SDK fakes.
   See the [0.5.1 audit](reports/2026-10-03_audit.md); external timing remains open.
 - [ ] Extend automation to actual motor state once typed state reads exist.
-- [ ] Build standalone ESP32-S2/S3 Arduino consumers and a first-class native
-  ESP-IDF consumer with equivalent command semantics for equivalent features.
+- [x] Build standalone ESP32-S3 Arduino and native ESP-IDF consumers sharing
+  equivalent complete command semantics. Native read-only/resource checks pass;
+  physical motion/load parity remains for26 and ESP32-S2 remains unqualified.
 - [x] Verify framework-free native consumption, self-contained headers and
   a clean core source package; exclude vendor downloads from that package.
-  Embedded package consumers beyond the compiled Arduino preview remain future work.
+  A clean core-only native IDF consumer also compiles all installed headers;
+  other embedded package consumers remain future work.
 - [ ] Add later FieldCore adapter work in that repository: typed motor control,
   FC06 echo handling, larger TX frames, exception framing, exact integers,
   receive timing evidence, scheduling and stop priority. Standalone work must

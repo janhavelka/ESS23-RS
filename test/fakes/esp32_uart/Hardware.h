@@ -42,7 +42,17 @@ struct Hardware {
     bool timerCreated = false, timerEnabled = false, timerRunning = false, inTimer = false;
     unsigned timerCalls = 0, timerCallbacks = 0, timerDeletes = 0;
     std::vector<unsigned> timerFailCalls;
+    // Startup fault injection shared by the real Arduino/IDF example paths.
+    bool allocationFails = false, taskCreationFails = false;
+    unsigned allocationCalls = 0, allocationCaps = 0, taskCreates = 0;
+    unsigned taskStackBytes = 0, taskPriority = 0;
+    int taskCore = -1;
+    int runningCore = 0;
+    void (*createdTask)(void*) = nullptr;
+    void* createdTaskContext = nullptr;
+    bool stopOnIdle = false;
 };
+struct FakeTaskStopped {};
 extern Hardware hardware;
 void resetHardware();
 void advanceHardware(uint64_t at);

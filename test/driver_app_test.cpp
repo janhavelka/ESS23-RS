@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Actual application paths with simulated stopped-state/wire qualifications.
+#include "../examples/probe_cli/ProbeApp.cpp"
+#include "../examples/probe_cli/ArduinoPlatform.cpp"
 #include "../examples/probe_cli/main.cpp"
 #include <MotorControlRS/profiles/ess_rs/Registers.h>
 #include <cassert>

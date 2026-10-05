@@ -1,0 +1,3 @@
+# Core-only compile/link consumer; no external RAM or motor peripheral needed.
+CONFIG_COMPILER_CXX_EXCEPTIONS=n
+CONFIG_COMPILER_CXX_RTTI=n

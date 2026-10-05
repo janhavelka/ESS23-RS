@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Exercise actual setup/loop and callbacks. Fakes supply SDK/wire/USB evidence.
+#include "../examples/probe_cli/ProbeApp.cpp"
+#include "../examples/probe_cli/ArduinoPlatform.cpp"
 #include "../examples/probe_cli/main.cpp"
 #include "../examples/probe_cli/StateCache.h"
 #include <cassert>
@@ -19,8 +21,10 @@ void fresh() {
     fixtureReady = false; nextServiceUs = 0;
 #endif
     resetHardware(); Serial = FakeSerial(); platformReady = false; writeResponseConfirmed = false;
-    setup();
+    assert(beginApplication({Board::kRs485TxPin, Board::kRs485RxPin, Board::kRs485DeRePin,
+        Board::kRs485DeReActiveHigh}, false)); // The fixture exercises unconfirmed FC06 echo.
     assert(app && uart.ready() && app->owner.valid() && hardware.writes == 0);
+    assert(!writeResponseConfirmed);
     assert(Serial.txTimeoutMs == 0);
     hardware.txCharacterUs = 87;
 }
