@@ -138,3 +138,8 @@ until the final result is inspected. Publication and broader release/native-fami
 qualification are unchanged. Hosted CI remains a separate software check; the
 baseline IDF job was cancelled without executed steps and has been explicitly
 rerun. Exact launch-document commit synchronization/CI is checked at handoff.
+At 22:09 CEST, [GitHub's Actions incident](https://www.githubstatus.com/incidents/3q1yb5m7ltvb)
+reports delayed hosted-runner assignment. The cancelled baseline job had
+`runner_id=0`, no runner name and no steps; this is distinct from a failing
+repository test. Launch-document jobs are queued/in progress, not claimed PASS;
+checks are retained unchanged. The hardware campaign continues independently.

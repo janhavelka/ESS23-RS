@@ -1,5 +1,16 @@
 # Motor bench and testing authorization
 
+**Overnight campaign launched 5 October, cutoff 6 October 10:00 CEST:**
+the [HIL runner](reports/2026-10-05_overnight_hil.md) exclusively owns COM13
+while PID 36772 is alive. Consult `build/overnight_20261005/night2_heartbeat.json`
+and the PID before any upload/serial test; do not open a competing connection.
+It runs finite motion/stop and observations, then requests stop, verifies
+standstill and restores the saved profile. Completion/final state must be read
+from `night2.json`; the launch itself is not an overnight PASS. This request
+authorizes the extended run previously deferred, without adding switches,
+restart control or shaft/electrical measurement fixtures.
+
+
 The [consolidated settings follow-up](reports/2026-10-05_clear_motor_settings.md)
 leaves the new Arduino timer image on COM13 after four completed finite moves,
 including cold boot defaults, 90 rpm and 300 increments. Direct stop and exact
