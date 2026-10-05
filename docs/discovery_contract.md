@@ -6,7 +6,7 @@ Discovery and a minimal non-changing presence probe are required design
 considerations for every supported drive profile and manufacturer grouping.
 This contract defines the public API and standalone CLI design. The ESS raw
 probe codec and [read-only probe CLI](esp32_probe.md) are implemented, with bench
-response evidence. Typed ESS identity preparation/decoding is implemented; scans, common discovery orchestration and exact-model qualification remain future work.
+response evidence. Typed ESS identity preparation/decoding and bounded ESS scans are implemented; exact-model mapping and alternate motor tuples remain unqualified. See [the implemented API](ess_discovery.md).
 
 The [axis API](axis_contract.md) exposes the common operations, the
 [profile contract](profile_contract.md) records per-device evidence, and the
@@ -21,7 +21,7 @@ bus arbitration, scan scheduling, time, cancellation and result storage.
 | Probe | One smallest reviewed query sufficient to test a selected endpoint's responsiveness | Normally one request/reply; explicitly bounded by profile |
 | Discover | Iterate an explicit bounded set of candidate profiles, endpoints and serial tuples; refine identity where documented | Scheduled probe/identity reads only |
 
-The planned common `prepareProbe` is distinct from the implemented
+The implemented common `prepareProbe` is distinct from
 `ESS_RS::prepareIdentity`. A quick probe can
 establish that a responder exists without reporting its complete identity or
 state. If the smallest documented identity read is also the best probe, both
@@ -49,8 +49,7 @@ to the recorded read-only bench configuration.
 
 Unknown raw values remain observable. Probe success refreshes only the caller's
 responsiveness evidence, not position, readiness, alarm state or completed
-motion. The codec performs no scan, retry, setting change or I/O. These helpers
-will underpin the planned common `prepareProbe`; they are not that sequencer.
+motion. The codec performs no scan, retry, setting change or I/O. These helpers underpin the common `prepareProbe`; the application owns scan sequencing.
 The [serial comparison](reference/08_serial_protocol_review.md) records other
 manufacturers' prospective queries and why read-only alone is insufficient.
 
@@ -75,7 +74,7 @@ Extend the profile coverage ledger with:
 
 The implemented `ESS_RS::readCapabilities` reports the current non-changing
 probe, identity and configuration read surface without I/O. The common discovery
-capability API and `prepareProbe` remain planned, with fixed-size descriptions
+capability API and `prepareProbe` are implemented, with fixed-size descriptions
 and results and caller-owned operations. Discovery orchestration belongs to the
 consumer and can reuse those operations without parsing CLI strings or depending
 on Arduino, ESP-IDF or FieldCore services.

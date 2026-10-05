@@ -156,6 +156,7 @@ void servicePersistence(App& a, uint64_t now) {
 Probe::Action persistence(void* context, const Probe::PersistenceCommand* command, Probe::PersistenceView& out) {
     App& a = *static_cast<App*>(context); persistenceView(a, out);
     if (!command) return Probe::Action::OK;
+    if (a.discovery.owned) return Probe::Action::BUSY;
     using Kind = Probe::PersistenceCommandKind;
     const uint64_t now = uart.sample();
     if (!platformReady) return Probe::Action::UNAVAILABLE;

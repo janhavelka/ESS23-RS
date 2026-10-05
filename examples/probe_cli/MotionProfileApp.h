@@ -41,7 +41,7 @@ Probe::Action motionProfileCommand(void* context, Probe::MotionProfileCommand co
     if (!platformReady || !a.serial.activeKnown || a.serial.blocked || a.owner.needsRecovery() || uart.needsRecovery())
         return Probe::Action::RECOVERY_REQUIRED;
     if (view.pending || a.owner.active() || a.owner.pending() || a.owner.configurationOwned() ||
-        a.owner.commissioningOwned() || reading(a) || acting(a) || a.monitorState.settings.enabled)
+        a.owner.commissioningOwned() || a.discovery.owned || reading(a) || acting(a) || a.monitorState.settings.enabled)
         return Probe::Action::BUSY;
     if (!a.configuration.operationId || !Probe::sameTarget(a.configuration.target, a.axis.target) ||
         !(a.knownTargets[a.axis.target.address / 8] & (1U << (a.axis.target.address % 8))))

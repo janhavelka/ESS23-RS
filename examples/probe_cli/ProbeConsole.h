@@ -3,9 +3,11 @@
 
 #include "../common/RtuBusOwner.h"
 #include "MotorControlRS/Traffic.h"
+#include "MotorControlRS/Discovery.h"
 #include "../common/HostSerial.h"
 #include "StateCache.h"
 #include "AxisConsole.h"
+#include "DiscoveryScan.h"
 #include "MotorControlRS/profiles/ess_rs/Codec.h"
 #include "MotorControlRS/profiles/ess_rs/Reads.h"
 #include "MotorControlRS/profiles/ess_rs/Actions.h"
@@ -295,6 +297,9 @@ struct Host {
     Action (*hostSerial)(void*, const HostRequest* requested, HostSnapshot&) = nullptr;
     Action (*communication)(void*, const CommunicationCommand*, CommunicationView&) = nullptr;
     Action (*persistence)(void*, const PersistenceCommand*, PersistenceView&) = nullptr;
+    /** Application-owned finite scan; null inspects retained evidence. Request
+     * and borrowed view are consumed during this synchronous call only. */
+    Action (*discovery)(void*, const DiscoveryCommand*, DiscoveryView&) = nullptr;
     Action (*debug)(void*, const DebugMode* requested, DebugSnapshot&) = nullptr;
     Action (*motionProfile)(void*, MotionProfileCommand, MotionProfileView&) = nullptr;
     bool (*result)(void*, uint32_t operationId, ResultView&) = nullptr; ///< Zero selects latest.

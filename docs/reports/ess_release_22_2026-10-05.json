@@ -1,0 +1,29 @@
+{
+  "baseline_commit": "1ded28e",
+  "date": "2026-10-05",
+  "environment": "bench_s3_load_timer",
+  "firmware_sha256": "886fb52cb4bcba7dfc6e0be70ca0b34fdcc9fe7492ac38070a7beb1ab88fbdea",
+  "firmware_bytes": 571136,
+  "continuous_feature_session": {
+    "attempts": 42,
+    "checked_frames": 40,
+    "intentional_timeouts": 2,
+    "capture_faults": 0,
+    "rx_errors": 0
+  },
+  "additional_cli_sessions": {
+    "discovery_check_frames": 2,
+    "unloaded_stress_frames": 10
+  },
+  "s3_sizes": {
+    "PreparedProbe": 64,
+    "ProbeObservation": 176,
+    "DiscoveryScan": 4536,
+    "App": 206496
+  },
+  "native_ctest": 63,
+  "firmware_builds": 4,
+  "physical_summary": "physical_summary.json",
+  "legacy_mismatch_source": "UNRESOLVED",
+  "collision_exclusion": false
+}

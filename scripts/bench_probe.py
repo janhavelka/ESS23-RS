@@ -31,7 +31,7 @@ MAX_INPUT = 32768
 MAX_TRAFFIC_INPUT = 1048576  # Independent finite diagnostic budget per command/drain.
 COMMANDS = frozenset({"version", "config", "probe", "capture-read", "status", "health", "memory", "stats", "load",
                       "drv", "result", "release", "cancel", "recover", "reset", "caps", "host", "communication", "persistence", "motion-profile", "debug",
-                      "read-identity", "read-config", "read-state", "health-check", "monitor", "axis", "prepare", "enable", "motor-release", "alarm-clear", "stop", "position-clear", "move-relative", "move-absolute", "move-angle", "velocity", "driver", "io", "segment", "control", "tuning", "home"})
+                      "read-identity", "read-config", "read-state", "health-check", "monitor", "axis", "prepare", "enable", "motor-release", "alarm-clear", "stop", "position-clear", "move-relative", "move-absolute", "move-angle", "velocity", "driver", "io", "segment", "control", "tuning", "home", "discover", "profile-list"})
 MAX_COMMANDS = 11  # Eight ordinary operations, recovery, reserved stop and local query.
 MAX_OPERATIONS = 10  # Eight ordinary operations, one recovery and one reserved stop.
 MAX_PROBES = 8
@@ -39,6 +39,64 @@ TYPED_READS = {"read-identity": "identity", "read-config": "config", "read-state
 READ_COMMANDS = ("probe", "capture-read", *TYPED_READS)
 HOST_BAUDS = (9600, 19200, 38400, 115200)
 HOST_FORMATS = ("8N1", "8N2", "8E1", "8O1")
+
+
+def discovery_arguments(tokens: tuple[str, ...]) -> dict:
+    """Explicit ESS candidates and finite scan budgets; never guessed protocols."""
+    if not isinstance(tokens, tuple) or len(tokens)>18 or any(type(v) is not str for v in tokens):
+        raise ValueError("discovery arguments require a tuple of strings")
+    if tokens in (("inspect",), ("cancel",), ("restore",), ("finish",)):
+        return dict(action=tokens[0])
+    result = dict(action="begin", profile="ess_rs", tuples=[], identity=False)
+    seen = set()
+    index = 0
+    while index < len(tokens):
+        key = tokens[index]
+        index += 1
+        if key != "tuple" and key in seen:
+            raise ValueError("duplicate discovery option")
+        seen.add(key)
+        def take(count):
+            nonlocal index
+            if index + count > len(tokens):
+                raise ValueError("incomplete discovery option")
+            values = tokens[index:index + count]
+            index += count
+            return values
+        def integer(raw, low, high):
+            if not raw.isascii() or not raw.isdigit() or not low <= int(raw) <= high:
+                raise ValueError("discovery numeric option outside its finite range")
+            return int(raw)
+        if key in ("profile", "manufacturer"):
+            value, = take(1)
+            if (key == "profile" and value != "ess_rs") or (key == "manufacturer" and value != "stepperonline"):
+                raise ValueError("discovery selects only the implemented ESS profile")
+            if {"profile", "manufacturer"} <= seen:
+                raise ValueError("select profile or manufacturer, not both")
+        elif key == "addresses":
+            first, last = take(2)
+            result["first"] = integer(first, 1, 247)
+            result["last"] = integer(last, result["first"], 247)
+        elif key == "tuple":
+            baud, fmt = take(2)
+            candidate = dict(baud=integer(baud, 9600, 115200), format=fmt)
+            if candidate["baud"] not in HOST_BAUDS or fmt not in HOST_FORMATS or candidate in result["tuples"] or len(result["tuples"]) == 4:
+                raise ValueError("unsupported, duplicate or excessive discovery tuple")
+            result["tuples"].append(candidate)
+        elif key in ("query-ms", "overall-ms", "requests", "results"):
+            raw, = take(1)
+            bounds = {"query-ms": (1, 5000), "overall-ms": (1, 60000), "requests": (1, 256), "results": (1, 8)}
+            result[key] = integer(raw, *bounds[key])
+        elif key == "identity":
+            result["identity"] = True
+        else:
+            raise ValueError("unknown discovery option")
+    return result
+
+
+DISCOVERY_EVIDENCE_COLUMNS = ["first", "count", "event", "raw_hex", "received_length", "qualified", "attempted_us",
+                              "earliest_us", "latest_us", "delivered_us", "transport_detail", "tx_accepted",
+                              "execution_unknown", "status", "detail", "frame_error"]
 
 
 def debug_arguments(tokens: tuple[str, ...]) -> str | None:
@@ -581,6 +639,7 @@ class Console:
         self.motion_profile = None
         self.debug_mode = None
         self.debug_snapshot = None
+        self.discovery = None
         self.traffic_sequence = 0
 
     def _lines(self, data: bytes) -> list[bytes]:
@@ -683,6 +742,12 @@ class Console:
         model = item.get("raw_model")
         if item["ok"] and (type(model) is not int or not 0 <= model <= 65535):
             raise BenchError("successful probe lacks consistent result evidence")
+        if "confidence" in item:
+            confidence = ("responder_model_unresolved" if item["ok"] else "responder_only"
+                          if item.get("transport") == "FRAME" and item.get("codec") == "EXCEPTION" else "none")
+            if (item["confidence"] != confidence or any(item.get(key) is not False for key in
+                    ("manufacturer_confirmed", "exact_model_confirmed", "collision_excluded"))):
+                raise BenchError("probe confidence overstates checked identity evidence")
         Console._check_read_evidence(item, address, 7)
 
     @staticmethod
@@ -2883,6 +2948,170 @@ class Console:
                     item["serial_generation"] == old["serial_generation"], "retained original/binding changed")
         self.motion_profile = json.loads(json.dumps(item))
 
+    def _check_discovery(self, handle: Command, item: dict) -> None:
+        expected = discovery_arguments(handle.host_args or ())
+        def require(condition, message):
+            if not condition:
+                raise BenchError("discovery: " + message)
+        def number(value, low=0, high=0xFFFFFFFFFFFFFFFF):
+            return type(value) is int and low <= value <= high
+        action = {"begin": 0, "cancel": 1, "restore": 2, "finish": 3, "inspect": -1}[expected["action"]]
+        if "action" not in item and not item["ok"]:
+            return  # Explicit unavailable/grammar refusal has no invented scan state.
+        require(type(item.get("action")) is int and item["action"] == action, "action correlation differs")
+        scan = item.get("scan")
+        if scan is None:
+            require(not item["ok"] or action == -1, "successful action lacks retained context")
+            return
+        require(isinstance(scan, dict), "context is invalid")
+        require(all(number(scan.get(k)) for k in ("operation_id", "phase", "outcome", "requests", "count", "tuple_index", "address",
+                                                 "started_us", "deadline_us", "finished_us", "original_serial_generation")), "progress fields invalid")
+        require(scan["phase"] <= 5 and scan["outcome"] <= 9 and scan["operation_id"] <= 0xFFFFFFFF,
+                "unknown phase/outcome or operation ID")
+        require(all(type(scan.get(k)) is bool for k in ("owned", "restored", "released", "cancel_requested")), "state flags invalid")
+        if scan["phase"] == 0:
+            require(scan["operation_id"] == scan["requests"] == scan["count"] == 0 and not scan["owned"], "empty state carries operations")
+            return
+        require(scan["operation_id"] > 0 and scan["deadline_us"] > scan["started_us"], "missing immutable deadline/correlation")
+        target = scan.get("original_target")
+        require(isinstance(target, list) and len(target) == 3 and number(target[0], 1, 0xFFFFFFFF) and
+                number(target[1], 1, 247) and number(target[2], 1, 0xFFFFFFFF), "original binding invalid")
+        original = scan.get("original_tuple")
+        def tuple_valid(value):
+            return (isinstance(value, dict) and type(value.get("baud")) is int and value["baud"] in HOST_BAUDS
+                    and value.get("format") in HOST_FORMATS)
+        require(tuple_valid(original) and scan["original_serial_generation"] > 0, "original host evidence invalid")
+        settings = scan.get("settings")
+        require(isinstance(settings, dict) and number(settings.get("first"), 1, 247) and number(settings.get("last"), settings["first"], 247), "address range invalid")
+        require(number(settings.get("query_ms"), 1, 5000) and number(settings.get("overall_ms"), 1, 60000) and
+                number(settings.get("request_limit"), 1, 256) and number(settings.get("result_limit"), 1, 8) and
+                type(settings.get("identity")) is bool, "budgets invalid")
+        tuples = settings.get("tuples")
+        require(isinstance(tuples, list) and 1 <= len(tuples) <= 4 and all(tuple_valid(t) for t in tuples) and
+                len({(t["baud"], t["format"]) for t in tuples}) == len(tuples), "tuple candidates invalid")
+        require(scan["deadline_us"] - scan["started_us"] == settings["overall_ms"] * 1000, "overall deadline differs from budget")
+        if action == 0 and item["ok"]:
+            for key, field in (("first", "first"), ("last", "last"), ("query-ms", "query_ms"), ("overall-ms", "overall_ms"), ("requests", "request_limit"), ("results", "result_limit")):
+                require(key not in expected or settings[field] == expected[key], "accepted candidate/budget differs")
+            require(settings["identity"] == expected["identity"] and (not expected["tuples"] or tuples == expected["tuples"]), "accepted tuple/refinement differs")
+        require(scan["requests"] <= settings["request_limit"] and scan["count"] <= settings["result_limit"] and
+                scan["count"] <= scan["requests"] and scan["tuple_index"] <= len(tuples), "count exceeds retained budgets")
+        require(scan.get("evidence_columns") == DISCOVERY_EVIDENCE_COLUMNS, "wire columns differ")
+        findings = scan.get("findings")
+        require(isinstance(findings, list) and len(findings) == scan["count"], "retained findings count differs")
+        ids = set()
+        def evidence(row, count, *, unused=False):
+            require(isinstance(row, list) and len(row) == len(DISCOVERY_EVIDENCE_COLUMNS), "wire evidence shape invalid")
+            e = dict(zip(DISCOVERY_EVIDENCE_COLUMNS, row))
+            require(all(number(e[k]) for k in ("first", "count", "event", "received_length", "attempted_us", "earliest_us", "latest_us", "delivered_us", "tx_accepted", "frame_error")) and
+                    all(type(e[k]) is bool for k in ("qualified", "execution_unknown")) and
+                    type(e["transport_detail"]) is int and type(e["detail"]) is int and isinstance(e["status"], str), "wire evidence fields invalid")
+            require(e["event"] <= 3 and e["tx_accepted"] <= 8 and isinstance(e["raw_hex"], str) and
+                    re.fullmatch(r"(?:[0-9a-fA-F]{2}){0,37}", e["raw_hex"]) is not None, "wire bounds invalid")
+            raw = bytes.fromhex(e["raw_hex"])
+            require(len(raw) == min(e["received_length"], 37), "copied prefix length differs")
+            if unused:
+                require(not raw and e["received_length"] == 0 and not e["qualified"] and e["tx_accepted"] == 0, "unattempted identity carries wire traffic")
+            else:
+                require(e["first"] == 0 and e["count"] == count, "query uses unreviewed register window")
+                require(e["attempted_us"] <= e["delivered_us"], "service precedes attempt")
+                if e["qualified"]:
+                    require(e["attempted_us"] <= e["earliest_us"] <= e["latest_us"] <= e["delivered_us"], "closure bounds invalid")
+            return e, raw
+        for f in findings:
+            require(isinstance(f, dict) and f.get("profile") == "ess_rs" and f.get("collision_excluded") is False, "unreviewed profile or uniqueness claim")
+            endpoint = f.get("target")
+            require(isinstance(endpoint, list) and len(endpoint) == 3 and number(endpoint[0], 1, 0xFFFFFFFF) and endpoint[0] == endpoint[1] and endpoint[2] == target[2] and
+                    number(endpoint[1], settings["first"], settings["last"]), "finding binding outside candidate set")
+            op = f.get("operation_id")
+            require(number(op, 1, 0xFFFFFFFF) and op not in ids, "attempt correlation reused")
+            ids.add(op)
+            serial = f.get("serial")
+            require(isinstance(serial, list) and len(serial) == 5 and serial[0] is True and number(serial[1], 1, 115200) and type(serial[2]) is int and serial[2] == 8 and
+                    number(serial[3], 1, 3) and number(serial[4], 1, 2), "actual host tuple invalid")
+            fmt = "8N2" if serial[3:] == [1, 2] else {1: "8N1", 2: "8E1", 3: "8O1"}.get(serial[3]) if serial[4] == 1 else None
+            require(dict(baud=serial[1], format=fmt) in tuples, "finding tuple outside candidate set")
+            prefix = bytes((endpoint[1], 3, 0, 0, 0, 1))
+            require(isinstance(f.get("tx_hex"), str) and f["tx_hex"].lower() == (prefix + wire_crc(prefix).to_bytes(2, "little")).hex(), "emitted query differs from public minimal probe")
+            require(number(f.get("started_us"), scan["started_us"], scan["deadline_us"]) and
+                    number(f.get("deadline_us"), f["started_us"] + 1, scan["deadline_us"]), "attempt deadline outside scan")
+            require(number(f.get("outcome"), 1, 9) and number(f.get("confidence"), 0, 2) and type(f.get("raw_model_known")) is bool and number(f.get("raw_model"), 0, 65535), "probe outcome invalid")
+            e, raw = evidence(f.get("probe"), 1)
+            require(e["attempted_us"] == f["started_us"], "probe request/evidence correlation differs")
+            if f["outcome"] in (1, 2):
+                require(e["event"] == 0 and e["qualified"] and e["tx_accepted"] == 8 and
+                        e["latest_us"] <= f["deadline_us"] and wire_crc(raw) == 0, "responder lacks checked on-time frame")
+            if e["event"] == 0 and e["qualified"] and e["latest_us"] <= f["deadline_us"]:
+                status, detail, frame_error = _reply_status(raw, e["received_length"], endpoint[1], 3, 7)
+                require((e["status"], e["detail"], e["frame_error"]) == (status, detail, frame_error), "checked wire failure/status differs")
+                expected_outcome = 1 if status == "OK" else 2 if status == "EXCEPTION" else 4 if frame_error == 3 else 3
+                require(f["outcome"] == expected_outcome, "checked mismatch/malformed classification differs")
+            if f["outcome"] == 1:
+                require(len(raw) == 7 and raw[:3] == bytes((endpoint[1], 3, 2)) and e["status"] == "OK" and
+                        f["confidence"] == 2 and f["raw_model_known"] and f["raw_model"] == int.from_bytes(raw[3:5], "big"), "model evidence differs")
+            elif f["outcome"] == 2:
+                require(len(raw) == 5 and raw[:2] == bytes((endpoint[1], 0x83)) and e["status"] == "EXCEPTION" and
+                        e["detail"] == raw[2] and f["confidence"] == 1 and not f["raw_model_known"], "checked exception differs")
+            else:
+                require(f["confidence"] == 0 and not f["raw_model_known"], "failed probe claims responsiveness")
+            require(all(type(f.get(k)) is bool for k in ("identity_attempted", "identity_known", "identity_ambiguous")), "identity flags invalid")
+            values = f.get("identity")
+            require(isinstance(values, list) and len(values) == 4 and all(number(v, 0, 65535) for v in values), "identity values invalid")
+            identity_row = f.get("identity_evidence")
+            pending_identity = (f["identity_attempted"] and not f["identity_known"] and isinstance(identity_row, list) and
+                                len(identity_row) == 16 and identity_row[1] == identity_row[4] == 0)
+            ie, iraw = evidence(identity_row, 4, unused=not f["identity_attempted"] or pending_identity)
+            if pending_identity:
+                require(scan["phase"] == 2 and f is findings[-1], "pending refinement outside active identity phase")
+            if f["identity_attempted"]:
+                require(settings["identity"] and f["outcome"] == 1, "identity refinement lacks successful probe")
+                admission=f.get("identity_admission")
+                require(isinstance(admission,list) and len(admission)==2 and number(admission[0], op + 1, 0xFFFFFFFF) and admission[0] not in ids and
+                        number(admission[1], f["started_us"] + 1, scan["deadline_us"]), "identity correlation/deadline invalid")
+                ids.add(admission[0])
+                if not pending_identity:
+                    require(admission[1] == min(scan["deadline_us"], ie["attempted_us"] + settings["query_ms"] * 1000), "identity immutable deadline differs from preparation")
+            else:
+                require(f.get("identity_admission") == [0,0], "unattempted identity has admission correlation")
+            if f["identity_known"]:
+                require(f["identity_attempted"] and ie["event"] == 0 and ie["qualified"] and ie["status"] == "OK" and
+                        len(iraw) == 13 and iraw[:3] == bytes((endpoint[1], 3, 8)) and wire_crc(iraw) == 0 and
+                        values == [int.from_bytes(iraw[i:i+2], "big") for i in range(3, 11, 2)] and
+                        f["identity_ambiguous"] == (values[0] != f["raw_model"] or values[2] != endpoint[1]), "identity evidence or mismatch ambiguity differs")
+                require(ie["attempted_us"] < scan["deadline_us"] and ie["latest_us"] <= f["identity_admission"][1] and ie["tx_accepted"] == 8,
+                        "identity closure exceeds its immutable query/scan deadline")
+            else:
+                require(values == [0, 0, 0, 0], "failed/unattempted refinement publishes identity")
+        require(scan["requests"] >= len(findings) + sum(f["identity_attempted"] for f in findings), "identity attempts exceed admitted request budget")
+        if scan["phase"] == 5:
+            require(scan["outcome"] != 0 and not scan["owned"] and scan["restored"] and scan["finished_us"] >= scan["started_us"], "terminal scan lacks restoration")
+        if scan["phase"] == 4:
+            require(scan["owned"] and not scan["restored"], "interlock lost ownership")
+        if scan["released"]:
+            require(scan["phase"] == 5, "released unfinished scan")
+        old = self.discovery
+        if old and old["operation_id"] == scan["operation_id"]:
+            for key in ("started_us", "deadline_us", "settings", "original_target", "original_tuple", "original_serial_generation"):
+                require(scan[key] == old[key], "retained immutable scan context changed")
+            require(scan["requests"] >= old["requests"] and scan["count"] >= old["count"], "partial progress disappeared")
+            for before, after in zip(old["findings"], findings):
+                for key in ("profile", "target", "operation_id", "serial", "tx_hex", "started_us", "deadline_us", "outcome", "confidence", "raw_model_known", "raw_model", "probe"):
+                    require(before[key] == after[key], "retained attempt evidence changed")
+                if before["identity_attempted"]:
+                    require(after["identity_attempted"], "identity attempt disappeared")
+                    require(before["identity_admission"] == after["identity_admission"],
+                            "retained identity correlation changed")
+                    if before["identity_evidence"][4]:
+                        require(before == after, "settled identity evidence changed")
+        elif old and item["ok"]:
+            require(action == 0 and old["released"] and scan["operation_id"] > old["operation_id"], "new scan replaced retained findings")
+        self.discovery = json.loads(json.dumps(scan))
+        # The scan owns host reconfiguration and restoration; its historical
+        # original generation is not the restored adapter's current generation.
+        # Until an explicit host query refreshes that evidence, do not carry a
+        # prior generation into admission checks for the next ordinary request.
+        self.serial = None
+
     def _complete(self, handle: Command, item: dict) -> None:
         if self.clock() >= handle.deadline:
             raise BenchError("command response deadline expired; command was not replayed")
@@ -2906,6 +3135,14 @@ class Console:
             self._check_debug(handle, item)
         if handle.command == "motion-profile":
             self._check_motion_profile(handle, item)
+        if handle.command == "profile-list" and item["ok"]:
+            expected = dict(manufacturer="stepperonline", manufacturer_name="STEPPERONLINE", profile="ess_rs", name="ESS-RS",
+                            probe=True, identity=True, nonchanging=True, exact_model=False, firmware=False,
+                            minimum_address=1, maximum_address=247, probe_first=0, probe_count=1, identity_first=0, identity_count=4)
+            if item.get("bus_traffic") is not False or item.get("profiles") != [expected]:
+                raise BenchError("local discovery inventory differs from implemented profile capabilities")
+        if handle.command == "discover":
+            self._check_discovery(handle, item)
         if handle.command in ("status", "config") and item["ok"]:
             self._check_host_serial(item, handle.serial)
             if handle.command == "config" and handle.serial is not None and handle.serial["known"]:
@@ -3160,6 +3397,9 @@ class Console:
             debug_arguments(host_args)
         elif command == "motion-profile":
             motion_profile_arguments(host_args)
+        elif command == "discover":
+            host_args = () if host_args is None else host_args
+            discovery_arguments(host_args)
         elif host_args is not None:
             if (command not in ("axis", "prepare") or not isinstance(host_args, tuple) or
                     not 1 <= len(host_args) <= (9 if command == "prepare" else 8) or any(type(token) is not str or not token or
@@ -3259,6 +3499,7 @@ class Console:
             if driver_args is not None:
                 suffix = " " + " ".join(driver_args) + suffix
             wire_command = "health check" if health_check else "read " + TYPED_READS[command] if command in TYPED_READS else command
+            if command == "profile-list": wire_command = "profile list"
             if command in MOVE_COMMANDS: wire_command = "move " + command[5:]
             if command in ("driver", "io", "segment", "control", "tuning", "communication", "persistence"): wire_command = "profile ess_rs " + command
             payload = f"@{request_id} {wire_command}{suffix}\n".encode("ascii")
@@ -3920,6 +4161,40 @@ def state_health_campaign(console: Console, *, count: int, interval_s: float, ti
                      checks_passed=passed, ok=failure is None and passed == count, error=failure)
 
 
+def discovery_campaign(console, *, tokens: tuple[str, ...], timeout_s: float) -> dict:
+    """One scan, finite local inspections, no retry or automatic recovery."""
+    selected = discovery_arguments(tokens)
+    if selected["action"] != "begin":
+        raise ValueError("discovery campaign requires bounded scan candidates")
+    limit = selected.get("overall-ms", 5000) / 1000 + timeout_s
+    deadline = console.clock() + limit
+    scans = 0
+    result = console.command("discover", host_args=tokens, timeout_s=timeout_s)
+    if not result["ok"]:
+        raise BenchError("discovery admission refused: " + str(result.get("result")))
+    scan = result["scan"]
+    # Polls are local cached inspection, bounded independently of motor requests.
+    # A runner/restore interlock needs the operator's explicit repair sequence.
+    while scan["phase"] not in (4, 5):
+        if console.clock() >= deadline or scans >= 1500:
+            if console.synchronized:
+                console.command("discover", host_args=("cancel",), timeout_s=timeout_s)
+            raise BenchError("discovery inspection budget exhausted; cancellation requested without replay")
+        console.sleep(.05)
+        result = console.command("discover", host_args=("inspect",), timeout_s=min(timeout_s, max(.001, deadline-console.clock())))
+        if not result["ok"]:
+            raise BenchError("discovery inspection failed")
+        scan = result["scan"]
+        scans += 1
+    console.emit("discovery_summary", scan=scan, inspections=scans, restored=scan["restored"], interlocked=scan["phase"] == 4)
+    if scan["phase"] == 4:
+        raise BenchError("discovery stopped with retained partial results and host/transport interlock; explicit repair required")
+    finished = console.command("discover", host_args=("finish",), timeout_s=timeout_s)
+    if not finished["ok"]:
+        raise BenchError("discovery findings release refused")
+    return scan
+
+
 def open_port(name: str, baud: int, timeout_s: float):
     try:
         import serial
@@ -3949,6 +4224,18 @@ def arguments(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument("--debug", choices=("off", "raw", "decoded"), default=None,
                         help="observe the ordinary campaign on this connection, then restore the previous display mode")
     sub = parser.add_subparsers(dest="mode", required=True)
+    sub.add_parser("profile-list", help="compiled manufacturer/profile inventory; no motor traffic")
+    discovery_help = ("[profile ess_rs | manufacturer stepperonline] [addresses FIRST LAST] "
+                      "[tuple BAUD FORMAT] (up to four distinct reviewed tuples) [query-ms 1..5000] "
+                      "[overall-ms 1..60000] [requests 1..256] [results 1..8] [identity]. "
+                      "Defaults: selected endpoint/current tuple, 500 ms/query, 5000 ms overall, "
+                      "16 requests, 8 results, no identity refinement or retries. Console input is "
+                      "128 bytes/20 tokens including correlation and command. "
+                      "Controls: inspect, cancel, restore, finish. Interlocks require explicit repair.")
+    discover = sub.add_parser("discover", help="one bounded scan action; inspect/cancel/restore/finish retain evidence", description=discovery_help)
+    discover.add_argument("discovery_tokens", nargs="*")
+    discovery_check = sub.add_parser("discovery-check", help="one finite ESS scan, bounded inspection and explicit result release", description=discovery_help)
+    discovery_check.add_argument("discovery_tokens", nargs="*")
     sub.add_parser("probe", help="one model-register read and cached observations")
     host = sub.add_parser("host", help="one host-only serial query or explicit tuple change; no motor writes")
     host.add_argument("host_tokens", nargs="*")
@@ -4068,6 +4355,13 @@ def arguments(argv: list[str] | None) -> argparse.Namespace:
         result.host_args = tuple(result.communication_tokens)
         try: communication_arguments(result.host_args)
         except ValueError as exc: parser.error(str(exc))
+    if result.mode in ("discover", "discovery-check"):
+        result.host_args=tuple(result.discovery_tokens)
+        try:
+            selected=discovery_arguments(result.host_args)
+            if result.mode == "discovery-check" and selected["action"] != "begin":
+                raise ValueError("discovery-check starts one scan; controls use discover")
+        except ValueError as exc:parser.error(str(exc))
     if result.mode == "persistence":
         result.host_args=tuple(result.persistence_tokens)
         try:persistence_arguments(result.host_args)
@@ -4165,6 +4459,12 @@ def main(argv: list[str] | None = None) -> int:
                         result = console.command("motion-profile", host_args=args.host_args, timeout_s=args.timeout)
                         if not result["ok"]:
                             raise BenchError("motion-profile command failed: " + str(result.get("result")))
+                    elif args.mode in ("discover", "profile-list"):
+                        result = console.command(args.mode, host_args=args.host_args if args.mode=="discover" else None, timeout_s=args.timeout)
+                        if not result["ok"]:
+                            raise BenchError("discovery command refused: " + str(result.get("result")))
+                    elif args.mode == "discovery-check":
+                        discovery_campaign(console,tokens=args.host_args,timeout_s=args.timeout)
                     elif args.mode == "communication":
                         result = console.command("communication", host_args=args.host_args, timeout_s=args.timeout)
                         if not result["ok"]:

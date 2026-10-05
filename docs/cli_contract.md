@@ -483,3 +483,10 @@ assignment, polarity workaround, replay or save occurs. The explicit unwired
 settings policy may settle matching stored readback while the FC06 acknowledgement
 remains false and execution remains unknown. See [I/O contracts](ess_io.md)
 and [current evidence](reports/ess_release_15_2026-10-04.md).
+
+Prompt22 implements the [bounded discovery routes](ess_discovery.md): one retained
+scan, eight findings, four host tuples, explicit absolute budgets, identity
+refinement and `discover inspect/cancel/restore/finish`. Bare `cancel` while a
+scan owns the session, or `cancel SCAN_ID`, stops future scan work. A transport
+fault requires explicit recovery and scan restoration; no scan resumes after
+repair. Command correlation is separate from scan and per-query operation IDs.

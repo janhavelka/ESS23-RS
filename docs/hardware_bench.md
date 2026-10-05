@@ -1,5 +1,9 @@
 # Motor bench and testing authorization
 
+Prompt22 adds [bounded ESS discovery](ess_discovery.md), minimal public probes and retained
+scan evidence with explicit recovery/restoration. [Verification](reports/ess_release_22_2026-10-05.md) records
+COM13 address/tuple scans, budget limits and unchanged motor settings/state.
+
 [Prompt21 evidence](reports/ess_release_21_2026-10-04.md): typed persistence
 plans, zero-TX save/restore gates, exclusive nine-read snapshot, strict Python
 checks and ten probes pass on the final image. Forty-eight frames, zero faults;

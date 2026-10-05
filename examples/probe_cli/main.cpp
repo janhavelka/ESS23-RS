@@ -60,6 +60,7 @@ Rtu::BusStorage busStorage(Rtu::PendingSlot* p, Rtu::ResultSlot* r, Rtu::Produce
 }
 struct App;
 Probe::Host host(App*);
+MotorControlRS::ActiveSerialTuple communicationTuple(const HostTuple&);
 struct App {
     uint8_t tx[32] = {}, rx[64] = {}, viewTx[8] = {};
     Rtu::Trace trace[128];
@@ -74,6 +75,11 @@ struct App {
     uint32_t commissioningConfirmedGeneration = 0, commissioningRequestBinding = 0;
     bool commissioningInvalidated = false, commissioningResponseQualified = false;
     ESS::PersistenceContext persistence, persistencePrepared;
+    Probe::DiscoveryScan discovery;
+    MotorControlRS::PreparedProbe discoveryPrepared;
+    ESS::ReadContext discoveryIdentity;
+    Rtu::RequestId discoveryRequest;
+    bool discoveryIdentityPending = false, discoveryOriginalKnown = false;
     ESS::PersistencePrerequisites persistencePrerequisites, persistenceBaseline;
     ESS::PersistenceVerification persistenceVerification;
     ESS::ReadContext persistenceReads[3];
@@ -102,6 +108,7 @@ struct App {
         bool cancelContinuation = false; ///< Cancel the operation after its current frame settles.
         ESS::ReadContext read;
         bool actionOperation = false, axisReserved = false, effectsInvalidated = false, interruptedByStop = false;
+        bool discoveryStop = false; ///< Urgent stop waits for the scan's original tuple.
         ESS::ActionContext action;
         bool moveOperation = false;
         ESS::MoveContext move;
@@ -320,7 +327,7 @@ MotorControlRS::Status axisCommand(void* context, const Probe::AxisCommand& comm
     App& a = *static_cast<App*>(context);
     view.commandPolarityKnown = a.commandPolarityKnown;
     if (command.kind == Probe::AxisCommandKind::QUERY) { view.configuration = a.axis; return Ok(); }
-    if (a.owner.commissioningOwned()) return Status(Err::INVALID_CONFIG, 0, "communication commissioning owns the endpoint");
+    if (a.owner.commissioningOwned() || a.discovery.owned) return Status(Err::INVALID_CONFIG, 0, "bus session owns the endpoint");
     const AxisReference evidence = axisReference(a);
     if (command.kind == Probe::AxisCommandKind::PREPARE) {
         if (!a.commandPolarityKnown && command.position.frame != CoordinateFrame::NATIVE)
@@ -389,7 +396,7 @@ void snapshot(void* context, Probe::Snapshot& s) {
     s.replyGapUs = a.serial.timing.replyGapUs; s.gap15Us = a.serial.timing.runner.gap15Us; s.gap35Us = a.serial.timing.runner.gap35Us;
     s.uptimeMs = nowUs() / 1000; s.ready = platformReady && a.serial.activeKnown && !a.serial.blocked; s.timingQualified = false;
     s.writeResponseConfirmed = writeResponseConfirmed; s.axisReserved = axisReserved(a);
-    s.busy = a.owner.commissioningOwned() || a.owner.active() || a.owner.pending() || a.owner.recovering() || reading(a) || acting(a);
+    s.busy = a.discovery.owned || a.owner.commissioningOwned() || a.owner.active() || a.owner.pending() || a.owner.recovering() || reading(a) || acting(a);
     s.recoveryRequired = a.serial.blocked || a.owner.needsRecovery() || uart.needsRecovery();
     s.phase = a.runner.phase(); s.transport = a.runner.result().reason; s.transmitEnabled = a.runner.transmitEnabled();
     s.codecChecked = a.codecChecked; s.codec = a.codec; s.frameError = a.frameError;
@@ -412,6 +419,8 @@ void snapshot(void* context, Probe::Snapshot& s) {
     }
     if (a.owner.recovering() && (!s.deadlineUs || a.recovery.deadlineUs < s.deadlineUs))
         s.deadlineUs = a.recovery.deadlineUs;
+    if (a.discovery.owned && (!s.deadlineUs || a.discovery.deadlineUs < s.deadlineUs))
+        s.deadlineUs = a.discovery.deadlineUs;
     const auto capture = uart.stats(); s.maxPollGapUs = capture.maxGapUs; s.captureFaults = capture.faults; s.rxErrors = capture.rxErrors;
     s.cacheOffSupported = Esp32S3Uart::CACHE_OFF_SUPPORTED;
     s.sampleGapLimitUs = capture.timer ? capture.sampleGapLimitUs : 0;
@@ -430,7 +439,7 @@ MotorControlRS::Status checkProbe(const Rtu::Expectation& e, const uint8_t* byte
 }
 Probe::Action startRead(void* context, uint32_t commandId, uint8_t address, uint32_t& operationId, bool captureRead) {
     App& a = *static_cast<App*>(context);
-    if (a.owner.commissioningOwned()) return Probe::Action::BUSY;
+    if (a.owner.commissioningOwned() || a.discovery.owned) return Probe::Action::BUSY;
     if (!platformReady) return Probe::Action::UNAVAILABLE;
     if (a.serial.blocked || a.serial.configuring || a.owner.configurationOwned()) return Probe::Action::RECOVERY_REQUIRED;
     const uint64_t sampled = uart.sample();
@@ -444,8 +453,14 @@ Probe::Action startRead(void* context, uint32_t commandId, uint8_t address, uint
     const uint16_t first = captureRead ? Probe::CAPTURE_FIRST : 0;
     const uint16_t count = captureRead ? Probe::CAPTURE_WORDS : 1;
     request.wire.bytes = bytes;
-    request.wire.length = captureRead ? MotorControlRS::ESS_RS::buildReadRegisters(address, first, count, bytes, sizeof(bytes)) :
-        MotorControlRS::ESS_RS::buildProbe(address, bytes, sizeof(bytes));
+    if (captureRead) request.wire.length = ESS::buildReadRegisters(address, first, count, bytes, sizeof(bytes));
+    else {
+        MotorControlRS::PreparedProbe prepared;
+        MotorControlRS::ReadTarget target; target.id = address; target.address = address; target.generation = a.bindingGeneration;
+        if (!MotorControlRS::prepareProbe(prepared, MotorControlRS::DriveProfile::ESS_RS, target,
+                a.nextOperationId, sampled, sampled + REQUEST_US, communicationTuple(a.serial.active))) return Probe::Action::INVALID;
+        std::memcpy(bytes, prepared.bytes, prepared.length); request.wire.length = prepared.length;
+    }
     request.wire.replyLength = MotorControlRS::ESS_RS::expectedReadRegistersLen(count);
     request.wire.responseTimeoutUs = a.serial.timing.responseTimeoutUs;
     request.wire.replyGapUs = a.serial.timing.replyGapUs; // Only the default bench tuple has a reviewed first-reply override.
@@ -495,7 +510,7 @@ Rtu::BusAdmission admitStep(App& a, App::Record& record, uint64_t sampled) {
 Probe::Action startTypedRead(void* context, uint32_t commandId, uint8_t address, ESS::ReadKind kind,
                              uint32_t& operationId, bool monitored) {
     App& a = *static_cast<App*>(context);
-    if (a.owner.commissioningOwned()) return Probe::Action::BUSY;
+    if (a.owner.commissioningOwned() || a.discovery.owned) return Probe::Action::BUSY;
     if (!platformReady) return Probe::Action::UNAVAILABLE;
     if (a.serial.blocked || a.serial.configuring || a.owner.configurationOwned()) return Probe::Action::RECOVERY_REQUIRED;
     const uint64_t sampled = uart.sample();
@@ -508,10 +523,7 @@ Probe::Action startTypedRead(void* context, uint32_t commandId, uint8_t address,
         if (!a.records[i].operationId) { record = &a.records[i]; break; }
     if (!record) return Probe::Action::RESULTS_FULL;
     MotorControlRS::ReadTarget target; target.id = address; target.address = address; target.generation = a.bindingGeneration;
-    MotorControlRS::ActiveSerialTuple serial; serial.known = true; serial.baud = a.serial.active.baud;
-    serial.dataBits = 8; serial.parity = a.serial.active.format == HostFormat::E8_1 ? MotorControlRS::SerialParity::EVEN :
-        a.serial.active.format == HostFormat::O8_1 ? MotorControlRS::SerialParity::ODD : MotorControlRS::SerialParity::NONE;
-    serial.stopBits = a.serial.active.format == HostFormat::N8_2 ? 2 : 1;
+    const auto serial = communicationTuple(a.serial.active);
     const auto* configuration = a.configuration.operationId && Probe::sameTarget(a.configuration.target, target) ?
         &a.configuration : nullptr;
     const auto prepared = kind == ESS::ReadKind::IDENTITY ?
@@ -567,7 +579,9 @@ Probe::Action startAction(void* context, uint32_t commandId, uint8_t address,
                           const MotorControlRS::ActionRequest& request, uint32_t& operationId) {
     using namespace MotorControlRS;
     App& a = *static_cast<App*>(context);
-    if (a.owner.commissioningOwned()) return Probe::Action::BUSY;
+    const bool scanStop = a.discovery.owned && request.kind == ActionKind::STOP &&
+        address == a.discovery.originalTarget.address;
+    if (a.owner.commissioningOwned() || (a.discovery.owned && !scanStop)) return Probe::Action::BUSY;
     if (!platformReady) return Probe::Action::UNAVAILABLE;
     if (a.serial.blocked || a.serial.configuring || a.owner.configurationOwned()) return Probe::Action::RECOVERY_REQUIRED;
     if (!a.nextOperationId) return Probe::Action::IDS_EXHAUSTED;
@@ -592,7 +606,8 @@ Probe::Action startAction(void* context, uint32_t commandId, uint8_t address,
     const Status prepared = ESS::prepareAction(preparedContext, target, a.nextOperationId, admittedRequest, now, deadline);
     if (!prepared) return prepared.code == Err::UNSUPPORTED ? Probe::Action::UNSUPPORTED : Probe::Action::INVALID;
     if (a.owner.needsRecovery() || uart.needsRecovery()) return Probe::Action::RECOVERY_REQUIRED;
-    if (!(a.knownTargets[address / 8] & (1U << (address % 8)))) return Probe::Action::UNAVAILABLE;
+    if (!(a.knownTargets[address / 8] & (1U << (address % 8))) &&
+        !(scanStop && a.discoveryOriginalKnown)) return Probe::Action::UNAVAILABLE;
     const bool stop = request.kind == ActionKind::STOP;
     if (!stop && axisReserved(a, address)) return Probe::Action::AXIS_CONFLICT;
     App::Record* record = nullptr;
@@ -606,16 +621,23 @@ Probe::Action startAction(void* context, uint32_t commandId, uint8_t address,
     if (!ESS::nextAction(record->action, now, work) || work.kind != ESS::ActionWork::TRANSACTION) {
         clearRecord(*record); return Probe::Action::FAILED;
     }
-    const auto admitted = admitActionStep(a, *record, work, now);
+    const auto admitted = scanStop ? Rtu::BusAdmission::ACCEPTED : admitActionStep(a, *record, work, now);
     if (admitted != Rtu::BusAdmission::ACCEPTED) {
         clearRecord(*record);
         return admitted == Rtu::BusAdmission::QUEUE_FULL ? Probe::Action::QUEUE_FULL :
             admitted == Rtu::BusAdmission::RESULTS_FULL || admitted == Rtu::BusAdmission::URGENT_FULL ?
             Probe::Action::RESULTS_FULL : Probe::Action::FAILED;
     }
-    record->serialTuple = a.serial.active; record->serialGeneration = a.serial.generation;
+    record->serialTuple = scanStop ? a.discovery.originalTuple : a.serial.active;
+    record->serialGeneration = scanStop ? a.discovery.originalSerialGeneration : a.serial.generation;
     record->operationId = a.nextOperationId++; record->commandId = commandId; record->address = address;
     record->deadlineUs = preparedContext.deadlineUs; record->actionOperation = record->axisReserved = true;
+    if (scanStop) {
+        record->discoveryStop = true;
+        a.discovery.cancelRequested = true;
+        a.discovery.outcome = Probe::DiscoveryOutcome::PREEMPTED;
+        if (a.discoveryRequest.owner) a.owner.cancelUnsent(a.discoveryRequest, now);
+    }
     operationId = a.latestOperationId = record->operationId;
     if (stop) for (auto& interrupted : a.records) {
         if (&interrupted == record || (!interrupted.actionOperation && !interrupted.moveOperation && !interrupted.velocityOperation && !interrupted.driverOperation && !interrupted.homeOperation) || interrupted.address != address ||
@@ -641,6 +663,7 @@ Probe::Action admissionResult(Rtu::BusAdmission result) {
 // The operation executor below already owns its same-axis reservation. A raw
 // call to the bus owner cannot substitute for this application policy boundary.
 Probe::Action checkAxisWrite(const App& a, const Rtu::BusRequest& request) {
+    if (a.discovery.owned) return Probe::Action::BUSY;
     if (!ESS::isValidAddress(request.expected.address) ||
         (request.expected.function != 6 && request.expected.function != 0x10) ||
         request.expected.target != request.expected.address ||
@@ -691,7 +714,7 @@ Probe::Action startMove(void* context, uint32_t commandId, uint8_t address,
                         const MotorControlRS::MoveRequest& supplied, uint32_t& operationId) {
     using namespace MotorControlRS;
     App& a = *static_cast<App*>(context);
-    if (a.owner.commissioningOwned()) return Probe::Action::BUSY;
+    if (a.owner.commissioningOwned() || a.discovery.owned) return Probe::Action::BUSY;
     if (!platformReady) return Probe::Action::UNAVAILABLE;
     if (a.serial.blocked || a.serial.configuring || a.owner.configurationOwned()) return Probe::Action::RECOVERY_REQUIRED;
     if (!ESS::isValidAddress(address) || !supplied.speedRpm ||
@@ -766,7 +789,7 @@ Probe::Action startVelocity(void* context, uint32_t commandId, uint8_t address,
                             const MotorControlRS::VelocityRequest& supplied, uint32_t& operationId) {
     using namespace MotorControlRS;
     App& a = *static_cast<App*>(context);
-    if (a.owner.commissioningOwned()) return Probe::Action::BUSY;
+    if (a.owner.commissioningOwned() || a.discovery.owned) return Probe::Action::BUSY;
     if (!platformReady) return Probe::Action::UNAVAILABLE;
     if (a.serial.blocked || a.serial.configuring || a.owner.configurationOwned()) return Probe::Action::RECOVERY_REQUIRED;
     if (!ESS::isValidAddress(address) || !supplied.durationUs || supplied.durationUs > 1000000)
@@ -832,7 +855,7 @@ Probe::Action startHome(void* context, uint32_t commandId, uint8_t address,
                         const ESS::HomeRequest& supplied, uint32_t& operationId) {
     using namespace MotorControlRS;
     App& a = *static_cast<App*>(context);
-    if (a.owner.commissioningOwned()) return Probe::Action::BUSY;
+    if (a.owner.commissioningOwned() || a.discovery.owned) return Probe::Action::BUSY;
     if (!platformReady) return Probe::Action::UNAVAILABLE;
     if (a.serial.blocked || a.serial.configuring || a.owner.configurationOwned()) return Probe::Action::RECOVERY_REQUIRED;
     if (!ESS::isValidAddress(address)) return Probe::Action::INVALID;
@@ -1018,7 +1041,7 @@ Probe::Action startDriver(void* context, uint32_t commandId, uint8_t address, ES
                          const ESS::DriverRequest& supplied, uint32_t& operationId) {
     using namespace MotorControlRS;
     App& a = *static_cast<App*>(context);
-    if (a.owner.commissioningOwned()) return Probe::Action::BUSY;
+    if (a.owner.commissioningOwned() || a.discovery.owned) return Probe::Action::BUSY;
     if (supplied.group > ESS::DriverGroup::COLLISION) return Probe::Action::INVALID;
     if (!platformReady) return Probe::Action::UNAVAILABLE;
     if (a.serial.blocked || a.serial.configuring || a.owner.configurationOwned()) return Probe::Action::RECOVERY_REQUIRED;
@@ -1415,6 +1438,19 @@ MotorControlRS::Status advanceOperation(App::Record& record, const MotorControlR
 }
 void advanceActions(App& a, uint64_t now) {
     for (auto& record : a.records) {
+        if (record.discoveryStop && a.discovery.owned) {
+            if (now < record.deadlineUs) continue;
+            record.discoveryStop = false;
+            advanceOperation(record, actionEvent(record, ReadEventKind::DEADLINE), now);
+            updateActionReservation(a, record);
+        }
+        if (record.discoveryStop) {
+            record.discoveryStop = false;
+            record.serialTuple = a.serial.active; record.serialGeneration = a.serial.generation;
+            if (!a.discovery.restored || a.owner.needsRecovery() || uart.needsRecovery())
+                advanceOperation(record, actionEvent(record, ReadEventKind::TRANSPORT_FAILURE), now);
+            updateActionReservation(a, record);
+        }
         if ((!record.actionOperation && !record.moveOperation && !record.velocityOperation && !record.driverOperation && !record.homeOperation) || terminal(a, record)) continue;
         if (record.requestId.owner) {
             if (record.homeOperation && !record.effectsInvalidated && a.owner.txAccepted(record.requestId)) {
@@ -1633,7 +1669,15 @@ bool lookup(void* context, uint32_t operationId, Probe::ResultView& out) {
     p.deliveredUs = record->deliveredUs; return true;
 }
 Probe::Action cancel(void* context, uint32_t operationId) {
-    App& a = *static_cast<App*>(context); if (!operationId) operationId = a.latestOperationId;
+    App& a = *static_cast<App*>(context);
+    if ((!operationId && a.discovery.owned) || (operationId && operationId == a.discovery.operationId)) {
+        if (!a.discovery.owned || a.discovery.phase == Probe::DiscoveryPhase::INTERLOCK)
+            return Probe::Action::ALREADY_TERMINAL;
+        a.discovery.cancelRequested = true;
+        if (a.discoveryRequest.owner) a.owner.cancelUnsent(a.discoveryRequest, nowUs());
+        return Probe::Action::OK;
+    }
+    if (!operationId) operationId = a.latestOperationId;
     auto* record = findRecord(a, operationId); if (!record) return Probe::Action::INVALID;
     if (record->actionOperation || record->moveOperation || record->velocityOperation || record->driverOperation || record->homeOperation) {
         if (terminal(a, *record)) return Probe::Action::ALREADY_TERMINAL;
@@ -1670,7 +1714,7 @@ Probe::Action release(void* context, uint32_t operationId) {
 }
 Probe::Action monitor(void* context, const Probe::MonitorSettings* requested, Probe::MonitorSnapshot& out) {
     App& a = *static_cast<App*>(context);
-    if (requested && requested->enabled && a.owner.commissioningOwned()) return Probe::Action::BUSY;
+    if (requested && requested->enabled && (a.owner.commissioningOwned() || a.discovery.owned)) return Probe::Action::BUSY;
     if (!platformReady) return Probe::Action::UNAVAILABLE;
     if (a.serial.blocked || a.serial.configuring || a.owner.configurationOwned()) return Probe::Action::RECOVERY_REQUIRED;
     if (requested) {
@@ -1723,7 +1767,7 @@ void reset(void* context) {
 Probe::Action load(void* context, const Probe::LoadSettings* requested, Probe::LoadSnapshot& out) {
     App& a = *static_cast<App*>(context);
     if (!fixtureReady) return Probe::Action::UNAVAILABLE;
-    if (requested && (a.owner.active() || a.owner.pending() || a.owner.recovering() || reading(a) || acting(a) || a.runner.transmitEnabled())) return Probe::Action::BUSY;
+    if (requested && (a.discovery.owned || a.owner.active() || a.owner.pending() || a.owner.recovering() || reading(a) || acting(a) || a.runner.transmitEnabled())) return Probe::Action::BUSY;
     const auto result = loadFixture.configure(requested, out, uart); out.ready = platformReady;
     if (requested) nextServiceUs = 0;
     return result;
@@ -1744,19 +1788,19 @@ void invalidateSerialConfidence(App& a, uint64_t now) {
     // Endpoint/configuration generations and physical uncertainty do not belong
     // to a temporary UART selection. Historical records and host origins survive.
 }
-Probe::Action hostSerialImpl(void* context, const Probe::HostRequest* requested, Probe::HostSnapshot& out, bool commissioning) {
+Probe::Action hostSerialImpl(void* context, const Probe::HostRequest* requested, Probe::HostSnapshot& out, bool ownedSession) {
     App& a = *static_cast<App*>(context);
     if (!requested) {
         if (!platformReady) return Probe::Action::UNAVAILABLE;
         out = a.serial; return Probe::Action::OK;
     }
-    if (a.owner.commissioningOwned() && !commissioning) return Probe::Action::BUSY;
+    if ((a.owner.commissioningOwned() || a.discovery.owned) && !ownedSession) return Probe::Action::BUSY;
     const HostTuple tuple = requested->restore ? a.serial.original : requested->tuple;
     HostTiming policy;
     if (!Esp32S3Uart::supports(tuple) || !hostTiming(tuple, policy)) return Probe::Action::UNSUPPORTED;
     if (!platformReady) return Probe::Action::UNAVAILABLE;
     if (a.serial.configuring || a.owner.active() || a.owner.pending() || a.owner.recovering() ||
-        a.runner.busy() || a.runner.transmitEnabled() || reading(a) || acting(a) ||
+        a.runner.busy() || a.runner.transmitEnabled() || reading(a) || (acting(a) && !(ownedSession && a.records[REQUEST_CAPACITY + 1].discoveryStop)) ||
         a.monitorState.settings.enabled) return Probe::Action::BUSY;
     if (!a.serial.blocked && (a.owner.needsRecovery() || uart.needsRecovery())) return Probe::Action::RECOVERY_REQUIRED;
     if (!a.serial.blocked && a.serial.activeKnown && sameTuple(tuple, a.serial.active)) {
@@ -1796,6 +1840,7 @@ Probe::Action hostSerial(void* context, const Probe::HostRequest* requested, Pro
 }
 #include "CommunicationApp.h"
 #include "PersistenceApp.h"
+#include "DiscoveryApp.h"
 
 #include "DebugApp.h"
 Probe::Host host(App* a) {
@@ -1805,6 +1850,7 @@ Probe::Host host(App* a) {
     h.startAction = startAction; h.startMove = startMove; h.startVelocity = startVelocity; h.startDriver = startDriver; h.startHome = startHome;
     h.monitor = monitor; h.motionProfile = motionProfileCommand; h.debug = debugCommand;
     h.axis = axisCommand; h.hostSerial = hostSerial; h.communication = communication; h.persistence = persistence;
+    h.discovery = discoveryCommand;
     h.result = lookup; h.cancel = cancel; h.release = release;
 #if MOTORCONTROLRS_LOAD_FIXTURE
     h.load = load;
@@ -1972,6 +2018,7 @@ void loop() {
     serviceMotionProfile(a, nowUs());
     serviceCommissioning(a, nowUs());
     servicePersistence(a, nowUs());
+    serviceDiscovery(a, nowUs());
     advanceReads(a, nowUs());
     advanceActions(a, nowUs());
     serviceCoordinates(a, nowUs());

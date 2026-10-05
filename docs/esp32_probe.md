@@ -1,5 +1,9 @@
 # ESP32-S3 read-only probe bench
 
+Prompt22 adds [bounded ESS discovery](ess_discovery.md), minimal public probes and retained
+scan evidence with explicit recovery/restoration. [Verification](reports/ess_release_22_2026-10-05.md) records
+COM13 address/tuple scans, budget limits and unchanged motor settings/state.
+
 Prompt21 adds [explicit save/factory restore](ess_persistence.md) and bounded
 read-only persistence snapshots through the existing commissioning owner.
 [Final-image checks](reports/ess_release_21_2026-10-04.md) pass with unchanged

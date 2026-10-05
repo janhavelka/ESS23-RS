@@ -209,10 +209,11 @@
         "DRIVER_MODEL"
       ],
       "api": {
-        "header": "include/MotorControlRS/profiles/ess_rs/Codec.h",
+        "header": "include/MotorControlRS/Discovery.h",
         "symbols": [
-          "buildProbe",
-          "parseProbe"
+          "getDiscoveryCapabilities",
+          "prepareProbe",
+          "checkProbe"
         ]
       },
       "cli_commands": [
@@ -225,16 +226,19 @@
         "state": "PASS",
         "evidence": [
           "test/codec_test.cpp",
-          "test/probe_app_test.cpp"
+          "test/probe_app_test.cpp",
+          "test/discovery_test.cpp",
+          "test/discovery_app_test.cpp"
         ]
       },
       "hardware": {
         "state": "PASS",
         "evidence": [
-          "docs/reports/ess_release_04_audit_2026-10-04.md"
+          "docs/reports/ess_release_04_audit_2026-10-04.md",
+          "docs/reports/ess_release_22_2026-10-05.md"
         ]
       },
-      "reason": "Existing minimal checked model query; identity and motion qualification remain separate."
+      "reason": "Common minimal checked probe; explicit unresolved model/manufacturer confidence, bounded application discovery and independent no-collision claims."
     },
     {
       "id": "read_identity",
@@ -2389,6 +2393,49 @@
         "reason": "No actual motor restart and backup/recommissioning procedure. Final-image plans, snapshot and zero-TX gates pass; no nonvolatile command transmitted."
       },
       "reason": "Explicit stopped-state all-parameter action, one admitted FC06 and no replay. ACK, live register readback and restart-qualified individual field survival are distinct. Partial15-word backup never proves all-parameter persistence; factory restore requires complete external backup and route back. Pending-address save reuses communication commissioning token."
+    },
+    {
+      "id": "bounded_discovery",
+      "kind": "READ",
+      "records": [
+        "DRIVER_MODEL"
+      ],
+      "api": {
+        "header": "include/MotorControlRS/Discovery.h",
+        "symbols": [
+          "discoveryProfileCount",
+          "getDiscoveryProfile",
+          "getDiscoveryCapabilities",
+          "prepareProbe",
+          "checkProbe"
+        ]
+      },
+      "cli_commands": [
+        "profile list",
+        "discover",
+        "discover inspect",
+        "discover cancel",
+        "discover restore",
+        "discover finish"
+      ],
+      "implementation": "IMPLEMENTED",
+      "cli": "REACHABLE",
+      "native": {
+        "state": "PASS",
+        "evidence": [
+          "test/discovery_test.cpp",
+          "test/discovery_app_test.cpp",
+          "test/discovery_console_test.cpp",
+          "test/discovery_harness_test.py"
+        ]
+      },
+      "hardware": {
+        "state": "PASS",
+        "evidence": [
+          "docs/reports/ess_release_22_2026-10-05.md"
+        ]
+      },
+      "reason": "Finite ESS-only address/host tuple scanning with typed identity refinement; partial faults, explicit restoration and no automatic rebind/retry or collision exclusion. Alternate motor tuples remain unqualified."
     }
   ],
   "coverage_notes": [

@@ -88,6 +88,7 @@ void serviceCommissioning(App& a, uint64_t now) {
 Probe::Action communication(void* context, const Probe::CommunicationCommand* command, Probe::CommunicationView& out) {
     App& a = *static_cast<App*>(context); communicationView(a, out);
     if (!command) return Probe::Action::OK;
+    if (a.discovery.owned) return Probe::Action::BUSY;
     using Kind = Probe::CommunicationCommandKind;
     const uint64_t now = uart.sample();
     if (!platformReady) return Probe::Action::UNAVAILABLE;

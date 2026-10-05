@@ -9,6 +9,7 @@
 #include "Units.h"
 #include "Axis.h"
 #include "ReadOperation.h"
+#include "Discovery.h"
 #include "ActionOperation.h"
 #include "MoveOperation.h"
 #include "Traffic.h"

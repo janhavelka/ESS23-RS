@@ -1,5 +1,9 @@
 # MotorControl-RS
 
+Prompt22 adds [bounded ESS discovery](docs/ess_discovery.md), minimal public probes and retained
+scan evidence with explicit recovery/restoration. [Verification](docs/reports/ess_release_22_2026-10-05.md) records
+COM13 address/tuple scans, budget limits and unchanged motor settings/state.
+
 [Explicit ESS save/factory restore](docs/ess_persistence.md) retains before
 settings, checked outcomes and field-level persistence uncertainty. Native and
 read-only bench checks are separate from unperformed restart/durability proof.

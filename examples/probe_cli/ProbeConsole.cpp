@@ -15,9 +15,10 @@
 namespace MotorControlRSExample { namespace Probe {
 namespace {
 
-enum class Command : uint8_t { HELP, VERSION, CONFIG, STATUS, HEALTH, STATS, PROBE, CAPTURE_READ, RECOVER, RESET, MEMORY, LOAD, DRV, RESULT, CANCEL, RELEASE, READ, PROFILE, CAPS, READ_IDENTITY, READ_CONFIG, READ_STATE, HEALTH_CHECK, MONITOR, AXIS, PREPARE, ENABLE, MOTOR_RELEASE, ALARM_CLEAR, STOP, MOVE, POSITION_CLEAR, VELOCITY, DRIVER, IO, HOME, SEGMENT, CONTROL, TUNING, HOST, COMMUNICATION, PERSISTENCE, MOTION_PROFILE, DEBUG };
+enum class Command : uint8_t { HELP, VERSION, CONFIG, STATUS, HEALTH, STATS, PROBE, CAPTURE_READ, RECOVER, RESET, MEMORY, LOAD, DRV, RESULT, CANCEL, RELEASE, READ, PROFILE, CAPS, READ_IDENTITY, READ_CONFIG, READ_STATE, HEALTH_CHECK, MONITOR, AXIS, PREPARE, ENABLE, MOTOR_RELEASE, ALARM_CLEAR, STOP, MOVE, POSITION_CLEAR, VELOCITY, DRIVER, IO, HOME, SEGMENT, CONTROL, TUNING, HOST, COMMUNICATION, PERSISTENCE, MOTION_PROFILE, DEBUG, DISCOVER };
 struct Entry { const char* name; Command command; const char* syntax; const char* effect; bool bus; };
 const Entry COMMANDS[] = {
+    {"discover", Command::DISCOVER, "discover [profile ess_rs|manufacturer stepperonline] [addresses FIRST LAST] [tuple BAUD FORMAT] [query-ms 1..5000] [overall-ms 1..60000] [requests 1..256] [results 1..8] [identity] | discover inspect|cancel|restore|finish; max4 distinct tuples,128bytes,20tokens; defaults selected endpoint/current tuple,query500ms,overall5000ms,requests16,results8,no identity,no retries", "bounded_nonchanging_queries_retained_findings_host_restoration", true},
     {"debug", Command::DEBUG, "debug [off|raw|decoded]", "observe_regular_operations_and_cached_diagnostics", false},
     {"motion-profile", Command::MOTION_PROFILE, "motion-profile read|inspect|restore", "snapshot_position_parameters_and_restore_exact_original", true},
     {"help", Command::HELP, "help [command]", "show_callable_commands", false},
@@ -35,7 +36,7 @@ const Entry COMMANDS[] = {
     {"ping", Command::PROBE, "ping [address]", "read_model_word_only", true},
     {"capture-read", Command::CAPTURE_READ, "capture-read [address]", "read_0x0130_16_words_for_capture_qualification", true},
     {"read", Command::READ, "read identity|config|state [address]", "checked_nonchanging_read", true},
-    {"profile", Command::PROFILE, "profile ess_rs identity|config|state|enable|release|clear-alarm|clear-position|normal-stop|emergency-stop [address] | profile ess_rs move-relative|move-absolute|move-angle ... | profile ess_rs velocity ... | profile ess_rs driver read|set ... | profile ess_rs io read|set ... | profile ess_rs segment ... | profile ess_rs control read|set ... | profile ess_rs tuning GROUP read|set ... | profile ess_rs communication ... | profile ess_rs persistence ... | profile ess_rs caps", "public_profile_operations", true},
+    {"profile", Command::PROFILE, "profile list | profile ess_rs identity|config|state|enable|release|clear-alarm|clear-position|normal-stop|emergency-stop [address] | profile ess_rs move-relative|move-absolute|move-angle ... | profile ess_rs velocity ... | profile ess_rs driver read|set ... | profile ess_rs io read|set ... | profile ess_rs segment ... | profile ess_rs control read|set ... | profile ess_rs tuning GROUP read|set ... | profile ess_rs communication ... | profile ess_rs persistence ... | profile ess_rs caps", "public_profile_operations", true},
     {"driver", Command::DRIVER, "profile ess_rs driver read [address] | profile ess_rs driver set field integer [field integer ...] [address]", "typed_drive_settings_with_checked_readback", true},
     {"io", Command::IO, "profile ess_rs io read [address] | profile ess_rs io set input-polarity|x0|x1|x2|x3|output-polarity|y0|y1|custom value [field value ...] [address]; none assigns function 0", "explicit_typed_terminal_settings_and_readback", true},
     {"segment", Command::SEGMENT, "profile ess_rs segment position|speed|start INDEX read [address] | profile ess_rs segment position|speed|start INDEX set FIELD INTEGER [FIELD INTEGER ...] [address]", "indexed_stored_records_only_external_execution", true},
@@ -760,6 +761,44 @@ bool Console::appendReportSerial(std::size_t& used) noexcept {
         reportingGeneration_ ? formatName(reportingTuple_.format) : "unknown", static_cast<unsigned long>(reportingGeneration_));
 }
 
+bool discoveryEvidence(char* out, std::size_t capacity, std::size_t& used, const Ess::ReadStepObservation& e) {
+    if (e.length > sizeof(e.raw)) return false;
+    char raw[sizeof(e.raw)*2+1]; hex(e.raw,e.length,raw,sizeof(raw));
+    return append(out,capacity,used,"[%u,%u,%u,\"%s\",%u,%s,%llu,%llu,%llu,%llu,%ld,%u,%s,\"%s\",%ld,%u]",
+        e.first,e.count,static_cast<unsigned>(e.event),raw,static_cast<unsigned>(e.receivedLength),boolean(e.qualified),
+        static_cast<unsigned long long>(e.attemptedUs),static_cast<unsigned long long>(e.earliestUs),
+        static_cast<unsigned long long>(e.latestUs),static_cast<unsigned long long>(e.deliveredUs),
+        static_cast<long>(e.transportDetail),static_cast<unsigned>(e.txAccepted),boolean(e.executionUnknown),
+        MotorControlRS::errToString(e.status.code),static_cast<long>(e.status.detail),static_cast<unsigned>(e.frameError));
+}
+bool discoveryScan(char* out, std::size_t capacity, std::size_t& used, const DiscoveryScan* scan) {
+    if (!scan) return append(out,capacity,used,"null");
+    const auto& s=*scan;
+    if (s.count>DISCOVERY_MAX_RESULTS || s.settings.tupleCount>DISCOVERY_MAX_TUPLES) return false;
+    if (!append(out,capacity,used,"{\"operation_id\":%lu,\"phase\":%u,\"outcome\":%u,\"owned\":%s,\"restored\":%s,\"released\":%s,\"cancel_requested\":%s,\"requests\":%u,\"count\":%u,\"tuple_index\":%u,\"address\":%u,\"started_us\":%llu,\"deadline_us\":%llu,\"finished_us\":%llu,\"original_target\":[%lu,%u,%lu],\"original_tuple\":",
+        static_cast<unsigned long>(s.operationId),static_cast<unsigned>(s.phase),static_cast<unsigned>(s.outcome),boolean(s.owned),boolean(s.restored),boolean(s.released),boolean(s.cancelRequested),
+        s.requests,s.count,s.tupleIndex,s.address,static_cast<unsigned long long>(s.startedUs),static_cast<unsigned long long>(s.deadlineUs),static_cast<unsigned long long>(s.finishedUs),
+        static_cast<unsigned long>(s.originalTarget.id),s.originalTarget.address,static_cast<unsigned long>(s.originalTarget.generation)) ||
+        !hostTuple(out,capacity,used,s.originalTuple) || !append(out,capacity,used,",\"original_serial_generation\":%lu,\"settings\":{\"first\":%u,\"last\":%u,\"query_ms\":%lu,\"overall_ms\":%lu,\"request_limit\":%u,\"result_limit\":%u,\"identity\":%s,\"tuples\":[",
+        static_cast<unsigned long>(s.originalSerialGeneration),s.settings.first,s.settings.last,static_cast<unsigned long>(s.settings.queryMs),static_cast<unsigned long>(s.settings.overallMs),s.settings.requestLimit,s.settings.resultLimit,boolean(s.settings.identity))) return false;
+    for(uint8_t i=0;i<s.settings.tupleCount;++i) if ((i && !append(out,capacity,used,",")) || !hostTuple(out,capacity,used,s.settings.tuples[i])) return false;
+    if (!append(out,capacity,used,"]},\"evidence_columns\":[\"first\",\"count\",\"event\",\"raw_hex\",\"received_length\",\"qualified\",\"attempted_us\",\"earliest_us\",\"latest_us\",\"delivered_us\",\"transport_detail\",\"tx_accepted\",\"execution_unknown\",\"status\",\"detail\",\"frame_error\"],\"findings\":[")) return false;
+    for(uint8_t i=0;i<s.count;++i) {
+        const auto& f=s.findings[i];const auto& p=f.probe;const auto& r=f.request;
+        if (r.length>sizeof(r.bytes)) return false;
+        char tx[sizeof(r.bytes)*2+1];hex(r.bytes,r.length,tx,sizeof(tx));
+        if ((i && !append(out,capacity,used,",")) || !append(out,capacity,used,
+            "{\"profile\":\"ess_rs\",\"target\":[%lu,%u,%lu],\"operation_id\":%lu,\"serial\":[%s,%lu,%u,%u,%u],\"tx_hex\":\"%s\",\"started_us\":%llu,\"deadline_us\":%llu,\"outcome\":%u,\"confidence\":%u,\"raw_model_known\":%s,\"raw_model\":%u,\"probe\":",
+            static_cast<unsigned long>(r.target.id),r.target.address,static_cast<unsigned long>(r.target.generation),static_cast<unsigned long>(r.operationId),
+            boolean(r.activeSerial.known),static_cast<unsigned long>(r.activeSerial.baud),r.activeSerial.dataBits,static_cast<unsigned>(r.activeSerial.parity),r.activeSerial.stopBits,tx,
+            static_cast<unsigned long long>(r.startedUs),static_cast<unsigned long long>(r.deadlineUs),static_cast<unsigned>(p.outcome),static_cast<unsigned>(p.confidence),boolean(p.rawModelKnown),p.rawModel) ||
+            !discoveryEvidence(out,capacity,used,p.provenance) || !append(out,capacity,used,",\"identity_attempted\":%s,\"identity_admission\":[%lu,%llu],\"identity_known\":%s,\"identity_ambiguous\":%s,\"collision_excluded\":%s,\"identity\":[%u,%u,%u,%u],\"identity_evidence\":",
+            boolean(f.identityAttempted),static_cast<unsigned long>(f.identityOperationId),static_cast<unsigned long long>(f.identityDeadlineUs),boolean(f.identityKnown),boolean(f.identityAmbiguous),boolean(f.collisionExcluded),f.identity.rawModel,f.identity.rawVersion,f.identity.rawActiveNode,f.identity.rawDip) ||
+            !discoveryEvidence(out,capacity,used,f.identityEvidence) || !append(out,capacity,used,"}")) return false;
+    }
+    return append(out,capacity,used,"]}");
+}
+
 void Console::dispatch() noexcept {
     char* tokens[20] = {}; // Full-width rationals, path policies and bounded preview options.
     std::size_t count = 0;
@@ -791,6 +830,75 @@ void Console::dispatch() noexcept {
         error(id, capability, "unsupported"); return;
     }
     if (!entry) { error(id, "unknown", "unknown_command"); return; }
+    if (entry->command == Command::DISCOVER) {
+        if (!host_.discovery) { error(id,"discover","unavailable"); return; }
+        DiscoveryCommand request; bool inspect=false;
+        auto& settings=request.settings;
+        std::size_t at=first+1; uint16_t seen=0;
+        if (count==at+1 && !std::strcmp(tokens[at],"inspect")) inspect=true;
+        else if (count==at+1 && !std::strcmp(tokens[at],"cancel")) request.kind=DiscoveryCommandKind::CANCEL;
+        else if (count==at+1 && !std::strcmp(tokens[at],"restore")) request.kind=DiscoveryCommandKind::RESTORE;
+        else if (count==at+1 && !std::strcmp(tokens[at],"finish")) request.kind=DiscoveryCommandKind::FINISH;
+        else while(at<count) {
+            const char* key=tokens[at++];uint16_t flag=0;uint32_t value=0;
+            if (!std::strcmp(key,"profile") || !std::strcmp(key,"manufacturer")) {
+                flag=1;
+                if(at>=count || std::strcmp(tokens[at++],!std::strcmp(key,"profile")?"ess_rs":"stepperonline")) {error(id,"discover","unsupported_profile");return;}
+            } else if (!std::strcmp(key,"addresses")) {
+                flag=2;uint32_t last=0;
+                if(at+2>count || !number(tokens[at++],value) || !number(tokens[at++],last) || value<1 || last<value || last>247) {error(id,"discover","invalid_addresses");return;}
+                settings.first=static_cast<uint8_t>(value);settings.last=static_cast<uint8_t>(last);
+            } else if (!std::strcmp(key,"tuple")) {
+                HostTuple tuple;
+                if(at+2>count || settings.tupleCount==DISCOVERY_MAX_TUPLES || !number(tokens[at++],tuple.baud) || !parseFormat(tokens[at++],tuple.format) || !reviewedHostTuple(tuple)) {error(id,"discover","invalid_tuple");return;}
+                for(uint8_t i=0;i<settings.tupleCount;++i) if(sameTuple(tuple,settings.tuples[i])) {error(id,"discover","duplicate_tuple");return;}
+                settings.tuples[settings.tupleCount++]=tuple;
+            } else if (!std::strcmp(key,"identity")) {flag=4;settings.identity=true;}
+            else {
+                if (!std::strcmp(key,"query-ms")) flag=8;
+                else if (!std::strcmp(key,"overall-ms")) flag=16;
+                else if (!std::strcmp(key,"requests")) flag=32;
+                else if (!std::strcmp(key,"results")) flag=64;
+                else {error(id,"discover","invalid_arguments");return;}
+                const uint32_t maximum=flag==8?5000:flag==16?60000:flag==32?256:8;
+                if(at>=count || !number(tokens[at++],value) || !value || value>maximum) {error(id,"discover","invalid_budget");return;}
+                if(flag==8) settings.queryMs=value; else if(flag==16)settings.overallMs=value;
+                else if(flag==32)settings.requestLimit=static_cast<uint16_t>(value);else settings.resultLimit=static_cast<uint8_t>(value);
+            }
+            if(flag && (seen&flag)) {error(id,"discover","duplicate_option");return;}
+            seen|=flag;
+        }
+        if(outputPending() && request.kind!=DiscoveryCommandKind::CANCEL) {++inputDropped_;return;}
+        DiscoveryView view;const auto result=host_.discovery(host_.context,inspect?nullptr:&request,view);
+        if(outputPending()) {++inputDropped_;return;}
+        std::size_t used=0;
+        if(append(output_,sizeof(output_),used,"{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"discover\",\"ok\":%s,\"result\":\"%s\",\"action\":%d,\"scan\":",static_cast<unsigned long>(id),boolean(result==Action::OK),actionName(result),inspect?-1:static_cast<int>(request.kind)) &&
+            discoveryScan(output_,sizeof(output_),used,view.scan) && append(output_,sizeof(output_),used,"}")) emit();
+        else error(id,"discover","output_capacity");
+        return;
+    }
+    if (entry->command == Command::PROFILE && count >= first + 2 && !std::strcmp(tokens[first+1], "list")) {
+        if (count != first + 2) { error(id,"profile-list","invalid_arguments"); return; }
+        if (outputPending()) { ++inputDropped_; return; }
+        std::size_t used = 0;
+        bool fits = append(output_,sizeof(output_),used,
+            "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"profile-list\",\"ok\":true,\"bus_traffic\":false,\"profiles\":[",static_cast<unsigned long>(id));
+        for (std::size_t i = 0; fits && i < MotorControlRS::discoveryProfileCount(); ++i) {
+            MotorControlRS::DiscoveryProfile profile;
+            MotorControlRS::DiscoveryCapabilities caps;
+            if (!MotorControlRS::getDiscoveryProfile(i,profile).isOk() || !MotorControlRS::getDiscoveryCapabilities(profile.profile,caps).isOk()) {
+                error(id,"profile-list","inventory_error"); return;
+            }
+            fits = (!i || append(output_,sizeof(output_),used,",")) && append(output_,sizeof(output_),used,
+                "{\"manufacturer\":\"%s\",\"manufacturer_name\":\"%s\",\"profile\":\"%s\",\"name\":\"%s\",\"probe\":%s,\"identity\":%s,\"nonchanging\":%s,\"exact_model\":%s,\"firmware\":%s,\"minimum_address\":%u,\"maximum_address\":%u,\"probe_first\":%u,\"probe_count\":%u,\"identity_first\":%u,\"identity_count\":%u}",
+                profile.manufacturerId,profile.manufacturerName,profile.profileId,profile.profileName,
+                boolean(caps.probe),boolean(caps.identity),boolean(caps.nonChanging),boolean(caps.exactModel),boolean(caps.firmware),
+                caps.minimumAddress,caps.maximumAddress,caps.probeFirst,caps.probeCount,caps.identityFirst,caps.identityCount);
+        }
+        if (fits && append(output_,sizeof(output_),used,"]}")) emit();
+        else error(id,"profile-list","output_capacity");
+        return;
+    }
     if (entry->command == Command::DEBUG) {
         if (!host_.debug || !host_.snapshot) { error(id,"debug","unavailable"); return; }
         DebugMode mode=DebugMode::OFF; bool change=count==first+2;
@@ -1430,6 +1538,7 @@ void Console::dispatch() noexcept {
         case Command::MOTION_PROFILE: return host_.motionProfile != nullptr;
         case Command::COMMUNICATION: return host_.communication != nullptr;
         case Command::PERSISTENCE: return host_.persistence != nullptr;
+        case Command::DISCOVER: return host_.discovery != nullptr;
         case Command::CAPTURE_READ: return host_.startCaptureRead != nullptr;
         case Command::ENABLE: case Command::MOTOR_RELEASE: case Command::ALARM_CLEAR: case Command::STOP: case Command::POSITION_CLEAR: return host_.startAction && host_.snapshot;
         case Command::MOVE: return host_.startMove && host_.snapshot && host_.axis;
@@ -1485,6 +1594,11 @@ void Console::dispatch() noexcept {
             "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"caps\",\"ok\":true,\"probe\":%s,\"identity\":%s,\"config\":%s,\"state\":%s,\"max_steps\":%u,\"max_reply_bytes\":%u,\"writes\":true,\"motion\":%s,\"write_response_confirmed\":%s,\"axis_reserved\":%s,\"actions\":[\"enable\",\"release\",\"clear_alarm\",\"clear_position\",\"stop_normal\",\"stop_direct\"],\"device_queue_guarantee\":false,\"velocity\":%s,\"configured_ramp_policy\":true,\"acceleration_mapping\":false,\"velocity_unsupported\":[\"jerk\",\"blending\",\"live_updates\",\"torque\",\"current\",\"external_jog\"],\"driver_settings\":%s,\"limit_pair_writes\":false,\"home\":%s,\"home_methods\":[33,34,35],\"home_physical_qualified\":false,\"io_settings\":%s,\"input_terminals\":4,\"output_terminals\":2,\"no_function\":0,\"input_function_codes\":[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17],\"output_function_codes\":[0,1,2,3,4,5,9,10],\"output_function_11\":\"unresolved\",\"input_mask\":15,\"output_mask\":3,\"external_enable_precedence\":\"unknown\",\"electrical_output_state_known\":false,\"segment_storage\":16,\"maximum_input_selections\":8,\"segment_execution\":\"external_input\",\"segment_pulse_writes\":false,\"negative_segment_speed_encoding\":\"unresolved\",\"control_settings\":%s,\"control_algorithm_codes\":[1,2],\"configured_encoder_is_identification\":false,\"current_percent_base\":\"unresolved\",\"effective_current_limit_from_peak\":false,\"tuning\":%s,\"tuning_groups\":[\"filters\",\"current-loop\",\"la\",\"collision\"],\"tuning_physical_scaling_known\":false,\"collision_003b_003c_access\":\"unresolved\",\"persistence\":%s,\"persistence_operations\":[\"save\",\"factory_restore\"],\"persistence_verified_all\":false,\"persistence_invocation_limit\":2}",
             static_cast<unsigned long>(id), boolean(caps.probe), boolean(caps.identity), boolean(caps.config), boolean(caps.state), caps.maxSteps, caps.maxReplyBytes,
             boolean(host_.startMove && host_.snapshot && host_.axis), boolean(snapshot.writeResponseConfirmed), boolean(snapshot.axisReserved), boolean(host_.startVelocity && host_.snapshot && host_.axis), boolean(host_.startDriver && host_.snapshot), boolean(host_.startHome && host_.snapshot && host_.axis), boolean(host_.startDriver && host_.snapshot), boolean(host_.startDriver && host_.snapshot), boolean(host_.startDriver && host_.snapshot), boolean(host_.persistence != nullptr));
+        std::size_t used=std::strlen(output_);if(used) --used;
+        if(!append(output_,sizeof(output_),used,",\"discovery\":%s,\"discovery_profiles\":%u,\"discovery_nonchanging\":true,\"discovery_max_tuples\":%u,\"discovery_max_results\":%u,\"discovery_model_mapping\":\"unresolved\",\"discovery_manufacturer_confirmation\":false}",
+            boolean(host_.discovery!=nullptr),static_cast<unsigned>(MotorControlRS::discoveryProfileCount()),DISCOVERY_MAX_TUPLES,DISCOVERY_MAX_RESULTS)) {
+            error(id,"caps","output_capacity");return;
+        }
         emit(); return;
     }
     if (entry->command == Command::RESET || (entry->command == Command::STATS && arg)) {
@@ -1730,6 +1844,10 @@ bool Console::formatProbe(uint32_t id, uint32_t commandId, uint8_t address, uint
         return true;
     }
     std::size_t used = static_cast<std::size_t>(written);
+    --used;
+    const bool exception = result.transport.reason==Rtu::Reason::FRAME && result.codecChecked && result.codec.code==MotorControlRS::Err::EXCEPTION;
+    if(!append(output_,sizeof(output_),used,",\"confidence\":\"%s\",\"manufacturer_confirmed\":false,\"exact_model_confirmed\":false,\"collision_excluded\":false}",
+        result.captureRead?"not_requested":ok?"responder_model_unresolved":exception?"responder_only":"none")) return false;
     if (!appendReportSerial(used)) return false;
     emit(inspection ? 0 : operationId);
     return true;

@@ -370,28 +370,22 @@ FieldCore remains read-only; typed identity/state and motion/stop retain their g
 
 ## Discovery and minimal probes
 
-- [ ] Record discovery/probe/identity support for every supported profile and
-  manufacturer group, including explicit unsupported or unresolved entries.
-- [x] Select and implement the smallest documented ESS query: FC03 model word
-  0x0000/one word, with checked raw reply. No consuming side effect is documented.
-- [ ] Qualify ESS probe latency, firmware behavior and communication-watchdog
-  interaction on hardware before claiming a measured non-changing fast probe.
-- [ ] Design the contrasting Leadshine query with the same requirements;
-  do not consume its read-to-clear status as a generic presence probe.
-- [ ] Implement `getDiscoveryCapabilities`, `prepareProbe` and structured
-  responsiveness/identity/ambiguity results separately from full identity reads.
-- [ ] Implement application-owned bounded address/baud/format discovery with
-  profile/manufacturer filters, limits, cancellation and partial results.
-- [ ] Validate compatible query candidate sets; never assume safe automatic
-  protocol mixing or infer a manufacturer from a valid CRC alone.
-- [ ] Preserve host settings/selection and restore them after scans; expose
-  restoration failure, collisions and unresolved matches.
-- [x] Add read-only CLI `probe`/`ping` through the existing public ESS probe
-  builder and checked parser. The common discovery preparation API is still planned.
-- [ ] Add CLI catalog, explicit `read identity` and bounded `discover` through
-  the same public APIs as upper firmware.
-- [ ] Qualify latency and non-changing behavior per exact model/firmware;
-  retain one-attempt quick probing and explicit bounded scan retry policies.
+- [x] Public `getDiscoveryCapabilities`/`prepareProbe`/`checkProbe`, one compiled
+  ESS manufacturer/profile inventory and explicit unresolved identity confidence.
+- [x] Application-owned finite address/host-tuple scan, request/result/deadline
+  limits, optional typed identity refinement, cancellation and partial findings.
+- [x] Saved current tuple restoration, explicit failure interlock, fault recovery
+  without resuming scans, urgent-stop preemption and fixed result retention.
+- [x] `profile list`, `probe`/`ping`, `read identity`, `discover` and Python parity
+  through existing checked APIs. [API/evidence](ess_discovery.md).
+- [x] Original ESS p68 read-effect review and COM13 address1..2 plus supported
+  host115200/9600 8N1 checks; two intended nonresponses stop with partial results,
+  explicit recovery/restoration and unchanged settings/state. No motor writes.
+- [ ] Duplicate physical responders, exact-model wire mapping, alternate motor
+  tuples and undocumented watchdog interactions remain unqualified. One valid
+  reply does not exclude collisions; unknown model/version values remain raw.
+- [ ] Additional manufacturer implementations remain outside this release block;
+  contrasting manuals do not authorize mixed-protocol guesses or consuming probes.
 
 ## Standalone examples packaging and integration
 
