@@ -9,6 +9,11 @@ coverage, endurance and fixture qualification. Publication/integration are
 separately dispatched work. Historical block summaries below retain their
 original test totals; the candidate report records the current verifier.
 
+The [fresh30 audit](reports/ess_release_30_audit_2026-10-05.md) corrects its
+completed index disposition and FieldCore result-reclamation mapping, preserving
+bounded motor outcomes and explicit identical-late-response ambiguity. Native
+coverage and physical qualification gates remain unchanged.
+
 
 The [29 qualification matrix](reports/ess_release_29_2026-10-05.md) records finite
 Arduino/native-IDF S3 load/fault/feature evidence and explicit per-frame limits.

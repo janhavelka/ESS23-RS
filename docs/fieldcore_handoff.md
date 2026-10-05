@@ -34,12 +34,24 @@ operation context. Retire/reject stale identities across cancellation, recovery,
 rebinding and ID reuse. Library generations are not wire transaction IDs.
 
 Current owner admission (`Rs485Task.cpp:430`) and runtime ingress reserve one
-command per device until its exact terminal is consumed. This is a useful
-foundation for same-axis exclusion, but ordinary exclusion must allow a separate
-urgent stop to interrupt an active move. Retain the interrupted move result and
+command per device until its terminal is consumed or the command is explicitly
+reclaimed. This is a useful foundation for same-axis exclusion, but ordinary
+exclusion must allow a separate urgent stop to interrupt an active move. Retain the interrupted move result and
 the stop result independently. `takeDeviceResult` currently consumes the owner
 result; the runtime copies it into tracked ingress storage. Preserve that
 conservation and make motor result lifetime explicit for all callers.
+
+Sensor `takeOrReclaimDevice` (`Rs485RuntimeIngress.h:294`) can mark unfinished
+work reclaimed at its cutoff or discard a terminal completed at or after it;
+`completeDevice` then discards a reclaimed command's late result. The existing
+measurement-result grace (`DeviceMeasurement.h:77`) is one second. Keep those
+sensor rules, but give motor outcomes independent bounded retention: preserve
+unread and uncertain results until explicit release, with non-consuming
+inspection and completion storage reserved at admission. Host timeout, result
+age or transport repair must not discard a possibly executed write or overwrite
+the interrupted operation's result. Retain recovery's distinct result even
+under ordinary result pressure; queue capacity and retention capacity are
+separate limits.
 
 ## Required owner/backend changes
 
@@ -99,6 +111,10 @@ conservation and make motor result lifetime explicit for all callers.
    `retryOrFinish` paths belong to SHZK/VibWire; a motor module must not inherit
    their automatic retries. Host recovery and read-only reconciliation are not
    a stop, drive reset, motion replay or proof that a write never executed.
+   Modbus RTU carries no request ID: a bit-identical delayed reply after recovery
+   can remain indistinguishable from a fresh response. Host IDs, generations and
+   finite idle guards cannot remove that wire ambiguity. Preserve it in the
+   operation's evidence rather than claiming unique response attribution.
 
 Normal per-transaction `configureBaud` (`Rs485Task.cpp:1012`, backend `:77`)
 selects a host UART for the next device. It does not change drive registers or
@@ -129,7 +145,9 @@ queued cancellation and recovery/result conservation. Add motor cases for FC10
 errors, mixed RTU/ASCII traffic, per-request parser context, delayed/stale events,
 same-axis staging/waits, stop under pressure, partial TX/flush failure, physical
 settlement on cancel/recovery, retained uncertain results and stale queued work
-after recovery. Record service/timing and memory bounds before any live motor
+after recovery, plus sensor cutoff/late-result reclamation alongside preserved
+unread/uncertain motor results and a distinct recovery terminal under full
+retention pressure. Record service/timing and memory bounds before any live motor
 integration claim. Passive observation copies owner bytes without consuming RX
 or blocking transactions when its output is full.
 

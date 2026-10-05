@@ -1,5 +1,12 @@
 # Motor bench and testing authorization
 
+[Prompt30's fresh audit](reports/ess_release_30_audit_2026-10-05.md) adds39 checked
+read-only frames with no new errors, writes or uploads. Ending profile
+`[30,100,100,60,0,250]`, lock delay200, position4881/alarm0/non-running/speed0;
+node1/1152008N1, DE released, empty pending/retained/reserved storage and no
+recovery. Load/monitor/debug remain off. These checks confirm the reported
+ending state, without promoting physical/endurance gaps to PASS.
+
 [Prompt30's final read-only inspection](reports/ess_release_30_2026-10-05.md)
 leaves the existing Arduino timer image unchanged. Fresh profile
 `[30,100,100,60,0,250]`, lock delay200, position4881/alarm0/non-running/speed0;

@@ -2,6 +2,9 @@
 
 ## Prompt30 partial candidate and integration handoff
 
+- [x] Fresh independent audit corrected the stale prompt index and FieldCore
+  sensor-result reclamation mapping; motor retention and RTU late-response
+  limits remain explicit. See [audit](reports/ess_release_30_audit_2026-10-05.md).
 - [x] Reconcile current public/build/CLI documentation, self-contained core ZIP
   instructions, model/platform scope and remaining release gates.
 - [x] Map current FieldCore RS485 module/owner/backend and mixed RTU/ASCII
