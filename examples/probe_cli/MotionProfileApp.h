@@ -32,12 +32,24 @@ bool submitMotionProfile(App& a, bool write, uint64_t now) {
     return request.wire.length && a.owner.admit(request, now, session.request) == Rtu::BusAdmission::ACCEPTED;
 }
 Probe::Action motionProfileCommand(void* context, Probe::MotionProfileCommand command, Probe::MotionProfileView& out) {
-    if (command > Probe::MotionProfileCommand::RESTORE) return Probe::Action::INVALID;
+    if (command > Probe::MotionProfileCommand::FORGET) return Probe::Action::INVALID;
     App& a = *static_cast<App*>(context);
     auto& session = a.motionProfile;
     auto& view = session.view;
     out = view;
     if (command == Probe::MotionProfileCommand::INSPECT) return Probe::Action::OK;
+    if (command == Probe::MotionProfileCommand::FORGET) {
+        if (view.pending || session.request.owner || a.owner.active() || a.owner.pending() ||
+            a.owner.recovering() || a.owner.configurationOwned() || a.owner.commissioningOwned() ||
+            a.discovery.owned || a.serial.configuring || a.runner.busy() || a.runner.transmitEnabled() ||
+            reading(a) || acting(a) || a.monitorState.settings.enabled || a.persistenceCapture ||
+            a.persistenceRequest.owner || a.persistenceReadRequest.owner || a.commissioningRequest.owner)
+            return Probe::Action::BUSY;
+        // Explicit local snapshot release never restores parameters, repairs
+        // transport or clears physical uncertainty/retained operation results.
+        session.~MotionProfileState(); new (&session) App::MotionProfileState();
+        out = session.view; return Probe::Action::OK;
+    }
     if (!platformReady || !a.serial.activeKnown || a.serial.blocked || a.owner.needsRecovery() || uart.needsRecovery())
         return Probe::Action::RECOVERY_REQUIRED;
     if (view.pending || a.owner.active() || a.owner.pending() || a.owner.configurationOwned() ||

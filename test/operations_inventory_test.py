@@ -65,7 +65,7 @@ class Coverage(unittest.TestCase):
         self.assertEqual(summary["write"]["UNSUPPORTED"], 18)
         self.assertEqual(summary["action"]["IN_PROGRESS"], 2)
         linked = {record for group in INVENTORY["operations"] for record in group["records"]}
-        self.assertEqual(len(linked), 201)
+        self.assertEqual(len(linked), 202)
         self.assertEqual(len(result["records"]), len({record["id"] for record in result["records"]}))
         self.assertTrue(all(choice["default_disposition"] == operations.DEFAULT for choice in result["named_choices"]))
 
@@ -236,6 +236,48 @@ class Coverage(unittest.TestCase):
         self.rejected(lambda value: value["operations"][1].update(implementation="IN_PROGRESS", cli="REACHABLE"))
         self.rejected(lambda value: value["operations"][0]["api"].update(symbols=["missingDeclaration"]))
         self.rejected(lambda value: value["operations"][0]["api"].update(header="examples/common/RtuBusOwner.h"))
+
+    def test_reachability_requires_a_real_producing_route(self):
+        for command in ("missing-command", "profile ess_rs missing", "profile other identity",
+                        "profile ess_rs tuning filters start", "profile ess_rs driver read extra",
+                        "profile ess_rs segment position 17 read", "version", "profile list",
+                        "monitor", "discover inspect", "config", "status", "release"):
+            with self.subTest(command=command):
+                self.rejected(lambda value: value["operations"][0].update(cli_commands=[command]))
+        update = lambda value: next(row for row in value["operations"] if row["id"] == "driver_settings_update")
+        self.rejected(lambda value: update(value).update(cli_commands=["profile ess_rs driver read"]))
+        self.rejected(lambda value: update(value).update(cli_commands=["driver set invented garbage"]))
+        self.rejected(lambda value: update(value).update(cli_commands=["profile ess_rs driver set invented INTEGER"]))
+
+    def test_position_profile_read_restore_do_not_claim_start_speed_write(self):
+        result = operations.check(INVENTORY, LEDGER)
+        rows = {row["id"]: row for row in result["records"]}
+        self.assertEqual(rows["POSITION_START_SPEED"]["obligations"]["read"], "IMPLEMENTED")
+        self.assertEqual(rows["POSITION_START_SPEED"]["obligations"]["write"], "NOT_IMPLEMENTED")
+        self.assertEqual(rows["POSITION_START_SPEED"]["gaps"], ["position_start_speed_write"])
+        restored = next(row for row in INVENTORY["operations"] if row["id"] == "position_profile_restore")
+        self.assertNotIn("POSITION_START_SPEED", restored["records"])
+        self.assertEqual(restored["cli_commands"], ["motion-profile restore"])
+
+    def test_gap_owners_and_unlinked_source_entries_are_mandatory(self):
+        self.rejected(lambda value: value.update(gaps=[]))
+        self.rejected(lambda value: value["gaps"][0].update(owner="23"))
+        self.rejected(lambda value: value["gaps"][0].update(disposition="IMPLEMENTED"))
+        self.rejected(lambda value: value["gaps"][0]["records"].append("invented_record"))
+        self.rejected(lambda value: value["gaps"][-1].update(choices=["HomingMethod.invented"]))
+
+    def test_helpers_have_explicit_roles_without_device_credit(self):
+        surface = INVENTORY["public_surface"]
+        conversion = next(row for row in surface if "convertDisplacement" in row["symbols"])
+        self.assertEqual(conversion["classification"], "CONVERSION")
+        codec = next(row for row in surface if "buildWriteSingleRegister" in row["symbols"])
+        self.assertEqual(codec["classification"], "CODEC")
+        self.rejected(lambda value: value["public_surface"].pop())
+        self.rejected(lambda value: value["public_surface"][0]["symbols"].append("inventedFunction"))
+        self.rejected(lambda value: value["public_surface"].append(copy.deepcopy(value["public_surface"][0])))
+        self.rejected(lambda value: value["public_surface"][0].update(classification="SUPPORTED"))
+        self.rejected(lambda value: value["public_surface"][0].update(cli_topics=["invented-command"]))
+        self.rejected(lambda value: value["public_surface"][0].update(cli_topics=["profile ess_rs invented_no_handler"]))
 
     def test_evidence_needs_file_and_explicit_reason(self):
         self.rejected(lambda value: value["operations"][0]["hardware"].update(evidence=[]))

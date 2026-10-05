@@ -18,6 +18,100 @@ DEFAULT = {"implementation": "NOT_IMPLEMENTED", "cli": "NOT_REACHABLE",
            "native": "NOT_RUN", "hardware": "NOT_RUN"}
 IMPLEMENTATION = {"NOT_IMPLEMENTED", "IN_PROGRESS", "IMPLEMENTED", "UNSUPPORTED"}
 EVIDENCE = {"NOT_RUN", "PASS", "FAIL", "NOT_APPLICABLE"}
+CONSOLE = ROOT / "examples/probe_cli/ProbeConsole.cpp"
+PUBLIC_DECLARATION = re.compile(
+    r"^(?:(?:inline|constexpr)\s+)*(?:const\s+)?[A-Za-z_][\w:]*(?:\s*\*)?\s+([A-Za-z_]\w*)\s*\(", re.MULTILINE)
+
+
+def console_commands():
+    """Read the production inventory, rather than a second list of top-level names."""
+    source = CONSOLE.read_text(encoding="utf-8")
+    table = source.split("const Entry COMMANDS[] = {", 1)[1].split("\n};", 1)[0]
+    return {name: (kind, syntax) for name, kind, syntax in re.findall(
+        r'\{"([^"\\]+)",\s*Command::(\w+),\s*"((?:\\.|[^"\\])*)"', table)}, source
+
+
+def check_cli_route(command, metadata, source, operation_kind):
+    """Check a documented operation prefix and its real family grammar.
+
+    This is a source/inventory check, not a substitute for executing console
+    tests. Parameter placeholders deliberately designate bounded leaf prefixes.
+    """
+    tokens = command.split()
+    if not tokens or tokens[0] not in metadata:
+        raise ValueError("CLI command absent from production inventory: " + command)
+    root = tokens[0]
+    native_profile = root == "profile"
+    if root == "profile":
+        if len(tokens) < 3 or tokens[1] != "ess_rs":
+            raise ValueError("invalid selected profile route: " + command)
+        root, tokens = tokens[2], tokens[2:]
+        aliases = {"release": "motor-release", "clear-alarm": "alarm-clear",
+                   "clear-position": "position-clear", "normal-stop": "stop",
+                   "emergency-stop": "stop", "move-relative": "move",
+                   "move-absolute": "move", "move-angle": "move",
+                   "identity": "read", "config": "read", "state": "read"}
+        if aliases.get(root, root) not in metadata or not re.search(
+                r'(?:strcmp|strncmp)\([^\n]*"' + re.escape(root) + r'"', source):
+            raise ValueError("profile leaf absent from dispatch: " + command)
+    elif root in {"driver", "io", "segment", "control", "tuning"}:
+        # A metadata topic alone must never count as a callable alias.
+        if 'error(id, command, "use_profile_route")' in source:
+            raise ValueError("native family is help-only: " + command)
+
+    tail = tokens[1:]
+    valid = True
+    effects = set()
+    if root in {"driver", "io", "control"}:
+        valid = tail in [["read"], ["set"], ["set", "FIELD", "INTEGER"]]
+        if root == "control" and tail == ["set", "lock-delay", "INTEGER"]:
+            valid = True
+        if valid: effects = {"READ" if tail[0] == "read" else "WRITE"}
+    elif root == "segment":
+        valid = len(tail) == 3 and tail[0] in {"position", "speed", "start"} and tail[1] == "INDEX" and tail[2] in {"read", "set"}
+        if valid: effects = {"READ" if tail[2] == "read" else "WRITE"}
+    elif root == "tuning":
+        valid = len(tail) >= 2 and tail[0] in {"filters", "current-loop", "la", "collision"} and tail[1] in {"read", "set"}
+        if valid and tail[1] == "read":
+            valid = len(tail) == 2
+        elif valid:
+            valid = len(tail) == 4 and tail[2] in {"FIELD", "input-filter"} and tail[3] == "INTEGER"
+        if valid: effects = {"READ" if tail[1] == "read" else "WRITE"}
+    elif root == "communication":
+        valid = len(tail) == 3 and tail[0] == "begin" and tail[1] in {"address", "baud", "format"} and tail[2] == "VALUE"
+        effects = {"WRITE"}
+    elif root == "persistence":
+        valid = len(tail) == 2 and tail[0] == "begin" and tail[1] in {"save", "factory-restore"}
+        effects = {"ACTION"}
+    elif root == "motion-profile":
+        valid = len(tail) == 1 and tail[0] in {"read", "inspect", "restore"}
+        if valid: effects = {"READ"} if tail[0] == "read" else {"WRITE"} if tail[0] == "restore" else set()
+    elif root == "move":
+        valid = len(tail) == 1 and tail[0] in {"relative", "absolute", "angle"}
+        effects = {"WRITE", "ACTION"}
+    elif root == "stop" and tokens[0] == "stop":
+        valid = len(tail) == 1 and tail[0] in {"normal", "direct"}
+        effects = {"ACTION"}
+    elif root == "read":
+        valid = len(tail) == 1 and tail[0] in {"identity", "config", "state"}
+        effects = {"READ"}
+    elif root == "health":
+        valid = tail == ["check"]
+        effects = {"READ"}
+    elif root == "discover":
+        valid = not tail or tail in [["inspect"], ["cancel"], ["restore"], ["finish"]]
+        # Session inspection/control are mapped in the separate host surface.
+        effects = {"READ"} if not tail else set()
+    elif root == "monitor":
+        valid = tail == ["INTERVAL_MS", "COUNT"]
+        effects = {"READ"}
+    else:
+        valid = not tail
+        if root in {"probe", "ping"} or (native_profile and root in {"identity", "config", "state"}): effects = {"READ"}
+        elif root in {"home", "velocity", "move-relative", "move-absolute", "move-angle"}: effects = {"WRITE", "ACTION"}
+        elif root in {"enable", "motor-release", "alarm-clear", "position-clear"} or (native_profile and root in {"release", "clear-alarm", "clear-position", "normal-stop", "emergency-stop"}): effects = {"ACTION"}
+    if not valid or operation_kind not in effects:
+        raise ValueError("invalid operation CLI prefix: " + command)
 
 
 def local_file(value):
@@ -37,7 +131,7 @@ def check(inventory, ledger):
         if not isinstance(value, dict) or set(value) - set(allowed.split()):
             raise ValueError("unknown fields or invalid object: " + label)
 
-    keys(inventory, "schema_version register_ledger scope default_disposition model_availability shared_records operations coverage_notes", "inventory")
+    keys(inventory, "schema_version register_ledger scope default_disposition model_availability shared_records operations coverage_notes gaps public_surface", "inventory")
     if inventory.get("schema_version") != 1 or inventory.get("register_ledger") != "docs/reference/ess_rs_registers.json":
         raise ValueError("unsupported inventory or register ledger")
     if inventory.get("default_disposition") != DEFAULT:
@@ -87,6 +181,7 @@ def check(inventory, ledger):
     choice_groups = {row["name"]: row.get("choices") for row in rows}
     seen = set()
     referenced = Counter()
+    metadata, console_source = console_commands()
     for operation in inventory.get("operations", []):
         keys(operation, "id kind records choices api cli_commands implementation cli native hardware reason", "operation")
         op_id = operation.get("id")
@@ -129,6 +224,14 @@ def check(inventory, ledger):
             raise ValueError("invalid implementation/CLI disposition: " + op_id)
         if cli == "REACHABLE" and (state != "IMPLEMENTED" or not operation.get("cli_commands")):
             raise ValueError("reachable CLI needs an implemented operation and command: " + op_id)
+        commands = operation.get("cli_commands", [])
+        if not isinstance(commands, list) or len(commands) != len(set(commands)):
+            raise ValueError("duplicate or invalid CLI commands: " + op_id)
+        if cli == "REACHABLE":
+            for command in commands:
+                if not isinstance(command, str):
+                    raise ValueError("invalid CLI command: " + op_id)
+                check_cli_route(command, metadata, console_source, kind)
         api = operation.get("api", {})
         keys(api, "header symbols", "api")
         header = local_file(api.get("header"))
@@ -175,16 +278,69 @@ def check(inventory, ledger):
     if len(shared) != len(set(shared)) or set(shared) != {name for name, count in referenced.items() if count > 1}:
         raise ValueError("record overlap must match explicit shared_records exactly")
 
+    gap_ids = set()
+    for gap in inventory.get("gaps", []):
+        keys(gap, "id records choices kinds owner disposition reason", "gap")
+        gap_id = gap.get("id")
+        if not isinstance(gap_id, str) or not re.fullmatch(r"[a-z][a-z0-9_]*", gap_id) or gap_id in gap_ids:
+            raise ValueError("invalid or duplicate named gap")
+        gap_ids.add(gap_id)
+        if (gap.get("disposition") not in {"NOT_IMPLEMENTED", "UNRESOLVED", "PARTIAL"}
+                or not gap.get("reason") or not re.fullmatch(r"(?:09|11|12|14|18)(?:/(?:09|11|12|14|18))*", gap.get("owner", ""))):
+            raise ValueError("gap needs implementation/semantic disposition and owning prompt: " + gap_id)
+        if not gap.get("records") or any(name not in records for name in gap["records"]):
+            raise ValueError("gap references missing records: " + gap_id)
+        if not gap.get("kinds") or any(kind not in {"READ", "WRITE", "ACTION", "ACCESS"} for kind in gap["kinds"]):
+            raise ValueError("invalid gap obligation: " + gap_id)
+        if any(name not in choices for name in gap.get("choices", [])):
+            raise ValueError("gap references missing choices: " + gap_id)
+        for name in gap["records"]:
+            records[name].setdefault("gaps", []).append(gap_id)
+    if any(not referenced[name] and not records[name].get("gaps") for name in records
+           if records[name]["source_certainty"] != "EXPLICIT_RESERVED"):
+        raise ValueError("unlinked nonreserved source record needs a named owning gap")
+
+    # All installed free-function declarations must have an explicit role.
+    # Member APIs (TrafficCapture/Status) retain their documented owner contract.
+    surfaced = set()
+    for item in inventory.get("public_surface", []):
+        keys(item, "header symbols classification cli_topics reason", "public surface")
+        header = local_file(item.get("header"))
+        try:
+            header.relative_to(ROOT / "include/MotorControlRS")
+        except ValueError:
+            raise ValueError("surface map must use installed public headers") from None
+        if (item.get("classification") not in {"DEVICE_OPERATION", "SEQUENCER", "OBSERVATION", "HOST_CONFIGURATION", "CONVERSION", "CODEC", "METADATA", "DIAGNOSTIC"}
+                or not item.get("reason") or not item.get("symbols") or not header.is_file()):
+            raise ValueError("invalid public surface classification")
+        declared = set(PUBLIC_DECLARATION.findall(header.read_text(encoding="utf-8")))
+        for symbol in item["symbols"]:
+            key = (header, symbol)
+            if symbol not in declared or key in surfaced:
+                raise ValueError("absent or duplicate classified public symbol: " + str(symbol))
+            surfaced.add(key)
+        for topic in item.get("cli_topics", []):
+            if not isinstance(topic, str) or topic not in metadata:
+                raise ValueError("public surface CLI topic absent from production inventory: " + str(topic))
+    declarations = {(header.resolve(), symbol) for header in (ROOT / "include/MotorControlRS").rglob("*.h")
+                    for symbol in PUBLIC_DECLARATION.findall(header.read_text(encoding="utf-8"))}
+    missing = declarations - surfaced
+    if missing:
+        raise ValueError("unclassified installed public functions: " + ", ".join(sorted(str(header.relative_to(ROOT)) + ":" + symbol for header, symbol in missing)))
+
     # Source choices remain a separate denominator, including inactive/unknown
     # interpretations. Reading a raw setting is never setting/action coverage.
     summary = {"records": len(records), "reserved": sum(row["signedness"] == "RESERVED" for row in rows),
                "unresolved_access": sum(row["source_access"] == "UNSPECIFIED" for row in rows),
                "operations": len(seen), "named_choices": len(choices),
                "choice_implementation": dict(Counter(choice["disposition"]["implementation"] for choice in choices.values()))}
+    summary["named_gaps"] = len(gap_ids)
+    summary["classified_public_functions"] = len(surfaced)
     for kind in ("read", "write", "action"):
         summary[kind] = dict(Counter(record["obligations"][kind] for record in records.values()))
     return {"summary": summary, "records": list(records.values()), "named_choices": list(choices.values()),
-            "operations": inventory["operations"], "model_availability": model}
+            "operations": inventory["operations"], "gaps": inventory.get("gaps", []),
+            "public_surface": inventory.get("public_surface", []), "model_availability": model}
 
 
 def main():

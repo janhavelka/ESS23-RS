@@ -1,5 +1,7 @@
 # Motor bench and testing authorization
 
+The [prompt23 checks](reports/ess_release_23_2026-10-05.md) verify typed aliases, local selection/snapshot/polling controls, finite relative motion, enable/release and moving normal stop on the ordinary firmware. Absolute return passed on the earlier integration image; its later fixture-window refusal is retained separately. Session profile restoration passed, but USB reconnect lost the original host snapshot: the final staged target is100 rather than the initial5000; ramp/speed/flags are unchanged and the drive reports stopped. Final-image read-only regression passes. Independent shaft/electrical measurements and endurance remain separate. The dated entries below retain their original scope.
+
 The [fresh prompt22 audit](reports/ess_release_22_audit_2026-10-05.md) repeats
 bounded read-only scans, host restoration and ten probes on the corrected image.
 Explicit recovery interrupts a scan without resuming it; motor settings and

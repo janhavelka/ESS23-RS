@@ -123,8 +123,11 @@ def _run_phase(console, phase, record):
             # the original saved words. It sends no setting write.
             record['profile'] = fixture('read')
             before_move = state()
-            if not 0 <= before_move[2]['raw_position'] <= 250:
-                raise BenchError('experiment requires bounded native position report 0..250')
+            # The absolute experiments retain the example's recorded raw
+            # fixture window. Raw feedback is not a calibrated command position;
+            # finite relative displacement needs no host origin or baseline.
+            if phase in ('absolute', 'return') and not 0 <= before_move[2]['raw_position'] <= 250:
+                raise BenchError('absolute experiment requires recorded raw feedback fixture window 0..250')
             value = '0' if phase == 'return' else '100' if phase in ('forward', 'absolute') else '250'
             kind = 'move-absolute' if phase in ('return', 'absolute') else 'move-relative'
             stop_attempted = False

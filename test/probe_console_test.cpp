@@ -736,8 +736,8 @@ void testTypedRoutesAndValidation() {
     fake.contains("\"cached_config_id\":92,\"cached_config_address\":5,\"cached_config_generation\":3,\"binding_generation\":4");
     Fake absent; Probe::Console noHook(absent.host());
     send(noHook, "read identity\n"); absent.contains("unavailable"); absent.untouched();
-    send(noHook, "profile ess_rs caps\n"); absent.contains("unavailable"); absent.untouched();
-    send(noHook, "caps\n"); absent.contains("\"identity\":true"); absent.untouched();
+    send(noHook, "profile ess_rs caps\n"); absent.contains("\"identity\":false"); absent.untouched();
+    send(noHook, "caps\n"); absent.contains("\"identity\":false"); absent.contains("\"writes\":false"); absent.contains("\"actions\":[]"); absent.untouched();
     send(noHook, "help\n"); assert(absent.lines.back().find("\"read\"") == std::string::npos);
     assert(absent.lines.back().find(",\"profile\",") != std::string::npos); // Local profile inventory needs no device hooks.
 }
@@ -1144,8 +1144,7 @@ void testMoveRoutesExactParsingAndRetainedReports() {
         send(incomplete, "move relative 1 steps native 60 configured\n");
         partial.contains("\"result\":\"unavailable\""); assert(partial.moves == 0);
         send(incomplete, "caps\n");
-        if (missingSnapshot) partial.contains("\"result\":\"unavailable\"");
-        else partial.contains("\"motion\":false");
+        partial.contains("\"motion\":false");
     }
 }
 
@@ -1431,7 +1430,7 @@ void testDriverProfileGrammarAndRetainedReports() {
         "profile ess_rs driver set unknown 1\n", "profile ess_rs driver set subdivision -1\n",
         "profile ess_rs driver set subdivision 65536\n", "profile ess_rs driver set direction 1.0\n",
         "profile ess_rs driver set direction 1/1\n", "profile ess_rs driver read extra\n",
-        "profile ess_rs driver set positive-limit 9223372036854775808\n", "driver read\n"}) {
+        "profile ess_rs driver set positive-limit 9223372036854775808\n", "driver read extra extra\n"}) {
         send(console, line); fake.contains("\"ok\":false"); assert(fake.drivers == 3);
     }
     fake.blocked = true; send(console, "version\n");
@@ -1576,7 +1575,7 @@ void testIoRoutes() {
     send(c, "@2 profile ess_rs io set x0 none y1 none\n");
     assert(f.drivers == 2 && f.driverRequest.fields == ((1UL << 10) | (1UL << 16)));
     assert(f.driverRequest.inputFunctions[0] == Ess::InputFunction::UNDEFINED && f.driverRequest.outputFunctions[1] == Ess::OutputFunction::UNDEFINED);
-    for (const char* line : {"profile ess_rs io set x4 none", "profile ess_rs io set y2 none", "profile ess_rs io set x0 18", "profile ess_rs io set y0 11", "profile ess_rs io set y0 6", "profile ess_rs io set x0 1.0", "profile ess_rs io set x0 1/1", "profile ess_rs io set x0 none x0 1", "profile ess_rs io set custom none", "io read"}) {
+    for (const char* line : {"profile ess_rs io set x4 none", "profile ess_rs io set y2 none", "profile ess_rs io set x0 18", "profile ess_rs io set y0 11", "profile ess_rs io set y0 6", "profile ess_rs io set x0 1.0", "profile ess_rs io set x0 1/1", "profile ess_rs io set x0 none x0 1", "profile ess_rs io set custom none", "io read extra extra"}) {
         send(c, std::string(line) + "\n"); f.contains("\"ok\":false"); assert(f.drivers == 2);
     }
     for (unsigned v = 0; v <= 17; ++v) {
@@ -1828,7 +1827,7 @@ void testTuningRoutes() {
     assert(f.drivers==4&&f.driverRequest.group==Ess::DriverGroup::LA&&f.driverRequest.fields==228&&f.driverRequest.tuningValues[7]==65535);
     send(c,"@88 profile ess_rs tuning collision set threshold 200 current 20\n");
     assert(f.drivers==5&&f.driverRequest.group==Ess::DriverGroup::COLLISION&&f.driverRequest.fields==3&&f.driverRequest.tuningValues[1]==20);
-    for(const char* bad:{"tuning filters read","profile ess_rs tuning bogus read","profile ess_rs tuning filters set kp 1","profile ess_rs tuning filters set arrival-time 1.0","profile ess_rs tuning filters set arrival-time 1/1","profile ess_rs tuning filters set arrival-time -1","profile ess_rs tuning filters set arrival-time 201","profile ess_rs tuning filters set arrival-window 0","profile ess_rs tuning filters set pulse-low-pass 1025","profile ess_rs tuning la set node1 65536","profile ess_rs tuning collision set threshold 50","profile ess_rs tuning collision set current 19","profile ess_rs tuning collision set 0x003B 200","profile ess_rs tuning filters set input-filter 1 input-filter 2"})send(c,std::string(bad)+"\n");
+    for(const char* bad:{"tuning filters read extra extra","profile ess_rs tuning bogus read","profile ess_rs tuning filters set kp 1","profile ess_rs tuning filters set arrival-time 1.0","profile ess_rs tuning filters set arrival-time 1/1","profile ess_rs tuning filters set arrival-time -1","profile ess_rs tuning filters set arrival-time 201","profile ess_rs tuning filters set arrival-window 0","profile ess_rs tuning filters set pulse-low-pass 1025","profile ess_rs tuning la set node1 65536","profile ess_rs tuning collision set threshold 50","profile ess_rs tuning collision set current 19","profile ess_rs tuning collision set 0x003B 200","profile ess_rs tuning filters set input-filter 1 input-filter 2"})send(c,std::string(bad)+"\n");
     assert(f.drivers==5);
     send(c,"@89 help tuning\n");f.contains("qualified_stopped_native_tuning_and_checked_readback");
     send(c,"@90 caps\n");f.contains("\"tuning\":true");f.contains("\"tuning_physical_scaling_known\":false");
@@ -1928,7 +1927,7 @@ void testControlRoutes() {
     assert(f.drivers==3&&f.driverRequest.controlAlgorithm==Ess::ControlAlgorithm::ALGORITHM_1&&f.driverRequest.encoderResolution==65535);
     send(c,"@87 profile ess_rs control set maximum-effective-current 5600 closed-base-current 75\n");
     assert(f.drivers==4&&f.driverRequest.maximumEffectiveCurrentMa==5600&&f.driverRequest.closedBasePercent==75);
-    for(const char* bad:{"control read","profile ess_rs control read set","profile ess_rs control set x0 none","profile ess_rs control set lock-delay 1/1","profile ess_rs control set lock-delay 1.0","profile ess_rs control set lock-delay -1","profile ess_rs control set lock-delay 65536","profile ess_rs control set lock-delay 1 lock-delay 2","profile ess_rs control set algorithm closed-loop"}) send(c,std::string(bad)+"\n");
+    for(const char* bad:{"control read extra extra","profile ess_rs control read set","profile ess_rs control set x0 none","profile ess_rs control set lock-delay 1/1","profile ess_rs control set lock-delay 1.0","profile ess_rs control set lock-delay -1","profile ess_rs control set lock-delay 65536","profile ess_rs control set lock-delay 1 lock-delay 2","profile ess_rs control set algorithm closed-loop"}) send(c,std::string(bad)+"\n");
     assert(f.drivers==4);
     send(c,"@88 help control\n");f.contains("stopped_native_control_settings_and_checked_readback");
     send(c,"@89 caps\n");f.contains("\"control_settings\":true");f.contains("\"effective_current_limit_from_peak\":false");
@@ -1989,8 +1988,58 @@ void testSegmentGrammarAndCorrelation() {
     assert(f.drivers == 2 && f.driverRequest.segmentSpeed == -1 && f.driverRequest.segmentAcceleration == 2000);
     send(c, "@82 profile ess_rs segment start 16 set value 180\n");
     assert(f.drivers == 3 && f.driverRequest.segmentStartSpeed == 180);
-    for (const char* bad : {"segment position 1 read", "profile ess_rs segment position 0 read", "profile ess_rs segment position 17 read", "profile ess_rs segment speed 1 set target 0", "profile ess_rs segment start 1 set value 1/1", "profile ess_rs segment position 1 set speed 1 speed 2", "profile ess_rs segment position 1 set acceleration -1", "profile ess_rs segment start 1 set value 2147483648"}) send(c, std::string(bad)+"\n");
+    for (const char* bad : {"segment position 0 read", "profile ess_rs segment position 0 read", "profile ess_rs segment position 17 read", "profile ess_rs segment speed 1 set target 0", "profile ess_rs segment start 1 set value 1/1", "profile ess_rs segment position 1 set speed 1 speed 2", "profile ess_rs segment position 1 set acceleration -1", "profile ess_rs segment start 1 set value 2147483648"}) send(c, std::string(bad)+"\n");
     assert(f.drivers == 3);
+}
+void testIndependentLocalHooksAndNativeAliases() {
+    Fake local;
+    Probe::Host minimal; minimal.context = &local; minimal.emitLine = Fake::emit;
+    minimal.result = Fake::result;
+    Probe::Console passive(minimal);
+    send(passive, "help\n"); local.contains("\"caps\"");
+    send(passive, "version\n"); local.contains("\"ok\":true");
+    send(passive, "caps\n"); local.contains("\"writes\":false");
+    const auto plain = local.lines.back().substr(local.lines.back().find("\"command\""));
+    send(passive, "profile ess_rs caps\n");
+    assert(local.lines.back().substr(local.lines.back().find("\"command\"")) == plain);
+    local.view.pending = true; local.view.operationId = 7;
+    send(passive, "result 7\n"); local.contains("\"result\":\"pending\"");
+    assert(local.resultQueries == 1 && local.snapshots == 0);
+    send(passive, "status\n"); local.contains("unavailable"); local.untouched();
+    send(passive, "help home\n"); local.contains("home methods"); local.contains("\"bus_traffic\":false");
+    send(passive, "home methods\n"); local.contains("\"methods\":["); local.untouched();
+
+    auto typedHost = minimal; typedHost.startTypedRead = Fake::typedRead;
+    Probe::Console typedOnly(typedHost);
+    send(typedOnly, "help health\n"); local.contains("health check [address]");
+    send(typedOnly, "health\n"); local.contains("unavailable");
+    send(typedOnly, "health check 1\n"); assert(local.typedReads == 1);
+
+    minimal.resetStats = Fake::reset;
+    Probe::Console counters(minimal);
+    send(counters, "stats reset\n"); assert(local.resets == 1);
+    send(counters, "reset\n"); assert(local.resets == 2);
+    send(counters, "stats\n"); local.contains("unavailable");
+    send(counters, "help stats\n"); local.contains("stats reset");
+    minimal.motionProfile = [](void*, Probe::MotionProfileCommand, Probe::MotionProfileView&) { return Probe::Action::UNAVAILABLE; };
+    Probe::Console profileOnly(minimal);
+    send(profileOnly, "caps\n"); local.contains("\"writes\":true");
+
+    const char* routes[] = {"driver read", "io read", "segment position 16 read",
+        "control read", "tuning filters read"};
+    for (const char* route : routes) {
+        Fake f; auto h = f.host(); h.startDriver = Fake::startDriver;
+        Probe::Console console(h);
+        send(console, std::string("@1 ") + route + "\n");
+        assert(f.drivers == 1); const auto request = f.driverRequest;
+        const auto kind = f.driverKind;
+        send(console, std::string("@2 profile ess_rs ") + route + "\n");
+        assert(f.drivers == 2 && f.driverKind == kind);
+        assert(f.driverRequest.group == request.group && f.driverRequest.fields == request.fields &&
+               f.driverRequest.segmentIndex == request.segmentIndex);
+        send(console, std::string("help ") + std::string(route).substr(0, std::string(route).find(' ')) + "\n");
+        f.contains(route[0] == 's' ? "segment" : std::string(route).substr(0, std::string(route).find(' ')).c_str());
+    }
 }
 int main(int argc, char** argv) {
     if (argc==2 && !std::strcmp(argv[1],"--debug-fixtures")) { debugFixtures(); return 0; }
@@ -2006,6 +2055,7 @@ int main(int argc, char** argv) {
     if (argc == 2 && std::strcmp(argv[1], "--home-fixtures") == 0) { homeFixtures(); return 0; }
     if (argc == 2 && std::strcmp(argv[1], "--io-fixtures") == 0) { driverFixtures(true); return 0; }
     testDebugTranslationAndOutputIsolation();
+    testIndependentLocalHooksAndNativeAliases();
     testSegmentGrammarAndCorrelation();
     testControlRoutes();
     testTuningRoutes();

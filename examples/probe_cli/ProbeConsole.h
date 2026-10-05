@@ -31,7 +31,7 @@ constexpr uint16_t CAPTURE_FIRST = 0x0130, CAPTURE_WORDS = 16;
 /** Host action result; admitted reads and recovery complete asynchronously. */
 enum class Action : uint8_t { OK, BUSY, RECOVERY_REQUIRED, UNAVAILABLE, FAILED,
     QUEUE_FULL, RESULTS_FULL, IDS_EXHAUSTED, INVALID, ALREADY_TERMINAL,
-    TIMING_UNQUALIFIED, UNSUPPORTED, AXIS_CONFLICT };
+    TIMING_UNQUALIFIED, UNSUPPORTED, AXIS_CONFLICT, UNRESOLVED, UNIMPLEMENTED };
 
 enum class DebugMode : uint8_t { OFF, RAW, DECODED };
 struct DebugSnapshot {
@@ -41,7 +41,7 @@ struct DebugSnapshot {
     std::size_t retained = 0, capacity = 0;
 };
 
-enum class MotionProfileCommand : uint8_t { INSPECT, SNAPSHOT, RESTORE };
+enum class MotionProfileCommand : uint8_t { INSPECT, SNAPSHOT, RESTORE, FORGET };
 enum class MotionProfilePhase : uint8_t { EMPTY, READ, RESTORE, READBACK };
 /** Explicit position-parameter snapshot and checked restoration. */
 struct MotionProfileView {
@@ -259,8 +259,9 @@ struct ResultView {
  * only local counters. The optional load callback changes/reads host fixture
  * settings only; a null request means query. It must copy the request before
  * returning and publish the applied settings in the snapshot. result, cancel
- * and release are optional; help excludes absent hooks. The other callbacks
- * are required for this console build.
+ * and release are optional; help excludes absent hooks. Each command requires
+ * only its own callbacks. emitLine is required for output. Local help/version/
+ * profile inventory/capabilities remain available without transport hooks.
  */
 struct Host {
     void* context = nullptr;
@@ -295,6 +296,9 @@ struct Host {
     /** Settled bus configuration; null request queries cached host state. No motor
      * command, retry or automatic recovery. Request is consumed during the call. */
     Action (*hostSerial)(void*, const HostRequest* requested, HostSnapshot&) = nullptr;
+    /** Idle-only local target selection; preserves historical results and
+     * invalidates dependent configuration/reference confidence. No motor I/O. */
+    Action (*selectTarget)(void*, uint8_t address) = nullptr;
     Action (*communication)(void*, const CommunicationCommand*, CommunicationView&) = nullptr;
     Action (*persistence)(void*, const PersistenceCommand*, PersistenceView&) = nullptr;
     /** Application-owned finite scan; null inspects retained evidence. Request

@@ -30,7 +30,7 @@ MAX_LINE = 8192
 MAX_INPUT = 32768
 MAX_TRAFFIC_INPUT = 1048576  # Independent finite diagnostic budget per command/drain.
 COMMANDS = frozenset({"version", "config", "probe", "capture-read", "status", "health", "memory", "stats", "load",
-                      "drv", "result", "release", "cancel", "recover", "reset", "caps", "host", "communication", "persistence", "motion-profile", "debug",
+                      "drv", "result", "release", "cancel", "recover", "reset", "caps", "host", "useaddr", "communication", "persistence", "motion-profile", "debug",
                       "read-identity", "read-config", "read-state", "health-check", "monitor", "axis", "prepare", "enable", "motor-release", "alarm-clear", "stop", "position-clear", "move-relative", "move-absolute", "move-angle", "velocity", "driver", "io", "segment", "control", "tuning", "home", "discover", "profile-list"})
 MAX_COMMANDS = 11  # Eight ordinary operations, recovery, reserved stop and local query.
 MAX_OPERATIONS = 10  # Eight ordinary operations, one recovery and one reserved stop.
@@ -39,6 +39,10 @@ TYPED_READS = {"read-identity": "identity", "read-config": "config", "read-state
 READ_COMMANDS = ("probe", "capture-read", *TYPED_READS)
 HOST_BAUDS = (9600, 19200, 38400, 115200)
 HOST_FORMATS = ("8N1", "8N2", "8E1", "8O1")
+ADMISSION_FAILURES = frozenset({"busy", "recovery_required", "unavailable", "failed", "queue_full", "results_full",
+    "ids_exhausted", "invalid", "already_terminal", "timing_unqualified", "unsupported", "axis_conflict",
+    "unresolved", "unimplemented", "invalid_arguments", "invalid_address", "invalid_value", "invalid_field",
+    "unsupported_policy", "invalid_axis_configuration", "output_full", "output_capacity"})
 
 
 def discovery_arguments(tokens: tuple[str, ...]) -> dict:
@@ -164,8 +168,8 @@ def debug_session(console, mode: str | None, timeout_s: float):
 
 def motion_profile_arguments(tokens: tuple[str, ...]) -> str:
     """One explicit profile operation; inspection never repeats a motor write."""
-    if not isinstance(tokens, tuple) or len(tokens) != 1 or tokens[0] not in ("read", "inspect", "restore"):
-        raise ValueError("motion-profile requires read, inspect or restore")
+    if not isinstance(tokens, tuple) or len(tokens) != 1 or tokens[0] not in ("read", "inspect", "restore", "forget"):
+        raise ValueError("motion-profile requires read, inspect, restore or forget")
     return tokens[0]
 
 
@@ -2863,8 +2867,12 @@ class Console:
         def integer(value, low=0, high=0xFFFFFFFFFFFFFFFF):
             return type(value) is int and low <= value <= high
         if "phase" not in item:
-            require(not item["ok"], "successful reply omitted profile evidence")
+            require(not item["ok"] and item.get("result") in ("unavailable", "invalid_arguments", "output_capacity"),
+                    "reply omitted profile evidence without an explicit refusal")
             return
+        require(item.get("result") == "accepted" if item["ok"] else
+                item.get("result") in ("busy", "recovery_required", "unavailable", "failed", "invalid"),
+                "invalid command disposition")
         require(item.get("request") == action, "request differs")
         for key in ("pending", "saved", "restored", "session_ok",
                     "tx_complete", "closure_qualified", "execution_unknown", "write_tx_complete",
@@ -2893,8 +2901,18 @@ class Console:
         require(not item["session_ok"] or (not item["pending"] and item["saved"] and phase in (1, 3) and item["error"] == "none"),
                 "invalid successful session")
         require(item["restored"] == (item["session_ok"] and phase == 3), "restoration flag differs")
-        if item["ok"] and action != "inspect":
+        if item["ok"] and action in ("read", "restore"):
             require(item["pending"] and phase == (1 if action == "read" else 2), "accepted request did not start its explicit phase")
+        forgotten = item["ok"] and action == "forget"
+        if forgotten:
+            require(phase == 0 and item["address"] == 0 and item["error"] == "none" and
+                    item["original"] == item["current"] == [0] * 6 and not any(frames.values()) and
+                    all(item[key] == 0 for key in ("configuration_generation", "serial_generation", "deadline_us",
+                        "delivered_us", "tx_accepted", "closure_earliest_us", "closure_latest_us", "write_tx_accepted",
+                        "write_closure_earliest_us", "write_closure_latest_us", "write_delivered_us")) and
+                    not any(item[key] for key in ("pending", "saved", "restored", "session_ok", "tx_complete",
+                        "closure_qualified", "execution_unknown", "write_tx_complete", "write_closure_qualified", "write_execution_unknown")),
+                    "forgotten snapshot retained state or wire evidence")
         address = item["address"]
         read_prefix = bytes((address, 3, 0, 0x20, 0, 6))
         write_prefix = bytes((address, 16, 0, 0x21, 0, 5, 10)) + b"".join(word.to_bytes(2, "big") for word in item["original"][1:])
@@ -2943,10 +2961,36 @@ class Console:
                     "successful snapshot lacks checked FC03 payload")
             require(not item["restored"] or item["current"] == item["original"], "restoration differs from original")
         old = self.motion_profile
-        if old and old["saved"]:
+        if old and old["saved"] and not forgotten:
             require(item["saved"] and item["original"] == old["original"] and item["address"] == old["address"] and
                     item["serial_generation"] == old["serial_generation"], "retained original/binding changed")
         self.motion_profile = json.loads(json.dumps(item))
+
+    @staticmethod
+    def _check_useaddr(handle: Command, item: dict) -> None:
+        """Local selection returns no bus operation or admitted transaction."""
+        if item["ok"]:
+            if (item.get("result") != "done" or type(item.get("address")) is not int or
+                    item["address"] != handle.address or type(item.get("operation_id")) is not int or item["operation_id"] != 0):
+                raise BenchError("useaddr local selection reply differs from request")
+        elif item.get("result") not in ("busy", "invalid", "unavailable", "ids_exhausted"):
+            raise BenchError("useaddr refusal result is invalid")
+        if (("address" in item and (type(item["address"]) is not int or item["address"] != handle.address)) or
+                ("operation_id" in item and (type(item["operation_id"]) is not int or item["operation_id"] != 0)) or
+                any(key in item for key in ("command_id", "tx_bytes", "rx_bytes", "tx_hex", "rx_hex")) or
+                ("bus_traffic" in item and item["bus_traffic"] is not False)):
+            raise BenchError("useaddr reply claims a bus operation or different target")
+
+    @staticmethod
+    def _check_admission_refusal(handle: Command, item: dict) -> None:
+        if type(item.get("result")) is not str or item["result"] not in ADMISSION_FAILURES:
+            raise BenchError("admission refusal lacks a documented disposition")
+        if "operation_id" in item and (type(item["operation_id"]) is not int or item["operation_id"] != 0):
+            raise BenchError("admission refusal claims an admitted operation")
+        if "address" in item and handle.command != "recover" and (
+                type(item["address"]) is not int or not 1 <= item["address"] <= 247 or
+                (handle.address is not None and item["address"] != handle.address)):
+            raise BenchError("admission refusal target differs from request")
 
     def _check_discovery(self, handle: Command, item: dict) -> None:
         expected = discovery_arguments(handle.host_args or ())
@@ -3158,6 +3202,8 @@ class Console:
             self._check_debug(handle, item)
         if handle.command == "motion-profile":
             self._check_motion_profile(handle, item)
+        if handle.command == "useaddr":
+            self._check_useaddr(handle, item)
         if handle.command == "profile-list" and item["ok"]:
             expected = dict(manufacturer="stepperonline", manufacturer_name="STEPPERONLINE", profile="ess_rs", name="ESS-RS",
                             probe=True, identity=True, nonchanging=True, exact_model=False, firmware=False,
@@ -3214,6 +3260,7 @@ class Console:
         if asynchronous:
             if item.get("type") == "reply" and not handle.accepted:
                 if not item["ok"]:
+                    self._check_admission_refusal(handle, item)
                     self._complete(handle, item)
                     return
                 if item.get("result") != "accepted":
@@ -3455,7 +3502,9 @@ class Console:
                  type(monitor[0]) is not int or type(monitor[1]) is not int or
                  not 100 <= monitor[0] <= 60000 or not 1 <= monitor[1] <= 1000)):
                 raise ValueError("monitor requires off or interval 100..60000/count 1..1000")
-        if address is not None and (command not in (*READ_COMMANDS, *ACTION_COMMANDS, *MOVE_COMMANDS, "velocity", "driver", "io", "segment", "control", "tuning", "home") or type(address) is not int
+        if command == "useaddr" and address is None:
+            raise ValueError("useaddr requires an explicit ESS address within 1..247")
+        if address is not None and (command not in (*READ_COMMANDS, *ACTION_COMMANDS, *MOVE_COMMANDS, "velocity", "driver", "io", "segment", "control", "tuning", "home", "useaddr") or type(address) is not int
                                     or not 1 <= address <= 247):
             raise ValueError("an ESS probe address must be an integer within 1..247")
         if load is not None:

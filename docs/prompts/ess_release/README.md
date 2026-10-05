@@ -7,8 +7,8 @@ this interface and its same-session harness; no subsequent numbered prompt is
 executed by this refactor.
 
 Prepared 2026-10-03 against MotorControl-RS `4ae0c4d` (0.6.0).
-Preparing this set executed no numbered prompt. **Prompts 01-22 have implementation and available verification dispositions;
-23-30 remain prepared and unexecuted. Independent electrical and shaft-motion qualification remain open; short functional motion has drive-reported evidence.**
+Preparing this set executed no numbered prompt. **Prompts 01-23 have implementation and available verification dispositions;
+24-30 remain prepared and unexecuted. Prompt23 integration is verified while named prerequisite/native-family gaps remain open. Independent electrical and shaft-motion qualification remain open; short functional motion has drive-reported evidence.**
 The current core, runner, ESP32-S3 capture and probe/load tools are existing work;
 do not rebuild them from an old prompt as if they were missing.
 
@@ -78,7 +78,7 @@ Never mark all preceding physical work qualified just because code compiles.
 | [20 — Explicit drive communication commissioning](20_device_communication_commissioning.md) | 7 | Implemented and freshly audited;52 native/package/four builds and37 corrected-image read-only COM13 frames PASS; physical settings/activation/restoration NOT RUN pending restart/route-back fixture | [Handoff](../../reports/ess_release_20_2026-10-04.md), [fresh audit](../../reports/ess_release_20_audit_2026-10-04.md), [API](../../ess_communication.md) |
 | [21 — Save, restore and persistence evidence](21_save_restore_and_persistence.md) | 7 | Implemented and independently reviewed;59 native/package/four builds and48 final-image read-only COM13 frames PASS; physical save/restart/factory restoration NOT RUN pending backup/recommissioning/restart procedure | [Handoff](../../reports/ess_release_21_2026-10-04.md), [API](../../ess_persistence.md) |
 | [22 - Bounded discovery and minimal probe capabilities](22_bounded_discovery.md) | 7 | Implemented and independently audited; native/build and bounded COM13 scan/restoration PASS; collisions and alternate motor tuples unqualified | [Handoff](../../reports/ess_release_22_2026-10-05.md), [audit](../../reports/ess_release_22_audit_2026-10-05.md) |
-| [23 — Complete public API and CLI coverage](23_cli_and_capability_parity.md) | 6 / 7 | Prepared | — |
+| [23 — Complete public API and CLI coverage](23_cli_and_capability_parity.md) | 6 / 7 | Integrated and independently audited; native/Python/package/build and COM13 features/finite-motion/stop PASS; final-image read regression PASS; session restoration PASS with original-target cleanup gap; named native-family gaps remain open | [Handoff](../../reports/ess_release_23_2026-10-05.md), [API/CLI coverage](../../ess_api_cli_coverage.md) |
 | [24 — Consolidate automated feature and regression testing](24_python_feature_and_regression_scenarios.md) | 8 | Prepared | — |
 | [25 — Native ESP-IDF standalone consumer](25_native_esp_idf_consumer.md) | 8 | Prepared | — |
 | [26 — Qualify platform parity and document portability](26_platform_parity_and_portability.md) | 8 | Prepared | — |

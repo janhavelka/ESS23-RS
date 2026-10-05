@@ -195,8 +195,12 @@ polarity. These are illustrative configuration values, not ESS defaults.
 
 `configureAxis` replaces a validated host configuration atomically while
 the axis is idle. It changes no device setting. Scale, polarity, origin,
-profile, target or serial-tuple changes advance the relevant generation and
-invalidate prepared operations and derived observations. Preserve raw
+profile or target changes advance the relevant logical generation and
+invalidate prepared operations and derived observations. Transient application
+UART tuple selection has a separate transport generation: serving another
+endpoint does not itself invalidate prepared work for the original motor.
+Deliberate rebinding and device communication changes still invalidate the
+affected endpoint confidence. Preserve raw
 historical observations with their original generation instead of relabelling
 them. Device electronic-gearing changes use typed family operations and
 invalidate this configuration until explicitly reconciled.

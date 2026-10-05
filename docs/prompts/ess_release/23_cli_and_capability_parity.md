@@ -1,9 +1,9 @@
-# 23 â€” Complete public API and CLI coverage
+# 23 — Complete public API and CLI coverage
 
 Execute only this prompt under [the execution contract](execution_contract.md).
 Read [the sequence index](README.md); all prerequisite dispositions must be current.
 
-Prerequisite: 05â€“22 have recorded implementation and qualification dispositions. This step audits and closes integration gaps; it must not hide an unimplemented native family behind generic register access.
+Prerequisite: 05–22 have recorded implementation and qualification dispositions. This step audits and closes integration gaps; it must not hide an unimplemented native family behind generic register access.
 
 ## Read and reuse
 
@@ -32,4 +32,4 @@ Test help/dispatch/API inventory parity, strict argument counts/ranges, large in
 
 ## Subagents and handoff
 
-Assign an independent API/CLI inventory reviewer and a state/side-effect reviewer. Audit contradictions in docs against actual code. Deliver the final command/result contract for 24â€“26; complete common fixes, evidence and commit/sync.
+Assign an independent API/CLI inventory reviewer and a state/side-effect reviewer. Audit contradictions in docs against actual code. Deliver the final command/result contract for 24–26; complete common fixes, evidence and commit/sync.

@@ -31,6 +31,14 @@ retains its small free-shaft limits; those are not library-wide motion limits.
 Unknown algorithms, negative wire encoding and physical-unit assumptions remain
 explicit metadata, rather than a reason to add a second execution path.
 
+The `absolute` and `return` experiments retain the example's recorded fixture
+window: fresh stopped raw feedback bits must be within 0..250 before their
+absolute motion write. This check does not resolve feedback signedness, source
+or command-coordinate scale. Finite relative tests use 100 or 250 native command
+increments and do not require that raw window, an origin or a current-position
+baseline. Normal/direct stop observations can leave raw feedback beyond 250;
+profile restoration preserves settings and does not reset the motor counter.
+
 The board configuration declares combined DE/~RE with its receiver disabled
 while transmitting. The runner rejects bytes before physical TX completion,
 DE release and the configured response gap. Under this user-supplied wiring

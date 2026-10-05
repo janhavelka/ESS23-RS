@@ -215,7 +215,7 @@ def motion_profile_reply(request_id, action="inspect", restored=False, pending=F
         return (prefix + bench.wire_crc(prefix).to_bytes(2, "little")).hex()
     read_tx = frame(bytes((1, 3, 0, 0x20, 0, 6)))
     write_tx = frame(bytes((1, 16, 0, 0x21, 0, 5, 10)) + b"".join(x.to_bytes(2, "big") for x in words[1:]))
-    data = reply(request_id, "motion-profile", request=action, result="ok",
+    data = reply(request_id, "motion-profile", request=action, result="accepted",
         pending=pending, saved=True, restored=restored and not pending, session_ok=not pending,
         phase=(2 if pending else 3) if restored else 1, address=1, configuration_generation=3, serial_generation=1,
         original=list(words), current=list(words), tx_hex=write_tx if restored and pending else read_tx,
@@ -230,6 +230,18 @@ def motion_profile_reply(request_id, action="inspect", restored=False, pending=F
         data.update(write_tx_hex=write_tx, write_reply_hex=frame(bytes((1, 16, 0, 0x21, 0, 5))),
             write_tx_accepted=19, write_tx_complete=True, write_closure_qualified=True,
             write_closure_earliest_us=1100, write_closure_latest_us=1200, write_delivered_us=1300)
+    if action == "forget":
+        for key in ("pending", "saved", "restored", "session_ok", "tx_complete", "closure_qualified",
+                    "execution_unknown", "write_tx_complete", "write_closure_qualified", "write_execution_unknown"):
+            data[key] = False
+        for key in ("phase", "address", "configuration_generation", "serial_generation", "tx_accepted", "deadline_us",
+                    "closure_earliest_us", "closure_latest_us", "delivered_us", "write_tx_accepted",
+                    "write_closure_earliest_us", "write_closure_latest_us", "write_delivered_us"):
+            data[key] = 0
+        for key in ("tx_hex", "rx_hex", "write_tx_hex", "write_reply_hex"):
+            data[key] = ""
+        data["original"] = [0] * 6
+        data["current"] = [0] * 6
     return data
 
 
@@ -519,6 +531,33 @@ class Framing(unittest.TestCase):
         self.assertEqual([line.decode().split()[1] for line in self.port.writes], ["version", "home"])
         self.assertEqual(self.events[-1]["homes_attempted"], 1)
         self.assertEqual(self.events[-1]["cleanup"], "not_required")
+
+    def test_home_unresolved_and_unimplemented_are_exact_unadmitted_results(self):
+        for method, disposition in (("1", "unimplemented"), ("18", "unresolved")):
+            def handler(i, command, args):
+                if command != "home": return Serial.normal(i, command, args)
+                return encoded(reply(i, command, ok=False, result=disposition, address=1, operation_id=0))
+            console = self.session(handler)
+            result = console.command("home", home_args=(method, *self.HOME_ARGS[1:]), address=1)
+            self.assertFalse(result["ok"])
+            self.assertEqual(result["result"], disposition)
+            self.assertFalse(console.operations)
+            self.assertTrue(console.synchronized)
+            self.assertEqual([line.decode().split()[1] for line in self.port.writes], ["version", "home"])
+
+    def test_negative_admission_cannot_invent_disposition_operation_or_target(self):
+        for fields in ({"result": "made_up_success"}, {"result": []}, {"result": {}},
+                       {"operation_id": 99}, {"operation_id": False},
+                       {"address": 2}, {"address": True}):
+            def handler(i, command, args):
+                if command != "home": return Serial.normal(i, command, args)
+                item = reply(i, command, ok=False, result="unresolved", address=1, operation_id=0)
+                item.update(fields); return encoded(item)
+            console = self.session(handler)
+            with self.subTest(fields=fields), self.assertRaises(bench.BenchError):
+                console.command("home", home_args=("18", *self.HOME_ARGS[1:]), address=1)
+            self.assertFalse(console.synchronized)
+            self.assertEqual(len(self.port.writes), 2)
 
     MOVE_ARGS = ("1000", "steps", "native", "60", "configured")
     def test_home_success_inspection_release_and_bounded_stop_cleanup(self):
@@ -1521,6 +1560,106 @@ class Framing(unittest.TestCase):
         for tokens in (None, (), ("read", "1"), ("write",), ("restore\n",), ["read"]):
             with self.assertRaises(ValueError): console.command("motion-profile", host_args=tokens)
         self.assertEqual(before, len(self.port.writes))
+
+    def test_useaddr_is_explicit_synchronous_selection_without_operation(self):
+        def handler(i, command, args):
+            if command == "useaddr":
+                return encoded(reply(i, command, result="done", address=int(args[0]), operation_id=0))
+            return Serial.normal(i, command, args)
+        console = self.session(handler)
+        for address in (1, 17, 247):
+            result = console.command("useaddr", address=address)
+            self.assertEqual(result["address"], address)
+            self.assertEqual(result["operation_id"], 0)
+        self.assertFalse(console.operations)
+        self.assertEqual([line.decode().split()[1:] for line in self.port.writes][1:],
+                         [["useaddr", str(address)] for address in (1, 17, 247)])
+        before = len(self.port.writes)
+        for address in (None, False, True, 0, 248, -1, 4294967296, 1.0, "1", "1\nprobe"):
+            with self.subTest(address=address), self.assertRaises(ValueError):
+                console.command("useaddr", address=address)
+        self.assertEqual(before, len(self.port.writes))
+
+    def test_useaddr_rejects_wrong_correlation_and_bus_shaped_success(self):
+        for fields in ({"address": 2}, {"address": True}, {"operation_id": 1}, {"operation_id": False},
+                       {"result": "accepted"}, {"command_id": 99}, {"tx_bytes": 8}, {"bus_traffic": True},
+                       {"ok": False, "result": "unknown"}, {"ok": False, "result": "busy", "operation_id": 1}):
+            def handler(i, command, args):
+                if command != "useaddr": return Serial.normal(i, command, args)
+                item = reply(i, command, result="done", address=1, operation_id=0); item.update(fields)
+                return encoded(item)
+            console = self.session(handler)
+            with self.subTest(fields=fields), self.assertRaises(bench.BenchError):
+                console.command("useaddr", address=1)
+            self.assertFalse(console.synchronized)
+            self.assertEqual(len(self.port.writes), 2)
+
+    def test_useaddr_explicit_refusal_remains_a_local_result(self):
+        for refusal in ("busy", "invalid", "unavailable", "ids_exhausted"):
+            def handler(i, command, args):
+                if command != "useaddr": return Serial.normal(i, command, args)
+                return encoded(reply(i, command, ok=False, result=refusal, address=17, operation_id=0))
+            console = self.session(handler)
+            self.assertEqual(console.command("useaddr", address=17)["result"], refusal)
+            self.assertTrue(console.synchronized)
+            self.assertFalse(console.operations)
+
+    def test_motion_profile_forget_releases_only_the_explicit_snapshot(self):
+        forgotten = False
+        def handler(i, command, args):
+            nonlocal forgotten
+            if command != "motion-profile": return Serial.normal(i, command, args)
+            if args[0] == "forget": forgotten = True
+            if args[0] == "read": forgotten = False
+            item = motion_profile_reply(i, "forget" if forgotten else args[0], pending=args[0] == "read")
+            item["request"] = args[0]
+            return encoded(item)
+        console = self.session(handler)
+        console.command("motion-profile", host_args=("inspect",))
+        self.assertTrue(console.motion_profile["saved"])
+        result = console.command("motion-profile", host_args=("forget",))
+        self.assertEqual(result["phase"], 0)
+        self.assertFalse(result["saved"])
+        self.assertEqual(console.motion_profile, result)
+        self.assertFalse(console.operations)
+        self.assertEqual(self.port.writes[-1].decode().split()[1:], ["motion-profile", "forget"])
+        self.assertFalse(console.command("motion-profile", host_args=("inspect",))["saved"])
+        # A later snapshot is a new explicit read, with no hidden restoration.
+        self.assertTrue(console.command("motion-profile", host_args=("read",))["pending"])
+
+    def test_motion_profile_forget_rejects_retained_or_invented_wire_evidence(self):
+        mutations = [lambda x: x.update(saved=True), lambda x: x.update(original=[1]*6),
+            lambda x: x.update(current=[1]*6), lambda x: x.update(address=1), lambda x: x.update(serial_generation=1),
+            lambda x: x.update(execution_unknown=True), lambda x: x.update(write_execution_unknown=True),
+            lambda x: x.update(delivered_us=1), lambda x: x.update(tx_hex="0103"),
+            lambda x: x.update(ok=False, result="unknown"), lambda x: x.update(result="done")]
+        for mutate in mutations:
+            def handler(i, command, args):
+                if command != "motion-profile": return Serial.normal(i, command, args)
+                item = motion_profile_reply(i, "forget"); mutate(item); return encoded(item)
+            console = self.session(handler)
+            with self.subTest(mutation=mutate), self.assertRaises(bench.BenchError):
+                console.command("motion-profile", host_args=("forget",))
+            self.assertFalse(console.synchronized)
+            self.assertEqual(len(self.port.writes), 2)
+
+    def test_busy_motion_profile_forget_preserves_the_snapshot(self):
+        def handler(i, command, args):
+            if command != "motion-profile": return Serial.normal(i, command, args)
+            item = motion_profile_reply(i)
+            item["request"] = args[0]
+            if args[0] == "forget": item.update(ok=False, result="busy")
+            return encoded(item)
+        console = self.session(handler)
+        console.command("motion-profile", host_args=("inspect",))
+        original = copy.deepcopy(console.motion_profile)
+        result = console.command("motion-profile", host_args=("forget",))
+        self.assertFalse(result["ok"])
+        self.assertTrue(result["saved"])
+        self.assertEqual(result["original"], original["original"])
+        self.assertEqual(result["tx_hex"], original["tx_hex"])
+        self.assertTrue(console.synchronized)
+        self.assertEqual(len(self.port.writes), 3)
 
     def test_action_observation_requires_checked_echo(self):
         for command, policy in (("enable", None), ("motor-release", None), ("stop", "normal"), ("stop", "direct")):

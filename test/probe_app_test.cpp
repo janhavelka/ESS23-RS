@@ -630,6 +630,53 @@ void testBadActionReplyKeepsCodecEvidenceAndNoReplay() {
     assert(axisReserved(*app, 1) && app->owner.needsRecovery());
     pump(1000); assert(hardware.writes == 1);
 }
+void testRetainedUnknownWriteSurvivesInspectionResetAndRecovery() {
+    using namespace MotorControlRS;
+    fresh(); timerCapture(); qualifyActions();
+    command("@101 enable\n"); const uint32_t original = view(0).operationId;
+    startTx(0); auto invalid = hardware.tx; invalid.back() ^= 1;
+    actionStep(original, invalid); pump();
+    const auto before = view(original);
+    const ESS::ActionContext retained = *before.actionContext;
+    const uint64_t deliveredUs = findRecord(*app, original)->deliveredUs;
+    assert(!before.pending && findRecord(*app, original)->delivered);
+    assert(retained.state == ActionState::FAILED && retained.execution == ActionExecution::UNKNOWN);
+    assert(retained.outcome == ActionOutcome::REPLY_ERROR && retained.completion == ActionCompletion::NOT_OBSERVED);
+    assert(retained.writeEvidence.status.code == Err::CRC_ERROR && retained.writeEvidence.txAccepted == 8);
+    assert(retained.writeEvidence.length == invalid.size() && retained.writeEvidence.receivedLength == invalid.size());
+    assert(std::memcmp(retained.writeEvidence.raw, invalid.data(), invalid.size()) == 0);
+    const auto inspect = [&]() {
+        const std::string request = "@201 result " + std::to_string(original) + "\n";
+        command(request.c_str()); contains("\"execution\":\"unknown\"");
+        contains("\"status\":\"CRC_ERROR\"");
+        return Serial.output;
+    };
+    const std::string evidence = inspect();
+    assert(inspect() == evidence); // Inspection does not consume or revise evidence.
+    const unsigned writes = hardware.writes;
+    command("@202 reset\n"); contains("\"result\":\"done\"");
+    assert(app->runner.stats().started == 0 && app->owner.needsRecovery());
+    assert(inspect() == evidence && hardware.writes == writes && axisReserved(*app, 1));
+
+    command("@203 recover\n"); contains("\"result\":\"accepted\"");
+    const uint32_t recovery = app->recovery.operationId;
+    assert(recovery != original);
+    for (unsigned i = 0; i < 80000 && app->owner.recovering(); ++i) step();
+    pump();
+    assert(!app->owner.needsRecovery() && !view(recovery).pending);
+    assert(view(recovery).recoveryResult.outcome == Rtu::RecoveryOutcome::RECOVERED);
+    assert(inspect() == evidence && inspect() == evidence);
+    const auto after = view(original);
+    assert(after.commandId == before.commandId && after.operationId == before.operationId && after.address == before.address);
+    assert(after.actionContext == before.actionContext && !after.pending);
+    assert(sameTuple(after.serialTuple, before.serialTuple) && after.serialGeneration == before.serialGeneration);
+    assert(after.actionContext->target.id == retained.target.id && after.actionContext->target.address == retained.target.address);
+    assert(after.actionContext->target.generation == retained.target.generation);
+    assert(after.actionContext->startedUs == retained.startedUs && after.actionContext->deadlineUs == retained.deadlineUs);
+    assert(after.actionContext->servicedUs == retained.servicedUs && findRecord(*app, original)->deliveredUs == deliveredUs);
+    assert(after.actionContext->execution == ActionExecution::UNKNOWN && axisReserved(*app, 1));
+    pump(1000); assert(hardware.writes == writes); // Recovery never replays the uncertain command.
+}
 void testUnknownActionExceptionKeepsReservationAcrossReleaseAndRecovery() {
     using namespace MotorControlRS;
     fresh(); timerCapture(); qualifyActions();
@@ -1388,6 +1435,7 @@ int main() {
     testActionGateAndSeparateAcknowledgement(); testStopSupersedesOnlyAfterAdmissionAndSettlesInflight();
     testStopUsesReservedCapacityAndFullAdmissionPreservesWork();
     testUncertainStopSurvivesReleaseRecoveryAndCanBeStoppedAgain(); testBadActionReplyKeepsCodecEvidenceAndNoReplay();
+    testRetainedUnknownWriteSurvivesInspectionResetAndRecovery();
     testUnknownActionExceptionKeepsReservationAcrossReleaseAndRecovery();
     testAcceptedStopRetainsBothResultsWhenInterruptedWriteLaterFails();
     testStopKeepsKnownTargetAfterUnrelatedReadAndAction();

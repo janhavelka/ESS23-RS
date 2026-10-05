@@ -1,5 +1,7 @@
 # Roadmap to a supported ESS release
 
+Prompt23 reconciles [installed API and CLI coverage](ess_api_cli_coverage.md), local target selection, retained host controls and capability dispositions. [Verification](reports/ess_release_23_2026-10-05.md) separates integration from seven named prerequisite gaps and records a volatile profile-backup cleanup limitation after USB reset. Prompts24–26 inherit the actual command/result contract; full native-family and release completion remain open.
+
 The [fresh prompt22 audit](reports/ess_release_22_audit_2026-10-05.md) verifies
 bounded ESS discovery, cancels scan continuations on explicit recovery and
 strengthens Python failure-evidence checks. Physical collision exclusion and

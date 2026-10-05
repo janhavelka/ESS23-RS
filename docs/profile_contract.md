@@ -243,7 +243,8 @@ rules and input/serial precedence; ESS assignments are not generic RS485 rules.
 ## Two-profile design check
 
 This matrix tests the abstraction against different documented behavior; it
-does not declare either profile implemented. ESS evidence is the local
+does not declare Leadshine implemented. ESS has the typed subset and named
+gaps in [the complete coverage inventory](reference/ess_rs_operations.json). ESS evidence is the local
 function manual cited above. Leadshine evidence is its official
 [iEM-RS manual](https://www.leadshine.com/upfiles/downloads/3b01ef83987a2abfffcb4d4301a9cf4b_1689587677198.pdf),
 revision table V2.0, sections 4.3.5, 5.3.2-3, 5.4.1 and 5.5.3-4

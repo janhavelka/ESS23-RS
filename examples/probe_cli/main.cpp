@@ -860,8 +860,10 @@ Probe::Action startHome(void* context, uint32_t commandId, uint8_t address,
     if (a.serial.blocked || a.serial.configuring || a.owner.configurationOwned()) return Probe::Action::RECOVERY_REQUIRED;
     if (!ESS::isValidAddress(address)) return Probe::Action::INVALID;
     const auto* method = ESS::homeMethod(supplied.method);
-    if (!method || supplied.offset != 0) return Probe::Action::UNSUPPORTED;
-    if (method->support != ESS::HomeSupport::IMPLEMENTED) return Probe::Action::UNSUPPORTED;
+    if (!method) return Probe::Action::INVALID;
+    if (method->support == ESS::HomeSupport::UNRESOLVED) return Probe::Action::UNRESOLVED;
+    if (method->support == ESS::HomeSupport::UNIMPLEMENTED) return Probe::Action::UNIMPLEMENTED;
+    if (supplied.offset != 0) return Probe::Action::UNRESOLVED;
     if (!a.nextOperationId) return Probe::Action::IDS_EXHAUSTED;
     if (a.owner.needsRecovery() || uart.needsRecovery()) return Probe::Action::RECOVERY_REQUIRED;
     if (axisReserved(a, address)) return Probe::Action::AXIS_CONFLICT;
@@ -1718,25 +1720,26 @@ Probe::Action release(void* context, uint32_t operationId) {
 }
 Probe::Action monitor(void* context, const Probe::MonitorSettings* requested, Probe::MonitorSnapshot& out) {
     App& a = *static_cast<App*>(context);
-    if (requested && requested->enabled && (a.owner.commissioningOwned() || a.discovery.owned)) return Probe::Action::BUSY;
+    // Cached inspection and local cancellation remain available when the host
+    // cannot admit traffic. Neither operation depends on UART readiness.
+    if (!requested) { out = a.monitorState; return Probe::Action::OK; }
+    if (!requested->enabled) {
+        a.monitorState.settings.enabled = false; a.monitorState.remaining = 0;
+        auto& record = a.records[REQUEST_CAPACITY];
+        if (record.operationId && record.read.state == ReadState::ACTIVE && !record.cancelContinuation) {
+            cancel(&a, record.operationId); ++a.monitorState.cancelled;
+        }
+        out = a.monitorState; return Probe::Action::OK;
+    }
+    if (a.owner.commissioningOwned() || a.discovery.owned) return Probe::Action::BUSY;
     if (!platformReady) return Probe::Action::UNAVAILABLE;
     if (a.serial.blocked || a.serial.configuring || a.owner.configurationOwned()) return Probe::Action::RECOVERY_REQUIRED;
-    if (requested) {
-        if (requested->enabled) {
-            if (requested->intervalMs < 100 || requested->intervalMs > 60000 || !requested->count || requested->count > 1000)
-                return Probe::Action::INVALID;
-            if (a.monitorState.settings.enabled || a.records[REQUEST_CAPACITY].operationId) return Probe::Action::BUSY;
-            if (a.owner.needsRecovery() || uart.needsRecovery()) return Probe::Action::RECOVERY_REQUIRED;
-            a.monitorState = Probe::MonitorSnapshot(); a.monitorState.settings = *requested;
-            a.monitorState.remaining = requested->count; a.monitorState.nextDueUs = nowUs();
-        } else {
-            a.monitorState.settings.enabled = false; a.monitorState.remaining = 0;
-            auto& record = a.records[REQUEST_CAPACITY];
-            if (record.operationId && record.read.state == ReadState::ACTIVE && !record.cancelContinuation) {
-                cancel(&a, record.operationId); ++a.monitorState.cancelled;
-            }
-        }
-    }
+    if (requested->intervalMs < 100 || requested->intervalMs > 60000 || !requested->count || requested->count > 1000)
+        return Probe::Action::INVALID;
+    if (a.monitorState.settings.enabled || a.records[REQUEST_CAPACITY].operationId) return Probe::Action::BUSY;
+    if (a.owner.needsRecovery() || uart.needsRecovery()) return Probe::Action::RECOVERY_REQUIRED;
+    a.monitorState = Probe::MonitorSnapshot(); a.monitorState.settings = *requested;
+    a.monitorState.remaining = requested->count; a.monitorState.nextDueUs = nowUs();
     out = a.monitorState; return Probe::Action::OK;
 }
 /** One opt-in finite consumer. Its ordinary admissions use the same owner queue;
@@ -1791,6 +1794,42 @@ void invalidateSerialConfidence(App& a, uint64_t now) {
     a.homePrerequisites.readinessQualified = false;
     // Endpoint/configuration generations and physical uncertainty do not belong
     // to a temporary UART selection. Historical records and host origins survive.
+}
+Probe::Action selectTarget(void* context, uint8_t address) {
+    using namespace MotorControlRS;
+    App& a = *static_cast<App*>(context);
+    if (!ESS::isValidAddress(address)) return Probe::Action::INVALID;
+    if (a.axis.target.address == address) return Probe::Action::OK;
+    if (a.serial.configuring || a.owner.configurationOwned() || a.owner.commissioningOwned() ||
+        a.discovery.owned || a.owner.active() || a.owner.pending() || a.owner.recovering() ||
+        a.runner.busy() || a.runner.transmitEnabled() || reading(a) || acting(a) ||
+        a.monitorState.settings.enabled || a.persistenceCapture || a.persistenceRequest.owner ||
+        a.persistenceReadRequest.owner || a.commissioningRequest.owner || a.motionProfile.view.pending)
+        return Probe::Action::BUSY;
+    if (!a.axis.generation || a.axis.generation == UINT32_MAX || a.bindingGeneration == UINT32_MAX)
+        return Probe::Action::IDS_EXHAUSTED;
+    AxisConfig candidate;
+    candidate.generation = a.axis.generation + 1;
+    candidate.target.id = candidate.target.address = address;
+    candidate.target.generation = a.bindingGeneration + 1;
+    candidate.supportedRelativeBases = 1; // Reviewed ESS actual-position relative basis.
+    candidate.units.settings = a.axis.units.settings;
+    ++a.bindingGeneration;
+    a.axis = candidate;
+    a.coordinateReference = AxisReference();
+    a.commandPolarityKnown = true;
+    a.positionClearQualified = false;
+    a.movePrerequisites = ESS::MovePrerequisites();
+    a.velocityPrerequisites = ESS::VelocityPrerequisites();
+    a.homePrerequisites = ESS::HomePrerequisites();
+    a.commissioningConfirmedGeneration = a.persistenceConfirmedGeneration = 0;
+    a.persistenceBaselineKnown = false;
+    for (auto& wiring : a.inputWiring) wiring = InputWiring::UNKNOWN;
+    for (auto& wiring : a.outputWiring) wiring = InputWiring::UNKNOWN;
+    invalidateSerialConfidence(a, nowUs());
+    // Historical contexts and physical uncertainty belong to their original
+    // endpoint. Rebinding creates no traffic and does not release either.
+    return Probe::Action::OK;
 }
 Probe::Action hostSerialImpl(void* context, const Probe::HostRequest* requested, Probe::HostSnapshot& out, bool ownedSession) {
     App& a = *static_cast<App*>(context);
@@ -1853,7 +1892,8 @@ Probe::Host host(App* a) {
     h.startTypedRead = typedRead;
     h.startAction = startAction; h.startMove = startMove; h.startVelocity = startVelocity; h.startDriver = startDriver; h.startHome = startHome;
     h.monitor = monitor; h.motionProfile = motionProfileCommand; h.debug = debugCommand;
-    h.axis = axisCommand; h.hostSerial = hostSerial; h.communication = communication; h.persistence = persistence;
+    h.axis = axisCommand; h.hostSerial = hostSerial; h.selectTarget = selectTarget;
+    h.communication = communication; h.persistence = persistence;
     h.discovery = discoveryCommand;
     h.result = lookup; h.cancel = cancel; h.release = release;
 #if MOTORCONTROLRS_LOAD_FIXTURE
@@ -1895,7 +1935,8 @@ void deliver(App& a) {
             record.delivered = true; record.deliveredUs = nowUs(); continue;
         }
         if (record.typedRead) {
-            if (!record.observed && record.serialGeneration == a.serial.generation) {
+            if (!record.observed && record.serialGeneration == a.serial.generation &&
+                record.read.target.generation == a.bindingGeneration) {
                 record.observed = true;
                 if (record.read.kind == ESS::ReadKind::IDENTITY && record.operationId > a.identity.operationId)
                     ESS::getIdentity(record.read, a.identity);
@@ -1943,7 +1984,9 @@ void deliver(App& a) {
             if (!a.console.reportRead(record.commandId, record.operationId, record.read, &record.serialTuple, record.serialGeneration)) continue;
             record.delivered = true; record.deliveredUs = nowUs(); continue;
         }
-        if (!record.observed && !record.captureRead && record.serialGeneration == a.serial.generation) {
+        const auto* retained = a.owner.result(record.requestId);
+        if (!record.observed && !record.captureRead && record.serialGeneration == a.serial.generation &&
+            retained && retained->expected.targetGeneration == a.bindingGeneration) {
             record.observed = true;
             if (view.probe.transport.txAccepted && record.operationId > a.cacheOperationId) {
                 a.cacheOperationId = record.operationId; a.known = true; a.address = record.address;

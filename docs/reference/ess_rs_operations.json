@@ -62,8 +62,11 @@
     "OUTPUT_Y0_FUNCTION",
     "OUTPUT_Y1_FUNCTION",
     "OVER_LIMIT_STOP",
+    "POSITION_ACCELERATION_TIME",
     "POSITION_ARRIVAL_WINDOW",
+    "POSITION_DECELERATION_TIME",
     "POSITION_ERROR_ALARM_THRESHOLD",
+    "POSITION_PULSES",
     "POSITION_SEGMENT_01_ACCELERATION_TIME",
     "POSITION_SEGMENT_01_DECELERATION_TIME",
     "POSITION_SEGMENT_01_PULSES",
@@ -128,6 +131,7 @@
     "POSITION_SEGMENT_16_DECELERATION_TIME",
     "POSITION_SEGMENT_16_PULSES",
     "POSITION_SEGMENT_16_SPEED",
+    "POSITION_SPEED",
     "POSITIVE_SOFT_LIMIT",
     "PULSE_LOW_PASS_FILTER",
     "PULSE_MEAN_FILTER",
@@ -365,7 +369,7 @@
         "read state",
         "profile ess_rs state",
         "health check",
-        "monitor"
+        "monitor INTERVAL_MS COUNT"
       ],
       "implementation": "IMPLEMENTED",
       "cli": "REACHABLE",
@@ -492,7 +496,8 @@
         ]
       },
       "cli_commands": [
-        "enable"
+        "enable",
+        "profile ess_rs enable"
       ],
       "implementation": "IMPLEMENTED",
       "cli": "REACHABLE",
@@ -530,7 +535,8 @@
         ]
       },
       "cli_commands": [
-        "motor-release"
+        "motor-release",
+        "profile ess_rs release"
       ],
       "implementation": "IMPLEMENTED",
       "cli": "REACHABLE",
@@ -568,7 +574,8 @@
         ]
       },
       "cli_commands": [
-        "alarm-clear"
+        "alarm-clear",
+        "profile ess_rs clear-alarm"
       ],
       "implementation": "IMPLEMENTED",
       "cli": "REACHABLE",
@@ -606,7 +613,8 @@
         ]
       },
       "cli_commands": [
-        "stop normal"
+        "stop normal",
+        "profile ess_rs normal-stop"
       ],
       "implementation": "IMPLEMENTED",
       "cli": "REACHABLE",
@@ -644,7 +652,8 @@
         ]
       },
       "cli_commands": [
-        "stop direct"
+        "stop direct",
+        "profile ess_rs emergency-stop"
       ],
       "implementation": "IMPLEMENTED",
       "cli": "REACHABLE",
@@ -849,7 +858,8 @@
         ]
       },
       "cli_commands": [
-        "profile ess_rs driver read"
+        "profile ess_rs driver read",
+        "driver read"
       ],
       "implementation": "IMPLEMENTED",
       "cli": "REACHABLE",
@@ -892,7 +902,8 @@
         ]
       },
       "cli_commands": [
-        "profile ess_rs driver set"
+        "profile ess_rs driver set",
+        "driver set"
       ],
       "implementation": "IMPLEMENTED",
       "cli": "REACHABLE",
@@ -1114,7 +1125,8 @@
         ]
       },
       "cli_commands": [
-        "profile ess_rs io read"
+        "profile ess_rs io read",
+        "io read"
       ],
       "implementation": "IMPLEMENTED",
       "cli": "REACHABLE",
@@ -1160,7 +1172,8 @@
         ]
       },
       "cli_commands": [
-        "profile ess_rs io set"
+        "profile ess_rs io set",
+        "io set"
       ],
       "implementation": "IMPLEMENTED",
       "cli": "REACHABLE",
@@ -1325,7 +1338,8 @@
         ]
       },
       "cli_commands": [
-        "profile ess_rs segment position INDEX read"
+        "profile ess_rs segment position INDEX read",
+        "segment position INDEX read"
       ],
       "implementation": "IMPLEMENTED",
       "cli": "REACHABLE",
@@ -1408,7 +1422,8 @@
         ]
       },
       "cli_commands": [
-        "profile ess_rs segment position INDEX set"
+        "profile ess_rs segment position INDEX set",
+        "segment position INDEX set"
       ],
       "implementation": "IMPLEMENTED",
       "cli": "REACHABLE",
@@ -1538,7 +1553,8 @@
         ]
       },
       "cli_commands": [
-        "profile ess_rs segment speed INDEX read"
+        "profile ess_rs segment speed INDEX read",
+        "segment speed INDEX read"
       ],
       "implementation": "IMPLEMENTED",
       "cli": "REACHABLE",
@@ -1621,7 +1637,8 @@
         ]
       },
       "cli_commands": [
-        "profile ess_rs segment speed INDEX set"
+        "profile ess_rs segment speed INDEX set",
+        "segment speed INDEX set"
       ],
       "implementation": "IMPLEMENTED",
       "cli": "REACHABLE",
@@ -1673,7 +1690,8 @@
         ]
       },
       "cli_commands": [
-        "profile ess_rs segment start INDEX read"
+        "profile ess_rs segment start INDEX read",
+        "segment start INDEX read"
       ],
       "implementation": "IMPLEMENTED",
       "cli": "REACHABLE",
@@ -1724,7 +1742,8 @@
         ]
       },
       "cli_commands": [
-        "profile ess_rs segment start INDEX set"
+        "profile ess_rs segment start INDEX set",
+        "segment start INDEX set"
       ],
       "implementation": "IMPLEMENTED",
       "cli": "REACHABLE",
@@ -1768,7 +1787,8 @@
         ]
       },
       "cli_commands": [
-        "profile ess_rs control read"
+        "profile ess_rs control read",
+        "control read"
       ],
       "implementation": "IMPLEMENTED",
       "cli": "REACHABLE",
@@ -1813,7 +1833,8 @@
         ]
       },
       "cli_commands": [
-        "profile ess_rs control set"
+        "profile ess_rs control set",
+        "control set"
       ],
       "implementation": "IMPLEMENTED",
       "cli": "REACHABLE",
@@ -1854,7 +1875,8 @@
         ]
       },
       "cli_commands": [
-        "profile ess_rs control set lock-delay INTEGER"
+        "profile ess_rs control set lock-delay INTEGER",
+        "control set lock-delay INTEGER"
       ],
       "implementation": "IMPLEMENTED",
       "cli": "REACHABLE",
@@ -1899,7 +1921,8 @@
         ]
       },
       "cli_commands": [
-        "profile ess_rs tuning filters read"
+        "profile ess_rs tuning filters read",
+        "tuning filters read"
       ],
       "implementation": "IMPLEMENTED",
       "cli": "REACHABLE",
@@ -1943,7 +1966,8 @@
         ]
       },
       "cli_commands": [
-        "profile ess_rs tuning filters set FIELD INTEGER"
+        "profile ess_rs tuning filters set FIELD INTEGER",
+        "tuning filters set FIELD INTEGER"
       ],
       "implementation": "IMPLEMENTED",
       "cli": "REACHABLE",
@@ -1983,7 +2007,8 @@
         ]
       },
       "cli_commands": [
-        "profile ess_rs tuning current-loop read"
+        "profile ess_rs tuning current-loop read",
+        "tuning current-loop read"
       ],
       "implementation": "IMPLEMENTED",
       "cli": "REACHABLE",
@@ -2026,7 +2051,8 @@
         ]
       },
       "cli_commands": [
-        "profile ess_rs tuning current-loop set FIELD INTEGER"
+        "profile ess_rs tuning current-loop set FIELD INTEGER",
+        "tuning current-loop set FIELD INTEGER"
       ],
       "implementation": "IMPLEMENTED",
       "cli": "REACHABLE",
@@ -2070,7 +2096,8 @@
         ]
       },
       "cli_commands": [
-        "profile ess_rs tuning la read"
+        "profile ess_rs tuning la read",
+        "tuning la read"
       ],
       "implementation": "IMPLEMENTED",
       "cli": "REACHABLE",
@@ -2117,7 +2144,8 @@
         ]
       },
       "cli_commands": [
-        "profile ess_rs tuning la set FIELD INTEGER"
+        "profile ess_rs tuning la set FIELD INTEGER",
+        "tuning la set FIELD INTEGER"
       ],
       "implementation": "IMPLEMENTED",
       "cli": "REACHABLE",
@@ -2155,7 +2183,8 @@
         ]
       },
       "cli_commands": [
-        "profile ess_rs tuning collision read"
+        "profile ess_rs tuning collision read",
+        "tuning collision read"
       ],
       "implementation": "IMPLEMENTED",
       "cli": "REACHABLE",
@@ -2196,7 +2225,8 @@
         ]
       },
       "cli_commands": [
-        "profile ess_rs tuning collision set FIELD INTEGER"
+        "profile ess_rs tuning collision set FIELD INTEGER",
+        "tuning collision set FIELD INTEGER"
       ],
       "implementation": "IMPLEMENTED",
       "cli": "REACHABLE",
@@ -2233,7 +2263,8 @@
         ]
       },
       "cli_commands": [
-        "profile ess_rs tuning filters set input-filter INTEGER"
+        "profile ess_rs tuning filters set input-filter INTEGER",
+        "tuning filters set input-filter INTEGER"
       ],
       "implementation": "IMPLEMENTED",
       "cli": "REACHABLE",
@@ -2279,7 +2310,10 @@
       "cli_commands": [
         "profile ess_rs communication begin address VALUE",
         "profile ess_rs communication begin baud VALUE",
-        "profile ess_rs communication begin format VALUE"
+        "profile ess_rs communication begin format VALUE",
+        "communication begin address VALUE",
+        "communication begin baud VALUE",
+        "communication begin format VALUE"
       ],
       "implementation": "IMPLEMENTED",
       "cli": "REACHABLE",
@@ -2331,7 +2365,8 @@
         ]
       },
       "cli_commands": [
-        "profile ess_rs persistence begin save"
+        "profile ess_rs persistence begin save",
+        "persistence begin save"
       ],
       "implementation": "IMPLEMENTED",
       "cli": "REACHABLE",
@@ -2373,7 +2408,8 @@
         ]
       },
       "cli_commands": [
-        "profile ess_rs persistence begin factory-restore"
+        "profile ess_rs persistence begin factory-restore",
+        "persistence begin factory-restore"
       ],
       "implementation": "IMPLEMENTED",
       "cli": "REACHABLE",
@@ -2413,12 +2449,7 @@
         ]
       },
       "cli_commands": [
-        "profile list",
-        "discover",
-        "discover inspect",
-        "discover cancel",
-        "discover restore",
-        "discover finish"
+        "discover"
       ],
       "implementation": "IMPLEMENTED",
       "cli": "REACHABLE",
@@ -2440,6 +2471,84 @@
         ]
       },
       "reason": "Finite ESS-only address/host tuple scanning with typed identity refinement; partial faults, explicit restoration and no automatic rebind/retry or collision exclusion. Alternate motor tuples remain unqualified."
+    },
+    {
+      "id": "position_profile_read",
+      "kind": "READ",
+      "records": [
+        "POSITION_START_SPEED",
+        "POSITION_ACCELERATION_TIME",
+        "POSITION_DECELERATION_TIME",
+        "POSITION_SPEED",
+        "POSITION_PULSES"
+      ],
+      "api": {
+        "header": "include/MotorControlRS/profiles/ess_rs/Position.h",
+        "symbols": [
+          "buildReadPositionProfile",
+          "parsePositionProfile"
+        ]
+      },
+      "cli_commands": [
+        "motion-profile read"
+      ],
+      "implementation": "IMPLEMENTED",
+      "cli": "REACHABLE",
+      "native": {
+        "state": "PASS",
+        "evidence": [
+          "test/position_test.cpp",
+          "test/probe_app_test.cpp",
+          "test/probe_console_test.cpp"
+        ]
+      },
+      "hardware": {
+        "state": "PASS",
+        "evidence": [
+          "docs/reports/debug_refactor_2026-10-04.md",
+          "docs/reports/regular_api_sniff_2026-10-04.md"
+        ],
+        "reason": "Historical ordinary-firmware checked snapshot and exact restoration; no new-image or independent electrical/motion credit."
+      },
+      "reason": "Existing typed PositionProfile via production owner. Reads all six words; no writes."
+    },
+    {
+      "id": "position_profile_restore",
+      "kind": "WRITE",
+      "records": [
+        "POSITION_ACCELERATION_TIME",
+        "POSITION_DECELERATION_TIME",
+        "POSITION_SPEED",
+        "POSITION_PULSES"
+      ],
+      "api": {
+        "header": "include/MotorControlRS/profiles/ess_rs/Position.h",
+        "symbols": [
+          "buildWritePositionProfile"
+        ]
+      },
+      "cli_commands": [
+        "motion-profile restore"
+      ],
+      "implementation": "IMPLEMENTED",
+      "cli": "REACHABLE",
+      "native": {
+        "state": "PASS",
+        "evidence": [
+          "test/position_test.cpp",
+          "test/probe_app_test.cpp",
+          "test/probe_console_test.cpp"
+        ]
+      },
+      "hardware": {
+        "state": "PASS",
+        "evidence": [
+          "docs/reports/debug_refactor_2026-10-04.md",
+          "docs/reports/regular_api_sniff_2026-10-04.md"
+        ],
+        "reason": "Historical ordinary-firmware checked snapshot and exact restoration; no new-image or independent electrical/motion credit."
+      },
+      "reason": "Existing typed PositionProfile via production owner. Restores only0021/5; observed start-speed0020 is never written. Matching stored readback does not prove persistence."
     }
   ],
   "coverage_notes": [
@@ -2458,6 +2567,754 @@
     "Prompt17 control settings are native configuration, not commanded torque/current modes. Raw algorithm3 remains unknown; RS20 peak-current dial ratings do not establish maximum-effective-current0102 limits, and percent prose referencing2042 does not establish an0102 denominator. Exact independent qualification is required before affected writes.",
     "Fresh16/17audit fixes closure-budget certainty and optional-host help parity, repeats all48 indexed reads and reversible lock-delay stored restoration. The original shared-start write FAIL remains unresolved; no pair permission, current formula or physical trigger qualification is inferred.",
     "Prompt18 accounts for all20 reviewed scalar tuning fields with group-local masks and fixed bounded read/write sequences. Native filter coefficients, arrival-time/deviation/LA-node/gain codes retain unspecified physical units. Earlier COLLISION_THRESHOLD_003B/COLLISION_CURRENT_003C have unspecified access and remain separate unresolved records, never aliased to0122/0123 or read through a forbidden window. Native gain/collision/arrival writes require exact independent effects qualification; physical effects remain separately unqualified.",
-    "Prompt21 implements explicit save/factory-restore choices via typed PersistenceContext and existing commissioning ownership. Per-field source-access notation remains ledger-derived; known raw before-values and post-action reads are separate from durability. Physical nonvolatile writes, motor restart and factory restoration remain NOT_RUN; partial snapshots and read-only regression receive no persistence hardware credit."
+    "Prompt21 implements explicit save/factory-restore choices via typed PersistenceContext and existing commissioning ownership. Per-field source-access notation remains ledger-derived; known raw before-values and post-action reads are separate from durability. Physical nonvolatile writes, motor restart and factory restoration remain NOT_RUN; partial snapshots and read-only regression receive no persistence hardware credit.",
+    "Prompt23 reconciles existing PositionProfile read/restore and names missing native families owning09/11/14/18 without shrinking221 records/135 choices. Installed function roles are separate from typed device obligations. Static CLI prefix checking uses production metadata and implemented family grammar; runtime reachability requires console/application tests.",
+    "Local profile list and discover inspect/cancel/restore/finish are host/session controls, not READ implementation credit; the discovery device obligation maps to the producing discover route only. Plain monitor is passive; READ coverage maps to monitor INTERVAL_MS COUNT."
+  ],
+  "gaps": [
+    {
+      "id": "position_start_speed_write",
+      "records": [
+        "POSITION_START_SPEED"
+      ],
+      "kinds": [
+        "WRITE"
+      ],
+      "owner": "09/11",
+      "disposition": "NOT_IMPLEMENTED",
+      "reason": "No typed start-speed setter or CLI write; profile restore writes0021/5 only."
+    },
+    {
+      "id": "velocity_parameter_reads",
+      "records": [
+        "JOG_SPEED",
+        "JOG_ACCELERATION_TIME",
+        "JOG_DECELERATION_TIME"
+      ],
+      "kinds": [
+        "READ"
+      ],
+      "owner": "11",
+      "disposition": "NOT_IMPLEMENTED",
+      "reason": "Finite velocity stages supplied qualified words; no standalone typed read of this parameter family."
+    },
+    {
+      "id": "homing_parameter_reads",
+      "records": [
+        "HOMING_AUXILIARY",
+        "HOMING_METHOD",
+        "HOMING_SPEED",
+        "HOMING_QUERY_SPEED",
+        "HOMING_RAMP_TIME",
+        "HOMING_OFFSET"
+      ],
+      "kinds": [
+        "READ"
+      ],
+      "owner": "14",
+      "disposition": "NOT_IMPLEMENTED",
+      "reason": "No standalone typed homing parameter read; a staged HomeContext is not read coverage."
+    },
+    {
+      "id": "homing_auxiliary_write",
+      "records": [
+        "HOMING_AUXILIARY"
+      ],
+      "kinds": [
+        "WRITE"
+      ],
+      "owner": "14",
+      "disposition": "NOT_IMPLEMENTED",
+      "reason": "Homing requires independently qualified existing active auxiliary7; no typed setter exists."
+    },
+    {
+      "id": "homing_methods_remaining",
+      "records": [
+        "HOMING_METHOD"
+      ],
+      "kinds": [
+        "WRITE",
+        "ACTION"
+      ],
+      "owner": "14",
+      "disposition": "PARTIAL",
+      "reason": "Three methods33/34/35 implemented;27 switch-based methods unimplemented and five collision/diagram methods unresolved. Prompt15 did not implement these trajectories.",
+      "choices": [
+        "HomingMethod.COLLISION_MINUS_4",
+        "HomingMethod.COLLISION_MINUS_3",
+        "HomingMethod.COLLISION_MINUS_2",
+        "HomingMethod.COLLISION_MINUS_1",
+        "HomingMethod.METHOD_1",
+        "HomingMethod.METHOD_2",
+        "HomingMethod.METHOD_3",
+        "HomingMethod.METHOD_4",
+        "HomingMethod.METHOD_5",
+        "HomingMethod.METHOD_6",
+        "HomingMethod.METHOD_7",
+        "HomingMethod.METHOD_8",
+        "HomingMethod.METHOD_9",
+        "HomingMethod.METHOD_10",
+        "HomingMethod.METHOD_11",
+        "HomingMethod.METHOD_12",
+        "HomingMethod.METHOD_13",
+        "HomingMethod.METHOD_14",
+        "HomingMethod.METHOD_17",
+        "HomingMethod.METHOD_18",
+        "HomingMethod.METHOD_19",
+        "HomingMethod.METHOD_20",
+        "HomingMethod.METHOD_21",
+        "HomingMethod.METHOD_22",
+        "HomingMethod.METHOD_23",
+        "HomingMethod.METHOD_24",
+        "HomingMethod.METHOD_25",
+        "HomingMethod.METHOD_26",
+        "HomingMethod.METHOD_27",
+        "HomingMethod.METHOD_28",
+        "HomingMethod.METHOD_29",
+        "HomingMethod.METHOD_30"
+      ]
+    },
+    {
+      "id": "homing_nonzero_offset",
+      "records": [
+        "HOMING_OFFSET"
+      ],
+      "kinds": [
+        "WRITE"
+      ],
+      "owner": "12/14",
+      "disposition": "UNRESOLVED",
+      "reason": "0031/6 admits qualified zero only. Nonzero sign/order/units and0035/2 write form remain unresolved."
+    },
+    {
+      "id": "earlier_collision_access",
+      "records": [
+        "COLLISION_THRESHOLD_003B",
+        "COLLISION_CURRENT_003C"
+      ],
+      "kinds": [
+        "ACCESS"
+      ],
+      "owner": "18",
+      "disposition": "UNRESOLVED",
+      "reason": "Access unspecified; no invented permission or alias to0122/0123."
+    }
+  ],
+  "public_surface": [
+    {
+      "header": "include/MotorControlRS/Axis.h",
+      "symbols": [
+        "configureAxis",
+        "invalidateAxisReference",
+        "setAxisOrigin",
+        "validateAxisConfig"
+      ],
+      "classification": "HOST_CONFIGURATION",
+      "reason": "Exact host configuration, origin/reference confidence and pure previews; no device traffic.",
+      "cli_topics": [
+        "axis",
+        "prepare"
+      ]
+    },
+    {
+      "header": "include/MotorControlRS/Axis.h",
+      "symbols": [
+        "parseExactNumber",
+        "preparePosition",
+        "rationalToDouble"
+      ],
+      "classification": "CONVERSION",
+      "reason": "Exact host configuration, origin/reference confidence and pure previews; no device traffic.",
+      "cli_topics": [
+        "axis",
+        "prepare"
+      ]
+    },
+    {
+      "header": "include/MotorControlRS/Discovery.h",
+      "symbols": [
+        "checkProbe"
+      ],
+      "classification": "OBSERVATION",
+      "reason": "Compiled metadata and minimal nonchanging probe/evidence; application owns scanning.",
+      "cli_topics": [
+        "profile",
+        "caps",
+        "probe",
+        "discover"
+      ]
+    },
+    {
+      "header": "include/MotorControlRS/Discovery.h",
+      "symbols": [
+        "discoveryProfileCount",
+        "getDiscoveryCapabilities",
+        "getDiscoveryProfile"
+      ],
+      "classification": "METADATA",
+      "reason": "Compiled metadata and minimal nonchanging probe/evidence; application owns scanning.",
+      "cli_topics": [
+        "profile",
+        "caps",
+        "probe",
+        "discover"
+      ]
+    },
+    {
+      "header": "include/MotorControlRS/Discovery.h",
+      "symbols": [
+        "prepareProbe"
+      ],
+      "classification": "DEVICE_OPERATION",
+      "reason": "Compiled metadata and minimal nonchanging probe/evidence; application owns scanning.",
+      "cli_topics": [
+        "profile",
+        "caps",
+        "probe",
+        "discover"
+      ]
+    },
+    {
+      "header": "include/MotorControlRS/profiles/ess_rs/Actions.h",
+      "symbols": [
+        "advanceAction",
+        "nextAction"
+      ],
+      "classification": "SEQUENCER",
+      "reason": "Typed actions and bounded progression, common/profile routes share validation.",
+      "cli_topics": [
+        "enable",
+        "motor-release",
+        "alarm-clear",
+        "position-clear",
+        "stop",
+        "profile"
+      ]
+    },
+    {
+      "header": "include/MotorControlRS/profiles/ess_rs/Actions.h",
+      "symbols": [
+        "prepareAction",
+        "prepareClearAlarm",
+        "prepareEmergencyStop",
+        "prepareEnable",
+        "prepareNormalStop",
+        "prepareRelease",
+        "prepareSetDevicePosition",
+        "prepareStop"
+      ],
+      "classification": "DEVICE_OPERATION",
+      "reason": "Typed actions and bounded progression, common/profile routes share validation.",
+      "cli_topics": [
+        "enable",
+        "motor-release",
+        "alarm-clear",
+        "position-clear",
+        "stop",
+        "profile"
+      ]
+    },
+    {
+      "header": "include/MotorControlRS/profiles/ess_rs/Codec.h",
+      "symbols": [
+        "buildProbe",
+        "buildReadRegisters",
+        "buildWriteMultipleRegisters",
+        "buildWriteSingleRegister",
+        "calcCrc16",
+        "decodeInt32",
+        "decodeUint32",
+        "encodeInt32",
+        "encodeUint32",
+        "expectedReadRegistersLen",
+        "expectedWriteMultipleRegistersLen",
+        "expectedWriteSingleRegisterLen",
+        "isReadRangeValid",
+        "isValidAddress",
+        "parseProbe",
+        "parseRegister",
+        "parseRegisters",
+        "parseWriteMultipleRegisters",
+        "parseWriteSingleRegister",
+        "validateReadRegistersRequest",
+        "validateReadResponseExpected",
+        "validateWriteMultipleRegistersRequest",
+        "validateWriteSingleRegisterRequest"
+      ],
+      "classification": "CODEC",
+      "reason": "Checked raw wire/access helpers; neither typed semantic coverage nor unrestricted register CLI.",
+      "cli_topics": []
+    },
+    {
+      "header": "include/MotorControlRS/profiles/ess_rs/Communication.h",
+      "symbols": [
+        "advanceCommunication",
+        "nextCommunication"
+      ],
+      "classification": "SEQUENCER",
+      "reason": "Explicit communication commissioning/confirmation; no automatic restart/save/replay.",
+      "cli_topics": [
+        "communication",
+        "profile"
+      ]
+    },
+    {
+      "header": "include/MotorControlRS/profiles/ess_rs/Communication.h",
+      "symbols": [
+        "prepareCommunication",
+        "prepareCommunicationConfirmation"
+      ],
+      "classification": "DEVICE_OPERATION",
+      "reason": "Explicit communication commissioning/confirmation; no automatic restart/save/replay.",
+      "cli_topics": [
+        "communication",
+        "profile"
+      ]
+    },
+    {
+      "header": "include/MotorControlRS/profiles/ess_rs/ControlSettings.h",
+      "symbols": [
+        "getControl"
+      ],
+      "classification": "OBSERVATION",
+      "reason": "Algorithm/encoder/current settings, not effort motion modes.",
+      "cli_topics": [
+        "control",
+        "profile"
+      ]
+    },
+    {
+      "header": "include/MotorControlRS/profiles/ess_rs/ControlSettings.h",
+      "symbols": [
+        "prepareControlRead",
+        "prepareControlSettings"
+      ],
+      "classification": "DEVICE_OPERATION",
+      "reason": "Algorithm/encoder/current settings, not effort motion modes.",
+      "cli_topics": [
+        "control",
+        "profile"
+      ]
+    },
+    {
+      "header": "include/MotorControlRS/profiles/ess_rs/Defaults.h",
+      "symbols": [
+        "makeBenchUnitConfig"
+      ],
+      "classification": "HOST_CONFIGURATION",
+      "reason": "Explicit bench unit assumptions only; no hardware qualification, motion readiness or traffic.",
+      "cli_topics": []
+    },
+    {
+      "header": "include/MotorControlRS/profiles/ess_rs/DriverSettings.h",
+      "symbols": [
+        "advanceDriver",
+        "driverWriteDeadline",
+        "nextDriver"
+      ],
+      "classification": "SEQUENCER",
+      "reason": "Whole-candidate driver/I/O settings and checked retained readback; no implicit assignments.",
+      "cli_topics": [
+        "driver",
+        "io",
+        "profile",
+        "result"
+      ]
+    },
+    {
+      "header": "include/MotorControlRS/profiles/ess_rs/DriverSettings.h",
+      "symbols": [
+        "driverFieldAt"
+      ],
+      "classification": "METADATA",
+      "reason": "Whole-candidate driver/I/O settings and checked retained readback; no implicit assignments.",
+      "cli_topics": [
+        "driver",
+        "io",
+        "profile",
+        "result"
+      ]
+    },
+    {
+      "header": "include/MotorControlRS/profiles/ess_rs/DriverSettings.h",
+      "symbols": [
+        "getDriver",
+        "getIo"
+      ],
+      "classification": "OBSERVATION",
+      "reason": "Whole-candidate driver/I/O settings and checked retained readback; no implicit assignments.",
+      "cli_topics": [
+        "driver",
+        "io",
+        "profile",
+        "result"
+      ]
+    },
+    {
+      "header": "include/MotorControlRS/profiles/ess_rs/DriverSettings.h",
+      "symbols": [
+        "prepareDriverRead",
+        "prepareDriverSettings",
+        "prepareInputFunction",
+        "prepareOutputFunction"
+      ],
+      "classification": "DEVICE_OPERATION",
+      "reason": "Whole-candidate driver/I/O settings and checked retained readback; no implicit assignments.",
+      "cli_topics": [
+        "driver",
+        "io",
+        "profile",
+        "result"
+      ]
+    },
+    {
+      "header": "include/MotorControlRS/profiles/ess_rs/Homing.h",
+      "symbols": [
+        "advanceHome",
+        "nextHome"
+      ],
+      "classification": "SEQUENCER",
+      "reason": "Method metadata and bounded33/34/35 subset; other source methods remain gaps.",
+      "cli_topics": [
+        "home",
+        "profile"
+      ]
+    },
+    {
+      "header": "include/MotorControlRS/profiles/ess_rs/Homing.h",
+      "symbols": [
+        "getHomeReference"
+      ],
+      "classification": "OBSERVATION",
+      "reason": "Method metadata and bounded33/34/35 subset; other source methods remain gaps.",
+      "cli_topics": [
+        "home",
+        "profile"
+      ]
+    },
+    {
+      "header": "include/MotorControlRS/profiles/ess_rs/Homing.h",
+      "symbols": [
+        "homeMethod",
+        "homeMethodAt"
+      ],
+      "classification": "METADATA",
+      "reason": "Method metadata and bounded33/34/35 subset; other source methods remain gaps.",
+      "cli_topics": [
+        "home",
+        "profile"
+      ]
+    },
+    {
+      "header": "include/MotorControlRS/profiles/ess_rs/Homing.h",
+      "symbols": [
+        "prepareHome"
+      ],
+      "classification": "DEVICE_OPERATION",
+      "reason": "Method metadata and bounded33/34/35 subset; other source methods remain gaps.",
+      "cli_topics": [
+        "home",
+        "profile"
+      ]
+    },
+    {
+      "header": "include/MotorControlRS/profiles/ess_rs/Persistence.h",
+      "symbols": [
+        "advancePersistence",
+        "nextPersistence",
+        "verifyPersistence"
+      ],
+      "classification": "SEQUENCER",
+      "reason": "Explicit stopped save/factory action and evidence verification; readback is not durability.",
+      "cli_topics": [
+        "persistence",
+        "profile"
+      ]
+    },
+    {
+      "header": "include/MotorControlRS/profiles/ess_rs/Persistence.h",
+      "symbols": [
+        "prepareFactoryRestore",
+        "prepareSave"
+      ],
+      "classification": "DEVICE_OPERATION",
+      "reason": "Explicit stopped save/factory action and evidence verification; readback is not durability.",
+      "cli_topics": [
+        "persistence",
+        "profile"
+      ]
+    },
+    {
+      "header": "include/MotorControlRS/profiles/ess_rs/Position.h",
+      "symbols": [
+        "advanceMove",
+        "nextMove"
+      ],
+      "classification": "SEQUENCER",
+      "reason": "Finite motion and typed PositionProfile snapshot/restore; ACK differs from completion.",
+      "cli_topics": [
+        "move",
+        "motion-profile",
+        "profile"
+      ]
+    },
+    {
+      "header": "include/MotorControlRS/profiles/ess_rs/Position.h",
+      "symbols": [
+        "buildReadPositionProfile",
+        "buildWritePositionProfile",
+        "parsePositionProfile",
+        "prepareMoveAbsolute",
+        "prepareMoveAngle",
+        "prepareMoveRelative"
+      ],
+      "classification": "DEVICE_OPERATION",
+      "reason": "Finite motion and typed PositionProfile snapshot/restore; ACK differs from completion.",
+      "cli_topics": [
+        "move",
+        "motion-profile",
+        "profile"
+      ]
+    },
+    {
+      "header": "include/MotorControlRS/profiles/ess_rs/Reads.h",
+      "symbols": [
+        "advanceRead",
+        "nextRead"
+      ],
+      "classification": "SEQUENCER",
+      "reason": "Typed nonchanging reads, bounded progression and retained observations.",
+      "cli_topics": [
+        "read",
+        "status",
+        "health",
+        "result",
+        "profile"
+      ]
+    },
+    {
+      "header": "include/MotorControlRS/profiles/ess_rs/Reads.h",
+      "symbols": [
+        "getConfig",
+        "getIdentity",
+        "getStateBlock"
+      ],
+      "classification": "OBSERVATION",
+      "reason": "Typed nonchanging reads, bounded progression and retained observations.",
+      "cli_topics": [
+        "read",
+        "status",
+        "health",
+        "result",
+        "profile"
+      ]
+    },
+    {
+      "header": "include/MotorControlRS/profiles/ess_rs/Reads.h",
+      "symbols": [
+        "prepareConfig",
+        "prepareIdentity",
+        "prepareState"
+      ],
+      "classification": "DEVICE_OPERATION",
+      "reason": "Typed nonchanging reads, bounded progression and retained observations.",
+      "cli_topics": [
+        "read",
+        "status",
+        "health",
+        "result",
+        "profile"
+      ]
+    },
+    {
+      "header": "include/MotorControlRS/profiles/ess_rs/Reads.h",
+      "symbols": [
+        "readCapabilities"
+      ],
+      "classification": "METADATA",
+      "reason": "Typed nonchanging reads, bounded progression and retained observations.",
+      "cli_topics": [
+        "read",
+        "status",
+        "health",
+        "result",
+        "profile"
+      ]
+    },
+    {
+      "header": "include/MotorControlRS/profiles/ess_rs/Registers.h",
+      "symbols": [
+        "findHomingMethod",
+        "findRegister",
+        "hasRegisterIssue",
+        "homingMethodCount",
+        "inputFunctionRegister",
+        "outputFunctionRegister",
+        "positionSegmentRegister",
+        "registerAt",
+        "registerCount",
+        "segmentStartSpeedRegister",
+        "speedSegmentRegister"
+      ],
+      "classification": "METADATA",
+      "reason": "Generated source catalogue and bounded indexed lookup metadata; not implemented device behavior.",
+      "cli_topics": []
+    },
+    {
+      "header": "include/MotorControlRS/profiles/ess_rs/Segments.h",
+      "symbols": [
+        "getSegment"
+      ],
+      "classification": "OBSERVATION",
+      "reason": "Stored PT/PV records only; serial execution is unavailable.",
+      "cli_topics": [
+        "segment",
+        "profile"
+      ]
+    },
+    {
+      "header": "include/MotorControlRS/profiles/ess_rs/Segments.h",
+      "symbols": [
+        "prepareSegmentRead",
+        "prepareSegmentSettings"
+      ],
+      "classification": "DEVICE_OPERATION",
+      "reason": "Stored PT/PV records only; serial execution is unavailable.",
+      "cli_topics": [
+        "segment",
+        "profile"
+      ]
+    },
+    {
+      "header": "include/MotorControlRS/profiles/ess_rs/Traffic.h",
+      "symbols": [
+        "decodeTraffic"
+      ],
+      "classification": "DIAGNOSTIC",
+      "reason": "Passive traffic copies/decoding; debug never consumes protocol bytes.",
+      "cli_topics": [
+        "debug"
+      ]
+    },
+    {
+      "header": "include/MotorControlRS/profiles/ess_rs/Tuning.h",
+      "symbols": [
+        "getTuning"
+      ],
+      "classification": "OBSERVATION",
+      "reason": "Typed tuning metadata/value selection/settings; native units/effects qualification remain explicit.",
+      "cli_topics": [
+        "tuning",
+        "profile"
+      ]
+    },
+    {
+      "header": "include/MotorControlRS/profiles/ess_rs/Tuning.h",
+      "symbols": [
+        "isTuningGroup",
+        "laStageParameter",
+        "tuningFieldCount",
+        "tuningParameter",
+        "tuningParameterInfo"
+      ],
+      "classification": "METADATA",
+      "reason": "Typed tuning metadata/value selection/settings; native units/effects qualification remain explicit.",
+      "cli_topics": [
+        "tuning",
+        "profile"
+      ]
+    },
+    {
+      "header": "include/MotorControlRS/profiles/ess_rs/Tuning.h",
+      "symbols": [
+        "prepareTuningRead",
+        "prepareTuningSettings",
+        "prepareTuningValue"
+      ],
+      "classification": "DEVICE_OPERATION",
+      "reason": "Typed tuning metadata/value selection/settings; native units/effects qualification remain explicit.",
+      "cli_topics": [
+        "tuning",
+        "profile"
+      ]
+    },
+    {
+      "header": "include/MotorControlRS/profiles/ess_rs/Velocity.h",
+      "symbols": [
+        "advanceVelocity",
+        "nextVelocity",
+        "serviceVelocity"
+      ],
+      "classification": "SEQUENCER",
+      "reason": "Finite velocity with explicit stop/service deadlines and immutable prerequisites.",
+      "cli_topics": [
+        "velocity",
+        "profile"
+      ]
+    },
+    {
+      "header": "include/MotorControlRS/profiles/ess_rs/Velocity.h",
+      "symbols": [
+        "prepareVelocity"
+      ],
+      "classification": "DEVICE_OPERATION",
+      "reason": "Finite velocity with explicit stop/service deadlines and immutable prerequisites.",
+      "cli_topics": [
+        "velocity",
+        "profile"
+      ]
+    },
+    {
+      "header": "include/MotorControlRS/Status.h",
+      "symbols": [
+        "Ok",
+        "errToString"
+      ],
+      "classification": "METADATA",
+      "reason": "Pure status creation and labels; separate from drive alarms and application health.",
+      "cli_topics": []
+    },
+    {
+      "header": "include/MotorControlRS/Traffic.h",
+      "symbols": [
+        "TrafficCapture",
+        "trafficKindName"
+      ],
+      "classification": "DIAGNOSTIC",
+      "reason": "Passive traffic copies/decoding; debug never consumes protocol bytes.",
+      "cli_topics": [
+        "debug"
+      ]
+    },
+    {
+      "header": "include/MotorControlRS/Units.h",
+      "symbols": [
+        "convertAcceleration",
+        "convertDisplacement",
+        "convertVelocity",
+        "narrowNativePosition",
+        "validateNativePosition",
+        "validateUnitConfig"
+      ],
+      "classification": "CONVERSION",
+      "reason": "Pure unit/quantity validation and conversion; device requests call these helpers without separate helper commands.",
+      "cli_topics": [
+        "axis",
+        "prepare",
+        "move",
+        "velocity"
+      ]
+    },
+    {
+      "header": "include/MotorControlRS/VelocityOperation.h",
+      "symbols": [
+        "prepareVelocityTarget"
+      ],
+      "classification": "CONVERSION",
+      "reason": "Exact common velocity target preparation; no device I/O.",
+      "cli_topics": [
+        "velocity"
+      ]
+    }
   ]
 }

@@ -244,7 +244,7 @@ void optionalInputsAreNotGlobalPrerequisites() {
     app->configuration.target = app->axis.target; app->configuration.operationId = 99;
     ESS::HomeRequest home; home.method = ESS::HomingMethod::METHOD_24; home.configurationGeneration = app->axis.generation;
     uint32_t unchanged = 77;
-    assert(host(app).startHome(app,11,1,home,unchanged) == Probe::Action::UNSUPPORTED);
+    assert(host(app).startHome(app,11,1,home,unchanged) == Probe::Action::UNIMPLEMENTED);
     assert(unchanged == 77 && !hardware.writes); // Setters do not implement missing switch transitions.
     home.method = ESS::HomingMethod::METHOD_35;
     auto& hp = app->homePrerequisites; hp.target = app->axis.target; hp.configurationGeneration = app->axis.generation;

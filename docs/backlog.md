@@ -1,5 +1,17 @@
 # Features implementation tasks and open questions
 
+## Prompt23 API/CLI integration
+
+- [x] One bounded command metadata table; typed group aliases, callback-aware help/caps and exact parser parity.
+- [x] Idle-only selected target, generation/cache invalidation, explicit motion-profile snapshot release and fault-independent monitor query/off.
+- [x] Terminal UNKNOWN evidence survives repeated inspection, reset and recovery without replay.
+- [x] Complete221-record/135-choice inventory plus130 installed free-function classifications and producing-route validation.
+- [x] Native/package/Python/four-build and COM13 feature/motion/stop evidence, plus final-image read-only regression; session restoration is distinguished from initial values.
+- [ ] Host USB reset loses the in-memory motion-profile backup. Initial staged target5000 is archived, final target100 is stopped; restoring arbitrary archived parameters without a move needs the owning09/11 typed-parameter work. Do not replay a move for cleanup.
+- [ ] Seven named prerequisite gaps remain in the inventory, including native parameter access, switch homing and unresolved pair/collision semantics; integration does not close the whole ESS release.
+
+See [handoff](reports/ess_release_23_2026-10-05.md) and [API/CLI coverage](ess_api_cli_coverage.md).
+
 ## Explicit save, factory restore and persistence evidence (prompt21)
 
 - [x] Typed one-write preparations with fresh checked stopped-state and retained

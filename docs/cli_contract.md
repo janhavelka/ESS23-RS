@@ -1,5 +1,13 @@
 # MotorControl-RS standalone CLI contract
 
+Prompt23 reconciles callable help, shared typed parameter aliases, target
+selection, capability states and local polling controls. The complete
+[API/CLI coverage handoff](ess_api_cli_coverage.md) records exact implemented
+routes and substantial gaps returned to their owning prompts. `useaddr` is
+idle-only host selection; it changes no drive address. `motion-profile forget`
+is explicit idle snapshot release. Cached monitor query/off remains usable
+during transport faults; reset/recover preserve terminal uncertainty.
+
 Prompt21 implements `profile ess_rs persistence inspect|snapshot|plan|begin|verify|host before|finish`
 through the public [persistence API](ess_persistence.md). Save and factory restore
 are explicit stopped-state actions. One retained invocation, two nonvolatile
@@ -59,24 +67,28 @@ The future grammar below does not add aliases to the current console.
 Multi-turn absolute values preserve turns; wrapped requests require explicit
 path/tie and fresh established command coordinates. All unit routes reuse
 the installed preparation API; host origins perform no motor traffic.
-Production physical admission remains qualification-gated.
+Production admission retains explicit configuration/reference checks. The
+reviewed finite native free-shaft subset has functional drive-report evidence;
+wider unit/fixture cases remain qualification-gated.
 
 Prompt09 implements `move relative <value> <unit> <native|motor|load> <native_rpm>
 configured [address]` and `profile ess_rs move-relative` through the same public
 preparation/sequence. Accepted and retained terminal evidence remains distinct;
-see [finite relative positioning](ess_position.md). Current bench physical writes
-remain blocked by qualification gates; there is no CLI bypass.
+see [finite relative positioning](ess_position.md). The ordinary bench firmware supports the reviewed finite free-shaft subset.
+Independent physical units, electrical timing and wider motion qualification
+remain separate; see [current functional procedure](functional_bench.md).
 
 
 Prompt 07 adds [host axis configuration and pure target previews](axis_preparation.md)
 through the same installed public API; these commands generate no motor traffic.
 
-Prompts 05–06 implement bounded [typed identity/configuration/state reads](ess_reads.md), common/profile routes, passive per-block status/health and finite opt-in observation polling. The [linked inventory](reference/ess_rs_operations.json) keeps native/hardware evidence and read/write/action obligations separate. Model/firmware compatibility, units, readiness and motion remain unqualified; these reads perform no writes.
+Prompts 05–06 implement bounded [typed identity/configuration/state reads](ess_reads.md), common/profile routes, passive per-block status/health and finite opt-in observation polling. The [linked inventory](reference/ess_rs_operations.json) keeps native/hardware evidence and read/write/action obligations separate. Unknown model/firmware mappings and physical feedback units remain unresolved; readiness is assessed per operation. These reads perform no writes and do not qualify unrelated motion modes.
 
-This defines the planned standalone console for the general `MotorControlRS`
-library and its family profiles, beginning with `MotorControlRS::ESS_RS`.
-The [probe/load console](esp32_probe.md) implements the current read-only subset;
-the full command surface below remains a contract for later implementation.
+This defines the standalone console for `MotorControlRS` and its family
+profiles, beginning with `MotorControlRS::ESS_RS`. The
+[API/CLI handoff](ess_api_cli_coverage.md) identifies every implemented route
+and named prerequisite gaps. Broader grammar examples below remain planned
+where they do not match callable help; they are not claims of dispatch support.
 The current protocol-2 subset also implements `drv`, non-consuming `result`,
 explicit `release`, local `cancel [operation-id]` and asynchronous host recovery.
 Finite admission/retention/output limits and measured evidence are in the
@@ -162,7 +174,7 @@ implemented. Aliases have identical effects on every platform.
 | `version` / `ver` | Library/build, profile and platform identity | None |
 | `profile list` | Compiled profiles, scope, implementation and qualification | None |
 | `profile select <profile>` | Explicit idle-only local profile binding | None |
-| `caps` | Implemented `readCapabilities`; probe/identity/config support, later capabilities remain planned | None |
+| `caps` | Implemented routes and explicit unsupported/unresolved/unimplemented dispositions; qualification remains separate | None |
 | `useaddr <profile-address>` | Idle-only local target selection using the profile address rules | None |
 | `config` / `settings` | Host settings, `getAxisConfig` and cached device settings, separately labelled | None |
 | `host [baud <rate> \| fmt <format>]` | Show/change host serial tuple when idle, subject to adapter capability | None |
@@ -368,8 +380,8 @@ disabled output must not be reported electrically inactive without evidence.
 Commands whose selected mode needs external signals report the missing
 prerequisite before writes; other serial commands remain available. Neither
 startup nor a normal move rewrites I/O assignments. These commands call the
-same typed profile API as any application; their implementation is still
-pending.
+same typed profile API as any application; input/output no-function, polarity
+and custom-output paths are implemented with separate qualification evidence.
 
 No startup, `setup`, `diagnose`, `recover` or host configuration command may
 silently enable, move, home, clear alarms, save parameters, restore defaults or
@@ -416,8 +428,9 @@ Routine telemetry output is rate-limited.
 A validated write acknowledgement is not motion completion. Later readable
 state does not prove that a lost non-idempotent command never executed. Do not
 automatically retry relative movement or replay commands after recovery.
-Implemented `monitor off` disables finite observation polling and cancels its local continuation while physical TX settles; it is not a motor stop. Other planned automatic modes remain unimplemented. `recover` only reinitializes host transport while idle; it does
-not clear alarms, enable the motor or resend work. `reset` always means local
+Implemented `monitor off` disables finite observation polling and cancels its local continuation while physical TX settles; it is not a motor stop. Other planned automatic modes remain unimplemented. `recover` explicitly interrupts queued/active work and settles physical TX/DE
+before reinitializing host transport. It retains uncertain results and never
+clears alarms, enables the motor or resends work. `reset` always means local
 statistics only and does not erase uncertain operations or coordinate state.
 
 ## Independent consumers and verification

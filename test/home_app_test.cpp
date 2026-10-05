@@ -74,13 +74,21 @@ void productionAndFixtureGates() {
         assert(unchanged == 77 && !hardware.writes && !app->owner.pending() && !axisReserved(*app,1));
     }
     for (int method : {1,18,24,-1,15}) {
-        assert(host(app).startHome(app,2,1,request(method),unchanged) == Probe::Action::UNSUPPORTED);
+        const auto* descriptor = ESS::homeMethod(static_cast<ESS::HomingMethod>(method));
+        const auto expected = !descriptor ? Probe::Action::INVALID :
+            descriptor->support == ESS::HomeSupport::UNRESOLVED ? Probe::Action::UNRESOLVED : Probe::Action::UNIMPLEMENTED;
+        assert(host(app).startHome(app,2,1,request(method),unchanged) == expected);
         assert(unchanged == 77 && !hardware.writes && !app->owner.pending());
+        const std::string command = "@" + std::to_string(method + 100) + " home " + std::to_string(method) + " 60 30 100 zero\n";
+        Serial.input = command; Serial.output.clear(); pump();
+        const char* disposition = expected == Probe::Action::INVALID ? "invalid" : expected == Probe::Action::UNRESOLVED ? "unresolved" : "unimplemented";
+        assert(Serial.input.empty() && Serial.output.find(std::string("\"result\":\"") + disposition + "\"") != std::string::npos);
+        assert(!hardware.writes && !app->owner.pending() && !axisReserved(*app,1));
     }
     app->homePrerequisites.indexQualified = false;
     assert(host(app).startHome(app,3,1,request(33),unchanged) == Probe::Action::INVALID);
     auto r = request(); r.offset = 1;
-    assert(host(app).startHome(app,4,1,r,unchanged) == Probe::Action::UNSUPPORTED);
+    assert(host(app).startHome(app,4,1,r,unchanged) == Probe::Action::UNRESOLVED);
     assert(unchanged == 77 && !hardware.writes);
 }
 void completeAndInvalidateReference() {

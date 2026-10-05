@@ -50,6 +50,8 @@ int main() {
     assert(!std::memcmp(savedProfile,&app->motionProfile,sizeof(savedProfile)));
 
     assert(motionProfileCommand(app,Probe::MotionProfileCommand::SNAPSHOT,v)==Probe::Action::OK && v.pending);
+    assert(motionProfileCommand(app,Probe::MotionProfileCommand::FORGET,v)==Probe::Action::BUSY);
+    assert(app->motionProfile.view.pending && app->motionProfile.request.owner);
     fixtureReply(words({10,100,100,30,0,7}));
     assert(app->motionProfile.view.saved && app->motionProfile.view.ok && !writeResponseConfirmed);
     auto request=MoveRequest(); request.position.value=Rational(100); request.position.configurationGeneration=app->axis.generation;
@@ -165,4 +167,38 @@ int main() {
     Serial.input="@99 motion-profile inspect\n";
     for (unsigned i=0;i<1000;++i) step();
     assert(Serial.output.find("\"command\":\"motion-profile\"")!=std::string::npos);
+    const auto stale=app->motionProfile;
+    const unsigned writes=hardware.writes, resets=hardware.rxResets, configs=hardware.configCalls;
+    assert(selectTarget(app,2)==Probe::Action::OK && selectTarget(app,1)==Probe::Action::OK);
+    refresh();
+    assert(motionProfileCommand(app,Probe::MotionProfileCommand::RESTORE,v)==Probe::Action::UNAVAILABLE);
+    assert(!std::memcmp(&stale,&app->motionProfile,sizeof(stale)) && hardware.writes==writes);
+    app->monitorState.settings.enabled=true;
+    assert(motionProfileCommand(app,Probe::MotionProfileCommand::FORGET,v)==Probe::Action::BUSY);
+    app->monitorState.settings.enabled=false;
+    assert(app->owner.beginConfiguration(nowUs()));
+    assert(motionProfileCommand(app,Probe::MotionProfileCommand::FORGET,v)==Probe::Action::BUSY);
+    assert(app->owner.finishConfiguration(timing(),nowUs()));
+
+    // A host snapshot release cannot release a lost-acknowledgement operation
+    // or its physical-axis conflict, even when both belong to this address.
+    auto& retained=app->records[0]; retained.operationId=600;
+    retained.address=1; retained.actionOperation=true;
+    assert(ESS::prepareNormalStop(retained.action,app->axis.target,600,nowUs(),nowUs()+REQUEST_US));
+    ActionEvent failure; failure.transport.target=app->axis.target;
+    failure.transport.operationId=600; failure.transport.kind=ReadEventKind::TRANSPORT_FAILURE;
+    failure.transport.txAccepted=8; failure.transport.executionUnknown=true; failure.txComplete=true;
+    assert(ESS::advanceAction(retained.action,failure,nowUs()));
+    updateActionReservation(*app,retained);
+    const auto uncertain=retained.action;
+    assert(axisReserved(*app,1));
+    assert(motionProfileCommand(app,Probe::MotionProfileCommand::FORGET,v)==Probe::Action::OK);
+    assert(!v.saved && !v.pending && axisReserved(*app,1));
+    Probe::ResultView result;
+    assert(lookup(app,600,result) && result.actionContext->execution==ActionExecution::UNKNOWN);
+    assert(!std::memcmp(&uncertain,result.actionContext,sizeof(uncertain)));
+    assert(hardware.writes==writes && hardware.rxResets==resets && hardware.configCalls==configs);
+    assert(motionProfileCommand(app,Probe::MotionProfileCommand::SNAPSHOT,v)==Probe::Action::OK && v.pending);
+    fixtureReply(words({10,100,100,60,0,100}));
+    assert(app->motionProfile.view.saved && app->motionProfile.view.original[3]==60 && axisReserved(*app,1));
 }

@@ -1,5 +1,7 @@
 # MotorControl-RS documentation
 
+Prompt23 delivers the [actual API/CLI coverage handoff](ess_api_cli_coverage.md) and [verified integration](reports/ess_release_23_2026-10-05.md). Typed commands, local target selection and retained results share one owner. Named native-family gaps remain explicit; this is not a full-release completion claim.
+
 Prompt22 adds [bounded ESS discovery](ess_discovery.md), minimal public probes and retained
 scan evidence with explicit recovery/restoration. [Verification](reports/ess_release_22_2026-10-05.md) records
 COM13 address/tuple scans, budget limits and unchanged motor settings/state.

@@ -55,7 +55,9 @@ class FakeConsole:
             running = self.states.popleft() if self.states else False
             speed = self.speeds.popleft() if self.speeds else (60 if running else 0)
             return dict(ok=True, state_blocks=[dict(block=0, raw_alarm=0, alarm_flag=False,
-                        running=running, released=self.released), dict(block=2, raw_position=self.raw_position, raw_speed=speed)])
+                        running=running, released=self.released), dict(block=2, raw_position=self.raw_position,
+                        raw_speed=speed, position_source=0, position_source_resolution=10,
+                        position_signed_resolution=7, position_scale_resolution=5)])
         if name == "stop":
             self.stop_sent = True
             return dict(ok=self.stop_ok, outcome="observed" if self.stop_ok else "unknown")
@@ -112,28 +114,42 @@ class FunctionalCampaignTest(unittest.TestCase):
         self.assertEqual(record["debug"]["cleanup_error"],"display query failed")
         self.assertEqual(len(console.commands("move-relative")),1)
 
-    def test_experiments_require_bounded_feedback_before_any_motion_write(self):
-        for phase in ("forward", "return", "stop-normal", "stop-direct"):
-            for position in (-1, 251):
+    def test_absolute_experiments_require_recorded_raw_fixture_window_before_motion_write(self):
+        for phase in ("absolute", "return"):
+            for position in (-1, 251, 298, 0xffffffff):
                 with self.subTest(phase=phase, position=position):
                     console = FakeConsole(raw_position=position)
                     record = {}
-                    with self.assertRaisesRegex(campaign.BenchError, "bounded native position report"):
+                    with self.assertRaisesRegex(campaign.BenchError, "recorded raw feedback fixture window"):
                         campaign.run_phase(console, phase, record)
                     self.assertEqual(console.commands("move-relative"), [])
                     self.assertEqual(console.commands("move-absolute"), [])
                     self.assertEqual(console.commands("stop"), [])
                     self.assertNotIn("move_admission", record)
-                    self.assertIn("bounded native position report", record["phase_error"])
+                    self.assertIn("recorded raw feedback fixture window", record["phase_error"])
 
     def test_positive_native_displacement_does_not_require_zero_origin(self):
-        for position in (0, 99, 250):
+        for position in (0, 99, 250, 298, 0xffffffff):
             with self.subTest(position=position):
                 console = FakeConsole(raw_position=position)
                 record = {}
                 campaign.run_phase(console, "forward", record)
                 self.assertEqual(len(console.commands("move-relative")), 1)
                 self.assertEqual(record["state_before"][2]["raw_position"], position)
+
+    def test_relative_dynamic_stops_need_no_raw_feedback_origin(self):
+        for phase in ("stop-normal", "stop-direct"):
+            for position in (298, 0xffffffff):
+                with self.subTest(phase=phase, position=position):
+                    console = FakeConsole(raw_position=position, states=(False, False, True), move_ok=False)
+                    record = {}
+                    campaign.run_phase(console, phase, record)
+                    self.assertEqual(console.commands("move-relative")[0]["move_args"],
+                                     ("250", "steps", "native", "60", "configured"))
+                    self.assertEqual(len(console.commands("move-relative")), 1)
+                    self.assertEqual([c["stop_policy"] for c in console.commands("stop")], [phase[5:]])
+                    self.assertTrue(record["move"]["interrupted_by_stop"])
+                    self.assertEqual(record["state_before"][2]["position_source"], 0)
 
     def test_delayed_zero_speed_is_read_only_and_all_reports_are_retained(self):
         console = FakeConsole(raw_position=99, speeds=(0, 0, 23, 10, 0, 0))

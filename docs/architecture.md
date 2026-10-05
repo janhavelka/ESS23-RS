@@ -1,5 +1,7 @@
 # MotorControl-RS architecture
 
+Prompt23 completes the [API/CLI integration handoff](ess_api_cli_coverage.md) with bounded host target selection, explicit snapshot release and retained uncertainty through reset/recovery. The installed core remains unchanged in platform ownership; named native-family gaps stay in the complete coverage denominator.
+
 Prompt22 adds [bounded ESS discovery](ess_discovery.md), minimal public probes and retained
 scan evidence with explicit recovery/restoration. [Verification](reports/ess_release_22_2026-10-05.md) records
 COM13 address/tuple scans, budget limits and unchanged motor settings/state.
