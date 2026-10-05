@@ -9,7 +9,12 @@ namespace MotorControlRSExample {
  * Transaction deadlines, missing evidence and generation checks always apply. */
 struct ApplicationOptions {
     uint32_t observationMaxAgeMs = 0;
-    MotorControlRS::UnitConfig positionUnits; ///< Explicit host scales; unknown until supplied. No device settings write.
+    uint32_t moveTimeoutMs = 30000; ///< 1..30000 ms, finite movement observation deadline.
+    ApplicationOptions() {
+        // Usable nominal convention, explicitly assumed rather than calibrated.
+        positionUnits.commandStepsPerMotorTurn = MotorControlRS::UnitScale(1000, 1, MotorControlRS::ScaleSource::ASSUMED);
+    }
+    MotorControlRS::UnitConfig positionUnits; ///< Host scales; default 1000 command steps/turn is ASSUMED. No device settings write.
 };
 /** Construct the shared standalone application in required PSRAM and initialize
  * its one UART/capture owner. Failure is explicit; there is no internal-RAM

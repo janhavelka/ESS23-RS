@@ -412,6 +412,11 @@ bool motionDetails(Writer& writer, const Value& report) {
     return !operation.begin || equal(operation, "0") ||
         (writer.text("Details: @1 result ") && writer.scalar(operation) && writer.text(".\n"));
 }
+bool reviewReleaseHint(Writer& writer, const Value& report) {
+    const Value wrapper = member(report, "operation_id");
+    return wrapper.kind != Kind::NUMBER || equal(wrapper, "0") ||
+        (writer.text("After reviewing: release ") && writer.scalar(wrapper) && writer.text(".\n"));
+}
 const char* motionReason(const Value& reason) {
     if (equal(reason, "busy") || equal(reason, "axis_conflict")) return "another operation still owns this motor";
     if (equal(reason, "queue_full")) return "the request queue is full";
@@ -483,11 +488,166 @@ bool motionReport(Writer& writer, const Value& report, const char* subject) {
     if (suppliedHint.kind == Kind::STRING && suppliedHint.begin != suppliedHint.end &&
         (!writer.text("Next: ") || !writer.string(suppliedHint) || !writer.character('\n'))) return false;
     if (!motionDetails(writer, report)) return false;
-    const Value wrapper = member(report, "operation_id");
-    if (equal(member(report, "type"), "simple_move") && equal(member(report, "ok"), "false") &&
-        wrapper.kind == Kind::NUMBER && !equal(wrapper, "0"))
-        return writer.text("After reviewing: release ") && writer.scalar(wrapper) && writer.text(".\n");
+    if (equal(member(report, "type"), "simple_move") && equal(member(report, "ok"), "false"))
+        return reviewReleaseHint(writer, report);
     return true;
+}
+
+Value element(const Value& array, unsigned index) {
+    if (array.kind != Kind::ARRAY) return Value();
+    Reader reader(array.begin + 1, array.end - 1);
+    Value value;
+    for (unsigned i = 0; reader.value(value); ++i) {
+        if (i == index) return value;
+        if (!reader.take(',')) break;
+    }
+    return Value();
+}
+bool unsignedValue(const Value& value, uint32_t& output) {
+    if (value.kind != Kind::NUMBER || value.begin == value.end) return false;
+    uint32_t result = 0;
+    for (const char* at = value.begin; at != value.end; ++at) {
+        if (!digit(*at) || result > (UINT32_MAX - static_cast<unsigned>(*at - '0')) / 10) return false;
+        result = result * 10 + static_cast<unsigned>(*at - '0');
+    }
+    output = result; return true;
+}
+bool setting(Writer& writer, const char* label, const Value& value, const char* suffix = "") {
+    return writer.text(label) && writer.text(": ") && writer.scalar(value) && writer.text(suffix) && writer.character('\n');
+}
+bool namedSetting(Writer& writer, const char* label, const Value& raw, bool known,
+                  const char* first, const char* second, unsigned firstCode = 0) {
+    uint32_t code = 0;
+    const char* name = known && unsignedValue(raw, code) ?
+        code == firstCode ? first : code == firstCode + 1 ? second : nullptr : nullptr;
+    return writer.text(label) && writer.text(": ") && writer.text(name ? name : "unknown") &&
+        writer.text(" (readback ") && writer.scalar(raw) && writer.text(")\n");
+}
+bool configSettings(Writer& writer, const Value& raw, const Value& known, bool flat = false) {
+    if (!setting(writer, "Microstep / subdivision", member(raw, "subdivision"), " (drive register value; steps/turn mapping unresolved)")) return false;
+    return namedSetting(writer, "Direction", member(raw, "direction"), equal(member(known, flat ? "direction_known" : "direction"), "true"), "normal", "reversed") &&
+        namedSetting(writer, "Word order", member(raw, "word_order"), equal(member(known, flat ? "word_order_known" : "word_order"), "true"), "high word first", "low word first") &&
+        namedSetting(writer, "Control algorithm", member(raw, "algorithm"), equal(member(known, flat ? "algorithm_known" : "algorithm"), "true"), "open loop", "closed loop algorithm 1", 1) &&
+        setting(writer, "Configured encoder resolution", member(raw, "encoder_resolution"), " (readback; not measured)") &&
+        namedSetting(writer, "Software limit setting", member(raw, "soft_limit_enable"), equal(member(known, flat ? "soft_limit_known" : "soft_limit_enable"), "true"), "off", "after homing");
+}
+bool profileSettings(Writer& writer, const Value& words, const Value& order, bool orderKnown) {
+    static const char* const labels[] = {"Starting speed", "Acceleration ramp time", "Deceleration ramp time", "Positioning speed"};
+    for (unsigned i = 0; i < 4; ++i)
+        if (!setting(writer, labels[i], element(words, i), i == 0 || i == 3 ? " rpm" : " ms")) return false;
+    uint32_t first = 0, second = 0, wordOrder = 0;
+    if (orderKnown && unsignedValue(order, wordOrder) && wordOrder <= 1 &&
+        unsignedValue(element(words, 4), first) && first <= UINT16_MAX &&
+        unsignedValue(element(words, 5), second) && second <= UINT16_MAX) {
+        const uint32_t bits = wordOrder ? (second << 16) | first : (first << 16) | second;
+        char value[16]; std::snprintf(value, sizeof(value), "%lu", static_cast<unsigned long>(bits));
+        return writer.text("Stored target: ") && writer.text(value) && writer.text(" (unsigned native bits; signed/physical meaning unresolved)\n");
+    }
+    return setting(writer, "Target first register", element(words, 4)) &&
+        setting(writer, "Target second register", element(words, 5)) &&
+        writer.text("Target value: unavailable until word order is known.\n");
+}
+bool conciseFailure(Writer& writer, const Value& report) {
+    Value reason = member(report, "message");
+    if (reason.kind != Kind::STRING || reason.begin == reason.end) reason = member(report, "error");
+    if (!reason.begin || equal(reason, "none")) reason = member(report, "status");
+    if (!reason.begin) reason = member(report, "result");
+    if (reason.begin && (!writer.text("Reason: ") || !writer.scalar(reason) || !writer.character('\n'))) return false;
+    if ((equal(member(report, "uncertain"), "true") || equal(member(report, "execution_unknown"), "true") ||
+         equal(member(report, "restore_unsettled"), "true")) &&
+        !writer.text("Write outcome is uncertain. Do not repeat the write.\n")) return false;
+    return motionDetails(writer, report);
+}
+bool readConfigReport(Writer& writer, const Value& report) {
+    const Value config = member(report, "config");
+    if (equal(member(report, "result"), "accepted"))
+        return writer.text("Drive configuration read accepted") && operationNumber(writer, report) && writer.text(".\n");
+    if (!equal(member(report, "ok"), "true") || config.kind != Kind::OBJECT)
+        return writer.text("Drive configuration read failed; complete settings are unavailable.\n") && conciseFailure(writer, report);
+    if (!writer.text("Drive configuration (readback)") || !operationNumber(writer, report) || !writer.text("\n") ||
+        !configSettings(writer, member(config, "raw"), member(config, "known"))) return false;
+    return writer.text("Motion speeds and ramps: settings\n") && motionDetails(writer, report);
+}
+bool profileReport(Writer& writer, const Value& report) {
+    if (equal(member(report, "pending"), "true")) return writer.text("Position profile: operation pending. Inspect with motion-profile inspect.\n") &&
+        (!equal(member(report, "execution_unknown"), "true") || writer.text("Previous write outcome is uncertain. Do not repeat the write.\n"));
+    if (equal(member(report, "execution_unknown"), "true") || equal(member(report, "restore_unsettled"), "true") ||
+        equal(member(report, "ok"), "false") || equal(member(report, "session_ok"), "false"))
+        return writer.text("Position profile is not confirmed.\n") && conciseFailure(writer, report) && writer.text("Details: @1 motion-profile inspect\n");
+    if (!equal(member(report, "saved"), "true")) return writer.text("No position profile snapshot. Use settings to read motor settings.\n");
+    return writer.text(equal(member(report, "restored"), "true") ? "Position profile restored and read back.\n" : "Position profile (last readback)\n") &&
+        profileSettings(writer, member(report, "current"), Value(), false) && writer.text("Details: @1 motion-profile inspect\n");
+}
+bool motorSettingsReport(Writer& writer, const Value& report) {
+    if (equal(member(report, "pending"), "true")) return writer.text("Settings: reading motor...\n");
+    if (!equal(member(report, "ok"), "true"))
+        return writer.text("Settings read failed; a complete fresh snapshot is unavailable.\n") &&
+            conciseFailure(writer, report) && reviewReleaseHint(writer, report);
+    const Value actual = member(report, "actual");
+    if (!writer.text("Motor settings (read from drive)\n")) return false;
+    if (equal(member(actual, "config_known"), "true")) {
+        if (!configSettings(writer, actual, actual, true)) return false;
+    } else if (!writer.text("Drive configuration: unavailable.\n")) return false;
+    if (equal(member(actual, "profile_known"), "true")) {
+        if (!profileSettings(writer, member(actual, "profile"), member(actual, "word_order"),
+            equal(member(actual, "config_known"), "true") && equal(member(actual, "word_order_known"), "true"))) return false;
+    } else if (!writer.text("Position profile: unavailable.\n")) return false;
+    const Value desired = member(report, "desired");
+    if (desired.kind == Kind::OBJECT) {
+        if (!writer.text("Next move (host preferences; applied when requested)\n") ||
+            !setting(writer, "  Speed", member(desired, "speed_rpm"), " rpm") ||
+            !setting(writer, "  Acceleration ramp time", member(desired, "acceleration"), " ms") ||
+            !setting(writer, "  Deceleration ramp time", member(desired, "deceleration"), " ms")) return false;
+        const Value scale = member(desired, "steps_per_turn");
+        if (scale.kind == Kind::OBJECT && equal(member(scale, "numerator"), "0")) {
+            if (!writer.text("  Host command steps/turn: unavailable\n")) return false;
+        } else if (scale.kind == Kind::OBJECT) {
+            if (!writer.text("  Host command steps/turn: ") || !writer.scalar(member(scale, "numerator")) ||
+                !writer.character('/') || !writer.scalar(member(scale, "denominator")) ||
+                !writer.text(" (host declaration; not inferred from subdivision)\n")) return false;
+        } else if (!setting(writer, "  Host command steps/turn", equal(scale, "0") ? Value() : scale,
+            scale.kind == Kind::NUMBER && !equal(scale, "0") ? " (host declaration; not inferred from subdivision)" : "")) return false;
+    }
+    return motionDetails(writer, report);
+}
+bool driveChanges(Writer& writer, const Value& report) {
+    const Value rows = member(report, "progress");
+    if (rows.kind != Kind::ARRAY) return true;
+    Reader reader(rows.begin + 1, rows.end - 1); Value row;
+    static const char* const labels[] = {"Direction", "Microstep / subdivision", "Word order", "Software limits",
+        "Over-limit stop", "External trigger", "External position mode", "Positive limit", "Negative limit"};
+    while (reader.value(row)) {
+        uint32_t mask = 0; unsigned index = 0;
+        if (unsignedValue(element(row, 0), mask))
+            while (index < 9 && mask != (1u << index)) ++index;
+        else index = 9;
+        if (!writer.text(index < 9 ? labels[index] : "Setting") || !writer.text(": requested ") ||
+            !writer.scalar(element(row, 3)) || !writer.text("; readback ") ||
+            !(equal(element(row, 5), "true") ? writer.scalar(element(row, 6)) : writer.text("not confirmed")) ||
+            !writer.character('\n')) return false;
+        if (!reader.take(',')) break;
+    }
+    return true;
+}
+bool driveReport(Writer& writer, const Value& report) {
+    const bool update = equal(member(report, "driver_kind"), "update");
+    const bool confirmed = equal(member(report, "ok"), "true") && !equal(member(report, "uncertain"), "true");
+    if (equal(member(report, "result"), "accepted")) return writer.text("Drive settings operation accepted") && operationNumber(writer, report) && writer.text(".\n");
+    if (!writer.text(update ? "Drive settings update" : "Drive settings read") || !operationNumber(writer, report) ||
+        !writer.text(confirmed ? " complete.\n" : " not confirmed.\n")) return false;
+    if (!confirmed) return conciseFailure(writer, report) && (!update || driveChanges(writer, report));
+    if (update) return driveChanges(writer, report) &&
+        writer.text("Selected settings were checked by readback. Active behavior is not established by this result.\n") && motionDetails(writer, report);
+    const Value observation = member(report, "observation"), raw = member(observation, "raw");
+    uint32_t known = 0; unsignedValue(member(observation, "known_fields"), known);
+    return setting(writer, "Microstep / subdivision", element(raw, 1), " (drive register value; steps/turn mapping unresolved)") &&
+        namedSetting(writer, "Direction", element(raw, 0), known & 1, "normal", "reversed") &&
+        namedSetting(writer, "Word order", element(raw, 2), known & 4, "high word first", "low word first") &&
+        namedSetting(writer, "Software limit setting", element(raw, 3), known & 8, "off", "after homing") &&
+        namedSetting(writer, "Over-limit stop", element(raw, 4), known & 16, "free parking (stop/torque meaning unresolved)", "emergency stop") &&
+        namedSetting(writer, "External trigger", element(raw, 5), known & 32, "level", "rising edge") &&
+        namedSetting(writer, "External position mode", element(raw, 6), known & 64, "relative", "absolute") &&
+        writer.text("Active behavior and signed limit interpretation remain unconfirmed.\n") && motionDetails(writer, report);
 }
 } // namespace
 
@@ -504,6 +664,17 @@ bool renderHuman(const char* json, char* output, std::size_t capacity) noexcept 
     reader.space();
     if (reader.at != json + length) return false;
     Writer writer(output, capacity);
+    const Value command = member(report, "command");
+    const bool settings = equal(member(report, "type"), "motor_settings");
+    const bool configuration = equal(command, "read-config") || equal(member(report, "read_kind"), "config");
+    const bool profile = equal(command, "motion-profile");
+    const bool drive = equal(command, "driver") || equal(member(report, "driver_group"), "drive");
+    if (settings || configuration || profile || drive) {
+        const bool rendered = settings ? motorSettingsReport(writer, report) : configuration ? readConfigReport(writer, report) :
+            profile ? profileReport(writer, report) : driveReport(writer, report);
+        if (!rendered) { output[0] = '\0'; return false; }
+        writer.finish(); return true;
+    }
     const char* subject = motionSubject(report);
     if (subject) {
         if (!motionReport(writer, report, subject)) { output[0] = '\0'; return false; }

@@ -33,14 +33,14 @@ Action driverAdmissionStatus(const MotorControlRS::Status& status) noexcept {
 }
 namespace {
 
-enum class Command : uint8_t { HELP, VERSION, CONFIG, STATUS, HEALTH, STATS, PROBE, CAPTURE_READ, RECOVER, RESET, MEMORY, LOAD, DRV, RESULT, CANCEL, RELEASE, READ, PROFILE, CAPS, READ_IDENTITY, READ_CONFIG, READ_STATE, HEALTH_CHECK, MONITOR, AXIS, PREPARE, ENABLE, MOTOR_RELEASE, ALARM_CLEAR, STOP, MOVE, POSITION_CLEAR, VELOCITY, DRIVER, IO, HOME, SEGMENT, CONTROL, TUNING, HOST, COMMUNICATION, PERSISTENCE, MOTION_PROFILE, DEBUG, DISCOVER, USEADDR, WIRING, MOVE_BY, MOVE_TO, SPEED, ACCEL, DECEL, MOTION, STEPS_PER_TURN };
+enum class Command : uint8_t { HELP, VERSION, CONFIG, STATUS, HEALTH, STATS, PROBE, CAPTURE_READ, RECOVER, RESET, MEMORY, LOAD, DRV, RESULT, CANCEL, RELEASE, READ, PROFILE, CAPS, READ_IDENTITY, READ_CONFIG, READ_STATE, HEALTH_CHECK, MONITOR, AXIS, PREPARE, ENABLE, MOTOR_RELEASE, ALARM_CLEAR, STOP, MOVE, POSITION_CLEAR, VELOCITY, DRIVER, IO, HOME, SEGMENT, CONTROL, TUNING, HOST, COMMUNICATION, PERSISTENCE, MOTION_PROFILE, DEBUG, DISCOVER, USEADDR, WIRING, MOVE_BY, MOVE_TO, SPEED, ACCEL, DECEL, MOTION, STEPS_PER_TURN, SETTINGS };
 struct Entry { const char* name; Command command; const char* syntax; const char* effect; bool bus; const char* description; };
 const Entry COMMANDS[] = {
     {"moveby", Command::MOVE_BY, "moveby VALUE [steps|deg|turn|mm]", "finite_relative_move_with_readonly_preparation", true, "Move by an amount; default unit is command steps."},
     {"moveto", Command::MOVE_TO, "moveto VALUE [steps|deg|turn|mm]", "finite_absolute_move_with_readonly_preparation", true, "Move to an absolute target; angles need a configured origin."},
-    {"speed", Command::SPEED, "speed [RPM]", "host_intent_applied_by_next_simple_move", false, "Show or set speed for the next move (native motor RPM)."},
-    {"accel", Command::ACCEL, "accel [0..2000]", "host_intent_native_ramp_applied_by_next_simple_move", false, "Show or set acceleration ramp; native drive value, not steps/s2."},
-    {"decel", Command::DECEL, "decel [0..2000]", "host_intent_native_ramp_applied_by_next_simple_move", false, "Show or set deceleration ramp; native drive value, not steps/s2."},
+    {"speed", Command::SPEED, "speed [RPM]", "host_intent_applied_by_next_simple_move", false, "Show or set speed for the next move (0..3000 rpm; default 60; zero prevents a move)."},
+    {"accel", Command::ACCEL, "accel [0..2000]", "host_intent_native_ramp_applied_by_next_simple_move", false, "Show or set acceleration ramp time in ms (0..2000; default 100)."},
+    {"decel", Command::DECEL, "decel [0..2000]", "host_intent_native_ramp_applied_by_next_simple_move", false, "Show or set deceleration ramp time in ms (0..2000; default 100)."},
     {"motion", Command::MOTION, "motion [write|stored]", "inspect_or_select_simple_motion_setup", false, "Show move settings; write sends setup, stored explicitly reuses it."},
     {"stepsperturn", Command::STEPS_PER_TURN, "stepsperturn POSITIVE_NUMBER", "host_command_scale_only_no_motor_settings", false, "Declare command steps per motor turn for angle conversion."},
     {"discover", Command::DISCOVER, "discover [profile ess_rs|manufacturer stepperonline] [addresses FIRST LAST] [tuple BAUD FORMAT] [query-ms 1..5000] [overall-ms 1..60000] [requests 1..256] [results 1..8] [identity] | discover inspect|cancel|restore|finish; max4 distinct tuples,128bytes,20tokens; defaults selected endpoint/current tuple,query500ms,overall5000ms,requests16,results8,no identity,no retries", "bounded_nonchanging_queries_retained_findings_host_restoration", true, "Find responding drives within explicit address, serial and time limits."},
@@ -51,7 +51,7 @@ const Entry COMMANDS[] = {
     {"version", Command::VERSION, "version", "show_build", false, "Show the firmware version and console protocol."},
     {"ver", Command::VERSION, "ver", "show_build", false, "Alias for version."},
     {"config", Command::CONFIG, "config", "show_host_settings", false, "Show the selected address and host communication settings."},
-    {"settings", Command::CONFIG, "settings", "show_host_settings", false, "Alias for config."},
+    {"settings", Command::SETTINGS, "settings", "read_actual_motor_settings_and_next_move_choices", true, "Read actual motor settings and show the next move choices together."},
     {"useaddr", Command::USEADDR, "useaddr 1..247", "idle_host_selection_invalidates_dependent_confidence_no_motor_io", false, "Select a host target while idle; this does not change the drive address."},
     {"wiring", Command::WIRING, "wiring [x0|x1|x2|x3|y0|y1 unknown|unconnected|connected]", "declare_external_wiring_only_no_device_assignment_or_io", false, "Declare connected or unconnected terminals without changing their functions."},
     {"host", Command::HOST, "host [baud RATE | fmt 8N1|8N2|8E1|8O1 | set RATE FORMAT | restore | caps]", "settled_host_serial_only_no_motor_settings", false, "Show or change host UART settings; drive settings stay separate."},
@@ -1473,13 +1473,17 @@ void Console::dispatch() noexcept {
     }
     if (entry->command == Command::MOVE_BY || entry->command == Command::MOVE_TO ||
         entry->command == Command::SPEED || entry->command == Command::ACCEL ||
-        entry->command == Command::DECEL || entry->command == Command::MOTION || entry->command == Command::STEPS_PER_TURN) {
+        entry->command == Command::DECEL || entry->command == Command::MOTION || entry->command == Command::STEPS_PER_TURN || entry->command == Command::SETTINGS) {
         if (outputPending()) { ++inputDropped_; return; }
         if (!host_.simpleMotion) { error(id, entry->name, "unavailable"); return; }
         SimpleMotionCommand request;
         const bool move = entry->command == Command::MOVE_BY || entry->command == Command::MOVE_TO;
+        const bool session = move || entry->command == Command::SETTINGS;
         const std::size_t args = count - first - 1;
-        if (move) {
+        if (entry->command == Command::SETTINGS) {
+            if (args) { error(id, entry->name, "invalid_arguments"); return; }
+            request.kind = SimpleMotionCommandKind::SETTINGS;
+        } else if (move) {
             if (args < 1 || args > 2 || !Core::parseExactNumber(tokens[first + 1], request.position.value) ||
                 (args == 2 && !positionUnit(tokens[first + 2], request.position.unit))) {
                 error(id, entry->name, "invalid_arguments"); return;
@@ -1510,8 +1514,8 @@ void Console::dispatch() noexcept {
                 Core::Rational value;
                 const bool speed = entry->command == Command::SPEED;
                 if (!Core::parseExactNumber(tokens[first + 1], value) || value.denominator != 1 ||
-                    value.numerator < (speed ? 1 : 0) || value.numerator > (speed ? 60 : 2000)) {
-                    error(id, entry->name, speed ? "speed_must_be_1_to_60_rpm" : "native_ramp_must_be_0_to_2000"); return;
+                    value.numerator < 0 || value.numerator > (speed ? 3000 : 2000)) {
+                    error(id, entry->name, speed ? "speed_must_be_0_to_3000_rpm" : "ramp_must_be_0_to_2000_ms"); return;
                 }
                 request.kind = speed ? SimpleMotionCommandKind::SPEED : entry->command == Command::ACCEL ?
                     SimpleMotionCommandKind::ACCEL : SimpleMotionCommandKind::DECEL;
@@ -1521,9 +1525,9 @@ void Console::dispatch() noexcept {
         bool available = false;
         for (std::size_t i = 0; i < OUTSTANDING_CAPACITY - 1; ++i) available = available || !outstanding_[i].commandId;
         SimpleMotionView view;
-        const auto result = move && !available ? Action::BUSY : host_.simpleMotion(host_.context, id, &request, view);
+        const auto result = session && !available ? Action::BUSY : host_.simpleMotion(host_.context, id, &request, view);
         if (result != Action::OK) { action(id, entry->name, result); return; }
-        if (move) {
+        if (session) {
             track(id, view.operationId);
             formatSimpleMotion(id, view, true);
         } else if (entry->command == Command::STEPS_PER_TURN) {
@@ -1543,12 +1547,12 @@ void Console::dispatch() noexcept {
             if (view.decelerationKnown) std::snprintf(decel,sizeof(decel),"%u",view.deceleration);
             else std::snprintf(decel,sizeof(decel),"use drive setting");
             std::snprintf(output_,sizeof(output_),
-                "Next move: speed %u rpm; accel %s; decel %s.\nRamp values are native drive settings.\nSetup: %s. Settings apply when you request a move.",
+                "Next move: speed %u rpm; accel %s ms; decel %s ms.\nSetup: %s. Settings apply when you request a move.\nUse settings to read the motor's actual values.",
                 view.speedRpm,accel,decel,view.setup == Core::MoveSetup::USE_STORED ? "reuse stored parameters" : "send parameters before start");
             emit(0,true);
         } else {
             std::snprintf(output_,sizeof(output_),
-                "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"%s\",\"ok\":true,\"speed_rpm\":%u,\"acceleration\":%u,\"deceleration\":%u,\"acceleration_known\":%s,\"deceleration_known\":%s,\"ramp_units\":\"native\",\"setup\":\"%s\",\"device_settings_changed\":false}",
+                "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"%s\",\"ok\":true,\"speed_rpm\":%u,\"acceleration\":%u,\"deceleration\":%u,\"acceleration_known\":%s,\"deceleration_known\":%s,\"ramp_units\":\"native\",\"ramp_time_unit\":\"ms\",\"setup\":\"%s\",\"device_settings_changed\":false}",
                 static_cast<unsigned long>(id),entry->name,view.speedRpm,view.acceleration,view.deceleration,
                 boolean(view.accelerationKnown),boolean(view.decelerationKnown),view.setup == Core::MoveSetup::USE_STORED ? "stored" : "write");
             emit();
@@ -1794,8 +1798,9 @@ void Console::dispatch() noexcept {
             monitorSettings.enabled = true;
         else { error(id, "monitor", "invalid_arguments"); return; }
     }
-    const Entry* described = entry->command == Command::HELP && arg ? find(arg) : nullptr;
-    if (entry->command == Command::HELP && arg && !described) {
+    const bool advancedHelp = entry->command == Command::HELP && arg && !std::strcmp(arg, "advanced");
+    const Entry* described = entry->command == Command::HELP && arg && !advancedHelp ? find(arg) : nullptr;
+    if (entry->command == Command::HELP && arg && !described && !advancedHelp) {
         error(id, entry->name, "unknown_command"); return;
     }
     if ((loadCommand || (described && described->command == Command::LOAD)) && !host_.load) {
@@ -1818,6 +1823,7 @@ void Console::dispatch() noexcept {
         case Command::DISCOVER: return host_.discovery != nullptr;
         case Command::CAPTURE_READ: return host_.startCaptureRead != nullptr;
         case Command::ENABLE: case Command::MOTOR_RELEASE: case Command::ALARM_CLEAR: case Command::STOP: case Command::POSITION_CLEAR: return host_.startAction && host_.snapshot;
+        case Command::SETTINGS: return host_.simpleMotion != nullptr;
         case Command::MOVE: return host_.startMove && host_.snapshot && host_.axis;
         case Command::VELOCITY: return host_.startVelocity && host_.snapshot && host_.axis;
         case Command::TUNING: case Command::CONTROL: case Command::SEGMENT: case Command::IO: case Command::DRIVER: return host_.startDriver && host_.snapshot;
@@ -1849,9 +1855,14 @@ void Console::dispatch() noexcept {
             described->command==Command::STATS && !host_.snapshot?"stats reset":
             described->command==Command::STATS && !host_.resetStats?"stats":described->syntax):nullptr;
         if (outputFormat_ == Format::HUMAN) {
+            if (!described && !advancedHelp && host_.simpleMotion) {
+                std::snprintf(output_,sizeof(output_),
+                    "Motor control\n  settings           Read actual motor settings and next-move choices\n  moveby 100 steps    Move by an amount (steps, deg, turn, mm)\n  moveto 100 steps    Move to an absolute target\n  speed 60           Next move speed: 0..3000 rpm (0 prevents movement)\n  accel 100          Acceleration ramp time: 0..2000 ms\n  decel 100          Deceleration ramp time: 0..2000 ms\n  stop normal        Stop with the configured deceleration\n  stop direct        ESS emergency stop, without the ramp\n  enable             Enable the drive explicitly\n  motor-release      Release motor windings explicitly\n  probe              Check communication\n  debug off|raw|decoded   Observe normal traffic\nBoot choices: 60 rpm, 100 ms ramps, assumed 1000 steps/turn; no automatic motion.\nUse help COMMAND for details; help advanced for diagnostics and all operations.");
+                emit(0,true); return;
+            }
             if (described && described->command == Command::MOVE && host_.simpleMotion) {
                 std::snprintf(output_,sizeof(output_),
-                    "Moving the motor\n  moveby 100 steps   Move by an amount\n  moveby 36 deg      Move by an angle (set stepsperturn first)\n  moveto 100 steps   Move to an absolute target\n  speed 60          Set speed in rpm\n  accel 100         Set native acceleration ramp\n  decel 100         Set native deceleration ramp\n  stop normal       Stop using configured deceleration\n  motion            Show move settings\nUse help moveby for details. Advanced syntax: @1 help move.");
+                    "Moving the motor\n  moveby 100 steps   Move by an amount\n  moveby 36 deg      Move by an angle (assumed 1000 steps/turn at boot)\n  moveto 100 steps   Move to an absolute target\n  speed 60          Set speed in rpm\n  accel 100         Set acceleration ramp time in ms\n  decel 100         Set deceleration ramp time in ms\n  stop normal       Stop using configured deceleration\n  settings          Read motor settings and next-move choices\nUse help moveby for details. Advanced syntax: @1 help move.");
                 emit(0,true); return;
             }
             std::size_t used=0; bool fits=true;
@@ -1867,6 +1878,7 @@ void Console::dispatch() noexcept {
                 for (const char* group:groups) {
                     bool heading=false;
                     for (const Entry& item:COMMANDS) {
+                        if (!std::strcmp(item.name,"?") || !std::strcmp(item.name,"ver") || !std::strcmp(item.name,"ping")) continue;
                         if (!callable(item.command) || std::strcmp(helpGroup(item.command),group)) continue;
                         if (!heading) { fits=fits && append(output_,sizeof(output_),used,"\n[%s]\n",group); heading=true; }
                         fits=fits && append(output_,sizeof(output_),used,"  %-16s ",item.name) &&
@@ -2416,7 +2428,21 @@ bool Console::formatSimpleMotion(uint32_t id, const SimpleMotionView& view, bool
         move->state == Core::ActionState::FAILED) && !move->triggerEvidence.txAccepted &&
         !move->triggerEvidence.executionUnknown);
     std::size_t used = 0;
-    bool fits = append(output_,sizeof(output_),used,
+    bool fits;
+    if (view.settingsOnly) {
+        char acceleration[16] = "null", deceleration[16] = "null";
+        if (view.accelerationKnown) std::snprintf(acceleration,sizeof(acceleration),"%u",view.acceleration);
+        if (view.decelerationKnown) std::snprintf(deceleration,sizeof(deceleration),"%u",view.deceleration);
+        fits = append(output_,sizeof(output_),used,
+            "{\"type\":\"motor_settings\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"settings\",\"command_id\":%lu,\"operation_id\":%lu,\"pending\":%s,\"ok\":%s,\"address\":%u,\"status\":\"%s\",\"desired\":{\"speed_rpm\":%u,\"acceleration\":%s,\"deceleration\":%s,\"steps_per_turn\":{\"numerator\":%lld,\"denominator\":%llu}},\"actual\":{\"config_known\":%s,\"subdivision\":%u,\"direction\":%u,\"direction_known\":%s,\"word_order\":%u,\"word_order_known\":%s,\"algorithm\":%u,\"algorithm_known\":%s,\"encoder_resolution\":%u,\"soft_limit_enable\":%u,\"soft_limit_known\":%s,\"profile_known\":%s,\"profile\":[%u,%u,%u,%u,%u,%u]},\"message\":\"",
+            static_cast<unsigned long>(id),static_cast<unsigned long>(view.commandId),static_cast<unsigned long>(view.operationId),
+            boolean(view.pending),boolean(view.pending || view.ok),view.address,Core::errToString(view.status.code),
+            view.speedRpm,acceleration,deceleration,
+            static_cast<long long>(view.scaleKnown ? view.stepsPerTurn.numerator : 0),static_cast<unsigned long long>(view.stepsPerTurn.denominator),
+            boolean(view.configKnown),view.subdivision,view.direction,boolean(view.directionKnown),view.wordOrder,boolean(view.wordOrderKnown),
+            view.algorithm,boolean(view.algorithmKnown),view.encoderResolution,view.softLimitEnable,boolean(view.softLimitKnown),
+            boolean(view.profileKnown),view.profile[0],view.profile[1],view.profile[2],view.profile[3],view.profile[4],view.profile[5]);
+    } else fits = append(output_,sizeof(output_),used,
         "{\"type\":\"simple_move\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"%s\",\"command_id\":%lu,\"operation_id\":%lu,\"move_operation_id\":%lu,\"address\":%u,\"ok\":%s,\"pending\":%s,\"state\":\"%s\",\"phase\":%u,\"outcome\":\"%s\",\"execution\":\"%s\",\"completion\":\"%s\",\"running_observed\":%s,\"uncertain\":%s,\"interrupted_by_stop\":%s,\"no_motion_sent\":%s,\"observation_known\":%s,\"raw_alarm\":%u,\"status\":\"%s\",\"detail\":%ld,\"message\":\"",
         static_cast<unsigned long>(id),view.relative ? "moveby" : "moveto",static_cast<unsigned long>(view.commandId),
         static_cast<unsigned long>(view.operationId),static_cast<unsigned long>(view.moveOperationId),view.address,
@@ -2435,6 +2461,20 @@ bool Console::formatSimpleMotion(uint32_t id, const SimpleMotionView& view, bool
     }
     fits = fits && append(output_,sizeof(output_),used,"\",\"read_operation_id\":%lu}",
         static_cast<unsigned long>(view.readOperationId));
+    if (fits && view.settingsOnly && view.profileEvidence) {
+        const auto& evidence = *view.profileEvidence;
+        char tx[sizeof(evidence.tx) * 2 + 1], rx[sizeof(evidence.rx) * 2 + 1];
+        hex(evidence.tx,evidence.txLength,tx,sizeof(tx));
+        hex(evidence.rx,evidence.rxLength,rx,sizeof(rx));
+        --used; // Extend the complete wrapper; wire evidence stays in JSON diagnostics.
+        fits = append(output_,sizeof(output_),used,
+            ",\"profile_evidence\":{\"address\":%u,\"configuration_generation\":%lu,\"serial_generation\":%lu,\"pending\":%s,\"ok\":%s,\"tx_hex\":\"%s\",\"rx_hex\":\"%s\",\"tx_accepted\":%llu,\"tx_complete\":%s,\"closure_qualified\":%s,\"closure_earliest_us\":%llu,\"closure_latest_us\":%llu,\"deadline_us\":%llu,\"delivered_us\":%llu,\"error\":\"%s\"}}",
+            evidence.address,static_cast<unsigned long>(evidence.generation),static_cast<unsigned long>(evidence.serialGeneration),
+            boolean(evidence.pending),boolean(evidence.ok),tx,rx,static_cast<unsigned long long>(evidence.txAccepted),
+            boolean(evidence.txComplete),boolean(evidence.closureQualified),
+            static_cast<unsigned long long>(evidence.closureEarliestUs),static_cast<unsigned long long>(evidence.closureLatestUs),
+            static_cast<unsigned long long>(evidence.deadlineUs),static_cast<unsigned long long>(evidence.deliveredUs),evidence.error);
+    }
     if (!fits) return false;
     emit(inspection || view.pending ? 0 : view.operationId);
     return true;

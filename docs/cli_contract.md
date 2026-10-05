@@ -1,7 +1,7 @@
 # MotorControl-RS standalone CLI contract
 
 Ordinary console commands now use a [human-readable presentation](console.md),
-with grouped `help`/`?`, usage examples and operation hints. Explicit `@ID` commands
+with a short `help`/`?`, complete `help advanced`, usage examples and operation hints. Explicit `@ID` commands
 retain the existing JSONL schema. Output format is retained per asynchronous
 operation and deferred stop reply; there is one command/API/owner path.
 
@@ -10,8 +10,13 @@ one finite preparation session in the application. `speed`, `accel`, `decel`,
 `motion write|stored` and `stepsperturn` retain host intent. Missing checked
 configuration/profile data is read through existing typed executors; fresh
 state is obtained before admission. Default movement still writes parameters
-and then starts through the public move sequence. Host scales, origins, enable
-and I/O changes are not inferred. Native ramp values are not physical acceleration.
+and then starts through the public move sequence. Boot intent is 60 rpm with 100 ms ramps and an explicitly ASSUMED 1000-command-steps/turn
+host scale. Origins, enable and I/O changes are not inferred. Ramp times are not
+physical acceleration. Position speed accepts 0..3000 rpm (a move needs nonzero),
+ramps 0..2000 ms; old 60-rpm/250-increment experiment caps are removed.
+`settings` reads current configuration and position parameters without writes and
+separates those from next-move intent. It replaces the old host `config` alias.
+Existing detailed commands remain available to automation.
 No core scheduler, additional bus owner or conversion path is introduced.
 
 Simple session IDs own their read/move child records. `result N` inspects the

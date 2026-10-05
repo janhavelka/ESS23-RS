@@ -35,8 +35,9 @@ void cancelSimplePreparation(App& a, uint8_t address, uint64_t now) {
         record->cancelContinuation = true;
         if (record->requestId.owner) a.owner.cancelUnsent(record->requestId, now);
     }
-    if (s.view.phase == Probe::SimpleMotionPhase::PROFILE && a.motionProfile.request.owner)
-        a.owner.cancelUnsent(a.motionProfile.request, now);
+    auto& profile = s.view.settingsOnly ? s.settingsProfile : a.motionProfile;
+    if (s.view.phase == Probe::SimpleMotionPhase::PROFILE && profile.request.owner)
+        a.owner.cancelUnsent(profile.request, now);
 }
 bool simpleProfileReady(const App& a, uint64_t now) {
     const auto& v = a.motionProfile.view;
@@ -61,7 +62,7 @@ Probe::Action simpleMotion(void* context, uint32_t commandId,
     if (v.pending) return Probe::Action::BUSY;
     switch (command->kind) {
     case Kind::SPEED:
-        if (!command->nativeValue || command->nativeValue > 60) return Probe::Action::INVALID;
+        if (command->nativeValue > 3000) return Probe::Action::INVALID;
         s.desired.speedRpm = command->nativeValue; break;
     case Kind::ACCEL: case Kind::DECEL:
         if (command->nativeValue > 2000) return Probe::Action::INVALID;
@@ -75,9 +76,9 @@ Probe::Action simpleMotion(void* context, uint32_t commandId,
             command->position.value.denominator <= 0 || command->position.value.denominator > UINT32_MAX)
             return Probe::Action::INVALID;
         s.desired.stepsPerTurn = command->position.value; s.desired.scaleKnown = true; break;
-    case Kind::MOVE_BY: case Kind::MOVE_TO: {
+    case Kind::SETTINGS: case Kind::MOVE_BY: case Kind::MOVE_TO: {
         if (v.operationId) {
-            if (!v.delivered || !v.ok || v.uncertain || v.execution != ActionExecution::ACKNOWLEDGED)
+            if (!v.delivered || !v.ok || v.uncertain || (!v.settingsOnly && v.execution != ActionExecution::ACKNOWLEDGED))
                 return Probe::Action::BUSY;
             if (releaseSimpleMotion(a) != Probe::Action::OK) return Probe::Action::BUSY;
         }
@@ -92,7 +93,8 @@ Probe::Action simpleMotion(void* context, uint32_t commandId,
         s.position = command->position; s.position.relative = command->kind == Kind::MOVE_BY;
         v.operationId = a.nextOperationId++; v.commandId = commandId;
         v.target = a.axis.target.id; v.address = a.axis.target.address; v.relative = s.position.relative;
-        v.pending = true; v.phase = simpleConfigurationReady(a, nowUs()) ? Probe::SimpleMotionPhase::STATE : Probe::SimpleMotionPhase::CONFIG;
+        v.settingsOnly = command->kind == Kind::SETTINGS;
+        v.pending = true; v.phase = !v.settingsOnly && simpleConfigurationReady(a, nowUs()) ? Probe::SimpleMotionPhase::STATE : Probe::SimpleMotionPhase::CONFIG;
         s.bindingGeneration = a.bindingGeneration; s.serialGeneration = a.serial.generation;
         s.deadlineUs = nowUs() + 5000000;
         a.latestOperationId = v.operationId;
@@ -112,6 +114,8 @@ void serviceSimpleMotion(App& a, uint64_t now) {
         return;
     }
     SimpleAdmission own(a);
+    auto& profileSession = v.settingsOnly ? s.settingsProfile : a.motionProfile;
+    if (v.settingsOnly) serviceMotionProfile(a, profileSession, now);
     if (v.moveOperationId) {
         const auto* child = findRecord(a, v.moveOperationId);
         if (!child) { finishSimpleMotion(a, Status(Err::INVALID_CONFIG, 0, "missing move result"), "Move result is unavailable"); return; }
@@ -131,8 +135,8 @@ void serviceSimpleMotion(App& a, uint64_t now) {
             if (read->requestId.owner) a.owner.cancelUnsent(read->requestId, now);
             if (!read->delivered) return;
         }
-        if (v.phase == Phase::PROFILE && a.motionProfile.view.pending) {
-            if (a.motionProfile.request.owner) a.owner.cancelUnsent(a.motionProfile.request, now);
+        if (v.phase == Phase::PROFILE && profileSession.view.pending) {
+            if (profileSession.request.owner) a.owner.cancelUnsent(profileSession.request, now);
             return;
         }
         finishSimpleMotion(a, Status(Err::INVALID_CONFIG, 0, "preparation cancelled"),
@@ -156,7 +160,22 @@ void serviceSimpleMotion(App& a, uint64_t now) {
             finishSimpleMotion(a, child->read.status, "Preparatory read failed; no move was admitted", ActionOutcome::TRANSPORT_ERROR); return;
         }
         if (!releaseSimpleChild(a, s.view.readOperationId)) return;
-        if (v.phase == Phase::CONFIG) { v.phase = Phase::STATE; return; }
+        if (v.phase == Phase::CONFIG) {
+            const auto& config = a.configuration; const auto& raw = config.raw;
+            v.configKnown = true; v.subdivision = raw.subdivision; v.direction = raw.direction;
+            v.wordOrder = raw.wordOrder; v.algorithm = raw.algorithm; v.encoderResolution = raw.encoderResolution;
+            v.softLimitEnable = raw.softLimitEnable;
+            v.directionKnown = config.directionKnown; v.wordOrderKnown = config.wordOrderKnown;
+            v.algorithmKnown = config.algorithmKnown; v.softLimitKnown = config.softLimitEnableKnown;
+            if (!v.settingsOnly) { v.phase = Phase::STATE; return; }
+            Probe::MotionProfileView profile;
+            v.profileEvidence = &s.settingsProfile.view;
+            const auto admitted = motionProfileOperation(a, s.settingsProfile, Probe::MotionProfileCommand::SNAPSHOT, profile);
+            if (admitted != Probe::Action::OK) {
+                finishSimpleMotion(a, Status(Err::INVALID_CONFIG, static_cast<int32_t>(admitted), "profile admission"), "Cannot read motion parameters; use the retained read result for details"); return;
+            }
+            v.phase = Phase::PROFILE; return;
+        }
         // ARRIVED is not a zero-speed predicate. A following ordinary move
         // waits through fresh, successful state observations only; failed reads
         // remain terminal, and no write is retried or replayed.
@@ -187,9 +206,22 @@ void serviceSimpleMotion(App& a, uint64_t now) {
         }
         v.phase = Phase::PROFILE; return;
     }
-    if (v.phase != Phase::PROFILE || a.motionProfile.view.pending) return;
-    if (!a.motionProfile.view.ok) {
+    if (v.phase != Phase::PROFILE || profileSession.view.pending) return;
+    if (!profileSession.view.ok) {
         finishSimpleMotion(a, Status(Err::FRAME_ERROR, 0, "profile read failed"), "Position profile read failed; no move was admitted", ActionOutcome::TRANSPORT_ERROR); return;
+    }
+    if (v.settingsOnly) {
+        std::memcpy(v.profile, profileSession.view.current, sizeof(v.profile));
+        v.profileKnown = v.ok = true;
+        finishSimpleMotion(a, Ok(), "none", ActionOutcome::OBSERVED);
+        return;
+    }
+    if (!v.speedRpm) {
+        finishSimpleMotion(a, Status(Err::ILLEGAL_VALUE, 0, "zero positioning speed"), "Speed is zero; set speed above zero before requesting movement"); return;
+    }
+    if (v.speedRpm < a.motionProfile.view.current[0]) {
+        finishSimpleMotion(a, Status(Err::ILLEGAL_VALUE, 0, "speed below drive starting speed"),
+            "Requested speed is below the drive starting speed; see settings"); return;
     }
     MoveRequest request; request.position = s.position; request.position.configurationGeneration = a.axis.generation;
     request.speedRpm = v.speedRpm; request.ramp = MoveRamp::VERIFIED_CONFIGURED; request.setup = v.setup;
@@ -201,10 +233,6 @@ void serviceSimpleMotion(App& a, uint64_t now) {
             (!request.position.relative && request.position.frame != CoordinateFrame::NATIVE && !a.axis.originKnown) ?
             "Absolute host coordinates need an established axis origin; use help axis" : converted.msg);
         return;
-    }
-    if ((target.displacementKnown && (target.displacementNative < -250 || target.displacementNative > 250)) ||
-        (!target.displacementKnown && !absoluteMoveInEnvelope(a, request, now))) {
-        finishSimpleMotion(a, Status(Err::ILLEGAL_VALUE, 0, "example motion bounds"), "Example bounds require displacement within -250 to 250 steps and unreferenced absolute target and feedback within 0 to 250"); return;
     }
     const auto admitted = startMove(&a, v.commandId, v.address, request, v.moveOperationId);
     a.latestOperationId = v.operationId;

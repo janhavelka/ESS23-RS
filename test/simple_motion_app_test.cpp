@@ -4,7 +4,7 @@
 #include "move_app_test.cpp"
 #undef main
 namespace {
-void simpleReadStep(uint16_t rawSpeed = 0) {
+void simpleReadStep(uint16_t rawSpeed = 0, uint16_t subdivision = 1000) {
     for (unsigned i=0;i<100 && !app->simple.view.readOperationId;++i) step();
     const auto id=app->simple.view.readOperationId; assert(id);
     const auto kind=findRecord(*app,id)->read.kind;
@@ -12,19 +12,19 @@ void simpleReadStep(uint16_t rawSpeed = 0) {
     std::vector<uint8_t> reply;
     if (kind==ESS::ReadKind::CONFIG) {
         switch(token) {
-        case 0: reply=registers(1,{0,1000}); break;
-        case 1: reply=registers(1,{1,3,0}); break;
-        case 2: reply=registers(1,{0,0,0}); break;
-        case 3: reply=registers(1,{0,1,2,3,0}); break;
-        case 4: reply=registers(1,{3,4000}); break;
+        case 0: reply=registers(app->simple.view.address,{0,subdivision}); break;
+        case 1: reply=registers(app->simple.view.address,{1,3,0}); break;
+        case 2: reply=registers(app->simple.view.address,{0,0,0}); break;
+        case 3: reply=registers(app->simple.view.address,{0,1,2,3,0}); break;
+        case 4: reply=registers(app->simple.view.address,{3,4000}); break;
         default: assert(false);
         }
     } else {
         assert(kind==ESS::ReadKind::STATE);
         switch(token) {
-        case 0: reply=registers(1,{0,1}); break;
-        case 1: reply=registers(1,{0,0}); break;
-        case 2: reply=registers(1,{0,0,rawSpeed}); break;
+        case 0: reply=registers(app->simple.view.address,{0,1}); break;
+        case 1: reply=registers(app->simple.view.address,{0,0}); break;
+        case 2: reply=registers(app->simple.view.address,{0,0,rawSpeed}); break;
         default: assert(false);
         }
     }
@@ -40,12 +40,13 @@ void prepareSimple() {
     for(unsigned i=0;i<20 && app->simple.view.pending && app->simple.view.phase!=Probe::SimpleMotionPhase::PROFILE;++i)
         simpleReadStep();
     assert(app->simple.view.pending && app->simple.view.phase==Probe::SimpleMotionPhase::PROFILE);
-    if (!app->motionProfile.view.pending) { pump(); return; }
-    const auto id=app->motionProfile.request;
+    auto& profile=app->simple.view.settingsOnly ? app->simple.settingsProfile : app->motionProfile;
+    if (!profile.view.pending) { pump(); return; }
+    const auto id=profile.request;
     for(unsigned i=0;i<25000 && !app->owner.txAccepted(id);++i) step();
     assert(app->owner.txAccepted(id) && hardware.tx[1]==3 && hardware.tx[3]==0x20);
-    scheduleReply(std::max(hardware.writeStarted+hardware.tx.size()*87+1000,hardware.time+1000),registers(1,{30,100,100,60,0,5000}));
-    for(unsigned i=0;i<25000 && app->motionProfile.view.pending;++i) step();
+    scheduleReply(std::max(hardware.writeStarted+hardware.tx.size()*87+1000,hardware.time+1000),registers(app->simple.view.address,{30,100,100,60,0,5000}));
+    for(unsigned i=0;i<25000 && profile.view.pending;++i) step();
     pump();
 }
 void completeSimple() {
@@ -53,6 +54,129 @@ void completeSimple() {
     if (findRecord(*app,child)->move.request.setup != MoveSetup::USE_STORED) moveStep(child);
     moveStep(child);
     moveStep(child,registers(1,{0,4})); moveStep(child,registers(1,{0,1})); pump(1000);
+}
+void testSettingsColdReadRetainsActualValuesAndReclaims() {
+    fresh(); command("@1 speed 90\n@2 accel 125\n@3 decel 175\n@4 settings\n");
+    const auto first=app->simple.view.operationId;
+    assert(first && app->simple.view.settingsOnly && !app->simple.view.moveAdmitted);
+    prepareSimple(); pump(1000);
+    const auto& result=*view(first).simpleMotion;
+    assert(result.ok && result.delivered && !result.pending && result.settingsOnly);
+    assert(hardware.writes==6 && !result.moveOperationId && !result.readOperationId);
+    assert(!app->motionProfile.view.saved && !app->rememberedMoveGeneration);
+    for(const auto& block : app->stateCache.blocks) assert(!block.valid); // No STATE transaction occurred.
+    assert(result.configKnown && result.subdivision==1000 && result.encoderResolution==4000);
+    assert(result.algorithm==3 && !result.algorithmKnown && result.wordOrderKnown);
+    const uint16_t actual[]={30,100,100,60,0,5000};
+    assert(result.profileKnown && !std::memcmp(result.profile,actual,sizeof(actual)));
+    assert(result.profileEvidence==&app->simple.settingsProfile.view);
+    assert(result.profileEvidence->ok && result.profileEvidence->closureQualified &&
+        result.profileEvidence->txLength==8 && result.profileEvidence->rxLength==17);
+    assert(result.speedRpm==90 && result.acceleration==125 && result.deceleration==175);
+    assert(result.execution==ActionExecution::NOT_TRANSMITTED && !result.uncertain);
+    assert(Serial.output.find("\"type\":\"motor_settings\"")!=std::string::npos);
+    assert(Serial.output.find("\"subdivision\":1000")!=std::string::npos);
+    assert(Serial.output.find("\"profile\":[30,100,100,60,0,5000]")!=std::string::npos);
+    // Retained wrapper copies remain historical when the desired settings change.
+    command("@5 speed 120\n"); assert(view(first).simpleMotion->speedRpm==90);
+    command("@6 settings\n");
+    const auto second=app->simple.view.operationId; assert(second!=first);
+    Probe::ResultView gone; assert(!lookup(app,first,gone));
+    assert(app->simple.view.phase==Probe::SimpleMotionPhase::CONFIG);
+    prepareSimple(); pump(1000);
+    assert(app->simple.view.ok && app->simple.view.delivered && hardware.writes==12);
+    assert(app->simple.view.speedRpm==120 && app->simple.view.profile[3]==60);
+    for(const auto& block : app->stateCache.blocks) assert(!block.valid);
+    command("@7 moveby 100\n");
+    assert(!app->simple.view.settingsOnly && app->simple.view.phase==Probe::SimpleMotionPhase::CONFIG);
+    assert(!lookup(app,second,gone));
+    prepareSimple(); completeSimple();
+    assert(app->simple.view.ok && app->simple.view.move->request.speedRpm==120);
+}
+void testSettingsFailureRemainsExplicitAndOwned() {
+    for(const bool failProfile : {false,true}) {
+        fresh(); command("@1 settings\n");
+        const auto wrapper=app->simple.view.operationId;
+        if(failProfile) for(unsigned i=0;i<5;++i) simpleReadStep();
+        const auto child=app->simple.view.readOperationId;
+        const auto request=failProfile ? app->simple.settingsProfile.request : findRecord(*app,child)->requestId;
+        for(unsigned i=0;i<25000 && !app->owner.txAccepted(request);++i) step();
+        assert(app->owner.txAccepted(request) && hardware.tx[1]==3);
+        scheduleReply(std::max(hardware.writeStarted+hardware.tx.size()*87+1000,hardware.time+1000),crc({1,0x83,2}));
+        for(unsigned i=0;i<25000 && view(wrapper).pending;++i) step();
+        pump(1000);
+        const auto& result=*view(wrapper).simpleMotion;
+        assert(result.settingsOnly && !result.ok && result.delivered && !result.pending);
+        assert(result.configKnown==failProfile && !result.profileKnown && !result.moveAdmitted);
+        assert(!result.moveOperationId && hardware.writes==(failProfile?6u:1u));
+        for(const auto& block : app->stateCache.blocks) assert(!block.valid);
+        if(!failProfile) assert(view(child).typedRead->status.code==Err::EXCEPTION);
+        else {
+            assert(result.profileEvidence==&app->simple.settingsProfile.view);
+            assert(!result.profileEvidence->ok && result.profileEvidence->rxLength==5);
+        }
+        const auto transactions=hardware.writes;
+        command("@2 settings\n@3 moveby 100\n");
+        assert(app->simple.view.operationId==wrapper && hardware.writes==transactions);
+        assert(release(app,wrapper)==Probe::Action::OK);
+        command("@4 settings\n"); prepareSimple(); pump(1000);
+        assert(app->simple.view.ok && app->simple.view.delivered);
+    }
+}
+void testSettingsPreserveRestorationAfterConfigurationAndTargetChanges() {
+    fresh(); command("@1 moveby 100\n"); prepareSimple(); completeSimple();
+    assert(app->motionProfile.view.saved);
+    unsigned char original[sizeof(app->motionProfile)];
+    std::memcpy(original,&app->motionProfile,sizeof(original));
+    command("@2 settings\n");
+    for(unsigned i=0;i<5;++i) simpleReadStep(0,2000);
+    assert(app->simple.view.phase==Probe::SimpleMotionPhase::PROFILE);
+    prepareSimple(); pump(1000);
+    assert(app->simple.view.ok && app->simple.view.subdivision==2000);
+    assert(app->simple.settingsProfile.configuration.subdivision==2000);
+    assert(!std::memcmp(original,&app->motionProfile,sizeof(original)));
+
+    command("@3 settings\n");
+    for(unsigned i=0;i<5;++i) simpleReadStep(0,2000);
+    const auto wrapper=app->simple.view.operationId;
+    const auto request=app->simple.settingsProfile.request;
+    for(unsigned i=0;i<25000 && !app->owner.txAccepted(request);++i) step();
+    assert(app->owner.txAccepted(request));
+    scheduleReply(std::max(hardware.writeStarted+hardware.tx.size()*87+1000,hardware.time+1000),crc({1,0x83,2}));
+    for(unsigned i=0;i<25000 && app->simple.view.pending;++i) step();
+    pump(1000);
+    assert(!app->simple.view.ok && app->simple.view.delivered);
+    assert(!std::memcmp(original,&app->motionProfile,sizeof(original)));
+    assert(release(app,wrapper)==Probe::Action::OK);
+    assert(selectTarget(app,2)==Probe::Action::OK);
+    command("@4 settings\n"); prepareSimple(); pump(1000);
+    assert(app->simple.view.ok && app->simple.view.address==2 && app->simple.view.profileKnown);
+    assert(!std::memcmp(original,&app->motionProfile,sizeof(original)));
+}
+void testSettingsPrivateProfileSettlesBeforeCancelledWrapperRelease() {
+    fresh(); command("@1 settings\n");
+    const auto wrapper=app->simple.view.operationId;
+    for(unsigned i=0;i<5;++i) simpleReadStep();
+    const auto profile=app->simple.settingsProfile.request;
+    for(unsigned i=0;i<25000 && !app->owner.txAccepted(profile);++i) step();
+    assert(app->owner.txAccepted(profile));
+    assert(cancel(app,wrapper)==Probe::Action::OK && release(app,wrapper)==Probe::Action::BUSY);
+    assert(view(wrapper).simpleMotion->profileEvidence->pending);
+    scheduleReply(std::max(hardware.writeStarted+hardware.tx.size()*87+1000,hardware.time+1000),registers(1,{30,100,100,60,0,5000}));
+    for(unsigned i=0;i<25000 && view(wrapper).pending;++i) step();
+    pump(1000);
+    assert(!view(wrapper).pending && !app->simple.view.ok && app->simple.view.delivered);
+    assert(app->simple.view.outcome==ActionOutcome::CANCELLED && hardware.writes==6);
+    assert(!app->simple.view.profileEvidence->pending && app->simple.view.profileEvidence->rxLength==17);
+    assert(!app->motionProfile.view.saved && !app->rememberedMoveGeneration);
+    assert(release(app,wrapper)==Probe::Action::OK && !app->simple.settingsProfile.request.owner);
+}
+void testSpeedBelowDriveStartHasSpecificFailure() {
+    fresh(); command("@1 speed 1\n@2 moveby 100\n");
+    assert(app->simple.desired.speedRpm==1);
+    prepareSimple(); pump(1000);
+    assert(!app->simple.view.ok && !app->simple.view.moveAdmitted && hardware.writes==9);
+    assert(!std::strcmp(app->simple.view.error,"Requested speed is below the drive starting speed; see settings"));
 }
 void testSimpleAbsoluteMoveUsesOrdinaryAbsoluteTrigger() {
     fresh(); command("@1 moveto 100 steps\n");
@@ -75,6 +199,33 @@ void testSimpleAbsoluteMoveUsesOrdinaryAbsoluteTrigger() {
     assert(!view(wrapper).pending && app->simple.view.ok && app->simple.view.delivered);
     assert(app->simple.view.runningObserved && app->simple.view.completion==ActionCompletion::OBSERVED);
     assert(app->simple.view.execution==ActionExecution::ACKNOWLEDGED);
+}
+void testBootDefaultsManufacturerRangeAndLongerMove() {
+    fresh();
+    assert(app->simple.desired.speedRpm==60 && app->simple.desired.acceleration==100 &&
+        app->simple.desired.deceleration==100 && app->simple.desired.accelerationKnown && app->simple.desired.decelerationKnown);
+    assert(app->axis.units.commandStepsPerMotorTurn.numerator==1000 &&
+        app->axis.units.commandStepsPerMotorTurn.source==ScaleSource::ASSUMED);
+    command("@1 speed 90\n@2 moveby 1 turn\n"); prepareSimple();
+    const auto child=app->simple.view.moveOperationId; assert(child);
+    auto& move=findRecord(*app,child)->move;
+    assert(move.request.speedRpm==90 && move.prepared.effectiveNative==1000);
+    assert(move.deadlineUs-move.startedUs==30000000 && move.options.pollIntervalUs==20000);
+    moveStep(child); moveStep(child);
+    const auto started=hardware.time;
+    moveStep(child,registers(1,{0,4}));
+    assert(move.runningObserved && move.options.pollIntervalUs==500000);
+    for(unsigned i=0;i<13;++i) moveStep(child,registers(1,{0,4}));
+    assert(hardware.time-started>5000000 && view(child).pending);
+    moveStep(child,registers(1,{0,1})); pump(1000);
+    assert(app->simple.view.ok && app->simple.view.delivered);
+
+    command("@3 speed 3000\n"); assert(app->simple.desired.speedRpm==3000);
+    command("@4 speed 3001\n"); assert(app->simple.desired.speedRpm==3000);
+    command("@5 speed 0\n"); assert(app->simple.desired.speedRpm==0);
+    command("@6 moveby 100\n"); prepareSimple();
+    pump(1000);
+    assert(!app->simple.view.pending && !app->simple.view.moveAdmitted);
 }
 void testColdSettingsReadPreparationAndRepeat() {
     fresh();
@@ -107,7 +258,7 @@ void testColdSettingsReadPreparationAndRepeat() {
     completeSimple(); assert(app->simple.view.ok && hardware.writes==before+6);
 }
 void testUnknownScaleAndExplicitColdScale() {
-    fresh(); command("@1 moveby 36 deg\n"); prepareSimple(); pump(1000);
+    fresh(0,UnitConfig()); command("@1 moveby 36 deg\n"); prepareSimple(); pump(1000);
     assert(!app->simple.view.moveAdmitted && !app->simple.view.ok && app->simple.view.delivered);
     assert(hardware.writes==9); // Five config + three state + one profile, all FC03.
     const auto failed=app->simple.view.operationId;
@@ -250,8 +401,8 @@ void testRetainedChildAndBlockedTerminal() {
     assert(release(app,wrapper)==Probe::Action::OK && !findRecord(*app,child));
 }
 void testBoundsAndUncertainResultNotReplayed() {
-    fresh(); command("@1 moveby 251\n"); prepareSimple(); pump(1000);
-    assert(!app->simple.view.moveAdmitted && hardware.writes==9 && app->simple.view.status.code==Err::ILLEGAL_VALUE);
+    fresh(); command("@1 moveby 2147483648\n"); prepareSimple(); pump(1000);
+    assert(!app->simple.view.moveAdmitted && hardware.writes==9);
     fresh(); command("@1 moveby 100\n"); prepareSimple();
     const auto child=app->simple.view.moveOperationId;
     moveStep(child); waitTx(child);
@@ -264,6 +415,12 @@ void testBoundsAndUncertainResultNotReplayed() {
 }
 int main() {
     testColdSettingsReadPreparationAndRepeat();
+    testSettingsColdReadRetainsActualValuesAndReclaims();
+    testSettingsFailureRemainsExplicitAndOwned();
+    testSettingsPreserveRestorationAfterConfigurationAndTargetChanges();
+    testSpeedBelowDriveStartHasSpecificFailure();
+    testSettingsPrivateProfileSettlesBeforeCancelledWrapperRelease();
+    testBootDefaultsManufacturerRangeAndLongerMove();
     testSimpleAbsoluteMoveUsesOrdinaryAbsoluteTrigger();
     testUnknownScaleAndExplicitColdScale();
     testRejectedAndAcceptedStopDuringPreparation();

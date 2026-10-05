@@ -3,7 +3,8 @@
 #include <MotorControlRS/profiles/ess_rs/Position.h>
 
 namespace MotorControlRSExample { namespace Probe {
-enum class SimpleMotionCommandKind : uint8_t { QUERY, SPEED, ACCEL, DECEL, SETUP, SCALE, MOVE_BY, MOVE_TO };
+struct MotionProfileView;
+enum class SimpleMotionCommandKind : uint8_t { QUERY, SETTINGS, SPEED, ACCEL, DECEL, SETUP, SCALE, MOVE_BY, MOVE_TO };
 enum class SimpleMotionPhase : uint8_t { IDLE, CONFIG, PROFILE, STATE, MOVE, TERMINAL };
 /** Local desired settings or one finite move. No command retains caller storage. */
 struct SimpleMotionCommand {
@@ -14,11 +15,11 @@ struct SimpleMotionCommand {
 };
 /** Desired host settings. Applying these never writes the drive. */
 struct SimpleMotionSettings {
-    uint16_t speedRpm = 60, acceleration = 0, deceleration = 0;
-    bool accelerationKnown = false, decelerationKnown = false;
+    uint16_t speedRpm = 60, acceleration = 100, deceleration = 100;
+    bool accelerationKnown = true, decelerationKnown = true;
     MotorControlRS::MoveSetup setup = MotorControlRS::MoveSetup::WRITE_ALL;
-    MotorControlRS::Rational stepsPerTurn;
-    bool scaleKnown = false;
+    MotorControlRS::Rational stepsPerTurn = MotorControlRS::Rational(1000);
+    bool scaleKnown = true; ///< Explicit nominal ASSUMED convention, not calibration.
 };
 /** Cached application session. The optional context is borrowed only while the
  * console formats this view; it remains owned by the ordinary move record. */
@@ -27,6 +28,11 @@ struct SimpleMotionView : SimpleMotionSettings {
     uint8_t address = 0;
     SimpleMotionPhase phase = SimpleMotionPhase::IDLE;
     bool pending = false, delivered = false, ok = false, moveAdmitted = false, relative = true;
+    bool settingsOnly = false, configKnown = false, profileKnown = false;
+    const MotionProfileView* profileEvidence = nullptr; ///< Borrowed retained settings-only read evidence.
+    uint16_t subdivision = 0, direction = 0, wordOrder = 0, algorithm = 0,
+        encoderResolution = 0, softLimitEnable = 0, profile[6] = {};
+    bool directionKnown = false, wordOrderKnown = false, algorithmKnown = false, softLimitKnown = false;
     bool runningObserved = false, uncertain = false, interruptedByStop = false;
     MotorControlRS::ActionOutcome outcome = MotorControlRS::ActionOutcome::NONE;
     MotorControlRS::ActionExecution execution = MotorControlRS::ActionExecution::NOT_TRANSMITTED;

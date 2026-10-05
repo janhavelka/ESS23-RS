@@ -28,7 +28,7 @@ void statusAndAdmission() {
     assert(renderHuman("{\"command\":\"debug\",\"ok\":true,\"result\":\"accepted\",\"mode\":\"raw\"}", output, sizeof(output)));
     contains(output, "[OK] debug");
     assert(renderHuman("{\"command\":\"motion-profile\",\"ok\":true,\"result\":\"accepted\",\"pending\":false,\"restored\":true}", output, sizeof(output)));
-    contains(output, "[OK] motion-profile");
+    contains(output, "No position profile snapshot");
 }
 void evidenceAndHints() {
     char output[2048];
@@ -108,6 +108,93 @@ void conciseMotion() {
     contains(output, "After reviewing: release 99.");
     char tiny[100];
     assert(!renderHuman(complete, tiny, sizeof(tiny)) && tiny[0] == '\0');
+}
+void conciseSettings() {
+    char output[4096];
+    const char* config = "{\"command\":\"read-config\",\"operation_id\":7,\"read_kind\":\"config\",\"ok\":true,\"config\":{\"raw\":{\"direction\":0,\"subdivision\":1000,\"word_order\":1,\"algorithm\":2,\"encoder_resolution\":4000,\"soft_limit_enable\":0},\"known\":{\"direction\":true,\"word_order\":true,\"algorithm\":true,\"soft_limit_enable\":true}},\"steps\":[{\"tx\":\"0103\",\"attempted_us\":100}]}";
+    assert(renderHuman(config, output, sizeof(output)));
+    contains(output, "Drive configuration (readback) (operation 7)");
+    contains(output, "Microstep / subdivision: 1000");
+    contains(output, "steps/turn mapping unresolved");
+    contains(output, "Direction: normal (readback 0)");
+    contains(output, "Word order: low word first (readback 1)");
+    contains(output, "Control algorithm: closed loop algorithm 1");
+    contains(output, "Configured encoder resolution: 4000 (readback; not measured)");
+    contains(output, "Details: @1 result 7");
+    assert(!std::strstr(output, "Attempted") && !std::strstr(output, "0103"));
+    assert(renderHuman("{\"command\":\"result\",\"read_kind\":\"config\",\"ok\":true,\"config\":{\"raw\":{\"direction\":9,\"subdivision\":0,\"word_order\":1,\"algorithm\":2},\"known\":{\"direction\":false,\"word_order\":false,\"algorithm\":false}}}", output, sizeof(output)));
+    contains(output, "Microstep / subdivision: 0");
+    contains(output, "Direction: unknown (readback 9)");
+    contains(output, "Word order: unknown (readback 1)");
+    contains(output, "Control algorithm: unknown (readback 2)");
+    assert(renderHuman("{\"command\":\"read-config\",\"ok\":false,\"status\":\"TIMEOUT\",\"operation_id\":8,\"config\":null}", output, sizeof(output)));
+    contains(output, "Drive configuration read failed");
+    contains(output, "Reason: TIMEOUT");
+    assert(!std::strstr(output, "Microstep / subdivision"));
+    assert(renderHuman("{\"command\":\"motion-profile\",\"ok\":true,\"session_ok\":true,\"saved\":true,\"current\":[30,100,200,60,1,2]}", output, sizeof(output)));
+    contains(output, "Starting speed: 30 rpm");
+    contains(output, "Acceleration ramp time: 100 ms");
+    contains(output, "Deceleration ramp time: 200 ms");
+    contains(output, "Positioning speed: 60 rpm");
+    contains(output, "Target first register: 1");
+    contains(output, "Target second register: 2");
+    contains(output, "Target value: unavailable until word order is known");
+    assert(renderHuman("{\"command\":\"motion-profile\",\"ok\":true,\"session_ok\":false,\"saved\":true,\"execution_unknown\":true,\"error\":\"write_timeout\",\"current\":[30,100,200,60,1,2]}", output, sizeof(output)));
+    contains(output, "Position profile is not confirmed");
+    contains(output, "Do not repeat the write");
+    assert(!std::strstr(output, "Starting speed"));
+    assert(renderHuman("{\"command\":\"driver\",\"driver_kind\":\"read\",\"driver_group\":\"drive\",\"ok\":true,\"operation_id\":10,\"observation\":{\"raw\":[1,1600,0,1,0,0,1],\"known_fields\":127},\"evidence\":[[1,2,3]]}", output, sizeof(output)));
+    contains(output, "Drive settings read (operation 10) complete");
+    contains(output, "Microstep / subdivision: 1600");
+    contains(output, "Direction: reversed");
+    contains(output, "Software limit setting: after homing");
+    contains(output, "External position mode: absolute");
+    assert(!std::strstr(output, "Evidence"));
+    assert(renderHuman("{\"command\":\"driver\",\"driver_kind\":\"update\",\"ok\":false,\"status\":\"FRAME_ERROR\",\"uncertain\":true,\"operation_id\":11}", output, sizeof(output)));
+    contains(output, "Drive settings update (operation 11) not confirmed");
+    contains(output, "Write outcome is uncertain");
+    contains(output, "Details: @1 result 11");
+    assert(renderHuman("{\"command\":\"driver\",\"driver_kind\":\"update\",\"ok\":true,\"progress\":[[2,17,1000,1600,true,true,1600,false,0,\"acknowledged\"]]}", output, sizeof(output)));
+    contains(output, "Microstep / subdivision: requested 1600; readback 1600");
+    contains(output, "Active behavior is not established");
+    assert(renderHuman("{\"command\":\"driver\",\"driver_kind\":\"update\",\"ok\":false,\"uncertain\":true,\"progress\":[[2,17,1000,1600,false,false,0,false,0,\"unknown\"]]}", output, sizeof(output)));
+    contains(output, "Microstep / subdivision: requested 1600; readback not confirmed");
+    contains(output, "Do not repeat the write");
+}
+void consolidatedSettings() {
+    char output[4096];
+    assert(renderHuman("{\"type\":\"motor_settings\",\"command\":\"settings\",\"pending\":true,\"ok\":true}", output, sizeof(output)));
+    assert(std::strcmp(output, "Settings: reading motor...\n") == 0);
+    const char* actual = "\"actual\":{\"config_known\":true,\"subdivision\":1000,\"direction\":0,\"direction_known\":true,\"word_order\":0,\"word_order_known\":true,\"algorithm\":2,\"algorithm_known\":true,\"encoder_resolution\":4000,\"soft_limit_enable\":0,\"soft_limit_known\":true,\"profile_known\":true,\"profile\":[30,100,200,60,1,2]}";
+    std::string report = std::string("{\"type\":\"motor_settings\",\"ok\":true,\"operation_id\":12,") + actual + ",\"desired\":{\"speed_rpm\":50,\"acceleration\":null,\"deceleration\":0,\"steps_per_turn\":{\"numerator\":2000,\"denominator\":3}}}";
+    assert(renderHuman(report.c_str(), output, sizeof(output)));
+    contains(output, "Motor settings (read from drive)");
+    contains(output, "Microstep / subdivision: 1000");
+    contains(output, "Stored target: 65538 (unsigned native bits");
+    contains(output, "Next move (host preferences; applied when requested)");
+    contains(output, "  Speed: 50 rpm");
+    contains(output, "  Acceleration ramp time: unavailable");
+    contains(output, "  Deceleration ramp time: 0 ms");
+    contains(output, "Host command steps/turn: 2000/3 (host declaration; not inferred from subdivision)");
+    const auto order = report.find("\"word_order\":0"); assert(order != std::string::npos);
+    report[order + std::strlen("\"word_order\":")] = '1';
+    assert(renderHuman(report.c_str(), output, sizeof(output)));
+    contains(output, "Stored target: 131073");
+    assert(renderHuman("{\"type\":\"motor_settings\",\"ok\":true,\"actual\":{\"config_known\":false,\"subdivision\":0,\"profile_known\":false,\"profile\":[0,0,0,0,0,0]}}", output, sizeof(output)));
+    contains(output, "Drive configuration: unavailable");
+    contains(output, "Position profile: unavailable");
+    assert(!std::strstr(output, "Microstep / subdivision: 0") && !std::strstr(output, "Starting speed"));
+    assert(renderHuman("{\"type\":\"motor_settings\",\"ok\":false,\"operation_id\":13,\"read_operation_id\":14,\"message\":\"Configuration read timed out\",\"actual\":{\"config_known\":true,\"subdivision\":1000}}", output, sizeof(output)));
+    contains(output, "Settings read failed");
+    contains(output, "Configuration read timed out");
+    contains(output, "Details: @1 result 14");
+    contains(output, "After reviewing: release 13");
+    assert(!std::strstr(output, "Microstep / subdivision"));
+    assert(renderHuman("{\"type\":\"motor_settings\",\"ok\":true,\"actual\":{},\"desired\":{\"steps_per_turn\":{\"numerator\":0,\"denominator\":1}}}", output, sizeof(output)));
+    contains(output, "Host command steps/turn: unavailable");
+    assert(!std::strstr(output, "steps/turn: 0/1"));
+    char small[128];
+    assert(!renderHuman(report.c_str(), small, sizeof(small)) && !small[0]);
 }
 void nestedFamiliesAndTraffic() {
     char output[4096];
@@ -191,6 +278,8 @@ int main() {
     statusAndAdmission();
     evidenceAndHints();
     conciseMotion();
+    conciseSettings();
+    consolidatedSettings();
     nestedFamiliesAndTraffic();
     boundsAndMalformed();
 }

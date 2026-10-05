@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Included inside the standalone application's private namespace.
 // Explicit profile snapshot/restoration uses the normal owner and typed codecs.
-bool submitMotionProfile(App& a, bool write, uint64_t now) {
-    auto& session = a.motionProfile;
+bool submitMotionProfile(App& a, App::MotionProfileState& session, bool write, uint64_t now) {
     auto& view = session.view;
     Rtu::BusRequest request;
     if (write) {
@@ -31,10 +30,8 @@ bool submitMotionProfile(App& a, bool write, uint64_t now) {
     request.validator = Rtu::essValidator();
     return request.wire.length && a.owner.admit(request, now, session.request) == Rtu::BusAdmission::ACCEPTED;
 }
-Probe::Action motionProfileCommand(void* context, Probe::MotionProfileCommand command, Probe::MotionProfileView& out) {
+Probe::Action motionProfileOperation(App& a, App::MotionProfileState& session, Probe::MotionProfileCommand command, Probe::MotionProfileView& out) {
     if (command > Probe::MotionProfileCommand::FORGET) return Probe::Action::INVALID;
-    App& a = *static_cast<App*>(context);
-    auto& session = a.motionProfile;
     auto& view = session.view;
     out = view;
     if (command == Probe::MotionProfileCommand::INSPECT) return Probe::Action::OK;
@@ -63,10 +60,10 @@ Probe::Action motionProfileCommand(void* context, Probe::MotionProfileCommand co
     const bool retainWrite = !restore && view.writeTxLength;
     if (restore && reconcile) return Probe::Action::BUSY;
     // Preserve the original snapshot; never silently replace it after rebinding.
-    if (view.saved && !motionProfileEndpoint(a) && !(reconcile && view.address == a.axis.target.address &&
+    if (view.saved && !motionProfileEndpoint(a, session) && !(reconcile && view.address == a.axis.target.address &&
         std::memcmp(&session.configuration, &a.configuration.raw, sizeof(session.configuration)) == 0))
         return Probe::Action::UNAVAILABLE;
-    if (restore && (!motionProfileEndpoint(a) || !motionProfileStationary(a, nowUs()) ||
+    if (restore && (!motionProfileEndpoint(a, session) || !motionProfileStationary(a, nowUs()) ||
         axisReserved(a, a.axis.target.address))) return Probe::Action::UNAVAILABLE;
     if (!view.saved) session.configuration = a.configuration.raw;
     view.address = a.axis.target.address;
@@ -96,7 +93,7 @@ Probe::Action motionProfileCommand(void* context, Probe::MotionProfileCommand co
     view.deliveredUs = 0;
     view.closureQualified = false;
     view.closureEarliestUs = view.closureLatestUs = 0;
-    if (!submitMotionProfile(a, restore, nowUs())) {
+    if (!submitMotionProfile(a, session, restore, nowUs())) {
         view.pending = false;
         view.error = "admission";
         out = view;
@@ -105,8 +102,11 @@ Probe::Action motionProfileCommand(void* context, Probe::MotionProfileCommand co
     out = view;
     return Probe::Action::OK;
 }
-void serviceMotionProfile(App& a, uint64_t now) {
-    auto& session = a.motionProfile;
+Probe::Action motionProfileCommand(void* context, Probe::MotionProfileCommand command, Probe::MotionProfileView& out) {
+    App& a = *static_cast<App*>(context);
+    return motionProfileOperation(a, a.motionProfile, command, out);
+}
+void serviceMotionProfile(App& a, App::MotionProfileState& session, uint64_t now) {
     auto& view = session.view;
     if (!view.pending) return;
     // Invalidate once as soon as this parameter write may have applied, even
@@ -158,7 +158,7 @@ void serviceMotionProfile(App& a, uint64_t now) {
         view.deliveredUs = 0;
         view.txComplete = view.closureQualified = false;
         view.closureEarliestUs = view.closureLatestUs = 0;
-        if (!submitMotionProfile(a, false, now)) {
+        if (!submitMotionProfile(a, session, false, now)) {
             view.pending = false;
             view.error = "readback_admission";
         }
@@ -177,9 +177,11 @@ void serviceMotionProfile(App& a, uint64_t now) {
         return;
     }
     std::memcpy(view.current, words, sizeof(words));
-    std::memcpy(a.rememberedMoveWords, words + 1, sizeof(a.rememberedMoveWords));
-    a.rememberedMoveGeneration = a.axis.generation;
-    a.rememberedMoveBinding = a.bindingGeneration; a.rememberedMoveSerial = a.serial.generation;
+    if (&session == &a.motionProfile) {
+        std::memcpy(a.rememberedMoveWords, words + 1, sizeof(a.rememberedMoveWords));
+        a.rememberedMoveGeneration = a.axis.generation;
+        a.rememberedMoveBinding = a.bindingGeneration; a.rememberedMoveSerial = a.serial.generation;
+    }
     if (!view.saved) {
         std::memcpy(view.original, words, sizeof(words));
         view.saved = true;
@@ -200,3 +202,5 @@ void serviceMotionProfile(App& a, uint64_t now) {
     if (view.restored) view.restoreUnsettled = false;
     view.ok = true;
 }
+
+void serviceMotionProfile(App& a, uint64_t now) { serviceMotionProfile(a, a.motionProfile, now); }

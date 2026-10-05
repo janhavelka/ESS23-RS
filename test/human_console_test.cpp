@@ -233,6 +233,29 @@ void cachedStatusAndAsyncFormats() {
     contains(fake.lines.back(), std::to_string(human.operation).c_str());
     assert(fake.lookups == 3 && fake.releases == 0);
 }
+void simpleHelpHasOneSettingsEntry() {
+    Fake fake; auto host = fake.host();
+    host.simpleMotion = [](void*, uint32_t, const Probe::SimpleMotionCommand*, Probe::SimpleMotionView&) {
+        return Probe::Action::OK;
+    };
+    host.startDriver = [](void*, uint32_t, uint8_t, Ess::DriverKind, const Ess::DriverRequest&, uint32_t&) {
+        return Probe::Action::OK;
+    };
+    host.motionProfile = [](void*, Probe::MotionProfileCommand, Probe::MotionProfileView&) {
+        return Probe::Action::OK;
+    };
+    Probe::Console console(host);
+    send(console, "help\n");
+    contains(fake.lines.back(), "settings");
+    contains(fake.lines.back(), "moveby");
+    assert(fake.lines.back().find("motion-profile") == std::string::npos);
+    assert(fake.lines.back().find("read-config") == std::string::npos);
+    assert(fake.lines.back().find("driver") == std::string::npos);
+    send(console, "help advanced\n");
+    contains(fake.lines.back(), "driver");
+    contains(fake.lines.back(), "motion-profile");
+    assert(fake.admitted.empty() && fake.actions == 0);
+}
 
 void reservedStopAndBlockedOutput() {
     Fake fake;
@@ -320,6 +343,7 @@ void debugStreamPresentation() {
 int main() {
     helpAndSyntax();
     cachedStatusAndAsyncFormats();
+    simpleHelpHasOneSettingsEntry();
     reservedStopAndBlockedOutput();
     debugStreamPresentation();
 }

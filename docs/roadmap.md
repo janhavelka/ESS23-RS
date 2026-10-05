@@ -1,5 +1,10 @@
 # Roadmap to a supported ESS release
 
+The [settings follow-up](reports/2026-10-05_clear_motor_settings.md) consolidates
+normal motor readbacks, makes subdivision visible, adds boot motion preferences
+and replaces old experiment caps with reviewed positioning parameter ranges.
+No broader physical speed, angle, travel or full-native qualification is implied.
+
 The [simple motion console follow-up](reports/2026-10-05_simple_motion_console.md)
 adds `moveby` / `moveto`, remembered speed/native ramps and concise outcomes.
 Missing preparation and finite stopped-state polling use the same typed API and

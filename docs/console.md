@@ -5,43 +5,60 @@ readable headings, labeled values and next-step hints. `help COMMAND` shows the
 exact syntax, with examples for common commands. Both Arduino and native ESP-IDF
 use this console.
 
-For a small move on the existing free-shaft example:
+Start with one read and one small move on the existing free-shaft example:
 
 ```text
-speed 60
-accel 100
-decel 100
+settings
 moveby 100 steps
 ```
 
-Wait for `Move complete`. The example sends the selected parameters, sends start,
-and polls the drive. It performs missing configuration/profile reads itself and
-checks the starting state. Repeating `moveby 100` needs no manual result release
-after success. Speed is motor RPM; acceleration/deceleration are **native drive
-ramp settings**, not degrees/s² or a claimed physical acceleration. These local
-choices apply on the next move and do not write the motor immediately.
+`settings` reads the drive now. It shows **Microstep / subdivision**, direction,
+word order, control algorithm, encoder setting, soft-limit enable, positioning
+speed, ramp times and target. A separate **Next move** section shows the host's
+chosen values. Reading settings changes no motor parameter. The drive's
+subdivision value and the host's angle conversion are explicitly separate.
+Unknown firmware codes are printed as unknown, rather than guessed.
 
-`help move` shows this short workflow. `motion` shows the remembered choices;
-`motion write` selects the default full parameter setup. Optional `motion stored`
-uses the existing start-only policy and requires matching remembered parameters.
-It is not a read-before-every-move optimization.
+At boot the example chooses **60 rpm**, **100 ms acceleration ramp** and **100 ms
+deceleration ramp**. It starts no movement. `moveby` performs missing read-only
+preparation, sends the selected parameters and start, and polls the drive.
+Wait for `Move complete`; repeating `moveby 100` needs no manual result release
+after success. Actual enable, alarm, encoding and limit checks still apply.
 
 | Command | Meaning |
 | --- | --- |
+| `settings` | Read actual drive settings; also show choices for the next move. |
 | `moveby 100` | Move by 100 command increments (default unit: steps). |
-| `moveby 36 deg` | Move by 36 motor degrees, with an explicitly declared scale. |
+| `moveby 36 deg` | Move by 36 motor degrees using the host's scale. |
 | `moveby 1/10 turn` | Same angular displacement, expressed exactly. |
 | `moveto 100 steps` | Move to native absolute target 100. |
 | `moveto 36 deg` | Move to a host angular coordinate; also requires an origin. |
-| `stepsperturn 1000` | Declare 1000 command increments per motor turn in the host. Use only your actual scale. |
-| `stop normal` | Request the documented normal stop. |
+| `speed 90` | Choose 0..3000 rpm; zero is accepted as a setting but prevents a move. |
+| `accel 100` / `decel 100` | Choose each ramp time in 0..2000 ms; these are not acceleration in steps/s^2. |
+| `stepsperturn 1000` | Declare command increments per motor turn in the host; no drive subdivision write. |
+| `stop normal` | Stop using the configured deceleration. |
+| `stop direct` | Request ESS emergency stop without that ramp; RS485 command, not a hardwired safety circuit. |
 
-Angles need the correct command increments per turn; the example never guesses
-them from an ambiguous microstep setting. Millimetres (`mm`) need configured load
-travel. `moveto` does not invent an origin. The current bench example keeps its
-existing small-motion limits (at most 250 increments; native absolute start and
-target must both be within 0–250). Those are example limits, not library range
-limits. Unsupported direction/encoding or missing prerequisites fail explicitly.
+Speed/ramp choices apply on the next move, not immediately. These manufacturer
+positioning ranges replace the old 60 rpm / 250-increment experiment limits.
+A move must also meet the drive's starting-speed setting, shown by `settings`.
+Native target encoding and configured limits still apply. Motion observation is
+bounded to 30 seconds by default (`ApplicationOptions::moveTimeoutMs`, 1..30000).
+A timeout is a failed/possibly uncertain observation, not proof the shaft stopped.
+
+The boot angle scale is a declared **ASSUMED 1000 command increments per turn**,
+not a measured calibration or an inferred subdivision relationship. Set the
+correct scale for your machine before relying on angles. Explicit target changes
+clear that declaration. Millimetres (`mm`) require configured load travel;
+`moveto` does not invent an origin. Negative encoding remains unavailable unless
+its existing profile prerequisite is established.
+
+`help` is the short user menu; `help advanced` retains the complete diagnostic
+inventory. Existing `driver`, `read config` and `motion-profile` commands remain
+for specific operations and automation. `config` describes the host connection;
+`settings` now means actual motor settings, replacing the former host alias.
+`motion write` selects default full setup. Optional `motion stored` requires
+matching remembered parameters and does not read before every repeated move.
 
 Normal motion output is short:
 
@@ -111,7 +128,8 @@ See the [debug workflow](traffic.md) for effects and measurement limits.
 
 Prefix a command with `@` and a nonzero decimal ID to receive the existing JSONL
 protocol, for example `@42 read state`. Python tools already use this spelling;
-their existing schema, command correlations and operation semantics are unchanged.
+their existing schemas, command correlations and operation semantics remain available.
+`@ID settings` adds a `motor_settings` report; the old host alias is now `config`.
 The new simple move commands add a `simple_move` report with a session operation
 ID and a separate `move_operation_id` for the ordinary typed move's full evidence.
 Release the session ID, not its owned child. A subsequent simple move reclaims

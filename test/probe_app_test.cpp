@@ -1144,7 +1144,7 @@ void testActionEffectsInvalidateHistoricalFreshnessAndReleaseOrigin() {
 void testHostAxisPreparationUsesPublicApiWithoutTraffic() {
     using namespace MotorControlRS;
     fresh(); timerCapture(); command("@1 axis config\n"); contains("\"motion_command\":false");
-    assert(app->axis.generation == 1 && app->axis.units.commandStepsPerMotorTurn.source == ScaleSource::UNKNOWN);
+    assert(app->axis.generation == 1 && app->axis.units.commandStepsPerMotorTurn.source == ScaleSource::ASSUMED);
     command("@2 prepare absolute -9223372036854775808 steps native\n");
     contains("\"effective_native\":-9223372036854775808"); contains("\"displacement_known\":false");
     command("@3 axis config set command 1000\n"); contains("\"ok\":false");

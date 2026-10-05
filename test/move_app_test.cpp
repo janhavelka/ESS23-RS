@@ -22,7 +22,7 @@ FakeSerial Serial;
 #endif
 namespace {
 using namespace MotorControlRS;
-void fresh(uint32_t maximumAgeMs = 0, const UnitConfig& units = UnitConfig()) {
+void fresh(uint32_t maximumAgeMs = 0, const UnitConfig& units = ApplicationOptions().positionUnits) {
     if (app) { app->~App(); std::free(app); app = nullptr; }
     uart.~Esp32S3Uart(); new (&uart) Esp32S3Uart;
     resetHardware(); Serial = FakeSerial(); platformReady = false; writeResponseConfirmed = false;
@@ -601,19 +601,19 @@ void testAbsoluteAngleApiCliAndLostReference() {
         assert(!app->axis.originKnown && !app->coordinateReference.nativeKnown);
         assert(view(operation).moveContext->reference.nativePosition == retainedReference.nativePosition);
     }
-    // Preserve a multi-turn endpoint even though the bounded bench displacement is small.
+    // Preserve a multi-turn endpoint and its small relative displacement.
     fresh(); qualify(); coordinates(1990); app->axis.nativeMaximum = 10000;
     command("@2 move absolute 720 deg motor 60 configured\n");
     assert(view(0).moveContext->prepared.effectiveNative == 2000 && view(0).moveContext->prepared.displacementNative == 10);
 
     fresh(); qualify(); coordinates(); const unsigned writes = hardware.writes;
-    for (const char* invalid : {"@3 move absolute 20 steps native 60 configured\n",
+    for (const char* invalid : {"@3 move absolute 20 steps motor 60 configured\n",
         "@4 move angle 90 deg motor positive reject 60 configured\n"}) {
-        app->coordinateReference.nativeKnown = false; command(invalid);
+        app->coordinateReference.nativeKnown = false; app->axis.originKnown = false; command(invalid);
         assert(hardware.writes == writes && !axisReserved(*app, 1));
     }
     coordinates(); ++app->coordinateReference.configurationGeneration;
-    command("@5 move absolute 20 steps native 60 configured\n");
+    command("@5 move angle 90 deg motor positive reject 60 configured\n");
     assert(hardware.writes == writes && !axisReserved(*app, 1));
 }
 void testOriginIsHostOnlyAndConfidenceInvalidates() {
@@ -860,7 +860,7 @@ static void testUserMoveInUnits() {
         assert(Serial.output.find("\"type\":\"move\"") == std::string::npos);
         assert(releaseMove(id) && !moveProgress(id, progress) && !releaseMove(id));
     }
-    fresh(); readProductionMoveBaseline();
+    fresh(0, UnitConfig()); readProductionMoveBaseline();
     uint32_t id = 999; const auto writes = hardware.writes;
     assert(!MotorControlRSExample::moveBy(Rational(36), PositionUnit::DEGREES, id));
     assert(id == 999 && hardware.writes == writes); // No guessed scale.

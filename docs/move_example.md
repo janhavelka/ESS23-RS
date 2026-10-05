@@ -3,7 +3,7 @@
 For interactive use, the existing console now accepts `moveby 100 steps` and
 `moveto 100 steps`, plus `speed`, `accel`, `decel` and `stepsperturn`. It performs
 missing read-only preparation and prints a short outcome. See the
-[console guide](console.md) for units, current example bounds and error handling.
+[console guide](console.md) for units, manufacturer ranges and error handling.
 The C++ calls below remain direct application submissions using the prepared
 configuration/state/profile caches; they do not run that interactive preparation
 session or automatically release previous results.
@@ -164,9 +164,12 @@ target.maximumApproximationError = 0.01;
 Status accepted = submitMove(target, 60, operation);
 ```
 
-The standalone bench still limits displacement to 250 native increments and
-speed to 60 RPM; it does not establish linear travel on a free shaft. Absolute
-bench targets and starting feedback must lie in the existing 0..250 window.
+The standalone example accepts the reviewed positioning range up to 3000 RPM,
+with 0..2000 ms ramp times, and retains native encoding/configured-limit checks.
+The old 60 RPM/250-increment experiment limits are removed. Its motion-observation
+deadline defaults to 30 seconds (configurable 1..30000 ms). Default angular scale
+is explicitly ASSUMED 1000 command steps/turn; free-shaft tests do not calibrate
+angle or establish linear travel.
 Engineering absolute targets need the relevant origin; a raw position register
 does not automatically establish it. Unsupported sign/basis/mode requests fail
 before writes. The reusable core is not restricted to the example's bench range.

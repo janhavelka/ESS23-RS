@@ -1,11 +1,23 @@
 # Features implementation tasks and open questions
 
+## Consolidated settings and manufacturer positioning ranges
+
+- [x] One normal `settings` read shows subdivision and current motion parameters,
+  separate from next-move preferences; detailed commands/JSON remain available.
+- [x] Read original manual pages and admit positioning 0..3000 rpm (zero is a
+  nonmoving setting), ramp times 0..2000 ms; remove old experiment caps.
+- [x] Host boot intent: 60 rpm, 100 ms ramps, ASSUMED 1000 command steps/turn.
+  No automatic movement, enable, I/O, position clearing or persistent writes.
+- [x] Bound move observation independently from preparation, up to 30 seconds;
+  keep finite poll count, fresh activity evidence and no uncertain write replay.
+- Native/firmware/bench evidence: [settings follow-up](reports/2026-10-05_clear_motor_settings.md).
+
 ## Simple interactive movement
 
 - [x] Add `moveby` / `moveto`, remembered speed/native ramps and explicit angular
   scale to the existing console, using the ordinary typed API and owner.
 - [x] Perform missing read-only preparation and bounded stopped-state settlement;
-  preserve uncertainty, cancellation/stop, exact conversions and example bounds.
+  preserve uncertainty, cancellation/stop, exact conversions and configured limits.
 - [x] Show compact motion/action outcomes; retain full diagnostic results and
   explicit failure cleanup. Reclaim only the preceding delivered successful move.
 - [x] Test cold preparation, repetition, units, output pressure, child ownership,

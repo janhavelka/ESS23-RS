@@ -1,5 +1,15 @@
 # Motor bench and testing authorization
 
+The [consolidated settings follow-up](reports/2026-10-05_clear_motor_settings.md)
+leaves the new Arduino timer image on COM13 after four completed finite moves,
+including cold boot defaults, 90 rpm and 300 increments. Direct stop and exact
+profile restoration pass. Final raw position 10465, speed/alarm zero, enabled and
+not running; profile `[30,100,100,60,0,100]`. Host defaults are 60 rpm/100 ms ramps
+and an explicitly ASSUMED 1000 command steps/turn. Load/monitor/debug off, DE
+released, no pending/retained owner work or recovery requirement. Readback
+subdivision 1000 is displayed separately from the host scale. Wider accepted
+parameter ranges do not establish maximum-speed or physical angle qualification.
+
 The [simple console follow-up](reports/2026-10-05_simple_motion_console.md) leaves
 its final Arduino timer image on COM13 after four completed finite moves and
 an explicit stop. Final raw position 9866, speed/alarm zero, enabled/non-running;

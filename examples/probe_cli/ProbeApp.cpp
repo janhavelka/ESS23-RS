@@ -171,6 +171,7 @@ struct App {
     struct SimpleMotionSession {
         Probe::SimpleMotionView view;
         Probe::SimpleMotionSettings desired;
+        MotionProfileState settingsProfile; ///< Read-only display snapshot; never owns restoration or staging state.
         MotorControlRS::PositionRequest position;
         uint32_t bindingGeneration = 0, serialGeneration = 0;
         uint64_t deadlineUs = 0;
@@ -208,6 +209,9 @@ struct App {
         }
         axis.target.id = axis.target.address = 1; axis.target.generation = bindingGeneration;
         axis.units = options.positionUnits;
+        const auto& commandScale = axis.units.commandStepsPerMotorTurn;
+        simple.desired.scaleKnown = commandScale.numerator != 0;
+        simple.desired.stepsPerTurn = MotorControlRS::Rational(commandScale.numerator, commandScale.denominator);
         persistencePrerequisites.maxAgeUs = observationAgeUs();
         axis.supportedRelativeBases = 1;
         // Application bench declaration: only power/RS485, no terminal wiring.
@@ -785,7 +789,7 @@ Probe::Action startMove(void* context, uint32_t commandId, uint8_t address,
     const MoveRequest& request = supplied;
     AxisReference reference = axisReference(a);
     ESS::MoveContext& prepared = record->move;
-    const uint64_t deadline = a.simple.admitting ? std::min(now + 3000000, a.simple.deadlineUs) : now + 3000000;
+    const uint64_t deadline = now + static_cast<uint64_t>(a.options.moveTimeoutMs) * 1000;
     ActionOptions options; options.maxPolls = ESS::ACTION_MAX_POLLS; options.pollIntervalUs = 20000;
     const auto prepare = request.position.wrapped ? ESS::prepareMoveAngle :
         request.position.relative ? ESS::prepareMoveRelative : ESS::prepareMoveAbsolute;
@@ -797,11 +801,6 @@ Probe::Action startMove(void* context, uint32_t commandId, uint8_t address,
          a.rememberedMoveSerial != a.serial.generation ||
          std::memcmp(a.rememberedMoveWords, prepared.words, sizeof(prepared.words)))) {
         clearRecord(*record); return Probe::Action::UNAVAILABLE;
-    }
-    // Proposed free-shaft software envelope, not a qualified physical envelope.
-    if ((!prepared.prepared.displacementKnown && !absoluteMoveInEnvelope(a, request, now)) || prepared.prepared.displacementNative < -250 ||
-        prepared.prepared.displacementNative > 250 || request.speedRpm > 60) {
-        clearRecord(*record); return Probe::Action::INVALID;
     }
     ESS::PreparedMove work;
     if (!ESS::nextMove(record->move, now, work)) { clearRecord(*record); return Probe::Action::FAILED; }
@@ -1661,6 +1660,10 @@ void advanceActions(App& a, uint64_t now) {
             }
             observeCommunication(a, *result);
             if (record.moveOperation) {
+                // Capture short RUNNING transitions promptly; once observed,
+                // use bounded slower completion polls for longer moves. The
+                // original absolute deadline and 64-poll cap never extend.
+                if (record.move.runningObserved) record.move.options.pollIntervalUs = 500000;
                 const auto& move = record.move;
                 if (move.uncertain) a.rememberedMoveGeneration = 0;
                 else if ((move.stagingApplied || move.verificationKnown) &&
@@ -2229,7 +2232,8 @@ void deliver(App& a) {
 namespace MotorControlRSExample {
 bool beginApplication(const Esp32S3Uart::Pins& pins, bool receiverDisabledDuringTransmit, const ApplicationOptions& options) {
     if (app) return false; // Construction and I/O are one explicit startup action.
-    if (!MotorControlRS::validateUnitConfig(options.positionUnits)) return false;
+    if (!MotorControlRS::validateUnitConfig(options.positionUnits) ||
+        !options.moveTimeoutMs || options.moveTimeoutMs > 30000) return false;
     const bool consoleReady = Platform::beginConsole();
     if (!consoleReady) { Platform::bootFailure("console_init"); return false; }
     void* memory = heap_caps_malloc(sizeof(App), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);

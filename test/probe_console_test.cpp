@@ -37,7 +37,8 @@ struct Fake {
         if (request) {
             self.simpleRequest = *request;
             using Kind = Probe::SimpleMotionCommandKind;
-            if (request->kind == Kind::MOVE_BY || request->kind == Kind::MOVE_TO) {
+            if (request->kind == Kind::MOVE_BY || request->kind == Kind::MOVE_TO || request->kind == Kind::SETTINGS) {
+                self.simpleView.settingsOnly = request->kind == Kind::SETTINGS;
                 self.simpleView.operationId = self.nextOperation++;
                 self.simpleView.commandId = commandId;
                 self.simpleView.pending = true;
@@ -384,7 +385,7 @@ void testHelpConfigMemoryAndStats() {
     send(console, "help recover\n"); fake.contains("recover_host_transport_only"); fake.contains("\"bus_traffic\":false");
     fake.data.baud = 38400; fake.data.responseTimeoutUs = 500000;
     fake.data.replyGapUs = 304; fake.data.gap15Us = 750; fake.data.gap35Us = 1750;
-    send(console, "settings\n"); fake.contains("\"baud\":38400"); fake.contains("\"device_settings\":\"unknown\"");
+    send(console, "config\n"); fake.contains("\"baud\":38400"); fake.contains("\"device_settings\":\"unknown\"");
     fake.contains("\"reply_gap_us\":304"); fake.contains("\"gap15_us\":750"); fake.contains("\"gap35_us\":1750");
     fake.data.memoryValid = true; fake.data.internalFree = 123456; fake.data.psramFree = 7000000;
     fake.data.internalLargest = 32000; fake.data.psramLargest = 6000000;
@@ -2145,17 +2146,39 @@ void testSimpleMotionGrammarAndReports() {
     assert(f.simpleRequest.position.unit == MotorControlRS::PositionUnit::STEPS);
     assert(f.simpleRequest.position.frame == MotorControlRS::CoordinateFrame::NATIVE);
     send(c, "speed 30\n"); assert(f.simpleRequest.kind == Kind::SPEED && f.simpleRequest.nativeValue == 30);
+    send(c, "speed 0\n"); assert(f.simpleRequest.nativeValue == 0);
+    send(c, "speed 3000\n"); assert(f.simpleRequest.nativeValue == 3000);
     send(c, "accel 0\n"); assert(f.simpleRequest.kind == Kind::ACCEL && f.simpleRequest.nativeValue == 0);
     send(c, "decel 2000\n"); assert(f.simpleRequest.kind == Kind::DECEL && f.simpleRequest.nativeValue == 2000);
     send(c, "motion stored\n"); assert(f.simpleRequest.setup == MotorControlRS::MoveSetup::USE_STORED);
     send(c, "motion write\n"); assert(f.simpleRequest.setup == MotorControlRS::MoveSetup::WRITE_ALL);
     send(c, "stepsperturn 1000\n"); assert(f.simpleRequest.kind == Kind::SCALE && f.simpleRequest.position.value.numerator == 1000);
     const auto calls = f.simpleCalls;
-    for (const char* bad : {"moveby nan", "moveto 1 unknown", "moveby 1 rad", "moveby 1 steps extra", "speed 0", "speed 61",
+    for (const char* bad : {"moveby nan", "moveto 1 unknown", "moveby 1 rad", "moveby 1 steps extra", "speed -1", "speed 3001",
         "speed 1/2", "accel -1", "decel 2001", "motion verify", "stepsperturn 0", "stepsperturn -1", "stepsperturn 4294967296"}) {
         send(c, std::string(bad) + "\n"); f.contains("\"ok\":false"); assert(f.simpleCalls == calls);
     }
     send(c, "help moveby\n"); f.contains("moveby VALUE");
+    send(c, "@50 settings\n");
+    assert(f.simpleRequest.kind == Kind::SETTINGS);
+    f.contains("\"type\":\"motor_settings\""); f.contains("\"pending\":true");
+    auto settings = f.simpleView; settings.pending = false; settings.ok = true;
+    settings.configKnown = settings.profileKnown = true; settings.subdivision = 1600;
+    settings.profile[3] = 90; settings.speedRpm = 60;
+    Probe::MotionProfileView profile;
+    profile.tx[0]=1; profile.tx[1]=3; profile.txLength=2;
+    profile.rx[0]=1; profile.rx[1]=0x83; profile.rx[2]=2; profile.rxLength=3;
+    profile.error="transaction"; settings.profileEvidence=&profile;
+    assert(c.reportSimpleMotion(50, settings.operationId, settings));
+    f.contains("\"subdivision\":1600"); f.contains("\"profile\":[0,0,0,90,0,0]");
+    f.contains("\"speed_rpm\":60");
+    assert(!c.reportSimpleMotion(50, settings.operationId, settings));
+    f.view.simpleMotion = &settings;
+    settings.ok = false; settings.profileKnown = false; settings.error = "Profile read failed";
+    send(c, "@51 result 102\n");
+    f.contains("\"profile_known\":false"); f.contains("Profile read failed");
+    f.contains("\"profile_evidence\":{"); f.contains("\"tx_hex\":\"0103\"");
+    f.contains("\"rx_hex\":\"018302\""); f.contains("\"error\":\"transaction\"");
 }
 int main(int argc, char** argv) {
     if (argc==2 && !std::strcmp(argv[1],"--debug-fixtures")) { debugFixtures(); return 0; }

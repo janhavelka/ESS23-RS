@@ -2,14 +2,14 @@
 // Included inside the standalone application's private namespace.
 // Production movement admission consumes the same cached observations and typed
 // profile snapshot used by the public operations. Diagnostics grant no access.
-bool motionProfileEndpoint(const App& a) {
-    const auto& profile = a.motionProfile;
+bool motionProfileEndpoint(const App& a, const App::MotionProfileState& profile) {
     const auto& view = profile.view;
     return view.saved && view.address == a.axis.target.address &&
         view.serialGeneration == a.serial.generation && profile.bindingGeneration == a.bindingGeneration &&
         a.configuration.operationId && Probe::sameTarget(a.configuration.target, a.axis.target) &&
         std::memcmp(&profile.configuration, &a.configuration.raw, sizeof(profile.configuration)) == 0;
 }
+bool motionProfileEndpoint(const App& a) { return motionProfileEndpoint(a, a.motionProfile); }
 bool motionProfileBound(const App& a) {
     return motionProfileEndpoint(a) && a.motionProfile.view.generation == a.axis.generation;
 }
@@ -19,23 +19,18 @@ bool motionProfileStationary(const App& a, uint64_t now) {
         !motion.value.alarmFlag && !motion.value.running &&
         !motion.value.positiveSoftLimit && !motion.value.negativeSoftLimit;
 }
-// The example bounds an unreferenced absolute command using fresh raw feedback.
-// This application envelope does not manufacture a command-coordinate reference
-// or claim a physical displacement; the core permits general native targets.
-bool absoluteMoveInEnvelope(const App& a, const MotorControlRS::MoveRequest& request, uint64_t now) {
+// Native absolute targets need no manufactured current-position reference.
+// Core preparation still enforces caller limits, units, origin and wire range;
+// the application requires fresh stopped feedback before starting the move.
+bool absoluteMoveReady(const App& a, const MotorControlRS::MoveRequest& request, uint64_t now) {
     MotorControlRS::PreparedTarget target;
     const auto reference = axisReference(a);
-    auto envelope = a.axis;
-    if (envelope.nativeMinimum < 0) envelope.nativeMinimum = 0;
-    if (envelope.nativeMaximum > 250) envelope.nativeMaximum = 250;
-    if (!MotorControlRS::preparePosition(request.position, envelope,
-            reference.nativeKnown ? &reference : nullptr, target) ||
-        target.effectiveNative < 0 || target.effectiveNative > 250) return false;
+    if (!MotorControlRS::preparePosition(request.position, a.axis,
+            reference.nativeKnown ? &reference : nullptr, target)) return false;
     const auto& feedback = a.stateCache.blocks[static_cast<uint8_t>(ESS::StateBlock::FEEDBACK)];
-    return !request.position.relative &&
-        motionProfileBound(a) && motionProfileStationary(a, now) &&
+    return !request.position.relative && motionProfileBound(a) && motionProfileStationary(a, now) &&
         Probe::fresh(feedback, a.axis.target, now, a.observationAgeUs()) && feedback.value.pairKnown &&
-        !feedback.value.rawSpeed && feedback.value.rawPosition <= 250;
+        !feedback.value.rawSpeed;
 }
 bool moveRequirements(const App& a, const MotorControlRS::MoveRequest& request,
                       uint64_t now, ESS::MovePrerequisites& out) {
@@ -58,7 +53,7 @@ bool moveRequirements(const App& a, const MotorControlRS::MoveRequest& request,
     // and require the checked logical input report for each assigned input.
     for (uint8_t i = 0; i < 4; ++i)
         if (raw.inputFunctions[i] > 3 || (raw.inputFunctions[i] && io.value.inputs[i])) return false;
-    if (!request.position.relative && !absoluteMoveInEnvelope(a, request, now)) return false;
+    if (!request.position.relative && !absoluteMoveReady(a, request, now)) return false;
 
     // Publish only after every guard passes; rejected preparation preserves out.
     // prepareMove performs the shared unit conversion and signed/range checks.
