@@ -29,12 +29,18 @@ if(COMMAND idf_component_register)
     return()
 endif()
 
-project(MotorControlRS LANGUAGES CXX)
-add_library(MotorControlRS ${MOTORCONTROLRS_SOURCES})
+file(READ "${CMAKE_CURRENT_SOURCE_DIR}/library.json" MOTORCONTROLRS_METADATA)
+string(REGEX MATCH "\"version\"[ \t\r\n]*:[ \t\r\n]*\"([0-9]+\\.[0-9]+\\.[0-9]+)\"" MOTORCONTROLRS_VERSION_MATCH "${MOTORCONTROLRS_METADATA}")
+if(NOT MOTORCONTROLRS_VERSION_MATCH)
+    message(FATAL_ERROR "library.json must contain a semantic version")
+endif()
+project(MotorControlRS VERSION ${CMAKE_MATCH_1} LANGUAGES CXX)
+include(GNUInstallDirs)
+add_library(MotorControlRS STATIC ${MOTORCONTROLRS_SOURCES})
 add_library(MotorControlRS::MotorControlRS ALIAS MotorControlRS)
 target_include_directories(MotorControlRS PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-    $<INSTALL_INTERFACE:include>)
+    $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
 target_compile_features(MotorControlRS PUBLIC cxx_std_11)
 set_target_properties(MotorControlRS PROPERTIES
     CXX_STANDARD 11 CXX_STANDARD_REQUIRED YES CXX_EXTENSIONS OFF)
@@ -51,7 +57,7 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     endif()
     include(CTest)
     # Distributed source packages contain the core; repository tests stay here.
-    if(BUILD_TESTING AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/test/units_test.cpp")
+    if(BUILD_TESTING AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/test")
         foreach(suite discovery discovery_app discovery_console persistence persistence_console persistence_app traffic motion_profile_app communication communication_console communication_app commissioning_owner units axis registers codec reads actions position velocity homing driver_settings segments control_settings control_app tuning tuning_app host_app host_console io io_app driver_app home_app runner bus_owner bus_scheduling probe_console esp32_uart probe_app probe_app_monitor_control move_app velocity_app capture_service)
             add_executable(${suite}_test "test/${suite}_test.cpp")
             target_link_libraries(${suite}_test PRIVATE MotorControlRS)
@@ -172,7 +178,7 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
         if(TARGET units_preview)
             add_test(NAME units_preview COMMAND units_preview)
         endif()
-        find_package(Python3 3.10 COMPONENTS Interpreter)
+        find_package(Python3 3.10 REQUIRED COMPONENTS Interpreter)
         if(Python3_Interpreter_FOUND)
             add_test(NAME idf_config COMMAND ${Python3_EXECUTABLE}
                 ${CMAKE_CURRENT_SOURCE_DIR}/test/idf_config_test.py
@@ -215,13 +221,20 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
                 ${CMAKE_CURRENT_SOURCE_DIR}/scripts/check_ess_operations.py)
             add_test(NAME operations_inventory_failures COMMAND ${Python3_EXECUTABLE}
                 ${CMAKE_CURRENT_SOURCE_DIR}/test/operations_inventory_test.py)
+            add_test(NAME repository_checks COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/check_repository.py)
+            add_test(NAME repository_check_failures COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test/repository_check_test.py)
+            add_test(NAME verification_failures COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test/verification_test.py)
         endif()
     endif()
 endif()
 
-include(GNUInstallDirs)
+include(CMakePackageConfigHelpers)
+write_basic_package_version_file("${CMAKE_CURRENT_BINARY_DIR}/MotorControlRSConfigVersion.cmake"
+    VERSION ${PROJECT_VERSION} COMPATIBILITY SameMinorVersion)
 install(TARGETS MotorControlRS EXPORT MotorControlRSTargets
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
 install(DIRECTORY include/MotorControlRS DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 install(EXPORT MotorControlRSTargets FILE MotorControlRSConfig.cmake
     NAMESPACE MotorControlRS:: DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/MotorControlRS)
+install(FILES "${CMAKE_CURRENT_BINARY_DIR}/MotorControlRSConfigVersion.cmake"
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/MotorControlRS)

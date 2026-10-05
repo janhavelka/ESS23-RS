@@ -1,5 +1,10 @@
 # MotorControl-RS
 
+[Verification and clean packaging](docs/verification.md): run
+`python scripts/verify.py --mode quick`, or `--mode full` with the pinned
+Arduino/native-IDF toolchains. Hosted CI uses the same checks; hardware evidence
+remains separate.
+
 The [native ESP-IDF example](docs/esp_idf_probe.md) now shares the complete
 standalone application with Arduino. Clean firmware/core-component builds,
 69 native suites, installed core/S2 compile checks and matched S3 capture/load,

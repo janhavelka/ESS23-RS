@@ -1,5 +1,10 @@
 # Reference preparation
 
+The [verification entry point](../docs/verification.md) composes the repository's
+checks and clean package consumers: `python scripts/verify.py --mode quick` or
+`--mode full` with the existing Arduino/IDF toolchains. Missing checks fail;
+offline references need `requirements-verification.txt`. No port is opened.
+
 `prepare_references.py` downloads the nine references listed in the source
 inventory, validates their formats, extracts searchable PDF text, and writes
 `docs/reference/sources.json` with SHA-256 checksums.

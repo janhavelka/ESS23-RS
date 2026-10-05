@@ -174,11 +174,12 @@ python scripts/prepare_serial_contrasts.py --check
 git diff --check
 ```
 
-Use installed compilers/generators and include Python's checks even though
-CMake currently makes Python optional. Build affected firmware environments;
+Use installed compilers/generators and include Python's checks; repository
+CMake now requires Python while core-only consumers remain independent. Build affected firmware environments;
 include the units preview when changing public units/headers. Do not replace
-build failures with weaker compiler warnings. Prompt 27 will add one reusable
-verification entry point; it does not exist at this baseline. Do not copy
+build failures with weaker compiler warnings. Prompt27 supplies the shared
+[quick/full verifier](../../verification.md): `python scripts/verify.py --mode quick`
+or `--mode full` with the exported SDK environment. Do not copy
 FieldCore verification commands that have no counterpart here.
 
 Before live testing read [bench notes](../../hardware_bench.md), the current

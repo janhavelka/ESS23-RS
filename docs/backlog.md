@@ -1,5 +1,21 @@
 # Features implementation tasks and open questions
 
+## Prompt27 verification and packaging
+
+- [x] One fail-closed quick/full verifier: every registered native/Python suite,
+  generated files, exact offline reference bytes and maintained local links.
+- [x] Clean source/install static core, exact package version, relocated include
+  exports, strict C++11/C++17 noRTTI consumers and all27 isolated headers.
+- [x] Codec-only actual archive consumers exclude catalogue strings/symbols;
+  missing-required-check fixture fails and restored final suite passes.
+- [x] Four Arduino and four native-IDF firmware/core/portable builds through
+  the same entry point; no runtime settings or hardware image changes.
+- [ ] Hosted GCC/Clang/Arduino/IDF CI jobs need actual remote execution; they
+  compile firmware and make no hardware qualification claim.
+
+See [verification commands](verification.md) and
+[prompt27 evidence](reports/ess_release_27_2026-10-05.md).
+
 ## Fresh prompt25/26 audit
 
 - [x] Native SDK logging guard rejects forced GPTimer debug logging; actual SDK negative compilation and normal clean firmware build verified.
@@ -554,7 +570,7 @@ same core and request/wait/result pattern must also work for other consumers. Se
 
 ## Verification and COM13 bench work
 
-- [ ] Add one repeatable full verification command and CI for native suites,
+- [x] Add one repeatable full verification command and CI for native suites,
   generated files, header isolation and package consumption. Require Python
   checks for repository/release validation; ordinary C++ consumers remain
   independent of Python. Record the supported compiler/platform matrix.

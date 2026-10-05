@@ -1,0 +1,62 @@
+name: Verify core and firmware
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  native:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler: [gcc, clang]
+    env:
+      CC: ${{ matrix.compiler == 'gcc' && 'gcc' || 'clang' }}
+      CXX: ${{ matrix.compiler == 'gcc' && 'g++' || 'clang++' }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r scripts/requirements-verification.txt
+      - run: python scripts/verify.py --mode quick --build-dir build/verification
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: native-${{ matrix.compiler }}
+          path: |
+            build/verification/summary.json
+            build/verification/*.log
+            build/verification/*.zip
+  arduino:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r scripts/requirements-verification.txt platformio==6.1.19
+      - run: python scripts/verify.py --mode full --firmware arduino --build-dir build/verification
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: arduino
+          path: |
+            build/verification/summary.json
+            build/verification/*.log
+  idf:
+    runs-on: ubuntu-24.04
+    container: espressif/idf:v5.5.5
+    steps:
+      - uses: actions/checkout@v6
+      - run: |
+          . /opt/esp/idf/export.sh
+          python -m pip install -r scripts/requirements-verification.txt
+          python scripts/verify.py --mode full --firmware idf --build-dir build/verification
+        shell: bash
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: native-idf
+          path: |
+            build/verification/summary.json
+            build/verification/*.log

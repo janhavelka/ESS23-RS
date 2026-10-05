@@ -1,4 +1,78 @@
-# Software verification
+# Repeatable verification and core packages
+
+Run from the repository root with Python 3.10+, CMake/CTest 3.26+, Ninja and a C++
+compiler. Tests require unoptimized Python: do not set `PYTHONOPTIMIZE`.
+Install the offline PDF checker dependencies once:
+
+```sh
+python -m pip install -r scripts/requirements-verification.txt
+python scripts/verify.py --mode quick
+python scripts/verify.py --mode full
+```
+
+The core build still supports CMake 3.16. The verifier uses CTest's
+[fail-on-zero-tests option](https://cmake.org/cmake/help/latest/manual/ctest.1.html#cmdoption-ctest-no-tests),
+which requires 3.26.
+
+Quick runs all registered Release native/Python suites, generated register and
+version checks, operation inventory, offline reference hashes and local Markdown
+links. It then exports the reviewed core-only package, builds/installs it, and
+builds/runs independent source and exact-version `find_package` consumers.
+Every public header compiles alone in strict C++11 and C++17; C++17 consumers
+disable RTTI. Both codec-only consumers must omit descriptive catalogue strings
+and symbols. The static CMake target exports the configured install include path.
+No examples, Python, vendor files or sibling repository are package dependencies.
+
+Full additionally builds the four pinned Arduino environments and native IDF
+S3 firmware, core-only S3/S2 consumers and the portable S2 application fixture.
+Export the pinned ESP-IDF 5.5.5 SDK/tool environment first. `--idf-path PATH`
+and `--idf-python PATH` select an existing SDK and its Python environment.
+PlatformIO must already be installed; Windows falls back to the repository's
+managed-Core wrapper. No SDK or tool is installed silently.
+
+CI separates the same full checks with `--firmware arduino` and `--firmware idf`;
+each explicitly selected run also executes quick checks. Hosted Ubuntu GCC and
+Clang jobs cover compiler differences. Firmware jobs use the pinned PlatformIO
+platform and IDF container. They compile firmware and do not access COM13,
+flash hardware, run motion or assert hardware qualification. Local Windows GCC
+verification is recorded separately from hosted CI execution.
+
+Every run uses a new `build/verify/<timestamp>` directory, or a new directory
+chosen with `--build-dir PATH`. Existing output is rejected. Logs and
+`summary.json` retain exact commands, durations, failure status and package
+SHA-256. The ZIP uses stable entry order, timestamps and permissions. A missing
+tool/input, unregistered suite, empty/skipped test or failing command is a
+failure. Reference checks are offline; original vendor bytes remain separately
+licensed. Local links are checked in maintained documents, excluding historical
+reports/PDF extracts; external URLs, anchors and explicitly named sibling
+reference repositories are not availability claims.
+
+For a clean check, use a fresh checkout or a staging copy of tracked source
+plus the reviewed changes, with no `.pio` or build outputs. Tool download caches
+may remain external. A verifier run never deletes existing builds, evidence or
+flash backups.
+
+The exported ZIP contains only `include`, `src`, root CMake and metadata,
+license, README and changelog. It can be unpacked anywhere and consumed without
+repository-private helpers:
+
+```sh
+cmake -S MotorControlRS -B core-build -G Ninja -DBUILD_TESTING=OFF -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/absolute/core-install
+cmake --build core-build
+cmake --install core-build
+cmake -S consumer -B consumer-build -G Ninja -DCMAKE_PREFIX_PATH=/absolute/core-install
+cmake --build consumer-build
+```
+
+An independent consumer needs only its own CMake project/main and
+`find_package(MotorControlRS 0.6.0 EXACT CONFIG REQUIRED)` followed by linking
+`MotorControlRS::MotorControlRS`. The checked consumer fixture also supports
+`MOTORCONTROLRS_SOURCE_DIR` and `MOTORCONTROLRS_HEADERS_DIR` for direct source
+and individual-header checks. Hardware and endurance dispositions remain in
+their owning reports; a green verifier is software/build evidence.
+
+## Earlier verification records (historical)
+
 
 ## Prompt15 optional digital I/O
 

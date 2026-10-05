@@ -1,5 +1,9 @@
 # MotorControl-RS documentation
 
+[Repeatable verification and core packaging](verification.md) provides one
+quick/full entry point shared by hosted CI, strict C++11/C++17 consumers and
+offline reference/document checks. Hardware qualification is separate.
+
 [Native ESP-IDF standalone build and recovery](esp_idf_probe.md) reuse the same
 owner, commands and operations as Arduino. [Prompt25 verification](reports/ess_release_25_2026-10-05.md)
 records clean firmware/core builds, startup/backpressure failure tests and

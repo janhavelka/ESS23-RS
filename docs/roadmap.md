@@ -1,5 +1,13 @@
 # Roadmap to a supported ESS release
 
+Prompt27 supplies [repeatable quick/full verification](verification.md), hosted
+compiler/firmware CI and clean static source/install packages.72 registered
+checks, strict C++11/C++17 noRTTI consumers, all27 isolated public headers and
+eight firmware/core/portable builds pass locally. The
+[handoff](reports/ess_release_27_2026-10-05.md) retains deliberate missing-check
+and early implementation failures; no hardware or endurance claim is added.
+Hosted CI execution and28–30 release work remain separate.
+
 The [fresh25/26 audit](reports/ess_release_25_26_audit_2026-10-05.md) rejects
 forced GPTimer debug logging on the native correlated console, tests ordinary
 reset during uncertain physical TX with blocked output on both frameworks,

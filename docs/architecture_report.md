@@ -1,5 +1,10 @@
 # MotorControl-RS architecture review
 
+This is a historical2026-10-03 code snapshot. Prompt27 now provides
+[required repository verification and CI](verification.md); Python is required
+for repository tests, and clean exported core consumers remain independent.
+Current implementation dispositions are in the [roadmap](roadmap.md).
+
 Updated on 2026-10-03 for version 0.6.0. The original core review used version
 0.3.0, commit `2c9970c`; the application audit started at commit `d2d9a3a`.
 This report describes the code that exists, how its parts connect, and the
