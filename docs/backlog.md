@@ -10,8 +10,9 @@
   missing-required-check fixture fails and restored final suite passes.
 - [x] Four Arduino and four native-IDF firmware/core/portable builds through
   the same entry point; no runtime settings or hardware image changes.
-- [ ] Hosted GCC/Clang/Arduino/IDF CI jobs need actual remote execution; they
-  compile firmware and make no hardware qualification claim.
+- [x] Hosted GCC13/Clang18/Arduino/IDF jobs PASS from fresh Linux checkouts.
+  Initial Clang alias and Git reference-newline defects are corrected; original
+  vendor bytes are preserved. Jobs make no hardware qualification claim.
 
 See [verification commands](verification.md) and
 [prompt27 evidence](reports/ess_release_27_2026-10-05.md).
