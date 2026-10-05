@@ -61,7 +61,7 @@ void observe(Ess::ActionContext& c, uint16_t alarm, uint16_t flags) {
     assert(Ess::advanceAction(c, frame(c, bytes.data(), bytes.size(), eligible), eligible + 20));
 }
 void testExactCommandsAndCommonNativeParity() {
-    using Prepare = Status (*)(Ess::ActionContext&, const ReadTarget&, uint32_t, uint64_t, uint64_t, const ActionOptions&) noexcept;
+    using Prepare = Status (*)(Ess::ActionContext&, const ReadTarget&, uint32_t, uint64_t, uint64_t, const ActionOptions&);
     const Prepare native[] = {Ess::prepareEnable, Ess::prepareRelease, Ess::prepareClearAlarm,
         Ess::prepareNormalStop, Ess::prepareEmergencyStop};
     const uint8_t* expected[] = {ENABLE, RELEASE, CLEAR, NORMAL, DIRECT};

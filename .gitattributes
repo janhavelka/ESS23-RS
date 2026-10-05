@@ -1,0 +1,3 @@
+# Original downloaded references must retain their recorded bytes on every host.
+docs/vendor/** binary
+docs/standards/** binary
