@@ -43,6 +43,17 @@ failure rather than claiming the work is synced. Do not make empty commits
 for read-only replies or unfinished intermediate edits. The root agent owns
 staging/committing shared work when subagents are used.
 
+After every push, including documentation-only changes, check CI for the exact
+pushed commit and wait for every required job to finish. Inspect failing job
+logs, fix the root cause, run the affected local checks, and push the correction;
+repeat until required CI passes before declaring the block complete. Never
+ignore a failed/cancelled job or weaken, remove or skip a check to obtain green
+CI. If an external outage, authentication or unavailable runner prevents
+verification, report the exact blocker and run/commit instead of claiming PASS.
+Include this CI obligation in delegated agent tasks. Subagents report relevant
+failures and fixes; the root agent owns shared changes, pushes and final CI
+verification.
+
 For every implementation or audit prompt, inspect the actual source and affected
 callers/tests in this repository and the relevant current FieldCore source
 read-only. Check conventions and integration boundaries against code, not only
