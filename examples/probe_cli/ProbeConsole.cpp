@@ -41,12 +41,12 @@ const Entry COMMANDS[] = {
     {"speed", Command::SPEED, "speed [RPM]", "host_intent_applied_by_next_simple_move", false, "Show or set speed for the next move (0..3000 rpm; default 60; zero prevents a move)."},
     {"accel", Command::ACCEL, "accel [0..2000]", "host_intent_native_ramp_applied_by_next_simple_move", false, "Show or set acceleration ramp time in ms (0..2000; default 100)."},
     {"decel", Command::DECEL, "decel [0..2000]", "host_intent_native_ramp_applied_by_next_simple_move", false, "Show or set deceleration ramp time in ms (0..2000; default 100)."},
-    {"motion", Command::MOTION, "motion [write|stored]", "inspect_or_select_simple_motion_setup", false, "Show move settings; write sends setup, stored explicitly reuses it."},
+    {"motion", Command::MOTION, "motion [write|stored]", "inspect_or_select_simple_motion_setup", false, "Choose setup policy: write parameters before start, or explicitly reuse stored parameters."},
     {"stepsperturn", Command::STEPS_PER_TURN, "stepsperturn POSITIVE_NUMBER", "host_command_scale_only_no_motor_settings", false, "Declare command steps per motor turn for angle conversion."},
     {"discover", Command::DISCOVER, "discover [profile ess_rs|manufacturer stepperonline] [addresses FIRST LAST] [tuple BAUD FORMAT] [query-ms 1..5000] [overall-ms 1..60000] [requests 1..256] [results 1..8] [identity] | discover inspect|cancel|restore|finish; max4 distinct tuples,128bytes,20tokens; defaults selected endpoint/current tuple,query500ms,overall5000ms,requests16,results8,no identity,no retries", "bounded_nonchanging_queries_retained_findings_host_restoration", true, "Find responding drives within explicit address, serial and time limits."},
     {"debug", Command::DEBUG, "debug [off|raw|decoded]", "observe_regular_operations_and_cached_diagnostics", false, "Show diagnostics; select raw or decoded traffic while ordinary commands run."},
-    {"motion-profile", Command::MOTION_PROFILE, "motion-profile read|inspect|restore|forget | profile ess_rs motion-profile ...", "snapshot_position_parameters_restore_or_explicitly_release_snapshot", true, "Read, inspect or restore saved position parameters; forget releases the snapshot."},
-    {"help", Command::HELP, "help [command]", "show_callable_commands", false, "List available commands or show usage for one command."},
+    {"motion-profile", Command::MOTION_PROFILE, "motion-profile read|inspect|restore|forget", "snapshot_position_parameters_restore_or_explicitly_release_snapshot", true, "Read, inspect or restore saved position parameters; forget releases the snapshot."},
+    {"help", Command::HELP, "help [command]", "show_callable_commands", false, "Show all commands once, or detailed syntax for one command."},
     {"?", Command::HELP, "? [command]", "show_callable_commands", false, "Alias for help."},
     {"version", Command::VERSION, "version", "show_build", false, "Show the firmware version and console protocol."},
     {"ver", Command::VERSION, "ver", "show_build", false, "Alias for version."},
@@ -64,18 +64,18 @@ const Entry COMMANDS[] = {
     {"ping", Command::PROBE, "ping [address]", "read_model_word_only", true, "Alias for probe."},
     {"capture-read", Command::CAPTURE_READ, "capture-read [address]", "read_0x0130_16_words_for_capture_qualification", true, "Read a fixed 16-word window for transport timing diagnostics."},
     {"read", Command::READ, "read identity|config|state [address]", "checked_nonchanging_read", true, "Refresh drive identity, configuration or state through checked reads."},
-    {"profile", Command::PROFILE, "profile list | profile ess_rs identity|config|state|enable|release|clear-alarm|clear-position|normal-stop|emergency-stop [address] | profile ess_rs move-relative|move-absolute|move-angle ... | profile ess_rs velocity ... | profile ess_rs driver read|set ... | profile ess_rs io read|set ... | profile ess_rs segment ... | profile ess_rs control read|set ... | profile ess_rs tuning GROUP read|set ... | profile ess_rs communication ... | profile ess_rs persistence ... | profile ess_rs home ... | profile ess_rs motion-profile ... | profile ess_rs caps", "public_profile_operations", true, "List profiles or call a named ESS operation."},
-    {"driver", Command::DRIVER, "driver read [address] | driver set field integer [field integer ...] [address] | profile ess_rs driver ...", "typed_drive_settings_with_checked_readback", true, "Read or update supported drive settings and check their readback."},
-    {"io", Command::IO, "io read [address] | io set input-polarity|x0|x1|x2|x3|output-polarity|y0|y1|custom value [field value ...] [address]; none assigns function 0 | profile ess_rs io ...", "explicit_typed_terminal_settings_and_readback", true, "Read or update terminal functions and polarity; none selects function zero."},
-    {"segment", Command::SEGMENT, "segment position|speed|start INDEX read [address] | segment position|speed|start INDEX set FIELD INTEGER [FIELD INTEGER ...] [address] | profile ess_rs segment ...", "indexed_stored_records_only_external_execution", true, "Read or update stored segment settings; this does not execute a segment."},
-    {"control", Command::CONTROL, "control read [address] | control set algorithm|encoder-resolution|maximum-effective-current|closed-maximum-current|closed-base-current|open-maximum-current|lock-current|lock-delay INTEGER [field integer ...] [address]; algorithm open-loop|algorithm-1 | profile ess_rs control ...", "stopped_native_control_settings_and_checked_readback", true, "Read or update supported control settings while the drive is stopped."},
-    {"tuning", Command::TUNING, "tuning filters|current-loop|la|collision read [address] | tuning GROUP set FIELD INTEGER [FIELD INTEGER ...] [address]; filters: input-filter pulse-low-pass deviation-threshold arrival-window arrival-time pulse-mean; current-loop: multiplier kp ki kc; la: kp1 kv1 node1 kp2 kv2 node2 kvf position-ki; collision: threshold current | profile ess_rs tuning ...", "qualified_stopped_native_tuning_and_checked_readback", true, "Read or update named filter, current-loop, LA or collision parameters."},
-    {"home", Command::HOME, "home methods | home method search_native return_native ramp_native zero [address] | profile ess_rs home ...", "qualified_homing_with_fresh_completion_and_zero_evidence", true, "List homing methods or request a supported method with explicit parameters."},
+    {"profile", Command::PROFILE, "profile list | profile ess_rs OPERATION ...", "public_profile_operations", true, "List profiles or call a named ESS operation."},
+    {"driver", Command::DRIVER, "driver read [address] | driver set field integer [field integer ...] [address]", "typed_drive_settings_with_checked_readback", true, "Read or update supported drive settings and check their readback."},
+    {"io", Command::IO, "io read [address] | io set input-polarity|x0|x1|x2|x3|output-polarity|y0|y1|custom value [field value ...] [address]; none assigns function 0", "explicit_typed_terminal_settings_and_readback", true, "Read or update terminal functions and polarity; none selects function zero."},
+    {"segment", Command::SEGMENT, "segment position|speed|start INDEX read [address] | segment position|speed|start INDEX set FIELD INTEGER [FIELD INTEGER ...] [address]", "indexed_stored_records_only_external_execution", true, "Read or update stored segment settings; this does not execute a segment."},
+    {"control", Command::CONTROL, "control read [address] | control set algorithm|encoder-resolution|maximum-effective-current|closed-maximum-current|closed-base-current|open-maximum-current|lock-current|lock-delay INTEGER [field integer ...] [address]; algorithm open-loop|algorithm-1", "stopped_native_control_settings_and_checked_readback", true, "Read or update supported control settings while the drive is stopped."},
+    {"tuning", Command::TUNING, "tuning filters|current-loop|la|collision read [address] | tuning GROUP set FIELD INTEGER [FIELD INTEGER ...] [address]; filters: input-filter pulse-low-pass deviation-threshold arrival-window arrival-time pulse-mean; current-loop: multiplier kp ki kc; la: kp1 kv1 node1 kp2 kv2 node2 kvf position-ki; collision: threshold current", "qualified_stopped_native_tuning_and_checked_readback", true, "Read or update named filter, current-loop, LA or collision parameters."},
+    {"home", Command::HOME, "home methods | home method search_native return_native ramp_native zero [address]", "qualified_homing_with_fresh_completion_and_zero_evidence", true, "List homing methods or request a supported method with explicit parameters."},
     {"enable", Command::ENABLE, "enable [address]", "request_enable_then_observe_flags", true, "Request motor enable and observe the resulting flags."},
     {"motor-release", Command::MOTOR_RELEASE, "motor-release [address]", "request_release_then_observe_flags", true, "Request motor release and observe the resulting flags."},
     {"alarm-clear", Command::ALARM_CLEAR, "alarm-clear [address]", "request_clear_resettable_alarm_then_observe_flags", true, "Request alarm clearing and check the drive flags."},
-    {"stop", Command::STOP, "stop normal|direct [address]", "priority_stop_with_explicit_policy_then_observe_flags", true, "Request a priority normal or direct motor stop."},
-    {"move", Command::MOVE, "move relative|absolute value unit frame native_rpm configured [setup write|verify|stored] [basis actual|commanded|queued] [round mode error [approx error]] [address] | move angle value unit frame positive|negative|shortest reject|positive|negative native_rpm configured [setup write|verify|stored] [round mode error [approx error]] [address]", "finite_move_through_public_coordinate_preparation", true, "Request a finite relative, absolute or wrapped-angle move with explicit units."},
+    {"stop", Command::STOP, "stop normal|direct [address]", "priority_stop_with_explicit_policy_then_observe_flags", true, "normal: stop with deceleration; direct: ESS emergency stop without the ramp."},
+    {"move", Command::MOVE, "move relative|absolute value unit frame native_rpm configured [setup write|verify|stored] [basis actual|commanded|queued] [round mode error [approx error]] [address] | move angle value unit frame positive|negative|shortest reject|positive|negative native_rpm configured [setup write|verify|stored] [round mode error [approx error]] [address]", "finite_move_through_public_coordinate_preparation", true, "Advanced move: explicit frame, rounding and setup policy; ordinary moves use moveby/moveto."},
     {"position-clear", Command::POSITION_CLEAR, "position-clear [address]", "explicit_device_position_zero_only", true, "Explicitly set the drive position counter to zero."},
     {"velocity", Command::VELOCITY, "velocity value rpm|steps/s|fullsteps/s|counts/s|turns/s|deg/s|rad/s|mm/s native|motor|load duration_ms configured normal|direct [round mode error [approx error]] [address]", "finite_serial_velocity_with_explicit_stop", true, "Request a bounded velocity operation with an explicit stop policy."},
     {"monitor", Command::MONITOR, "monitor [off | interval_ms count]", "finite_nonconsuming_state_polling", true, "Read drive state a finite number of times; off ends local polling."},
@@ -469,11 +469,21 @@ const Entry* find(const char* name) {
     return nullptr;
 }
 
+// Accepted compatibility spellings are not separate user operations.
+bool canonicalHelpEntry(const Entry& entry) {
+    if (entry.command == Command::RESET) return false; // Listed once as stats [reset].
+    for (const Entry& candidate : COMMANDS) {
+        if (&candidate == &entry) return true;
+        if (candidate.command == entry.command) return false;
+    }
+    return false;
+}
+
 const char* helpGroup(Command command) {
     switch(command) {
     case Command::HELP: case Command::VERSION: case Command::CAPS: case Command::PROFILE:
         return "Getting started";
-    case Command::READ: case Command::READ_IDENTITY: case Command::READ_CONFIG: case Command::READ_STATE:
+    case Command::SETTINGS: case Command::READ: case Command::READ_IDENTITY: case Command::READ_CONFIG: case Command::READ_STATE:
     case Command::PROBE: case Command::STATUS: case Command::HEALTH: case Command::MONITOR:
         return "Read and observe";
     case Command::MOVE_BY: case Command::MOVE_TO: case Command::MOTION: case Command::SPEED: case Command::ACCEL: case Command::DECEL:
@@ -1800,6 +1810,13 @@ void Console::dispatch() noexcept {
     }
     const bool advancedHelp = entry->command == Command::HELP && arg && !std::strcmp(arg, "advanced");
     const Entry* described = entry->command == Command::HELP && arg && !advancedHelp ? find(arg) : nullptr;
+    if (described) {
+        for (const Entry& candidate : COMMANDS) {
+            if (candidate.command == (described->command == Command::RESET ? Command::STATS : described->command)) {
+                described = &candidate; break;
+            }
+        }
+    }
     if (entry->command == Command::HELP && arg && !described && !advancedHelp) {
         error(id, entry->name, "unknown_command"); return;
     }
@@ -1855,37 +1872,33 @@ void Console::dispatch() noexcept {
             described->command==Command::STATS && !host_.snapshot?"stats reset":
             described->command==Command::STATS && !host_.resetStats?"stats":described->syntax):nullptr;
         if (outputFormat_ == Format::HUMAN) {
-            if (!described && !advancedHelp && host_.simpleMotion) {
-                std::snprintf(output_,sizeof(output_),
-                    "Motor control\n  settings           Read actual motor settings and next-move choices\n  moveby 100 steps    Move by an amount (steps, deg, turn, mm)\n  moveto 100 steps    Move to an absolute target\n  speed 60           Next move speed: 0..3000 rpm (0 prevents movement)\n  accel 100          Acceleration ramp time: 0..2000 ms\n  decel 100          Deceleration ramp time: 0..2000 ms\n  stop normal        Stop with the configured deceleration\n  stop direct        ESS emergency stop, without the ramp\n  enable             Enable the drive explicitly\n  motor-release      Release motor windings explicitly\n  probe              Check communication\n  debug off|raw|decoded   Observe normal traffic\nBoot choices: 60 rpm, 100 ms ramps, assumed 1000 steps/turn; no automatic motion.\nUse help COMMAND for details; help advanced for diagnostics and all operations.");
-                emit(0,true); return;
-            }
-            if (described && described->command == Command::MOVE && host_.simpleMotion) {
-                std::snprintf(output_,sizeof(output_),
-                    "Moving the motor\n  moveby 100 steps   Move by an amount\n  moveby 36 deg      Move by an angle (assumed 1000 steps/turn at boot)\n  moveto 100 steps   Move to an absolute target\n  speed 60          Set speed in rpm\n  accel 100         Set acceleration ramp time in ms\n  decel 100         Set deceleration ramp time in ms\n  stop normal       Stop using configured deceleration\n  settings          Read motor settings and next-move choices\nUse help moveby for details. Advanced syntax: @1 help move.");
-                emit(0,true); return;
-            }
             std::size_t used=0; bool fits=true;
             if (described) {
                 fits=append(output_,sizeof(output_),used,"%s\nUsage: %s\n",described->name,helpSyntax) &&
                     append(output_,sizeof(output_),used,"%s",described->description);
+                if (described->command == Command::STOP)
+                    fits=fits && append(output_,sizeof(output_),used,
+                        "\nDirect stop uses reserved priority after the current bus transaction settles.\nIt requires working RS485 communication; it is not a hardwired emergency-stop circuit.");
                 if (const char* example=helpExample(described->command))
                     fits=fits && append(output_,sizeof(output_),used,"\nExamples:\n  %s",example);
                 fits=fits && append(output_,sizeof(output_),used,"\nArguments in [brackets] are optional. Use @ID before the command for full JSON evidence.");
             } else {
-                fits=append(output_,sizeof(output_),used,"MotorControl-RS commands\nUse help COMMAND for syntax. Prefix @ID for JSON.\n");
-                const char* groups[]={"Getting started","Read and observe","Motor operations","Drive settings","Host and setup","Operation results","Diagnostics"};
+                fits=append(output_,sizeof(output_),used,"MotorControl-RS: all commands\nOne menu for everyday control and diagnostics; no separate advanced list.\nUse help COMMAND for syntax and examples. Prefix @ID for JSON evidence.\n");
+                const char* groups[]={"Motor operations","Read and observe","Drive settings","Host and setup","Operation results","Diagnostics","Getting started"};
                 for (const char* group:groups) {
                     bool heading=false;
                     for (const Entry& item:COMMANDS) {
-                        if (!std::strcmp(item.name,"?") || !std::strcmp(item.name,"ver") || !std::strcmp(item.name,"ping")) continue;
+                        if (!canonicalHelpEntry(item)) continue;
                         if (!callable(item.command) || std::strcmp(helpGroup(item.command),group)) continue;
                         if (!heading) { fits=fits && append(output_,sizeof(output_),used,"\n[%s]\n",group); heading=true; }
                         fits=fits && append(output_,sizeof(output_),used,"  %-16s ",item.name) &&
                             append(output_,sizeof(output_),used,"%s",item.description) && append(output_,sizeof(output_),used,"\n");
                     }
                 }
-                fits=fits && append(output_,sizeof(output_),used,"\nRead cached state with status; refresh it with read state.\nAccepted operations finish asynchronously. Inspect with result ID, then release ID.\nCancel only cancels local work; stop normal|direct commands the motor.");
+                if (host_.simpleMotion)
+                    fits=fits && append(output_,sizeof(output_),used,
+                        "\nExample defaults: 60 rpm, 100 ms ramps, assumed 1000 command steps/turn. No automatic motion.\n");
+                fits=fits && append(output_,sizeof(output_),used,"\nAccepted operations finish asynchronously. Cancel is local; it does not stop the motor.\nCompatibility aliases still work; help advanced shows this same menu.");
             }
             if (!fits) { error(id,"help","output_full"); return; }
             emit(0,true); return;
@@ -1904,7 +1917,7 @@ void Console::dispatch() noexcept {
             std::size_t used = static_cast<std::size_t>(prefix);
             bool firstName = true;
             for (const Entry& item : COMMANDS) {
-                if (!callable(item.command)) continue;
+                if (!canonicalHelpEntry(item) || !callable(item.command)) continue;
                 const int written = std::snprintf(output_ + used, sizeof(output_) - used,
                     "%s\"%s\"", firstName ? "" : ",", item.name);
                 if (written < 0 || static_cast<std::size_t>(written) >= sizeof(output_) - used) { error(id, "help", "output_full"); return; }

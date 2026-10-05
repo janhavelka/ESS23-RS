@@ -1,7 +1,11 @@
 # MotorControl-RS standalone CLI contract
 
 Ordinary console commands now use a [human-readable presentation](console.md),
-with a short `help`/`?`, complete `help advanced`, usage examples and operation hints. Explicit `@ID` commands
+with one complete grouped `help`/`?` menu, usage examples and operation hints.
+`help advanced` is a compatibility spelling for that same menu. Both human and
+JSON inventories list canonical commands once; accepted aliases retain their
+existing execution paths. `help COMMAND` exposes actual detailed syntax, including
+`move`, without a separate abbreviated override. Explicit `@ID` commands
 retain the existing JSONL schema. Output format is retained per asynchronous
 operation and deferred stop reply; there is one command/API/owner path.
 

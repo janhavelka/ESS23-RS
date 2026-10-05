@@ -53,8 +53,10 @@ clear that declaration. Millimetres (`mm`) require configured load travel;
 `moveto` does not invent an origin. Negative encoding remains unavailable unless
 its existing profile prerequisite is established.
 
-`help` is the short user menu; `help advanced` retains the complete diagnostic
-inventory. Existing `driver`, `read config` and `motion-profile` commands remain
+`help` is one complete grouped menu, covering everyday control and diagnostics.
+Each command is listed once. `help advanced` and `?` show that same menu;
+`help COMMAND` shows detailed syntax and examples. Compatibility aliases remain
+accepted but are not repeated as separate menu entries. Existing `driver`, `read config` and `motion-profile` commands remain
 for specific operations and automation. `config` describes the host connection;
 `settings` now means actual motor settings, replacing the former host alias.
 `motion write` selects default full setup. Optional `motion stored` requires
@@ -108,8 +110,14 @@ when execution is unknown.
 - `stop normal` and `stop direct` request their distinct documented stop policies.
 - `motor-release` explicitly requests winding release; `enable` requests enable.
 
+`stop direct` is the ESS emergency-stop command over RS485: it bypasses the
+configured deceleration ramp. `stop normal` uses that ramp. Both use the existing
+priority stop path after the in-flight bus transaction settles. A serial stop
+requires working communication and is not a hardwired emergency-stop circuit.
+`cancel` does not send either stop command.
+
 `help stop` and `help motion-profile` describe the exact typed routes.
-Use `@1 help move` for the full advanced move grammar. Existing `move relative|absolute|angle`
+Use `help move` for the full advanced move grammar (`@1 help move` for JSON). Existing `move relative|absolute|angle`
 commands and public C++ requests remain available.
 These commands keep the same prerequisites and sequence as the regular library
 API. No motion or setting changes occur merely by opening the console or asking

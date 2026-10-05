@@ -233,7 +233,7 @@ void cachedStatusAndAsyncFormats() {
     contains(fake.lines.back(), std::to_string(human.operation).c_str());
     assert(fake.lookups == 3 && fake.releases == 0);
 }
-void simpleHelpHasOneSettingsEntry() {
+void unifiedHelpHasOneEntryPerCommand() {
     Fake fake; auto host = fake.host();
     host.simpleMotion = [](void*, uint32_t, const Probe::SimpleMotionCommand*, Probe::SimpleMotionView&) {
         return Probe::Action::OK;
@@ -246,15 +246,31 @@ void simpleHelpHasOneSettingsEntry() {
     };
     Probe::Console console(host);
     send(console, "help\n");
-    contains(fake.lines.back(), "settings");
-    contains(fake.lines.back(), "moveby");
-    assert(fake.lines.back().find("motion-profile") == std::string::npos);
-    assert(fake.lines.back().find("read-config") == std::string::npos);
-    assert(fake.lines.back().find("driver") == std::string::npos);
-    send(console, "help advanced\n");
-    contains(fake.lines.back(), "driver");
-    contains(fake.lines.back(), "motion-profile");
+    const auto menu=fake.lines.back();
+    for(const char* name : {"settings", "moveby", "moveto", "driver", "motion-profile", "debug", "stop"}) {
+        const std::string row=std::string("\n  ")+name+" ";
+        const auto at=menu.find(row);
+        assert(at!=std::string::npos && menu.find(row,at+1)==std::string::npos);
+    }
+    for(const char* alias : {"?", "ver", "ping", "reset"})
+        assert(menu.find(std::string("\n  ")+alias+" ")==std::string::npos);
+    contains(menu,"ESS emergency stop without the ramp");
+    contains(menu,"help COMMAND");
+    contains(menu,"no separate advanced list");
+    send(console, "help advanced\n"); assert(fake.lines.back()==menu);
+    send(console, "?\n"); assert(fake.lines.back()==menu);
+    send(console, "help stop\n");
+    contains(fake.lines.back(),"stop normal|direct");
+    contains(fake.lines.back(),"reserved priority");
+    contains(fake.lines.back(),"not a hardwired emergency-stop circuit");
+    send(console, "help ping\n");
+    contains(fake.lines.back(),"Usage: probe");
     assert(fake.admitted.empty() && fake.actions == 0);
+    send(console, "@90 help\n");
+    assert(json(fake.lines.back()));
+    for(const char* alias : {"?", "ver", "ping", "reset"})
+        assert(fake.lines.back().find(std::string("\"")+alias+"\"")==std::string::npos);
+
 }
 
 void reservedStopAndBlockedOutput() {
@@ -343,7 +359,7 @@ void debugStreamPresentation() {
 int main() {
     helpAndSyntax();
     cachedStatusAndAsyncFormats();
-    simpleHelpHasOneSettingsEntry();
+    unifiedHelpHasOneEntryPerCommand();
     reservedStopAndBlockedOutput();
     debugStreamPresentation();
 }

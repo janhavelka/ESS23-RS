@@ -1,5 +1,13 @@
 # Features implementation tasks and open questions
 
+## One complete console help menu
+
+- [x] Generate one grouped menu from the command catalogue; `help advanced` is
+  the same menu. List canonical commands once, retaining compatible invocations.
+- [x] Expose actual detailed move syntax and clearly describe normal versus
+  direct (ESS emergency) stop; no separate emergency-stop implementation.
+- Verification: [unified help record](reports/2026-10-05_unified_console_help.md).
+
 ## Consolidated settings and manufacturer positioning ranges
 
 - [x] One normal `settings` read shows subdivision and current motion parameters,

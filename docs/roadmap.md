@@ -1,5 +1,9 @@
 # Roadmap to a supported ESS release
 
+The [unified help follow-up](reports/2026-10-05_unified_console_help.md) replaces
+separate simplified/advanced menus with one canonical grouped catalogue and
+makes the serial emergency-stop policy explicit. Motor execution is unchanged.
+
 The [settings follow-up](reports/2026-10-05_clear_motor_settings.md) consolidates
 normal motor readbacks, makes subdivision visible, adds boot motion preferences
 and replaces old experiment caps with reviewed positioning parameter ranges.

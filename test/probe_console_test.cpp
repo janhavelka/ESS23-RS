@@ -749,7 +749,7 @@ void testTypedRoutesAndValidation() {
     send(console, "profile ess_rs caps\n"); fake.contains("\"command\":\"caps\"");
     assert(fake.typedReads == 3 && fake.snapshots == snapshots + 2); // Cached action qualification only.
     send(console, "help read\n"); fake.contains("read identity|config|state [address]");
-    send(console, "help profile\n"); fake.contains("profile ess_rs caps");
+    send(console, "help profile\n"); fake.contains("profile ess_rs OPERATION");
     fake.data.cachedIdentityId = 91; fake.data.cachedIdentityAddress = 4; fake.data.cachedIdentityGeneration = 2;
     fake.data.cachedConfigId = 92; fake.data.cachedConfigAddress = 5; fake.data.cachedConfigGeneration = 3;
     fake.data.bindingGeneration = 4;
