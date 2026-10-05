@@ -1,5 +1,14 @@
 # Motor bench and testing authorization
 
+[Prompt30's final read-only inspection](reports/ess_release_30_2026-10-05.md)
+leaves the existing Arduino timer image unchanged. Fresh profile
+`[30,100,100,60,0,250]`, lock delay200, position4881/alarm0/non-running/speed0;
+node1/1152008N1, debug/load/monitor off, DE released, no recovery and empty
+pending/retained/reserved storage. No motor writes or uploads occurred in30.
+Ten quick probes and the corrected final inspection pass; two failed local
+inspection attempts remain archived. Console version is not image-hash
+attestation. Physical/endurance gaps below remain open.
+
 The [prompt29 qualification](reports/ess_release_29_2026-10-05.md) restores the
 same Arduino timer SHA-256
 `8de8f7198d0cccd44ebf5a3ddd0c0a4801fe6bb82d998c23872e42e4500c1c4f`

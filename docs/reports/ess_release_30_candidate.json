@@ -1,0 +1,39 @@
+{
+  "version": "0.6.0",
+  "candidate": "unpublished partial development candidate",
+  "source_commit": "fe3f795877aca3f23c4e97a2124d6d970394b6b5",
+  "fieldcore_commit": "d19758865852f4e215ea05c6572d060edc4f0c66",
+  "ci": {
+    "run": 37326222873,
+    "url": "https://github.com/janhavelka/ESS23-RS/actions/runs/37326222873",
+    "status": "success",
+    "required_jobs": [
+      "native (clang)",
+      "idf",
+      "arduino",
+      "native (gcc)"
+    ]
+  },
+  "artifacts": {
+    "ess_release_30_core_0.6.0.zip": {
+      "bytes": 155126,
+      "sha256": "4b8d271ef02faf23bcac178d338d0aa02a9c18da757ec22066fea41216c55ad4"
+    },
+    "ess_release_30_evidence.zip": {
+      "bytes": 155204,
+      "sha256": "bf9b8fc3ed16bb28a46a5886d4adaa145960c821c04968251ea80cc66bd0f81d"
+    }
+  },
+  "verification": {
+    "mode": "full",
+    "checks": 20,
+    "registered_tests": 74,
+    "firmware_builds": 8,
+    "hardware": "separate read-only COM13 evidence; no runtime changes"
+  },
+  "commands": [
+    "git archive --format=tar -o build/p30/candidate-source.tar fe3f795877aca3f23c4e97a2124d6d970394b6b5",
+    "python build/p30/source/scripts/verify.py --mode full --build-dir build/p30/canonical-full --idf-python build/p25/idf-python/Scripts/python.exe"
+  ],
+  "source_archive": "Extract git archive into a clean build/p30/source tree; do not export from CRLF-converted Windows working-tree bytes."
+}

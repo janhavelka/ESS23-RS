@@ -7,8 +7,16 @@ this interface and its same-session harness; no subsequent numbered prompt is
 executed by this refactor.
 
 Prepared 2026-10-03 against MotorControl-RS `4ae0c4d` (0.6.0).
-Preparing this set executed no numbered prompt. **Prompts 01-29 have implementation and available verification dispositions;
-30 prepares an unpublished partial candidate and current-source FieldCore handoff. Prompt29 records1,200 loaded short/long reads and1,760 checked frames across Arduino/native-IDF and restoration, expected faults and finite features. Its initial Arduino aggregate failure and corrected settings rerun remain separate. Deferred endurance, independent electrical/shaft qualification and nine named native-family gaps remain open. Prompt28 corrects configuration invalidation, discovery boundaries and coverage.**
+Preparing this set executed no numbered prompt. **Prompts 01-30 now have recorded implementation/candidate and available verification dispositions.**
+[30's unpublished partial candidate](../../reports/ess_release_30_2026-10-05.md)
+pins source, core ZIP, clean verifier, CI and current-source FieldCore handoff.
+Prompt29 records1,200 loaded short/long reads and1,760 checked frames across
+Arduino/native-IDF and restoration, expected faults and finite features. Its
+initial Arduino aggregate failure and corrected settings rerun remain separate.
+Deferred endurance, independent electrical/shaft qualification and nine named
+native-family gaps remain open. Prompt28 corrects configuration invalidation,
+discovery boundaries and coverage. Publication and FieldCore integration remain
+separately dispatched work; these dispositions do not constitute a full release.
 The current core, runner, ESP32-S3 capture and probe/load tools are existing work;
 do not rebuild them from an old prompt as if they were missing.
 

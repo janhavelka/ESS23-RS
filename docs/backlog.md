@@ -6,7 +6,9 @@
   instructions, model/platform scope and remaining release gates.
 - [x] Map current FieldCore RS485 module/owner/backend and mixed RTU/ASCII
   boundaries read-only; name proposed changes and regression work.
-- [ ] Final clean candidate verification, pinned artifact/evidence/CI record.
+- [x] Final clean candidate verification:74 registered checks, eight embedded
+  builds, clean source/install and current FieldCore contract consumers; exact
+  source/artifact/CI pin in [30's record](reports/ess_release_30_2026-10-05.md).
 - [ ] Separately dispatched FieldCore motor integration and tag/release publication.
 - [ ] Close nine named native-family gaps and18 guarded pair setters in their
   owning prompts; physical fixtures/endurance remain independent open gates.
@@ -400,7 +402,8 @@ implements bounded actions and priority stop with retained uncertainty and
 application axis reservation. Prompts09–27 now have recorded dispositions;
 bounded finite motion/stop has later drive-reported evidence, while independent
 electrical/shaft measurements and untested operations remain open. Prompt29 is
-the next separately dispatched qualification block after the integrated28 audit.
+the recorded qualification block following the integrated28 audit;30 consumes its
+partial disposition without closing remaining qualification gates.
 The [release roadmap](roadmap.md) defines the delivery order and release gates.
 
 Release prompt 01 is implemented: [BusOwner](bus_owner.md) provides FIFO

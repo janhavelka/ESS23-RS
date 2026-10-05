@@ -1,5 +1,11 @@
 # MotorControl-RS documentation
 
+The [partial0.6.0 candidate](release_candidate.md),
+[getting started/troubleshooting](getting_started.md) and
+[FieldCore handoff](fieldcore_handoff.md) describe the independently usable
+package and separately scoped integration work. [30's candidate record](reports/ess_release_30_2026-10-05.md)
+pins its exact source, shipped core ZIP, verification evidence and CI.
+
 The [integrated audit](reports/ess_release_28_2026-10-05.md) records current
 code and coverage corrections. The [qualification matrix](reports/ess_release_29_2026-10-05.md)
 separates available Arduino/native-IDF S3 functional evidence from nine named

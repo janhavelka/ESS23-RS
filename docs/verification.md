@@ -1,5 +1,11 @@
 # Repeatable verification and core packages
 
+[30's candidate record](reports/ess_release_30_2026-10-05.md) pins the clean full
+verifier, exact canonical source commit, core ZIP/evidence hashes and hosted CI.
+Its README and installed/current-FieldCore contract consumers also build outside
+repository-private helpers. These are software checks, separate from hardware
+qualification and incomplete native-family coverage.
+
 Run from the repository root with Python 3.10+, CMake/CTest 3.26+, Ninja and
 GCC or Clang with GNU/LLVM `nm` available to CMake. The verifier is qualified
 on Windows MinGW GCC and hosted Linux GCC/Clang; MSVC verification remains

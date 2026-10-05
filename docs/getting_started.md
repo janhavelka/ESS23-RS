@@ -13,15 +13,15 @@ This pure preparation uses the same public API as the console:
 ```cpp
 #include <MotorControlRS/profiles/ess_rs/Discovery.h>
 int main() {
-MotorControlRS::ReadTarget target;
-target.id = 1;
-target.address = 1;
-target.generation = 1;
-MotorControlRS::ESS_RS::PreparedProbe probe;
-MotorControlRS::Status status = MotorControlRS::prepareProbe(
-    probe, MotorControlRS::DriveProfile::ESS_RS, target, 1, 100, 100000);
-// On success, probe.bytes[0..probe.length) is one FC03 request. No I/O occurred.
-return status && probe.length == 8 ? 0 : 1;
+    MotorControlRS::ReadTarget target;
+    target.id = 1;
+    target.address = 1;
+    target.generation = 1;
+    MotorControlRS::ESS_RS::PreparedProbe probe;
+    MotorControlRS::Status status = MotorControlRS::prepareProbe(
+        probe, MotorControlRS::DriveProfile::ESS_RS, target, 1, 100, 100000);
+    // On success, probe.bytes[0..probe.length) is one FC03 request. No I/O occurred.
+    return status && probe.length == 8 ? 0 : 1;
 }
 ```
 
@@ -76,8 +76,10 @@ python scripts/bench_motion.py --port COM13 --phase forward --out build/bench/mo
 Remove `--plan-only` only to run that explicit experiment. The existing harness
 keeps one session, refreshes prerequisites immediately, performs one100-native-
 increment move at60rpm/configured ramps, prepares stop/standstill and restores
-the exact original profile. It does not replay uncertain movement. These are
-drive-reported functional results, not calibrated shaft degrees/travel. Broader
+the exact original profile only after a successful stop and fresh non-running/
+zero-speed evidence. Failed/unknown cleanup retains the backup and failure;
+closing the connection is not restoration. It does not replay uncertain movement.
+These are drive-reported functional results, not calibrated shaft degrees/travel. Broader
 units/methods require their own evidence.
 
 ## Common refusals
