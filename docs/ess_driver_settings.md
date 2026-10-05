@@ -12,6 +12,11 @@ windows: direction/subdivision, over-limit/soft-enable/word-order, both limit
 pairs, and external position/trigger modes. The largest reply is 13 bytes.
 `getDriver` publishes only a complete successful read; failed refreshes leave
 the previous observation unchanged. Separate reads are not an atomic snapshot.
+The application reconciles every checked configuration window before admitting
+another continuation. A contradiction invalidates dependent knowledge and unsent
+work immediately, including when the grouped refresh later fails. Historical
+complete values remain inspectable with invalidated applicability; no stale
+snapshot authorizes a move, and explicit stop remains available.
 Raw unknown codes remain observable. Limit pairs assemble unsigned bits only
 when the observed word order is legal; signed encoding and native units remain
 unresolved. Historical raw words are never decoded using a newer order.

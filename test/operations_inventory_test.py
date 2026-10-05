@@ -69,7 +69,7 @@ class Coverage(unittest.TestCase):
         self.assertEqual(len(result["records"]), len({record["id"] for record in result["records"]}))
         self.assertTrue(all(choice["default_disposition"] == operations.DEFAULT for choice in result["named_choices"]))
 
-    def test_only_exact_action_and_setting_choices_implemented(self):
+    def test_only_exact_action_setting_and_decoded_choices_implemented(self):
         result = operations.check(INVENTORY, LEDGER)
         implemented = {choice["id"] for choice in result["named_choices"]
                        if choice["disposition"]["implementation"] == "IMPLEMENTED"}
@@ -82,8 +82,8 @@ class Coverage(unittest.TestCase):
             "SoftLimitEnable.AFTER_HOMING", "OverLimitStop.FREE_PARKING", "OverLimitStop.EMERGENCY_STOP",
             "PvTriggerMode.LEVEL", "PvTriggerMode.RISING_EDGE", "PositionMode.RELATIVE", "PositionMode.ABSOLUTE", "HomingMethod.METHOD_33", "HomingMethod.METHOD_34",
             "HomingMethod.METHOD_35", "MotionCommandBit.START_HOMING",
-            "ControlAlgorithm.OPEN_LOOP", "ControlAlgorithm.ALGORITHM_1"} | {e["name"] + "." + v["name"] for e in LEDGER["enums"] if e["name"] in ("InputFunction", "OutputFunction", "InputBit", "OutputBit", "BaudRateCode", "SerialFormatCode") for v in e["values"] if not (e["name"] == "OutputFunction" and v["value"] == 11)})
-        self.assertEqual(result["summary"]["choice_implementation"], {"NOT_IMPLEMENTED": 65, "IMPLEMENTED": 69, "UNSUPPORTED": 1})
+            "ControlAlgorithm.OPEN_LOOP", "ControlAlgorithm.ALGORITHM_1"} | {e["name"] + "." + v["name"] for e in LEDGER["enums"] if e["name"] in ("InputFunction", "OutputFunction", "InputBit", "OutputBit", "BaudRateCode", "SerialFormatCode", "MotionStatusBit", "AlarmCode") for v in e["values"] if not (e["name"] == "OutputFunction" and v["value"] == 11)})
+        self.assertEqual(result["summary"]["choice_implementation"], {"NOT_IMPLEMENTED": 52, "IMPLEMENTED": 81, "UNSUPPORTED": 1, "NOT_APPLICABLE": 1})
         for record in result["records"]:
             if record["id"] in ("AUXILIARY_COMMAND", "MOTION_COMMAND"):
                 self.assertEqual(record["obligations"]["write"], "IN_PROGRESS")
@@ -264,7 +264,7 @@ class Coverage(unittest.TestCase):
         self.assertEqual(gap["disposition"], "PARTIAL")
         self.assertEqual(set(gap["records"]), set(restored["records"]))
         self.assertIn("volatile original snapshot", gap["reason"])
-        self.assertEqual(result["summary"]["named_gaps"], 8)
+        self.assertEqual(result["summary"]["named_gaps"], 9)
 
     def test_profile_snapshot_inspection_and_forget_do_not_produce_device_coverage(self):
         restored = lambda value: next(row for row in value["operations"] if row["id"] == "position_profile_restore")
@@ -274,10 +274,56 @@ class Coverage(unittest.TestCase):
 
     def test_gap_owners_and_unlinked_source_entries_are_mandatory(self):
         self.rejected(lambda value: value.update(gaps=[]))
-        self.rejected(lambda value: value["gaps"][0].update(owner="23"))
+        for owner in ("00", "28", "29", "1", "09/28", "09/"):
+            self.rejected(lambda value: value["gaps"][0].update(owner=owner))
         self.rejected(lambda value: value["gaps"][0].update(disposition="IMPLEMENTED"))
         self.rejected(lambda value: value["gaps"][0]["records"].append("invented_record"))
         self.rejected(lambda value: value["gaps"][-1].update(choices=["HomingMethod.invented"]))
+
+    def test_decoded_read_choices_do_not_claim_setting_or_physical_effects(self):
+        result = operations.check(INVENTORY, LEDGER)
+        choices = {row["id"]: row for row in result["named_choices"]}
+        decoded = [row for row in choices.values() if row["coverage_kind"] == "READ"]
+        self.assertEqual(len(decoded), 12)
+        for row in decoded:
+            self.assertEqual(row["operations"], ["read_state"])
+            self.assertEqual(row["disposition"], dict(implementation="IMPLEMENTED", cli="REACHABLE", native="PASS", hardware="NOT_RUN"))
+            self.assertTrue(row["hardware_reason"])
+        self.assertEqual(choices["DipStatusBit.SOURCE_SW1"]["disposition"], operations.DEFAULT)
+        read = lambda value, name: next(row for row in value["operations"] if row["id"] == name)
+        # These choices belong to real readable settings, but reading their raw
+        # values cannot complete setter obligations even without a linked writer.
+        self.rejected(lambda value: read(value, "read_config").update(choices=["DefaultDirection.NORMAL"]))
+        self.rejected(lambda value: read(value, "read_state").update(choices=["AuxiliaryCommand.CLEAR_ALARM"]))
+        self.rejected(lambda value: read(value, "read_state")["choices"].append("AlarmCode.NORMAL"))
+        self.rejected(lambda value: read(value, "probe").update(choices=["AlarmCode.NORMAL"]))
+
+    def test_no_operation_metadata_cannot_hide_a_real_action(self):
+        result = operations.check(INVENTORY, LEDGER)
+        choice = next(row for row in result["named_choices"] if row["id"] == "AuxiliaryCommand.INVALID")
+        self.assertEqual(choice["coverage_kind"], "METADATA")
+        self.assertEqual(choice["operations"], [])
+        self.assertEqual(choice["disposition"], dict(implementation="NOT_APPLICABLE", cli="NOT_REACHABLE", native="NOT_APPLICABLE", hardware="NOT_APPLICABLE"))
+        self.rejected(lambda value: value["non_operation_choices"][0].update(id="AuxiliaryCommand.ENABLE"))
+        self.rejected(lambda value: value["non_operation_choices"][0].update(reason=""))
+        self.rejected(lambda value: value["non_operation_choices"].append(copy.deepcopy(value["non_operation_choices"][0])))
+        self.rejected(lambda value: next(row for row in value["operations"] if row["id"] == "enable").update(choices=["AuxiliaryCommand.INVALID"]))
+        self.rejected(lambda value: value.update(non_operation_choices=[]))
+
+    def test_missing_writable_choice_has_an_owner_even_when_register_is_linked(self):
+        gap = next(row for row in INVENTORY["gaps"] if row["id"] == "position_interrupt")
+        self.assertEqual(gap["owner"], "09")
+        self.assertEqual(gap["choices"], ["MotionCommandBit.INTERRUPT_POSITION"])
+        self.rejected(lambda value: value.update(gaps=[row for row in value["gaps"] if row["id"] != "position_interrupt"]))
+        self.rejected(lambda value: next(row for row in value["gaps"] if row["id"] == "position_interrupt").update(choices=["MotionCommandBit.START_POSITION"]))
+        self.rejected(lambda value: next(row for row in value["gaps"] if row["id"] == "position_interrupt").update(records=["DRIVER_MODEL"]))
+        self.rejected(lambda value: next(row for row in value["gaps"] if row["id"] == "position_interrupt").update(kinds=["READ"]))
+        # Prior implementing prompts remain valid owners; future blocks cannot
+        # silently absorb a missing prerequisite.
+        for owner in ("01", "06", "13/16", "23", "27"):
+            value = copy.deepcopy(INVENTORY)
+            value["gaps"][0]["owner"] = owner
+            operations.check(value, LEDGER)
 
     def test_helpers_have_explicit_roles_without_device_credit(self):
         surface = INVENTORY["public_surface"]

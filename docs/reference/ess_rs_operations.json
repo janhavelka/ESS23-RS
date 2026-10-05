@@ -213,9 +213,9 @@
         "DRIVER_MODEL"
       ],
       "api": {
-        "header": "include/MotorControlRS/Discovery.h",
+        "header": "include/MotorControlRS/profiles/ess_rs/Discovery.h",
         "symbols": [
-          "getDiscoveryCapabilities",
+          "probeCapabilities",
           "prepareProbe",
           "checkProbe"
         ]
@@ -393,7 +393,21 @@
           "docs/reports/ess_release_06_audit_2026-10-04.json"
         ]
       },
-      "reason": "Three independent non-consuming blocks; configured algorithm raw3 cannot establish actual/commanded position. Unsigned paired bits are decoded only with matching known word order; speed/position signed encoding and physical units remain unresolved. Communication, alarm, readiness and operation outcomes are separate."
+      "reason": "Three independent non-consuming blocks; configured algorithm raw3 cannot establish actual/commanded position. Unsigned paired bits are decoded only with matching known word order; speed/position signed encoding and physical units remain unresolved. Communication, alarm, readiness and operation outcomes are separate.",
+      "choices": [
+        "MotionStatusBit.IN_POSITION",
+        "MotionStatusBit.HOMING_COMPLETE",
+        "MotionStatusBit.RUNNING",
+        "MotionStatusBit.ALARM",
+        "MotionStatusBit.RELEASED",
+        "MotionStatusBit.POSITIVE_SOFT_LIMIT",
+        "MotionStatusBit.NEGATIVE_SOFT_LIMIT",
+        "AlarmCode.NORMAL",
+        "AlarmCode.OVERCURRENT",
+        "AlarmCode.OVERVOLTAGE",
+        "AlarmCode.UNDERVOLTAGE",
+        "AlarmCode.POSITION_TOLERANCE"
+      ]
     },
     {
       "api": {
@@ -427,9 +441,12 @@
         ]
       },
       "hardware": {
-        "state": "NOT_RUN",
-        "evidence": [],
-        "reason": "Independent timing, physical stop, sign/basis/ramp/input evidence remain unqualified; production admission fails closed."
+        "state": "PASS",
+        "evidence": [
+          "docs/reports/ess_release_25_26_audit_2026-10-05.md",
+          "docs/reports/ess_release_25_26_audit_2026-10-05.json"
+        ],
+        "reason": "Reviewed five-word staging for positive finite relative commands and exact original-profile restoration PASS as bounded drive-reported functional evidence on both recorded S3 frameworks. Independent electrical response-source, shaft and stop-distance measurements, negative encoding, other position paths and endurance are not qualified."
       },
       "id": "finite_position_staging",
       "kind": "WRITE",
@@ -464,9 +481,12 @@
         ]
       },
       "hardware": {
-        "state": "NOT_RUN",
-        "evidence": [],
-        "reason": "Independent timing, physical stop, sign/basis/ramp/input evidence remain unqualified; production admission fails closed."
+        "state": "PASS",
+        "evidence": [
+          "docs/reports/ess_release_25_26_audit_2026-10-05.md",
+          "docs/reports/ess_release_25_26_audit_2026-10-05.json"
+        ],
+        "reason": "Positive finite relative commands of 100 native increments at 60 RPM, configured native ramps and fresh running/completion reports PASS as bounded drive-reported functional evidence on both recorded S3 frameworks. Independent electrical response-source, shaft and stop-distance measurements, negative encoding, other position paths and endurance are not qualified."
       },
       "id": "move_relative",
       "kind": "ACTION",
@@ -511,9 +531,12 @@
         ]
       },
       "hardware": {
-        "state": "NOT_RUN",
-        "evidence": [],
-        "reason": "Independent TX/RX/DE timing and FC06 echo qualification missing; firmware rejects timing_unqualified before TX."
+        "state": "PASS",
+        "evidence": [
+          "docs/reports/ess_release_23_2026-10-05.md",
+          "docs/reports/ess_release_23_2026-10-05.json"
+        ],
+        "reason": "Explicit enable command and fresh drive-state observation PASS in the recorded prompt23 preceding-image (994d20...) finite action campaign; final image 041232... repeated read-only checks only, with the same production motor path. Archived software outcomes report acknowledged execution and observed completion under the declared receiver topology; independent electrical response-source, winding-current, shaft and external-input precedence measurements remain absent."
       },
       "reason": "Explicit one-shot command plus bounded checked state observation; acknowledgement is distinct from reported completion and physical effect."
     },
@@ -550,9 +573,12 @@
         ]
       },
       "hardware": {
-        "state": "NOT_RUN",
-        "evidence": [],
-        "reason": "Independent TX/RX/DE timing and FC06 echo qualification missing; firmware rejects timing_unqualified before TX."
+        "state": "PASS",
+        "evidence": [
+          "docs/reports/ess_release_23_2026-10-05.md",
+          "docs/reports/ess_release_23_2026-10-05.json"
+        ],
+        "reason": "Explicit release command and fresh drive-state observation PASS in the recorded prompt23 preceding-image (994d20...) finite action campaign; final image 041232... repeated read-only checks only, with the same production motor path. Archived software outcomes report acknowledged execution and observed completion under the declared receiver topology; independent electrical response-source, winding-current, shaft and external-input precedence measurements remain absent."
       },
       "reason": "Explicit one-shot command plus bounded checked state observation; acknowledgement is distinct from reported completion and physical effect."
     },
@@ -591,7 +617,7 @@
       "hardware": {
         "state": "NOT_RUN",
         "evidence": [],
-        "reason": "Independent TX/RX/DE timing and FC06 echo qualification missing; firmware rejects timing_unqualified before TX."
+        "reason": "No retained physical clear-alarm scenario with a before-alarm and correlated cleared-state observation. The current production path permits bounded actions; independent electrical/shaft qualification is separate from admission."
       },
       "reason": "Explicit one-shot command plus bounded checked state observation; acknowledgement is distinct from reported completion and physical effect."
     },
@@ -628,9 +654,12 @@
         ]
       },
       "hardware": {
-        "state": "NOT_RUN",
-        "evidence": [],
-        "reason": "Independent TX/RX/DE timing and FC06 echo qualification missing; firmware rejects timing_unqualified before TX."
+        "state": "PASS",
+        "evidence": [
+          "docs/reports/ess_release_25_26_audit_2026-10-05.md",
+          "docs/reports/ess_release_25_26_audit_2026-10-05.json"
+        ],
+        "reason": "Normal stop during a finite 250-increment move PASS as bounded drive-reported functional evidence on both recorded S3 frameworks. Independent electrical response-source, shaft and stop-distance measurements, negative encoding, other position paths and endurance are not qualified."
       },
       "reason": "Explicit one-shot command plus bounded checked state observation; acknowledgement is distinct from reported completion and physical effect."
     },
@@ -667,9 +696,12 @@
         ]
       },
       "hardware": {
-        "state": "NOT_RUN",
-        "evidence": [],
-        "reason": "Independent TX/RX/DE timing and FC06 echo qualification missing; firmware rejects timing_unqualified before TX."
+        "state": "PASS",
+        "evidence": [
+          "docs/reports/ess_release_25_26_audit_2026-10-05.md",
+          "docs/reports/ess_release_25_26_audit_2026-10-05.json"
+        ],
+        "reason": "Direct stop during a finite 250-increment move PASS as bounded drive-reported functional evidence on both recorded S3 frameworks. Independent electrical response-source, shaft and stop-distance measurements, negative encoding, other position paths and endurance are not qualified."
       },
       "reason": "Explicit one-shot command plus bounded checked state observation; acknowledgement is distinct from reported completion and physical effect."
     },
@@ -711,8 +743,10 @@
       },
       "hardware": {
         "state": "NOT_RUN",
-        "evidence": [],
-        "reason": "Independent timing/echo and command-coordinate/sign/ramp/input qualification remain unresolved; production writes fail closed. No physical equivalent-unit or shaft/travel comparison."
+        "evidence": [
+          "docs/reports/ess_release_23_2026-10-05.md"
+        ],
+        "reason": "The retained final-image absolute-return attempt refused before writes outside the bounded raw0..250 fixture. Earlier historical return evidence lacks an exact retained binary and is not qualification of the current image. Independent shaft/origin/path measurements remain open."
       },
       "reason": "Unwrapped absolute and explicitly wrapped paths use the existing finite mover and START_POSITION choice, counted separately under move_relative; full turns, direction/ties, fresh references and selected-path limits are retained."
     },
@@ -751,7 +785,7 @@
       "hardware": {
         "state": "NOT_RUN",
         "evidence": [],
-        "reason": "Independent electrical/echo qualification and stopped clear commissioning evidence remain missing; production clear admission fails closed."
+        "reason": "No retained exact-image physical zero-clear/counter-effect scenario. Native tests cover the explicit zero-only command and fresh readback; current production admission uses operation prerequisites, not an analyzer gate."
       },
       "reason": "Explicit zero-only auxiliary clear followed by new checked current-position pair zero observation; nonzero setters reject before traffic. Current-position read coverage remains under read_state. Clear never establishes homing or host origin, and accepted or uncertain execution invalidates dependent coordinate confidence."
     },
@@ -783,7 +817,7 @@
       "hardware": {
         "state": "NOT_RUN",
         "evidence": [],
-        "reason": "Timing/FC06 source, signed RPM, native ramp factor, serial readiness and physical stop unqualified; current-image velocity gates reject before TX."
+        "reason": "Autonomous velocity/ramp execution was not included in the authorized finite-position bench subset. Speed/sign/ramp prerequisites remain explicit; no independent velocity/acceleration/stop-distance qualification is claimed."
       },
       "reason": "Finite duration includes setup; checked signed speed plus retained native ramps, one start, bounded observations and existing priority stop; no acceleration formula, external JOG, live target updates or watchdog inferred.",
       "id": "velocity_parameters",
@@ -822,7 +856,7 @@
       "hardware": {
         "state": "NOT_RUN",
         "evidence": [],
-        "reason": "Timing/FC06 source, signed RPM, native ramp factor, serial readiness and physical stop unqualified; current-image velocity gates reject before TX."
+        "reason": "Autonomous velocity/ramp execution was not included in the authorized finite-position bench subset. Speed/sign/ramp prerequisites remain explicit; no independent velocity/acceleration/stop-distance qualification is claimed."
       },
       "reason": "Finite duration includes setup; checked signed speed plus retained native ramps, one start, bounded observations and existing priority stop; no acceleration formula, external JOG, live target updates or watchdog inferred.",
       "id": "velocity_start",
@@ -2439,11 +2473,9 @@
         "DRIVER_MODEL"
       ],
       "api": {
-        "header": "include/MotorControlRS/Discovery.h",
+        "header": "include/MotorControlRS/profiles/ess_rs/Discovery.h",
         "symbols": [
-          "discoveryProfileCount",
-          "getDiscoveryProfile",
-          "getDiscoveryCapabilities",
+          "probeCapabilities",
           "prepareProbe",
           "checkProbe"
         ]
@@ -2572,7 +2604,8 @@
     "Prompt21 implements explicit save/factory-restore choices via typed PersistenceContext and existing commissioning ownership. Per-field source-access notation remains ledger-derived; known raw before-values and post-action reads are separate from durability. Physical nonvolatile writes, motor restart and factory restoration remain NOT_RUN; partial snapshots and read-only regression receive no persistence hardware credit.",
     "Prompt23 reconciles existing PositionProfile read/restore, including matching ESS profile aliases, and names missing native families owning09/11/14/18 without shrinking221 records/135 choices. PositionProfile write credit is restricted whole-snapshot restoration, not general candidate/archive staging. Installed function roles are separate from typed device obligations. Static CLI prefix checking uses production metadata and implemented family grammar; runtime reachability requires console/application tests.",
     "Local wiring declarations distinguish unknown, unconnected and connected terminals. They assign no drive function, observe no electrical state and receive no device read/write/action credit.",
-    "Local profile list and discover inspect/cancel/restore/finish are host/session controls, not READ implementation credit; the discovery device obligation maps to the producing discover route only. Plain monitor is passive; READ coverage maps to monitor INTERVAL_MS COUNT."
+    "Local profile list and discover inspect/cancel/restore/finish are host/session controls, not READ implementation credit; the discovery device obligation maps to the producing discover route only. Plain monitor is passive; READ coverage maps to monitor INTERVAL_MS COUNT.",
+    "Prompt28 reconciles bounded recorded functional action/move evidence, explicitly classifies twelve read-only decoded status/alarm choices, retains the invalid auxiliary value as no-operation metadata and assigns the missing position-interrupt bit to prompt09. Raw setting reads gain no setter credit; per-choice physical activation is not inferred from a passing read."
   ],
   "gaps": [
     {
@@ -2716,6 +2749,21 @@
       "owner": "18",
       "disposition": "UNRESOLVED",
       "reason": "Access unspecified; no invented permission or alias to0122/0123."
+    },
+    {
+      "id": "position_interrupt",
+      "records": [
+        "MOTION_COMMAND"
+      ],
+      "choices": [
+        "MotionCommandBit.INTERRUPT_POSITION"
+      ],
+      "kinds": [
+        "ACTION"
+      ],
+      "owner": "09",
+      "disposition": "NOT_IMPLEMENTED",
+      "reason": "The typed finite position path emits fixed noninterrupting triggers. Native bit3 ignore-versus-interrupt positioning has no public request option, sequence or CLI route; priority stop is a separate operation and does not implement it."
     }
   ],
   "public_surface": [
@@ -2749,12 +2797,12 @@
       ]
     },
     {
-      "header": "include/MotorControlRS/Discovery.h",
+      "header": "include/MotorControlRS/profiles/ess_rs/Discovery.h",
       "symbols": [
         "checkProbe"
       ],
       "classification": "OBSERVATION",
-      "reason": "Compiled metadata and minimal nonchanging probe/evidence; application owns scanning.",
+      "reason": "ESS-owned request/evidence with native preparations and common forwarding routes; application owns scanning.",
       "cli_topics": [
         "profile",
         "caps",
@@ -2779,12 +2827,12 @@
       ]
     },
     {
-      "header": "include/MotorControlRS/Discovery.h",
+      "header": "include/MotorControlRS/profiles/ess_rs/Discovery.h",
       "symbols": [
         "prepareProbe"
       ],
       "classification": "DEVICE_OPERATION",
-      "reason": "Compiled metadata and minimal nonchanging probe/evidence; application owns scanning.",
+      "reason": "ESS-owned request/evidence with native preparations and common forwarding routes; application owns scanning.",
       "cli_topics": [
         "profile",
         "caps",
@@ -3333,6 +3381,26 @@
       "cli_topics": [
         "velocity"
       ]
+    },
+    {
+      "header": "include/MotorControlRS/profiles/ess_rs/Discovery.h",
+      "symbols": [
+        "probeCapabilities"
+      ],
+      "classification": "METADATA",
+      "reason": "ESS-owned reviewed probe metadata; common inventory dispatches to this profile.",
+      "cli_topics": [
+        "profile",
+        "caps",
+        "probe",
+        "discover"
+      ]
+    }
+  ],
+  "non_operation_choices": [
+    {
+      "id": "AuxiliaryCommand.INVALID",
+      "reason": "Documented zero invalid/no-operation value; no callable device action is required or claimed."
     }
   ]
 }

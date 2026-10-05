@@ -341,6 +341,10 @@ def check_metadata(root):
             for match in re.finditer(r'^\s*#\s*include\s*[<"]([^">]+)[">]', code, re.M):
                 if banned.match(match[1]) or match[1].startswith(("examples/", "../examples/")):
                     errors.append(f"{path.relative_to(root)}: core includes platform/application header {match[1]!r}")
+                common = root / "include" / "MotorControlRS"
+                if (inside(path, common) and not inside(path, common / "profiles") and
+                        "profiles" in PurePosixPath(match[1].replace("\\", "/")).parts):
+                    errors.append(f"{path.relative_to(root)}: common public header includes manufacturer profile {match[1]!r}")
     return errors
 
 

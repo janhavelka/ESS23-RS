@@ -1,6 +1,6 @@
 /**
  * @file MotorControlRS.h
- * @brief Framework-independent units API. Include drive profiles explicitly.
+ * @brief Framework-independent common API. Include drive profiles explicitly.
  * SPDX-License-Identifier: MIT
  */
 #pragma once
@@ -12,5 +12,6 @@
 #include "Discovery.h"
 #include "ActionOperation.h"
 #include "MoveOperation.h"
+#include "VelocityOperation.h"
 #include "Traffic.h"
 #include "Version.h"

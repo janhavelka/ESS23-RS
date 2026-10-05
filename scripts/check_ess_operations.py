@@ -131,7 +131,7 @@ def check(inventory, ledger):
         if not isinstance(value, dict) or set(value) - set(allowed.split()):
             raise ValueError("unknown fields or invalid object: " + label)
 
-    keys(inventory, "schema_version register_ledger scope default_disposition model_availability shared_records operations coverage_notes gaps public_surface", "inventory")
+    keys(inventory, "schema_version register_ledger scope default_disposition model_availability shared_records operations coverage_notes gaps public_surface non_operation_choices", "inventory")
     if inventory.get("schema_version") != 1 or inventory.get("register_ledger") != "docs/reference/ess_rs_registers.json":
         raise ValueError("unsupported inventory or register ledger")
     if inventory.get("default_disposition") != DEFAULT:
@@ -176,9 +176,23 @@ def check(inventory, ledger):
 
     choices = {group["name"] + "." + value["name"]: {"id": group["name"] + "." + value["name"],
                 "value": value["value"], "pages": value["pages"], "default_disposition": DEFAULT.copy(),
-                "disposition": DEFAULT.copy(), "operations": []}
+                "disposition": DEFAULT.copy(), "coverage_kind": "UNASSIGNED", "operations": []}
                for group in ledger["enums"] for value in group["values"]}
     choice_groups = {row["name"]: row.get("choices") for row in rows}
+    choice_records = {group["name"]: [row for row in rows if row.get("choices") == group["name"]]
+                      for group in ledger["enums"]}
+    for item in inventory.get("non_operation_choices", []):
+        keys(item, "id reason", "non-operation choice")
+        choice_id = item.get("id")
+        # The reviewed INVALID value is metadata, not another auxiliary action.
+        # Other choices cannot be removed from the denominator by relabelling them.
+        if (choice_id != "AuxiliaryCommand.INVALID" or choice_id not in choices or
+                choices[choice_id]["value"] != 0 or not item.get("reason") or
+                choices[choice_id]["coverage_kind"] != "UNASSIGNED"):
+            raise ValueError("invalid or duplicate non-operation choice")
+        choices[choice_id].update(coverage_kind="METADATA", reason=item["reason"],
+            disposition={"implementation": "NOT_APPLICABLE", "cli": "NOT_REACHABLE",
+                         "native": "NOT_APPLICABLE", "hardware": "NOT_APPLICABLE"})
     seen = set()
     referenced = Counter()
     metadata, console_source = console_commands()
@@ -192,8 +206,6 @@ def check(inventory, ledger):
         if kind not in {"READ", "WRITE", "ACTION"}:
             raise ValueError("unsupported operation kind")
         selected = operation.get("choices", [])
-        if kind == "READ" and selected:
-            raise ValueError("read coverage is not typed setting/action choice coverage")
         if selected and len(selected) != len(set(selected)):
             raise ValueError("setting/action choices must be distinct")
         if kind == "ACTION" and (not selected or len(selected) != len(set(selected))):
@@ -209,12 +221,15 @@ def check(inventory, ledger):
                 raise ValueError("read group references reserved/unreadable/unresolved record: " + record_id)
             referenced[record_id] += 1
             record[kind.lower() + "_operations"].append(op_id)
-        if (kind == "ACTION" or selected) and {choice_id.split(".")[0] for choice_id in selected} != {choice_groups[name] for name in linked if choice_groups[name]}:
+        if kind != "READ" and (kind == "ACTION" or selected) and {choice_id.split(".")[0] for choice_id in selected} != {choice_groups[name] for name in linked if choice_groups[name]}:
             raise ValueError("setting/action records require explicit matching choices")
         for choice_id in selected:
             if choice_id not in choices or choice_id.split(".")[0] not in {choice_groups[name] for name in linked}:
                 raise ValueError("unknown choice or choice not owned by action record: " + str(choice_id))
-            if choices[choice_id]["operations"]:
+            if kind == "READ" and any(row["source_access"] != "RO"
+                                       for row in choice_records[choice_id.split(".")[0]]):
+                raise ValueError("raw setting reads do not establish setting/action choice coverage")
+            if choices[choice_id]["operations"] or choices[choice_id]["coverage_kind"] == "METADATA":
                 raise ValueError("duplicate named-choice action coverage: " + choice_id)
             choices[choice_id]["operations"].append(op_id)
 
@@ -261,8 +276,13 @@ def check(inventory, ledger):
                 if not local_file(reference).is_file():
                     raise ValueError("missing " + column + " evidence: " + reference)
         for choice_id in selected:
+            choices[choice_id]["coverage_kind"] = kind
             choices[choice_id]["disposition"] = {"implementation": state, "cli": cli,
                 "native": operation["native"]["state"], "hardware": operation["hardware"]["state"]}
+            if kind == "READ":
+                # A successful read is not physical exercise of every alarm/bit.
+                choices[choice_id]["disposition"]["hardware"] = "NOT_RUN"
+                choices[choice_id]["hardware_reason"] = "Decoder coverage only; physical activation of this named state is not established by the read operation's hardware evidence."
         for record_id in linked:
             if kind in {"READ", "WRITE"}:
                 column = kind.lower()
@@ -286,7 +306,7 @@ def check(inventory, ledger):
             raise ValueError("invalid or duplicate named gap")
         gap_ids.add(gap_id)
         if (gap.get("disposition") not in {"NOT_IMPLEMENTED", "UNRESOLVED", "PARTIAL"}
-                or not gap.get("reason") or not re.fullmatch(r"(?:09|11|12|14|18)(?:/(?:09|11|12|14|18))*", gap.get("owner", ""))):
+                or not gap.get("reason") or not re.fullmatch(r"(?:0[1-9]|1[0-9]|2[0-7])(?:/(?:0[1-9]|1[0-9]|2[0-7]))*", gap.get("owner", ""))):
             raise ValueError("gap needs implementation/semantic disposition and owning prompt: " + gap_id)
         if not gap.get("records") or any(name not in records for name in gap["records"]):
             raise ValueError("gap references missing records: " + gap_id)
@@ -294,11 +314,25 @@ def check(inventory, ledger):
             raise ValueError("invalid gap obligation: " + gap_id)
         if any(name not in choices for name in gap.get("choices", [])):
             raise ValueError("gap references missing choices: " + gap_id)
+        if any(name.split(".")[0] not in {choice_groups[record] for record in gap["records"]}
+               for name in gap.get("choices", [])):
+            raise ValueError("gap choice does not belong to its records: " + gap_id)
         for name in gap["records"]:
             records[name].setdefault("gaps", []).append(gap_id)
     if any(not referenced[name] and not records[name].get("gaps") for name in records
            if records[name]["source_certainty"] != "EXPLICIT_RESERVED"):
         raise ValueError("unlinked nonreserved source record needs a named owning gap")
+    for choice in choices.values():
+        if choice["operations"] or choice["coverage_kind"] == "METADATA":
+            continue
+        owners = {row["name"] for row in choice_records[choice["id"].split(".")[0]]
+                  if row["source_access"] in {"WO", "RW", "RW/S"}}
+        if owners and not any(
+                (choice["id"] in gap.get("choices", []) and {"WRITE", "ACTION"}.intersection(gap["kinds"])) or
+                (not gap.get("choices") and owners.intersection(gap["records"]) and
+                 {"WRITE", "ACTION"}.intersection(gap["kinds"]))
+                for gap in inventory.get("gaps", [])):
+            raise ValueError("unimplemented writable choice needs a named owning gap: " + choice["id"])
 
     # All installed free-function declarations must have an explicit role.
     # Member APIs (TrafficCapture/Status) retain their documented owner contract.
@@ -328,12 +362,13 @@ def check(inventory, ledger):
     if missing:
         raise ValueError("unclassified installed public functions: " + ", ".join(sorted(str(header.relative_to(ROOT)) + ":" + symbol for header, symbol in missing)))
 
-    # Source choices remain a separate denominator, including inactive/unknown
-    # interpretations. Reading a raw setting is never setting/action coverage.
+    # Read-only decoding, settings/actions and reviewed no-op metadata retain
+    # distinct roles. Reading a raw setting is never setting/action coverage.
     summary = {"records": len(records), "reserved": sum(row["signedness"] == "RESERVED" for row in rows),
                "unresolved_access": sum(row["source_access"] == "UNSPECIFIED" for row in rows),
                "operations": len(seen), "named_choices": len(choices),
                "choice_implementation": dict(Counter(choice["disposition"]["implementation"] for choice in choices.values()))}
+    summary["choice_coverage_kind"] = dict(Counter(choice["coverage_kind"] for choice in choices.values()))
     summary["named_gaps"] = len(gap_ids)
     summary["classified_public_functions"] = len(surfaced)
     for kind in ("read", "write", "action"):

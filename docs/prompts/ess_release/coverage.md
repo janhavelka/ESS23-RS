@@ -1,9 +1,22 @@
 # Roadmap and requirement coverage
 
+Prompt28 reconciles the [operation inventory](../../reference/ess_rs_operations.json)
+against current decoders and the retained bounded functional bench reports.
+Read-only decoded status/alarm choices, setting/action choices and the documented
+auxiliary no-operation value now have separate roles. The complete 135-choice
+denominator remains; 81 choices are implemented, 52 unimplemented/unresolved,
+one unsupported and one no-operation metadata value. Physical activation of
+individual decoded alarms/flags remains NOT RUN. Native position interruption
+is a ninth named gap owned by09; a stop command does not complete that feature.
+See the [API/CLI coverage handoff](../../ess_api_cli_coverage.md) for the actual
+routes, remaining read/write obligations and narrowly scoped hardware evidence.
+
 Prompt19 [host tuple handoff](../../reports/ess_release_19_2026-10-04.md)
 maps the application callback, adapter and exclusive owner lease to native and
 host-only hardware evidence. Sixteen setups and two mismatch/restore checks
-PASS; alternate motor communication and electrical qualification remain open.
+PASS as setup/restoration evidence; its later audit retains strict mismatch
+campaign failures and unresolved malformed-traffic origin. Alternate motor
+communication and electrical qualification remain open.
 This adds no register-ledger write credit: device settings are unchanged.
 
 The [fresh16/17 audit](../../reports/ess_release_16_17_audit_2026-10-04.md)
@@ -54,6 +67,7 @@ register transcription; prompt 05 extends operational coverage linked to it.
 | Exact input, origins, reference generations, rounding and limits | 07, 10 | 09, 13–14, 28 |
 | Enable/release, normal/emergency stop, alarm clear, uncertainty | 08 | 09, 11, 14, 29 |
 | Relative/absolute/wrapped-angle movement and actual completion | 09–10 | 24, 29 |
+| Native position ignore-versus-interrupt bit | 09, missing typed option/CLI; explicitly retained by28 | 29–30 must not claim completion |
 | Velocity, physical acceleration/deceleration vs native ramp time | 11 | 24, 29 |
 | Device position clear versus host origin and homing | 10, 14 | 23, 29 |
 | Additional paired write forms, signedness/order/access without bypasses | 12 | Every dependent family; 28 |

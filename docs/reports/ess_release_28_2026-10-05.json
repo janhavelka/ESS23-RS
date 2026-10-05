@@ -1,0 +1,247 @@
+{
+  "prompt": 28,
+  "baseline": "ca43e7946d8d1726e48370c372dd5af20244c47a",
+  "software_audit": "PASS",
+  "physical_qualification": "NOT RUN on corrected image",
+  "next_prompt": 29,
+  "next_prompt_executed": false,
+  "verification": {
+    "mode": "full",
+    "firmware": "all",
+    "hardware": "NOT RUN (build and host tests only)",
+    "python": "3.12.10 (tags/v3.12.10:0cc8128, Apr  8 2025, 12:21:36) [MSC v.1943 64 bit (AMD64)]",
+    "ctest": "ctest version 4.0.3",
+    "registered_tests": 74,
+    "package": {
+      "version": "0.6.0",
+      "file": "MotorControl-RS-0.6.0.zip",
+      "sha256": "4f4353da4562c2673ecc1051009105280f822d11ab0efd313e48df927467fac7"
+    },
+    "status": "PASS",
+    "checks": [
+      {
+        "check": "offline-contrasts",
+        "exit": 0,
+        "seconds": 0.25,
+        "log": "01-offline-contrasts.log"
+      },
+      {
+        "check": "native-configure",
+        "exit": 0,
+        "seconds": 1.328,
+        "log": "02-native-configure.log"
+      },
+      {
+        "check": "native-build",
+        "exit": 0,
+        "seconds": 45.094,
+        "log": "03-native-build.log"
+      },
+      {
+        "check": "native-tests",
+        "exit": 0,
+        "seconds": 8.094,
+        "log": "04-native-tests.log"
+      },
+      {
+        "check": "package-configure",
+        "exit": 0,
+        "seconds": 0.89,
+        "log": "05-package-configure.log"
+      },
+      {
+        "check": "package-build",
+        "exit": 0,
+        "seconds": 1.063,
+        "log": "06-package-build.log"
+      },
+      {
+        "check": "package-install",
+        "exit": 0,
+        "seconds": 0.062,
+        "log": "07-package-install.log"
+      },
+      {
+        "check": "source-configure",
+        "exit": 0,
+        "seconds": 0.985,
+        "log": "08-source-configure.log"
+      },
+      {
+        "check": "source-build",
+        "exit": 0,
+        "seconds": 1.89,
+        "log": "09-source-build.log"
+      },
+      {
+        "check": "source-tests",
+        "exit": 0,
+        "seconds": 0.125,
+        "log": "10-source-tests.log"
+      },
+      {
+        "check": "source-codec-symbols",
+        "exit": 0,
+        "seconds": 0.016,
+        "log": "11-source-codec-symbols.log"
+      },
+      {
+        "check": "installed-configure",
+        "exit": 0,
+        "seconds": 0.875,
+        "log": "12-installed-configure.log"
+      },
+      {
+        "check": "installed-build",
+        "exit": 0,
+        "seconds": 1.094,
+        "log": "13-installed-build.log"
+      },
+      {
+        "check": "installed-tests",
+        "exit": 0,
+        "seconds": 0.109,
+        "log": "14-installed-tests.log"
+      },
+      {
+        "check": "installed-codec-symbols",
+        "exit": 0,
+        "seconds": 0.015,
+        "log": "15-installed-codec-symbols.log"
+      },
+      {
+        "check": "arduino-builds",
+        "exit": 0,
+        "seconds": 32.422,
+        "log": "16-arduino-builds.log"
+      },
+      {
+        "check": "idf-app",
+        "exit": 0,
+        "seconds": 18.578,
+        "log": "17-idf-app.log"
+      },
+      {
+        "check": "idf-core-s3",
+        "exit": 0,
+        "seconds": 17.922,
+        "log": "18-idf-core-s3.log"
+      },
+      {
+        "check": "idf-core-s2",
+        "exit": 0,
+        "seconds": 16.984,
+        "log": "19-idf-core-s2.log"
+      },
+      {
+        "check": "idf-portable-s2",
+        "exit": 0,
+        "seconds": 17.61,
+        "log": "20-idf-portable-s2.log"
+      }
+    ]
+  },
+  "red_green": {
+    "baseline_commit": "ca43e7946d8d1726e48370c372dd5af20244c47a",
+    "baseline_adaptation": "Only PreparedProbe namespace and corresponding profile include changed to match current layout-identical header; runtime application logic is baseline. Both variants use current tests and identical current non-app objects.",
+    "results": [
+      {
+        "variant": "baseline",
+        "scenario": "testFailedConfigRefreshInvalidatesOnlyContradictedCurrentKnowledge",
+        "exit_code": 3221226505,
+        "stdout": "",
+        "stderr": "Assertion failed: !app->configuration.operationId && !app->axis.originKnown, file C:\\Users\\Honza\\Documents\\Projects\\ESS23-RS\\build\\p28_ownership\\redgreen\\baseline\\test\\testFailedConfigRefreshInvalidatesOnlyContradictedCurrentKnowledge.cpp, line 862\n",
+        "app_sha256": "c75f47c02c1d91413caa4c9a3c747acf6d33bdb1707204869605b73367a5a858"
+      },
+      {
+        "variant": "baseline",
+        "scenario": "testFailedDriveAndInputRefreshInvalidateCheckedChanges",
+        "exit_code": 3221226505,
+        "stdout": "",
+        "stderr": "Assertion failed: app->axis.generation == generation + 1 && !app->axis.originKnown, file C:\\Users\\Honza\\Documents\\Projects\\ESS23-RS\\build\\p28_ownership\\redgreen\\baseline\\test\\testFailedDriveAndInputRefreshInvalidateCheckedChanges.cpp, line 923\n",
+        "app_sha256": "c75f47c02c1d91413caa4c9a3c747acf6d33bdb1707204869605b73367a5a858"
+      },
+      {
+        "variant": "mixed_clock",
+        "scenario": "testFailedConfigRefreshInvalidatesOnlyContradictedCurrentKnowledge",
+        "exit_code": 3221226505,
+        "stdout": "",
+        "stderr": "retained_reason=14 clock_error_trace_events=1\nAssertion failed: app->owner.txAccepted(findRecord(*app, operation)->requestId), file C:\\Users\\Honza\\Documents\\Projects\\ESS23-RS\\build\\p28_ownership\\redgreen\\mixed_clock\\test\\testFailedConfigRefreshInvalidatesOnlyContradictedCurrentKnowledge.cpp, line 795\n",
+        "app_sha256": "c5d0c2156dde5cf1e80ce94a61b44e2c1ca679e8739f34d173a32e1402089cc0"
+      },
+      {
+        "variant": "corrected",
+        "scenario": "testFailedConfigRefreshInvalidatesOnlyContradictedCurrentKnowledge",
+        "exit_code": 0,
+        "stdout": "",
+        "stderr": "",
+        "app_sha256": "e2bad792eed39f58c0c9563d7616ec155c18703a40f8b367c9a2b3cb6c38c134"
+      },
+      {
+        "variant": "corrected",
+        "scenario": "testFailedDriveAndInputRefreshInvalidateCheckedChanges",
+        "exit_code": 0,
+        "stdout": "",
+        "stderr": "",
+        "app_sha256": "e2bad792eed39f58c0c9563d7616ec155c18703a40f8b367c9a2b3cb6c38c134"
+      }
+    ]
+  },
+  "coverage": {
+    "records": 221,
+    "words": 242,
+    "operations": 49,
+    "named_choices": 135,
+    "implemented_choices": 81,
+    "unimplemented_or_unresolved_choices": 52,
+    "unsupported_choices": 1,
+    "no_op_metadata_choices": 1,
+    "named_gaps": 9
+  },
+  "hardware": {
+    "status": "NOT_RUN",
+    "reason": "COM13 repeatedly occupied; brief baseline access refused with8 retained results",
+    "uploaded": false,
+    "motor_writes": 0,
+    "results_released": 0,
+    "recovery_or_reset": false,
+    "stale_cached_position": 3639,
+    "fresh_standstill_established": false,
+    "pending": [
+      "archive/inspect retained results before explicit release",
+      "fresh baseline",
+      "candidate upload",
+      "configuration/native read regression",
+      "bounded discovery/restore",
+      "finite100 move, stop and profile restoration"
+    ]
+  },
+  "production_file_sha256": {
+    "CMakeLists.txt": "09644c25668ca10c94044bef4744ef0feb7e4533aaf39df7df21771a0e187a7b",
+    "examples/probe_cli/DiscoveryScan.h": "73fbfa1e1565b04dd7da42e826091bc1c81a3d528b3ab2a03008c0b747a3f862",
+    "examples/probe_cli/ProbeApp.cpp": "4c933ae2a2d8139bc8e10bce3e4d9e75ff4d253005dd0a2b2fcc2fb09bfd9587",
+    "examples/probe_cli/ProbeConsole.h": "fd3dd2d8b6fd2c9a44b5b1537b0cbad52da12ea2316889907fedecc241252ba2",
+    "include/MotorControlRS/Discovery.h": "c5a228b79a3d35b8374ad243d343a917479baabca78a380efbab4470b1adf946",
+    "include/MotorControlRS/MotorControlRS.h": "7841111df1992e9205ca4d3447ad132b46d411bce9aaf001ee54b6b2ae2e8011",
+    "include/MotorControlRS/profiles/ess_rs/Discovery.h": "873f5af755873141ab503721c61b6de3c43c6135772b98de4c69cc349afa8803",
+    "scripts/check_ess_operations.py": "fa3a30524c08022d78c872eba5bfba5afdd60174d59e0839a2444afef7356885",
+    "scripts/check_repository.py": "bcc2605917986d5ff180fe510d1f6db165374a69e6296a81d319f8af8348abf9",
+    "src/Discovery.cpp": "6df9b4d37367d18690985ceedd1cf33f25df5e0d04e32dae99f9d0fe7a891db8",
+    "src/profiles/ess_rs/Discovery.cpp": "11bb915f0ffb699b65887c725f15610efcf550dfcf0d4ed4473970d27d4a28c3",
+    "test/discovery_test.cpp": "0886732ac9ec66b9d00484ef8dc619f220176cbfabb8db9bb09d6042e5091467",
+    "test/idf_consumer/main/main.cpp": "52ec5dd4d9ddc27fcad8076667848cbefb5540addefbe31c426fb6244a9b6231",
+    "test/installed_consumer/main.cpp": "c384e29a7b543629596d72c98e361c5abb01a458742327dbb4c65040eb536ca1",
+    "test/operations_inventory_test.py": "65ffd80bdc86872e8849c12fc7f758572d80d0b5d48e4ce3334eda60f060c359",
+    "test/probe_app_test.cpp": "51666ee0bd8f7de5c910db4184fa47025e85b4c0e4d66211ca5a7a24d5065bfe",
+    "test/repository_check_test.py": "7f14c6ef8c7459a5ea13944a38f72370582c7b39fc15c3726356953c9f4dff5a"
+  },
+  "archive": {
+    "file": "ess_release_28_2026-10-05_evidence.zip",
+    "bytes": 450842,
+    "sha256": "251f2f0ef14ed90e4f1e34cae70c2038940d8ac312b6294c74c2ea82b89afc58"
+  },
+  "ci": {
+    "required": "all exact-pushed-commit jobs; root checks after push",
+    "local_verifier_is_hosted_ci": false
+  }
+}

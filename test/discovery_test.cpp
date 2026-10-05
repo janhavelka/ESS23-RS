@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-#include <MotorControlRS/Discovery.h>
+#include <MotorControlRS/profiles/ess_rs/Discovery.h>
 #include <cassert>
 #include <cstring>
 #include <initializer_list>
@@ -17,17 +17,17 @@ ActiveSerialTuple tuple() {
     ActiveSerialTuple t; t.known = true; t.baud = 115200; t.dataBits = 8;
     t.parity = SerialParity::NONE; t.stopBits = 1; return t;
 }
-PreparedProbe prepared() {
-    PreparedProbe p;
-    assert(prepareProbe(p, DriveProfile::ESS_RS, target(), 23, 100, 1000, tuple()));
+ESS_RS::PreparedProbe prepared() {
+    ESS_RS::PreparedProbe p;
+    assert(MotorControlRS::prepareProbe(p, DriveProfile::ESS_RS, target(), 23, 100, 1000, tuple()));
     return p;
 }
-ReadEvent frame(const PreparedProbe& p, const uint8_t* raw, std::size_t length) {
+ReadEvent frame(const ESS_RS::PreparedProbe& p, const uint8_t* raw, std::size_t length) {
     ReadEvent e; e.target = p.target; e.operationId = p.operationId;
     e.frame = raw; e.length = length; e.qualified = true;
     e.earliestUs = 200; e.latestUs = 220; e.txAccepted = 8; return e;
 }
-ReadEvent local(const PreparedProbe& p, ReadEventKind kind) {
+ReadEvent local(const ESS_RS::PreparedProbe& p, ReadEventKind kind) {
     ReadEvent e; e.target = p.target; e.operationId = p.operationId; e.kind = kind; return e;
 }
 void seal(uint8_t* bytes, std::size_t size) {
@@ -53,33 +53,33 @@ void inventoryAndPreparation() {
     assert(caps.probeRequestBytes == 8 && caps.probeReplyBytes == 7 && caps.exceptionReplyBytes == 5);
     Saved<DiscoveryCapabilities> savedCaps(caps);
     assert(getDiscoveryCapabilities(static_cast<DriveProfile>(1), caps).code == Err::UNSUPPORTED); savedCaps.check(caps);
-    PreparedProbe p = prepared(); Saved<PreparedProbe> saved(p);
+    ESS_RS::PreparedProbe p = prepared(); Saved<ESS_RS::PreparedProbe> saved(p);
     const uint8_t expected[] = {1, 3, 0, 0, 0, 1, 0x84, 0x0A};
     assert(p.length == 8 && !std::memcmp(p.bytes, expected, 8));
     for (unsigned field = 0; field < 3; ++field) {
         ReadTarget bad = target();
         if (field == 0) bad.id = 0; else if (field == 1) bad.generation = 0; else bad.address = 0;
-        assert(!prepareProbe(p, DriveProfile::ESS_RS, bad, 23, 100, 1000, tuple())); saved.check(p);
+        assert(!MotorControlRS::prepareProbe(p, DriveProfile::ESS_RS, bad, 23, 100, 1000, tuple())); saved.check(p);
     }
     ReadTarget bad = target(); bad.address = 248;
-    assert(!prepareProbe(p, DriveProfile::ESS_RS, bad, 23, 100, 1000)); saved.check(p);
-    assert(!prepareProbe(p, static_cast<DriveProfile>(255), target(), 23, 100, 1000)); saved.check(p);
-    assert(!prepareProbe(p, DriveProfile::ESS_RS, target(), 0, 100, 1000)); saved.check(p);
-    assert(!prepareProbe(p, DriveProfile::ESS_RS, target(), 23, 100, 100)); saved.check(p);
+    assert(!MotorControlRS::prepareProbe(p, DriveProfile::ESS_RS, bad, 23, 100, 1000)); saved.check(p);
+    assert(!MotorControlRS::prepareProbe(p, static_cast<DriveProfile>(255), target(), 23, 100, 1000)); saved.check(p);
+    assert(!MotorControlRS::prepareProbe(p, DriveProfile::ESS_RS, target(), 0, 100, 1000)); saved.check(p);
+    assert(!MotorControlRS::prepareProbe(p, DriveProfile::ESS_RS, target(), 23, 100, 100)); saved.check(p);
     ActiveSerialTuple badTuple = tuple(); badTuple.parity = SerialParity::UNKNOWN;
-    assert(!prepareProbe(p, DriveProfile::ESS_RS, target(), 23, 100, 1000, badTuple)); saved.check(p);
-    assert(prepareProbe(p, DriveProfile::ESS_RS, target(), 23, 100, 1000)); assert(!p.activeSerial.known);
+    assert(!MotorControlRS::prepareProbe(p, DriveProfile::ESS_RS, target(), 23, 100, 1000, badTuple)); saved.check(p);
+    assert(MotorControlRS::prepareProbe(p, DriveProfile::ESS_RS, target(), 23, 100, 1000)); assert(!p.activeSerial.known);
     for (unsigned address : {1U, 247U}) {
         ReadTarget t = target(); t.address = static_cast<uint8_t>(address);
-        assert(prepareProbe(p, DriveProfile::ESS_RS, t, 23, 100, 1000));
+        assert(MotorControlRS::prepareProbe(p, DriveProfile::ESS_RS, t, 23, 100, 1000));
         assert(p.bytes[0] == address && p.bytes[1] == 3 && p.bytes[2] == 0 && p.bytes[3] == 0 && p.bytes[5] == 1);
     }
 }
 void exactReplyAndUnknownIdentity() {
-    const PreparedProbe p = prepared();
+    const ESS_RS::PreparedProbe p = prepared();
     for (uint16_t code : {uint16_t(0), uint16_t(0x305), uint16_t(0x4EEA), uint16_t(0xFFFF)}) {
         uint8_t raw[] = {1, 3, 2, static_cast<uint8_t>(code >> 8), static_cast<uint8_t>(code), 0, 0}; seal(raw, sizeof(raw));
-        ProbeObservation out; assert(checkProbe(p, frame(p, raw, sizeof(raw)), 230, out));
+        ESS_RS::ProbeObservation out; assert(MotorControlRS::checkProbe(p, frame(p, raw, sizeof(raw)), 230, out));
         assert(out.outcome == ProbeOutcome::RESPONDER && out.rawModelKnown && out.rawModel == code);
         assert(out.confidence == ProbeConfidence::RESPONDER_MODEL_UNRESOLVED);
         assert(out.modelResolution == ESS_RS::ReadResolution::MODEL_MAPPING_UNRESOLVED);
@@ -105,9 +105,9 @@ void exactReplyAndUnknownIdentity() {
     assert(observed.activeNodeKnown && observed.activeNode != observed.target.address);
 }
 void rejectedEnvelopes() {
-    const PreparedProbe p = prepared();
+    const ESS_RS::PreparedProbe p = prepared();
     uint8_t raw[] = {1, 3, 2, 3, 5, 0, 0}; seal(raw, sizeof(raw));
-    ProbeObservation out; out.rawModel = 0xABCD; Saved<ProbeObservation> saved(out);
+    ESS_RS::ProbeObservation out; out.rawModel = 0xABCD; Saved<ESS_RS::ProbeObservation> saved(out);
     for (unsigned variant = 0; variant < 13; ++variant) {
         ReadEvent e = frame(p, raw, sizeof(raw));
         switch (variant) {
@@ -119,18 +119,18 @@ void rejectedEnvelopes() {
         case 10: e.qualified = false; break; case 11: e.kind = static_cast<ReadEventKind>(99); break;
         case 12: e.kind = ReadEventKind::CANCEL; break;
         }
-        assert(!checkProbe(p, e, 230, out)); saved.check(out);
+        assert(!MotorControlRS::checkProbe(p, e, 230, out)); saved.check(out);
     }
-    assert(!checkProbe(p, local(p, ReadEventKind::DEADLINE), 999, out)); saved.check(out);
-    assert(!checkProbe(p, local(p, ReadEventKind::CANCEL), 99, out)); saved.check(out);
-    PreparedProbe changed = p; changed.bytes[1] = 6;
-    assert(!checkProbe(changed, frame(p, raw, sizeof(raw)), 230, out)); saved.check(out);
+    assert(!MotorControlRS::checkProbe(p, local(p, ReadEventKind::DEADLINE), 999, out)); saved.check(out);
+    assert(!MotorControlRS::checkProbe(p, local(p, ReadEventKind::CANCEL), 99, out)); saved.check(out);
+    ESS_RS::PreparedProbe changed = p; changed.bytes[1] = 6;
+    assert(!MotorControlRS::checkProbe(changed, frame(p, raw, sizeof(raw)), 230, out)); saved.check(out);
 }
 void failureEvidence() {
-    const PreparedProbe p = prepared(); ProbeObservation out;
+    const ESS_RS::PreparedProbe p = prepared(); ESS_RS::ProbeObservation out;
     uint8_t raw[] = {1, 3, 2, 3, 5, 0, 0}; seal(raw, sizeof(raw));
     auto expect = [&](ReadEvent e, uint64_t now, ProbeOutcome outcome) {
-        assert(checkProbe(p, e, now, out)); assert(out.outcome == outcome);
+        assert(MotorControlRS::checkProbe(p, e, now, out)); assert(out.outcome == outcome);
         assert(!out.rawModelKnown && out.confidence == ProbeConfidence::NONE);
         assert(!out.status && out.provenance.status.code == out.status.code);
     };
@@ -147,13 +147,13 @@ void failureEvidence() {
     uint8_t longFrame[48] = {}; expect(frame(p, longFrame, sizeof(longFrame)), 230, ProbeOutcome::MALFORMED);
     assert(out.provenance.receivedLength == 48 && out.provenance.length == 37);
     uint8_t exception[] = {1, 0x83, 0xE7, 1, 0x7A};
-    assert(checkProbe(p, frame(p, exception, 5), 230, out));
+    assert(MotorControlRS::checkProbe(p, frame(p, exception, 5), 230, out));
     assert(out.outcome == ProbeOutcome::EXCEPTION && out.confidence == ProbeConfidence::RESPONDER_ONLY);
     assert(out.status.code == Err::EXCEPTION && out.status.detail == 0xE7 && !out.rawModelKnown);
     ReadEvent e = frame(p, raw, 7); e.qualified = false; e.earliestUs = e.latestUs = 0;
     expect(e, 230, ProbeOutcome::TIMING_UNQUALIFIED);
     e = frame(p, raw, 7); e.latestUs = 1001; expect(e, 1200, ProbeOutcome::DEADLINE);
-    e.latestUs = 1000; assert(checkProbe(p, e, 1200, out)); assert(out.outcome == ProbeOutcome::RESPONDER);
+    e.latestUs = 1000; assert(MotorControlRS::checkProbe(p, e, 1200, out)); assert(out.outcome == ProbeOutcome::RESPONDER);
     expect(local(p, ReadEventKind::DEADLINE), 1000, ProbeOutcome::NO_RESPONSE);
     e = local(p, ReadEventKind::DEADLINE); e.frame = raw; e.length = 3; expect(e, 1000, ProbeOutcome::DEADLINE);
     e = local(p, ReadEventKind::TRANSPORT_FAILURE); e.frame = raw; e.length = 3;
@@ -163,5 +163,50 @@ void failureEvidence() {
     assert(out.provenance.length == 3 && !std::memcmp(out.provenance.raw, raw, 3));
     expect(local(p, ReadEventKind::CANCEL), 230, ProbeOutcome::CANCELLED);
 }
+void commonAndNativeRoutes() {
+    const ESS_RS::PreparedProbe common = prepared();
+    ESS_RS::PreparedProbe native;
+    assert(ESS_RS::prepareProbe(native, target(), 23, 100, 1000, tuple()));
+    assert(native.length == common.length && !std::memcmp(native.bytes, common.bytes, common.length));
+    assert(native.profile == common.profile && native.operationId == common.operationId);
+    assert(native.target.id == common.target.id && native.target.address == common.target.address &&
+        native.target.generation == common.target.generation);
+    assert(native.startedUs == common.startedUs && native.deadlineUs == common.deadlineUs);
+    assert(native.activeSerial.known && native.activeSerial.baud == common.activeSerial.baud &&
+        native.activeSerial.dataBits == common.activeSerial.dataBits &&
+        native.activeSerial.parity == common.activeSerial.parity && native.activeSerial.stopBits == common.activeSerial.stopBits);
+    const DiscoveryCapabilities caps = ESS_RS::probeCapabilities();
+    assert(caps.probe && caps.nonChanging && caps.probeRequestBytes == 8 && caps.probeReplyBytes == 7);
+
+    // Both public routes consume the same independently sealed success, exception
+    // and malformed frames, retain their provenance and never infer identity.
+    uint8_t response[] = {1, 3, 2, 0x4E, 0xEA, 0, 0}; seal(response, sizeof(response));
+    uint8_t exception[] = {1, 0x83, 2, 0, 0}; seal(exception, sizeof(exception));
+    for (unsigned scenario = 0; scenario < 3; ++scenario) {
+        if (scenario == 2) response[6] ^= 1;
+        const auto event = scenario == 1 ? frame(common, exception, sizeof(exception)) :
+            frame(common, response, sizeof(response));
+        ESS_RS::ProbeObservation a, b;
+        assert(MotorControlRS::checkProbe(common, event, 230, a));
+        assert(ESS_RS::checkProbe(native, event, 230, b));
+        const ProbeOutcome expected[] = {ProbeOutcome::RESPONDER, ProbeOutcome::EXCEPTION, ProbeOutcome::MALFORMED};
+        assert(a.outcome == expected[scenario] && b.outcome == a.outcome);
+        assert(a.confidence == b.confidence && a.rawModelKnown == b.rawModelKnown && a.rawModel == b.rawModel);
+        assert(a.modelResolution == b.modelResolution && a.status.code == b.status.code && a.status.detail == b.status.detail);
+        assert(a.provenance.frameError == b.provenance.frameError && a.provenance.length == b.provenance.length &&
+            a.provenance.receivedLength == b.provenance.receivedLength &&
+            a.provenance.attemptedUs == b.provenance.attemptedUs && a.provenance.earliestUs == b.provenance.earliestUs &&
+            a.provenance.latestUs == b.provenance.latestUs && a.provenance.deliveredUs == b.provenance.deliveredUs &&
+            a.provenance.txAccepted == b.provenance.txAccepted && a.provenance.qualified == b.provenance.qualified);
+        assert(!std::memcmp(a.provenance.raw, b.provenance.raw, a.provenance.length));
+    }
+    native.profile = static_cast<DriveProfile>(255);
+    ESS_RS::ProbeObservation unchanged; unchanged.rawModel = 0xA55A;
+    Saved<ESS_RS::ProbeObservation> saved(unchanged);
+    assert(ESS_RS::checkProbe(native, frame(native, response, sizeof(response)), 230, unchanged).code == Err::UNSUPPORTED);
+    saved.check(unchanged);
+    assert(MotorControlRS::checkProbe(native, frame(native, response, sizeof(response)), 230, unchanged).code == Err::UNSUPPORTED);
+    saved.check(unchanged);
+}
 } // namespace
-int main() { inventoryAndPreparation(); exactReplyAndUnknownIdentity(); rejectedEnvelopes(); failureEvidence(); }
+int main() { inventoryAndPreparation(); exactReplyAndUnknownIdentity(); rejectedEnvelopes(); failureEvidence(); commonAndNativeRoutes(); }

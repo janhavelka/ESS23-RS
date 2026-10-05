@@ -265,6 +265,20 @@ Outside paragraph.
         self.write("library.json", json.dumps(data))
         self.assertTrue(any("exclude firmware" in item for item in checker.check_metadata(self.root)))
 
+    def test_common_headers_do_not_import_profile_types(self):
+        self.metadata()
+        # Common implementation may dispatch to a real profile; profile headers
+        # may reuse one another. Their types must not leak into common headers.
+        self.write("src/Core.cpp", '#include "MotorControlRS/profiles/ess_rs/Reads.h"\n')
+        self.write("include/MotorControlRS/profiles/ess_rs/Reads.h", '#include "Codec.h"\n')
+        self.assertEqual(checker.check_metadata(self.root), [])
+        for include in ('MotorControlRS/profiles/ess_rs/Reads.h', 'profiles/ess_rs/Reads.h'):
+            with self.subTest(include=include):
+                self.write("include/MotorControlRS/Core.h", '#include "' + include + '"\n')
+                findings = checker.check_metadata(self.root)
+                self.assertEqual(len(findings), 1, findings)
+                self.assertIn("common public header includes manufacturer profile", findings[0])
+
     def test_cli_fails_on_missing_required_manifest(self):
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(checker.main(["--root", str(self.root), "--section", "references"]), 1)

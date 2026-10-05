@@ -5,6 +5,14 @@ Read [the sequence index](README.md); all prerequisite dispositions must be curr
 
 Prerequisite: 28's audited candidate, 24's finite scenarios and known model/firmware/settings. Physical operations still require their specific fixture and timing evidence.
 
+Consume [28's defect and coverage disposition](../../reports/ess_release_28_2026-10-05.md)
+and the nine named native-family gaps. Exercise configuration contradiction
+injection and dependent-work invalidation explicitly; a green verifier does not
+qualify the missing operations or replace physical fault fixtures. Keep the
+standing restriction on moving link-loss and restart experiments without the
+required independent control, and do not restart the deferred multi-hour run
+without its separate dispatch.
+
 ## Read and reuse
 
 Read the qualification matrix, capture/CPU policy, supported platform scope and all current hardware gaps. Use existing runners and diagnostics; add a narrow missing probe only when it distinguishes a real failure cause.

@@ -75,7 +75,10 @@ Extend the profile coverage ledger with:
 The implemented `ESS_RS::readCapabilities` reports the current non-changing
 probe, identity and configuration read surface without I/O. The common discovery
 capability API and `prepareProbe` are implemented, with fixed-size descriptions
-and results and caller-owned operations. Discovery orchestration belongs to the
+and results and caller-owned operations. Concrete ESS probe contexts and native
+functions live in `profiles/ess_rs/Discovery.h`, together with the common
+forwarding overloads. Common inventory/outcome types remain in `Discovery.h`
+without including a manufacturer header. Discovery orchestration belongs to the
 consumer and can reuse those operations without parsing CLI strings or depending
 on Arduino, ESP-IDF or FieldCore services.
 

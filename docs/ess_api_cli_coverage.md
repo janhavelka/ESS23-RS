@@ -3,9 +3,9 @@
 Prompt25's Arduino/native-IDF consumers compile the same complete application
 and command inventory. No native family is omitted by framework selection.
 [Build and read-only evidence](reports/ess_release_25_2026-10-05.md) cover startup,
-console pressure, probe/typed reads and core header isolation; cross-platform
-motion/load qualification remains for26 and existing native-family gaps remain
-in this inventory.
+console pressure, probe/typed reads and core header isolation. Prompt26 and its
+fresh audit add the bounded cross-platform motion/load evidence below; existing
+native-family gaps remain in this inventory.
 
 Prompt23 reconciles the implemented surface. The installed library remains
 independent of the console, runner and platform. The command metadata in
@@ -21,14 +21,31 @@ normal/direct stop and reversible lock-delay updates. Other entries retain their
 individual unresolved/unsupported/unimplemented and fixture dispositions; S2
 compile-only consumption does not create another qualified motor adapter.
 
-The operation inventory classifies every installed free-function declaration separately
-from device obligations. Run `python scripts/check_ess_operations.py --details`
+The operation inventory classifies each installed free-function name within its
+header separately from device obligations; same-name overloads share that role.
+Run `python scripts/check_ess_operations.py --details`
 to inspect all 221 source records, 135 named choices, producing operation routes,
 classified helpers and named gaps. Member APIs are accounted below. Static checking reads production command
 metadata and known leaf grammar; it cannot establish callback admission or
 physical effects. Native console/application tests verify runtime parity.
 Device rows use producing `cli_commands`; helper rows use local `cli_topics`
 to identify related command families without claiming additional device access.
+
+Prompt28 separates twelve implemented read-only status/alarm decoders from
+setting and action choices. A passing state read does not prove physical
+activation of every alarm or flag, so those individual choice hardware rows
+remain NOT RUN. Raw DIP interpretation remains unresolved; reading a writable
+setting still creates no setter credit. The documented auxiliary INVALID value
+is explicitly no-operation metadata, not a missing command to implement.
+
+The checked inventory retains 221 records/242 words, 135 choices, 49 producing
+operation rows and nine named gaps. It accounts for 192 implemented reads and
+nine missing reads; 170 implemented writes, two missing writes, three partial
+write registers and 18 guarded pair writes. Sixteen reserved records and two
+unspecified-access records remain visible. Choice totals are 81 implemented
+(including twelve decoders), 52 unimplemented/unresolved, one unsupported and
+one no-operation value. These counts are implementation accounting, not full
+device or physical qualification.
 
 | Public role | Existing callable surface | Console relationship |
 | --- | --- | --- |
@@ -52,7 +69,7 @@ the installed core performs no UART, clock, retry, queue, heap or logging work.
 
 | Surface | Console | Shared implementation |
 | --- | --- | --- |
-| Presence and inventory | `profile list`, `probe`/`ping`, `discover` | `Discovery.h`, ESS probe codec; application `DiscoveryScan` |
+| Presence and inventory | `profile list`, `probe`/`ping`, `discover` | Common `Discovery.h` inventory; ESS `Discovery.h` request/evidence and native probe functions, common forwarding routes; application `DiscoveryScan` |
 | Identity/configuration/state | `read identity|config|state`, `health check`; `profile ess_rs identity|config|state` | ESS `Reads.h` preparations, decoders and supplied-event sequence |
 | Passive observations | `status`, `health`, `config`/`settings`, `drv`, `memory`, `stats` | Cached application snapshots; no motor reads |
 | Axis configuration and preview | `axis config`, `axis config set ...`, `axis origin`, `prepare` | `Axis.h`/`Units.h`; exact-number parsing and one conversion path |
@@ -148,6 +165,7 @@ Substantial prerequisite gaps remain assigned to their original prompts:
 
 | Owning prompt | Open obligation | Actual boundary |
 | --- | --- | --- |
+| 09 | Native ignore-versus-interrupt position command | Fixed noninterrupting triggers are implemented; bit3 has no typed option or CLI route. Priority stop does not implement position interruption. |
 | 09/11 | Native positioning start-speed setter | Profile snapshot reads start speed; restoration never writes it |
 | 09/11 | Arbitrary native five-word profile candidates and archived restoration | Typed builder exists, but CLI restoration accepts only the volatile original snapshot; finite-move staging is not standalone parameter access |
 | 11 | Standalone typed velocity parameter reads | Finite velocity stages qualified supplied words; that is write sequencing, not a parameter-read API |
@@ -161,6 +179,13 @@ Unsupported torque/current motion and serial segment start remain distinct from
 those gaps. Settings access does not establish those motion capabilities.
 Physical qualification, missing external fixtures, persistence/restart proof,
 engineering ramp conversion and endurance remain separate from implementation.
+The operation rows now cite the recorded positive relative staging/move and
+normal/direct stop subset on both S3 frameworks, and the recorded enable/release
+observations. Their scoped PASS does not qualify negative motion, all position
+paths, physical response-source measurements or shaft accuracy. Clear-alarm,
+zero-clear, absolute and velocity scenarios keep their separate evidence gaps;
+none is described as blocked by a removed global analyzer gate. Historical I/O
+and segment write uncertainty and the shared-start hardware FAIL are retained.
 Prompt23 delivers integration and this handoff to24–26; it does not declare the
 full native family denominator or the release complete.
 

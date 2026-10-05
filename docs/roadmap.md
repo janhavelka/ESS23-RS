@@ -1,5 +1,12 @@
 # Roadmap to a supported ESS release
 
+The [integrated28 audit](reports/ess_release_28_2026-10-05.md) corrects immediate
+configuration invalidation, separates ESS discovery evidence from common
+headers, restores the umbrella velocity API and reconciles coverage roles.
+The full verifier passes74 checks, strict source/install consumers with28 public
+headers and eight firmware/core builds. Nine named native-family gaps remain;
+prompt29 qualification and prompt30 release are separately dispatched work.
+
 The [human console](console.md) now provides grouped help, examples and readable
 operation/traffic output on the existing application path. `@ID` automation keeps
 JSONL and per-operation correlation. [Verification](reports/human_console_2026-10-05.md)
@@ -18,7 +25,7 @@ eight firmware/core/portable builds pass locally. The
 [handoff](reports/ess_release_27_2026-10-05.md) retains deliberate missing-check
 and early implementation failures; no hardware or endurance claim is added.
 Hosted GCC/Clang/Arduino/IDF CI also passes; first-run defects and corrections
-are retained.28–30 release work remains separate.
+are retained. Prompt28's corrective audit is recorded above;29–30 remain separate.
 
 The [fresh25/26 audit](reports/ess_release_25_26_audit_2026-10-05.md) rejects
 forced GPTimer debug logging on the native correlated console, tests ordinary
@@ -150,7 +157,7 @@ coordinates and device zero-clear while physical comparisons remain gated.
 Its [fresh audit](reports/ess_release_10_audit_2026-10-04.md) fixes host-reference
 retention and external-motion invalidation, with independent reviews and another
 38 read-only frames on the corrected image. Physical motion/clear remains NOT RUN.
-The [relative-position handoff](reports/ess_release_09_2026-10-04.md) supplies finite staging/trigger/completion APIs while physical moves remain gated. The [action/stop handoff](reports/ess_release_08_2026-10-04.md)
+The [relative-position handoff](reports/ess_release_09_2026-10-04.md) supplies finite staging/trigger/completion APIs; its original physical disposition predates the later bounded bench campaigns. The [action/stop handoff](reports/ess_release_08_2026-10-04.md)
 has native reservations, uncertainty and priority stop, plus read-only COM13 and
 zero-TX gate evidence. Those historical reports predate the subsequent live finite-motion and moving-stop
 checks. The regular API now uses declared wiring and software timing checks;
@@ -194,7 +201,7 @@ outside this library. Board pins, USB and memory placement stay in examples.
 External motor I/O is optional. Support serial-only operation with known unwired
 inputs and explicit documented no-function assignments. An unwired terminal is
 not automatically disabled; only operations that actually need an external input
-require it. ESS I/O disable/configuration implementation belongs to prompt 15.
+require it. Prompt15 implements explicit ESS I/O disable/configuration operations.
 
 Other serial profile implementations wait for an actual motor and a concrete
 need; the common API is reviewed against contrasting documented families.
@@ -273,14 +280,15 @@ The [fresh06 audit](reports/ess_release_06_audit_2026-10-04.md) verifies current
 reference/limit checks and host-only configuration through the installed API
 and console. Software and read-only COM13 checks pass; native origin evidence
 is unresolved on this drive, and no motion, drive setting or travel qualification
-is implied. Prompt08 is the next separately dispatched action/stop block.
+is implied by that historical report. Subsequent action/motion dispositions are
+recorded in prompts08–26.
 
 The [fresh07 audit](reports/ess_release_07_audit_2026-10-04.md) corrects numerical
 and exact-parser boundary defects and repeats software/package/build and read-only
 host API checks. Requested relative displacement and endpoint limits remain
 independent; zero radians retain exact integer references without approximation.
 
-Prompt09 [relative-position contract](ess_position.md) and [handoff](reports/ess_release_09_2026-10-04.md) implement the staging/trigger/observation chain with retained uncertainty and same-axis stop interruption. Hardware movement remains gated; independent electrical/physical evidence is not replaced by native tests.
+Prompt09 [relative-position contract](ess_position.md) and [handoff](reports/ess_release_09_2026-10-04.md) implement the staging/trigger/observation chain with retained uncertainty and same-axis stop interruption. Prompts23–26 add bounded drive-reported motion and dynamic stop evidence; independent electrical/shaft measurements and other motion subsets remain unqualified.
 
 The [independent prompt09 audit](reports/ess_release_09_audit_2026-10-04.md)
 also enforces readiness during queued/deferred writes and current-time reference

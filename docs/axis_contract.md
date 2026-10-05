@@ -288,10 +288,15 @@ Approximate radian intervals crossing equality or half-turn selection reject;
 they do not become resolved ties through a caller-selected direction.
 
 Pure absolute preview may calculate an endpoint without current evidence and
-then reports displacement as unknown. The ESS finite absolute/angle executor
-requires established stationary ACTUAL command-coordinate evidence, copies it
-into the operation and checks its freshness at supplied admission time. Its
-age budget must cover readiness-capped staging/trigger deadlines. Observation
+then reports displacement as unknown. The ESS finite absolute executor also
+permits an unwrapped target without a current-position reference when conversion
+and applicable limit checks need none. Native steps bypass host origin;
+engineering coordinates still require their established origin and scales.
+Wrapped-angle execution requires established stationary ACTUAL command-coordinate
+evidence. Any reference supplied to either executor must be stationary ACTUAL
+evidence; the executor copies a consumed reference into the operation and checks
+its freshness at supplied admission time. Its age budget must cover
+readiness-capped staging/trigger deadlines. Observation
 work retains the immutable overall operation deadline; expiry of the consumed
 starting reference after an on-time trigger does not cancel that observation
 sequence. Zero effective displacement is reported by pure preview and rejected

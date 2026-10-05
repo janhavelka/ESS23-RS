@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 #pragma once
-#include <MotorControlRS/Discovery.h>
+#include <MotorControlRS/profiles/ess_rs/Discovery.h>
 #include "../common/HostSerial.h"
 
 namespace MotorControlRSExample { namespace Probe {
@@ -26,8 +26,8 @@ enum class DiscoveryOutcome : uint8_t {
     TRANSPORT_FAULT, RESTORE_FAILED, PREEMPTED, SETUP_FAILED
 };
 struct DiscoveryFinding {
-    MotorControlRS::PreparedProbe request;
-    MotorControlRS::ProbeObservation probe;
+    MotorControlRS::ESS_RS::PreparedProbe request;
+    MotorControlRS::ESS_RS::ProbeObservation probe;
     MotorControlRS::ESS_RS::IdentityObservation identity;
     MotorControlRS::ESS_RS::ReadStepObservation identityEvidence;
     uint32_t identityOperationId = 0;

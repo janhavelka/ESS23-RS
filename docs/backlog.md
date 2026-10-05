@@ -1,5 +1,25 @@
 # Features implementation tasks and open questions
 
+## Prompt28 integrated audit
+
+- [x] Invalidate contradicted configuration after each checked read window,
+  including incomplete CONFIG/DRIVE/IO refreshes; cancel unsent dependent work
+  without cancelling physical stop or losing historical evidence.
+- [x] Share read-window reconciliation with CONTROL/TUNING and propagate one
+  service timestamp through invalidation/cancellation.
+- [x] Move concrete ESS discovery contexts/wire handling to the profile and
+  enforce manufacturer-independent common headers; export common velocity intent.
+- [x] Reconcile all221 records /135 choices, decoded-read roles, documented no-op
+  and nine owning-prompt gaps without inferring physical feature coverage.
+- [x] Full verifier:74 checks, source/install consumers,28 standalone headers
+  and eight firmware/core builds. Independent reviews and regression evidence
+  are in the [audit report](reports/ess_release_28_2026-10-05.md).
+- [ ] Prompt29 fault/endurance qualification and remaining named native-family,
+  fixture, electrical and shaft evidence; no broad release completion claim.
+- [ ] Upload28 candidate and run short configuration/discovery/finite-motion
+  regression: COM13 occupied; archive/inspect the eight retained baseline results
+  before explicit release or flashing. No current-image physical PASS claimed.
+
 ## Human console
 
 - [x] Shared Arduino/IDF console provides grouped help, `?`, command examples,
@@ -344,8 +364,10 @@ unsupported. Prompts 05–06 implement typed identity/configuration/state reads
 and separate health. [Prompt 07](reports/ess_release_07_2026-10-04.md) implements
 exact host target preparation. [Prompt 08](reports/ess_release_08_2026-10-04.md)
 implements bounded actions and priority stop with retained uncertainty and
-application axis reservation. Prompt 09 is next when separately dispatched;
-physical actions/motion retain their timing/echo and operation-specific prerequisites.
+application axis reservation. Prompts09–27 now have recorded dispositions;
+bounded finite motion/stop has later drive-reported evidence, while independent
+electrical/shaft measurements and untested operations remain open. Prompt29 is
+the next separately dispatched qualification block after the integrated28 audit.
 The [release roadmap](roadmap.md) defines the delivery order and release gates.
 
 Release prompt 01 is implemented: [BusOwner](bus_owner.md) provides FIFO

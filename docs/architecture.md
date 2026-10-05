@@ -395,8 +395,11 @@ The implemented `buildProbe`/`parseProbe` path reads one model word at 0x0000
 raw, and parser success is not confirmed identity. Generic read/write codecs
 check raw access and frame shape, not typed value ranges or motion prerequisites.
 Pure signed word helpers declare two's complement without resolving the
-catalogue's field-specific signedness questions. The larger common
-`prepareProbe`/discovery API remains unimplemented.
+catalogue's field-specific signedness questions. The implemented common discovery
+header owns only inventory/capabilities and generic outcomes. Concrete request,
+observation and wire handling live in `profiles/ess_rs/Discovery.h`; that header
+also exposes common forwarding overloads, as for the action and motion APIs.
+The application owns bounded scanning and endpoint restoration.
 
 The [serial comparison](reference/08_serial_protocol_review.md) demonstrates
 why limits, read effects, representation and exception meaning stay in each

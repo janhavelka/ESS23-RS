@@ -5,6 +5,7 @@ set(MOTORCONTROLRS_SOURCES
     "src/Axis.cpp"
     "src/Traffic.cpp"
     "src/Discovery.cpp"
+    "src/profiles/ess_rs/Discovery.cpp"
     "src/profiles/ess_rs/Traffic.cpp"
     "src/profiles/ess_rs/Registers.cpp"
     "src/profiles/ess_rs/Codec.cpp"

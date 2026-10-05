@@ -1,14 +1,18 @@
 # Bounded ESS discovery
 
-The installed [Discovery.h](../include/MotorControlRS/Discovery.h) provides
-`discoveryProfileCount`, `getDiscoveryProfile`, `getDiscoveryCapabilities`,
-`prepareProbe` and `checkProbe`. Only STEPPERONLINE / ESS-RS is implemented.
+The installed common [Discovery.h](../include/MotorControlRS/Discovery.h) provides
+`discoveryProfileCount`, `getDiscoveryProfile` and `getDiscoveryCapabilities`.
+Include [profiles/ess_rs/Discovery.h](../include/MotorControlRS/profiles/ess_rs/Discovery.h)
+for `ESS_RS::PreparedProbe`, `ESS_RS::ProbeObservation` and the native and common
+`prepareProbe`/`checkProbe` overloads. Concrete wire evidence belongs to the
+profile; the common header has no manufacturer-header dependency. Only
+STEPPERONLINE / ESS-RS is implemented.
 Inventory and capability calls perform no I/O. A probe emits exactly FC03 model
 word `0x0000/1`; optional refinement uses the existing typed identity read
 `0x0000/4`. Original function-manual physical p68 marks these fields read-only;
 no consuming effect or ESS communication-watchdog interaction is documented.
 
-`PreparedProbe` copies bytes and immutable target, operation ID, absolute
+`ESS_RS::PreparedProbe` copies bytes and immutable target, operation ID, absolute
 deadline and supplied active tuple. `checkProbe` consumes a correlated supplied
 event, copies at most 37 raw bytes and retains full received length, accepted TX,
 uncertainty and qualified closure bounds. Rejected envelopes leave output
@@ -18,7 +22,7 @@ Checked exceptions, malformed/mismatched replies, no response, deadline and
 transport/timing failures remain separate. A valid reply never excludes collision
 or proves manufacturer, exact model, readiness, scale or motion completion.
 
-The standalone [DiscoveryApp.h](../examples/probe_cli/DiscoveryApp.h) owns one
+The standalone [ProbeApp.cpp](../examples/probe_cli/ProbeApp.cpp) owns one
 cooperative scan using the existing UART and bus owner. It has no second queue,
 task, synchronized ingress or generic schema engine. Storage lives in the
 application's PSRAM allocation; driver/capture state and stack remain internal.

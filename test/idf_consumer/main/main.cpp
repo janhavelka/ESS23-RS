@@ -3,7 +3,7 @@
 // path. No example, Arduino, motor transport or vendor resource is available.
 #include <MotorControlRS/ActionOperation.h>
 #include <MotorControlRS/Axis.h>
-#include <MotorControlRS/Discovery.h>
+#include <MotorControlRS/profiles/ess_rs/Discovery.h>
 #include <MotorControlRS/MotorControlRS.h>
 #include <MotorControlRS/MoveOperation.h>
 #include <MotorControlRS/ReadOperation.h>

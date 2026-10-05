@@ -1,5 +1,14 @@
 # Motor bench and testing authorization
 
+The [prompt28 audit](reports/ess_release_28_2026-10-05.md) built the corrected
+candidate but did not upload it: COM13 was occupied repeatedly. During one
+available interval, the baseline was refused with eight retained results and
+no pending work/recovery; cached position3639/speed0/alarm0 was stale. Those
+results were not released or reset. Inspect/archive them and establish a fresh
+baseline before flashing or running the pending current-image regression.
+The preceding entries below describe their dated campaign endings, not a new
+claim about the current drive state.
+
 The [human-console update](reports/human_console_2026-10-05.md) leaves COM13 on
 Arduino timer firmware SHA-256 `e5989e3b2f6a4afe51e97c8d5628bdeaf0daf6e88538a924594a75f4e31ffab3`.
 Its read-only regression retains raw position3644, speed0/alarm0 and unchanged

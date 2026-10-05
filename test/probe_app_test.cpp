@@ -790,8 +790,8 @@ void testStopAndInterruptedResultSurviveBlockedConsole(const char* debugMode) {
     assert(view(stopping).actionContext->completion == ActionCompletion::OBSERVED && hardware.writes == 3);
 }
 void readStep(uint32_t operation, uint8_t index, const std::vector<uint8_t>& bytes) {
-    const unsigned writes = hardware.writes;
-    if (app->runner.phase() != Rtu::Phase::DRAIN) startTx(writes);
+    for (unsigned i = 0; i < 25000 && !app->owner.txAccepted(findRecord(*app, operation)->requestId); ++i) step();
+    assert(app->owner.txAccepted(findRecord(*app, operation)->requestId));
     scheduleReply(std::max(hardware.writeStarted + 8 * 87 + 1000, hardware.time + 1000), bytes);
     for (unsigned i = 0; i < 25000 && view(operation).typedRead->state == ReadState::ACTIVE &&
         view(operation).typedRead->step == index; ++i) step();
@@ -829,14 +829,106 @@ void testTypedReadRoutesAndAtomicPublication() {
     assert(hardware.writes == 6 && app->identity.rawVersion == oldIdentity.rawVersion);
     command("@5 read config\n"); const uint32_t failed = view(0).operationId;
     readStep(failed, 0, registerReply({0, 2000}));
-    assert(app->configuration.operationId == previous.operationId && app->configuration.raw.subdivision == 1000);
+    assert(!app->configuration.operationId && app->configuration.raw.subdivision == previous.raw.subdivision);
     readStep(failed, 1, {1, 0x83, 2, 0xC0, 0xF1}); pump(100);
     assert(view(failed).typedRead->outcome == MotorControlRS::ReadOutcome::REPLY_ERROR);
     assert(view(failed).typedRead->status.code == MotorControlRS::Err::EXCEPTION && !app->owner.needsRecovery());
-    assert(app->configuration.operationId == previous.operationId && app->configuration.raw.subdivision == 1000);
+    assert(app->configuration.operationId == 0 && app->configuration.raw.subdivision == 1000);
     assert(hardware.writes == 8); pump(500); assert(hardware.writes == 8);
     command("@6 release 2\n"); contains("done");
     Probe::ResultView released; assert(!lookup(app, config, released));
+}
+void seedConfigAssumptions() {
+    app->axis.originKnown = true;
+    app->axis.units.commandStepsPerMotorTurn = MotorControlRS::UnitScale(1000, 1, MotorControlRS::ScaleSource::QUALIFIED);
+    app->movePrerequisites.commandUnitsVerified = true;
+    app->driverInputsQualified = true;
+    app->motionProfile.view.generation = app->axis.generation;
+}
+void testFailedConfigRefreshInvalidatesOnlyContradictedCurrentKnowledge() {
+    for (unsigned scenario = 0; scenario < 3; ++scenario) {
+        fresh(); timerCapture(); command("@1 read config\n"); completeConfig(view(0).operationId);
+        const auto previous = app->configuration;
+        command("@2 read config\n"); const auto id = view(0).operationId;
+        seedConfigAssumptions();
+        const auto generation = app->axis.generation;
+        uint32_t dependent = 0;
+        if (scenario == 1) assert(startTypedRead(app, 4, 1, ESS::ReadKind::STATE, dependent, false) == Probe::Action::OK);
+        if (scenario == 2) findRecord(*app, id)->configurationGeneration = generation - 1;
+        readStep(id, 0, registerReply({1, static_cast<uint16_t>(scenario ? 2000 : 1000)}));
+        assert(view(id).pending);
+        if (scenario == 1) {
+            assert(!app->configuration.operationId && !app->axis.originKnown);
+            assert(!app->movePrerequisites.commandUnitsVerified && app->axis.generation == generation + 1);
+            assert(!view(dependent).pending && view(dependent).typedRead->outcome == MotorControlRS::ReadOutcome::CANCELLED);
+            assert(view(dependent).typedRead->observations[0].txAccepted == 0);
+        } else assert(app->configuration.operationId == previous.operationId);
+        readStep(id, 1, {1, 0x83, 2, 0xC0, 0xF1}); pump(100);
+        assert(!app->owner.needsRecovery() && !view(id).pending);
+        assert(app->configuration.raw.subdivision == 1000); // Historical full snapshot remains atomic.
+        if (scenario == 1) {
+            assert(app->axis.generation == generation + 1 && !app->axis.originKnown);
+            assert(!app->configuration.operationId && !app->axis.units.commandStepsPerMotorTurn.numerator);
+            assert(!app->movePrerequisites.commandUnitsVerified);
+            assert(app->motionProfile.view.generation != app->axis.generation);
+            MotorControlRS::MoveRequest request; request.speedRpm = 60;
+            request.ramp = MotorControlRS::MoveRamp::VERIFIED_CONFIGURED;
+            request.position.frame = MotorControlRS::CoordinateFrame::NATIVE;
+            uint32_t output = 999; const auto writes = hardware.writes;
+            assert(startMove(app, 3, 1, request, output) == Probe::Action::UNAVAILABLE);
+            assert(output == 999 && hardware.writes == writes);
+            pump(100); assert(app->axis.generation == generation + 1);
+        } else {
+            assert(app->axis.generation == generation && app->axis.originKnown);
+            assert(app->configuration.operationId == previous.operationId && app->movePrerequisites.commandUnitsVerified);
+        }
+    }
+}
+void driverReadStep(uint32_t id, const std::vector<uint8_t>& bytes) {
+    const auto token = view(id).driverContext->step;
+    for (unsigned i = 0; i < 25000 && !app->owner.txAccepted(findRecord(*app, id)->requestId); ++i) step();
+    assert(app->owner.txAccepted(findRecord(*app, id)->requestId));
+    scheduleReply(std::max(hardware.writeStarted + 8 * 87 + 1000, hardware.time + 1000), bytes);
+    for (unsigned i = 0; i < 25000 && view(id).pending && view(id).driverContext->step == token; ++i) step();
+    assert(!view(id).pending || view(id).driverContext->step != token);
+}
+void testFailedDriveAndInputRefreshInvalidateCheckedChanges() {
+    for (const auto group : {ESS::DriverGroup::DRIVE, ESS::DriverGroup::IO}) {
+        for (const bool cached : {false, true}) for (const bool changed : {false, true}) {
+            fresh(); timerCapture(); command("@1 read config\n"); completeConfig(view(0).operationId);
+            const auto previous = app->configuration;
+            ESS::DriverRequest request; request.group = group; uint32_t id = 0;
+            if (cached) {
+                assert(startDriver(app, 2, 1, ESS::DriverKind::READ, request, id) == Probe::Action::OK);
+                driverReadStep(id, group == ESS::DriverGroup::DRIVE ? registerReply({1, 1000}) :
+                    registerReply({0x8005, 0, 1, 6, 17}));
+                driverReadStep(id, group == ESS::DriverGroup::DRIVE ? registerReply({1, 0, 1}) : registerReply({0, 0, 0}));
+                driverReadStep(id, group == ESS::DriverGroup::DRIVE ? registerReply({0, 0, 0, 0}) : registerReply({0}));
+                if (group == ESS::DriverGroup::DRIVE) driverReadStep(id, registerReply({0, 0}));
+                pump(100);
+                assert(view(id).driverContext->outcome == ESS::DriverOutcome::SUCCESS);
+            }
+            const auto baseline = group == ESS::DriverGroup::DRIVE ? app->driverSettings.operationId : app->ioSettings.operationId;
+            assert(startDriver(app, 3, 1, ESS::DriverKind::READ, request, id) == Probe::Action::OK);
+            seedConfigAssumptions(); const auto generation = app->axis.generation;
+            driverReadStep(id, group == ESS::DriverGroup::DRIVE ?
+                registerReply({1, static_cast<uint16_t>(changed ? 2000 : 1000)}) :
+                registerReply({0x8005, static_cast<uint16_t>(changed ? 1 : 0), 1, 6, 17}));
+            driverReadStep(id, {1, 0x83, 2, 0xC0, 0xF1}); pump(100);
+            assert(!app->owner.needsRecovery() && view(id).driverContext->outcome == ESS::DriverOutcome::REPLY_ERROR);
+            assert(app->configuration.raw.subdivision == previous.raw.subdivision);
+            if (changed) {
+                assert(!app->driverSettings.operationId && !app->ioSettings.operationId);
+                assert(app->axis.generation == generation + 1 && !app->axis.originKnown);
+                assert(!app->configuration.operationId && !app->movePrerequisites.commandUnitsVerified);
+                if (group == ESS::DriverGroup::IO) assert(!app->driverInputsQualified);
+            } else {
+                assert(app->axis.generation == generation && app->axis.originKnown);
+                assert(app->configuration.operationId == previous.operationId && app->movePrerequisites.commandUnitsVerified);
+                assert((group == ESS::DriverGroup::DRIVE ? app->driverSettings.operationId : app->ioSettings.operationId) == baseline);
+            }
+        }
+    }
 }
 void testTypedReadPartialCancelRecoveryAndRetention() {
     fresh(); timerCapture(); command("@1 read config\n"); const uint32_t operation = view(0).operationId;
@@ -1459,6 +1551,8 @@ int main() {
     testCheckedExceptionKeepsValidModelAndAge(); testBadCrcKeepsValidModelAndAge();
     testDelayedHarvestKeepsSuccessIndependentOfLatestFailure();
     testTypedReadRoutesAndAtomicPublication(); testTypedReadPartialCancelRecoveryAndRetention();
+    testFailedConfigRefreshInvalidatesOnlyContradictedCurrentKnowledge();
+    testFailedDriveAndInputRefreshInvalidateCheckedChanges();
     testTypedReadPressureAndInvalidArguments();
     testTypedReadAbsoluteBudgetAndDelayedEvidence(); testTypedReadInvalidOwnerEnvelopeCannotReplay();
     testTypedReadCancelSettledIntermediateCannotContinue();

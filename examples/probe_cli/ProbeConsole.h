@@ -3,7 +3,7 @@
 
 #include "../common/RtuBusOwner.h"
 #include "MotorControlRS/Traffic.h"
-#include "MotorControlRS/Discovery.h"
+#include "MotorControlRS/profiles/ess_rs/Discovery.h"
 #include "../common/HostSerial.h"
 #include "StateCache.h"
 #include "AxisConsole.h"

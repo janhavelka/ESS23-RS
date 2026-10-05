@@ -25,8 +25,14 @@ before supplying FRAME; the core checks target, function, exact count/length
 and CRC again before publishing data.
 
 Only complete success permits `getIdentity` or `getConfig` to replace an
-observation. Atomic publication does not make five separate physical reads simultaneous; retain each window's timing provenance. All rejected, partial and failed operations leave the previous
-observation unchanged. A checked exception is retained as REPLY_ERROR with its
+observation. Atomic publication does not make five separate physical reads
+simultaneous; retain each window's timing provenance. Rejected, partial and
+failed core operations leave the caller's previous observation unchanged.
+Separately, the application invalidates dependent motion/decoding assumptions
+and unsent dependent work as soon as a checked window contradicts current
+configuration, even if a later window fails. Its last complete snapshot remains
+historical evidence with invalidated applicability, not current readiness.
+A checked exception is retained as REPLY_ERROR with its
 EXCEPTION status/detail; malformed or foreign frames are separate failures.
 Local CANCEL never commands a motor stop. One absolute deadline covers every
 window, queue residence and execution. Qualified final closure at/before the
