@@ -1,5 +1,12 @@
 # MotorControl-RS documentation
 
+The [integrated audit](reports/ess_release_28_2026-10-05.md) records current
+code and coverage corrections. The [qualification matrix](reports/ess_release_29_2026-10-05.md)
+separates available Arduino/native-IDF S3 functional evidence from nine named
+native-family gaps, deferred endurance, missing physical fault fixtures and
+unmeasured electrical/shaft behavior. These are partial-candidate evidence,
+not complete ESS support or release publication.
+
 The [human-readable console guide](console.md) explains grouped help, operation
 results and diagnostics. Ordinary commands are readable; `@ID` commands retain
 the existing JSONL automation protocol.
@@ -109,12 +116,16 @@ Prompt 07 implements [exact host coordinate preparation](axis_preparation.md),
 configuration/reference validation and pure console previews.
 
 Prompt 08 adds [bounded actions and priority stop](ess_actions.md), application
-axis reservations, explicit uncertainty and console routes. Physical action
-testing remains gated by independent TX/RX/DE and FC06 echo qualification.
+axis reservations, explicit uncertainty and console routes. Later
+[finite functional tests](reports/ess_release_29_2026-10-05.md) exercise the
+ordinary API on the secured free shaft; independent TX/RX/DE and echo-source
+measurements remain unperformed and do not replace checked transport evidence.
 
 Prompt09 adds [finite relative positioning](ess_position.md): exact common/native
 preparation, checked staging/trigger, new activity/completion evidence and priority
-stop interruption. Physical movement remains gated; software/API paths are real.
+stop interruption. Later bounded positive moves and both moving stops have
+drive-reported evidence on both S3 frameworks; calibrated position, independent
+shaft behavior and other motion subsets remain unqualified.
 
 Prompt10 adds shared absolute/wrapped-angle preparation and execution, zero-only
 device clear, host-origin/reference invalidation and all spatial-unit CLI routes.
@@ -131,12 +142,13 @@ The [fresh prompt 11 audit](reports/ess_release_11_audit_2026-10-04.md) verifies
 exact conversions independently and fixes Python interruption/evidence handling;
 actual C++ operation terminals now participate in a registered parity check.
 
-Implemented blocks include exact target preparation, typed non-changing reads, pure unit conversion, an ESS register catalogue,
-checked wire codecs with a minimal probe and standalone build foundations.
-The standalone RTU runner and ESP32-S3 adapter have native fake tests. The read-only
-probe CLI has bench evidence. Selected typed settings and bounded motion workflows
-are implemented; physical qualification, remaining native settings, discovery
-orchestration and full CLI coverage remain future work. See the [root README](../README.md)
+Implemented blocks include exact target preparation, typed reads and settings,
+pure unit conversion, the ESS register catalogue, checked codecs, bounded
+discovery and motion sequences. The standalone owner and console share those
+APIs on Arduino and native ESP-IDF. Native tests and selected S3 bench campaigns
+cover their actual paths. Remaining native operations and physical cases stay
+in the [coverage inventory](ess_api_cli_coverage.md) and qualification matrix;
+S2 core/portable consumption is compile-only. See the [root README](../README.md)
 for current code and builds.
 
 - [Standalone RTU runner](runner.md): current callback/timing contract, state
@@ -178,7 +190,8 @@ for current code and builds.
   response deadlines, stop/configuration timing, register gaps and remaining
   firmware qualification work.
 - [Runner platform review](reference/10_runner_platform_review.md): inspected
-  FieldCore/ESP32 mechanisms, PSRAM placement and future Python bench automation.
+  historical FieldCore/ESP32 mechanisms, PSRAM placement and the original Python
+  automation plan; current scenarios are in [bench automation](bench_scenarios.md).
 
 ## Work tracking and bench
 
@@ -198,13 +211,14 @@ for current code and builds.
 - [Capture and load audit](reports/2026-10-03_capture_load.md): independent wire
   fixtures, timer capture, measured load and remaining timing qualification.
 
-- [Software verification](verification.md): foundation and codec checks with
-  explicit limits on what was tested.
+- [Software verification](verification.md): current quick/full entry point,
+  clean ZIP/install consumers, public-header isolation and hosted CI, followed
+  by explicitly historical verification records.
 
 - [Features, implementation tasks and open questions](backlog.md): current
   roadmap, with design milestones separated from implementation and testing.
-- [COM13 motor bench](hardware_bench.md): user-reported CO2control/RS485 setup,
-  free-shaft mounting, continuing test authorization and unverified settings.
+- [COM13 motor bench](hardware_bench.md): secured free-shaft setup, continuing
+  test authorization, inspected settings and firmware/evidence ownership.
 
 ## Manufacturer reference pack
 

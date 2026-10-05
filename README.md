@@ -1,131 +1,82 @@
 # MotorControl-RS
 
-The [interactive console](docs/console.md) now presents readable replies, grouped
-help and usage hints. Type `help` or `?`; automated `@ID` commands retain JSONL.
+Framework-independent C++11 serial motion library with exact units/target
+preparation, checked ESS Modbus RTU codecs and bounded typed operations.
+Applications own UART/DE, clocks, scheduling, memory, caches and recovery.
+The core performs no I/O, allocation or automatic retry and requires no
+Arduino, ESP-IDF or FieldCore header. Namespace/include/CMake identity is
+`MotorControlRS`; package name is `MotorControl-RS`.
 
-[Verification and clean packaging](docs/verification.md): run
-`python scripts/verify.py --mode quick`, or `--mode full` with the pinned
-Arduino/native-IDF toolchains. Hosted CI uses the same checks; hardware evidence
-remains separate.
+**0.6.0 partial candidate, unpublished.** This development version is retained;
+identify the candidate by its source commit and artifact hash, not version alone.
+Typed native coverage is incomplete. Functional qualification covers the secured
+free-shaft ESS23-RS20 at node1/1152008N1, raw model `0x4EEA`, version `0x0029`,
+on Arduino/native ESP-IDF ESP32-S3. Neither raw code has a resolved universal
+model/firmware mapping. ESS23-RS10 is documented but not bench-qualified; other
+manufacturers are unimplemented. S2 is core/portable compile-only evidence with
+no qualified S2 UART adapter. No industrial certification is claimed.
 
-The [native ESP-IDF example](docs/esp_idf_probe.md) now shares the complete
-standalone application with Arduino. Clean firmware/core-component builds,
-69 native suites, installed core/S2 compile checks and matched S3 capture/load,
-finite movement/stop and settings restoration pass. See
-[the prompt26 evidence](docs/reports/ess_release_26_2026-10-05.md) for the qualified
-subset, current working image and remaining electrical/fixture/endurance limits.
-The [fresh25/26 audit](docs/reports/ess_release_25_26_audit_2026-10-05.md)
-closes a native SDK logging configuration gap and repeats the qualified subset.
+The recorded subset includes positive finite native positioning, normal/direct
+stop, enable/release, reads and selected reversible stored settings. It does not
+qualify every motion mode, calibrated shaft/travel units, electrical timing,
+communication-loss stopping, persistence/restart survival or endurance.
+Cache-off capture is unsupported; capture costs about20-21% of one S3 core.
+A write echo is not completion; local cancellation is not a motor stop. Lost
+write acknowledgements can leave unknown execution and must not be replayed
+implicitly. External wiring, drive assignments and observed levels are distinct.
 
-Prompt24 adds [finite Python scenarios](docs/bench_scenarios.md) with a read-only
-default, shared session/evidence ownership and same-session motion/settings
-cleanup. [Verification](docs/reports/ess_release_24_2026-10-05.md) records native
-failure tests and461 new checked COM13 frames, including finite motion/stop,
-exact restoration and retained failed attempts. Broader qualification stays open.
+[Candidate scope/gates](docs/release_candidate.md),
+[getting started/troubleshooting](docs/getting_started.md) and
+[API/CLI inventory](docs/ess_api_cli_coverage.md) describe current behavior.
+[FieldCore handoff](docs/fieldcore_handoff.md) proposes later integration only.
 
-Prompt23 delivers the [actual API/CLI coverage handoff](docs/ess_api_cli_coverage.md) and [verified integration](docs/reports/ess_release_23_2026-10-05.md). Typed commands, local target selection and retained results share one owner. Named native-family gaps remain explicit; this is not a full-release completion claim.
+## Core ZIP consumption
 
-Prompt22 adds [bounded ESS discovery](docs/ess_discovery.md), minimal public probes and retained
-scan evidence with explicit recovery/restoration. [Verification](docs/reports/ess_release_22_2026-10-05.md) records
-COM13 address/tuple scans, budget limits and unchanged motor settings/state.
+The ZIP contains include/src, root CMake, metadata, MIT license, README and
+changelog. The documentation links, firmware, examples, tests, scripts and
+vendor references on this page belong to the full checkout and are absent from
+the ZIP. They are not needed to build or consume the core. Public headers
+contain the API signatures, Doxygen lifetime/units/prerequisite/error contracts.
 
-[Explicit ESS save/factory restore](docs/ess_persistence.md) retains before
-settings, checked outcomes and field-level persistence uncertainty. Native and
-read-only bench checks are separate from unperformed restart/durability proof.
+With CMake3.16+ and a C++11 compiler, unpack to `MotorControl-RS`:
 
-The [runtime debug interface](docs/traffic.md) observes normal operations with
-`debug off|raw|decoded` and a combined owner/capture/memory overview. Typed low-level
-reads, parameter snapshots/restoration and retained results use the ordinary APIs.
+```sh
+cmake -S MotorControl-RS -B core-build -DBUILD_TESTING=OFF -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/absolute/core-install
+cmake --build core-build
+cmake --install core-build
+```
 
-The regular API and firmware support actions and finite positioning without a
-special test mode. [Passive RS485 sniffing](docs/traffic.md) displays raw or
-decoded copies while normal communication continues. Applications can use the
-installed `TrafficCapture` and ESS decoder with their own transport.
+Create `consumer/CMakeLists.txt` with no repository-private helpers:
 
-[Drive communication commissioning](docs/ess_communication.md) now provides
-typed address/baud/format operations, exclusive ownership and retained recovery
-candidates. Native/build and read-only regression checks pass; physical setting
-changes remain NOT RUN without a qualified restart/recovery route. See the
-[prompt20 handoff](docs/reports/ess_release_20_2026-10-04.md).
+```cmake
+cmake_minimum_required(VERSION 3.16)
+project(MotorConsumer LANGUAGES CXX)
+find_package(MotorControlRS 0.6.0 EXACT CONFIG REQUIRED)
+add_executable(motor_consumer main.cpp)
+target_link_libraries(motor_consumer PRIVATE MotorControlRS::MotorControlRS)
+set_target_properties(motor_consumer PROPERTIES
+    CXX_STANDARD 11 CXX_STANDARD_REQUIRED YES CXX_EXTENSIONS OFF)
+```
 
-[Host serial support](docs/host_serial.md) adds sixteen reviewed baud/format
-tuples, exclusive idle configuration and explicit failure/restoration handling
-to the standalone owner. Native and host-only COM13 checks pass; the motor
-remains at 115200 8N1. The [fresh audit](docs/reports/ess_release_19_audit_2026-10-04.md)
-fixes settings reconciliation, timer failure settlement and Python evidence.
-Restored probes pass; malformed traffic during host mismatches remains unresolved.
+Create `consumer/main.cpp`:
 
-[Typed ESS tuning settings](docs/ess_tuning.md) cover twenty native filter,
-tracking, current-loop, LA and collision parameters through the existing bounded
-settings sequence. Bench reads and input-filter restoration pass; physical
-effects and ambiguous collision fields retain explicit qualification gaps.
+```cpp
+#include <MotorControlRS/profiles/ess_rs/Codec.h>
+int main() {
+    uint8_t bytes[8] = {};
+    return MotorControlRS::ESS_RS::buildProbe(1, bytes, sizeof(bytes)) == 8 ? 0 : 1;
+}
+```
 
-[Typed ESS control settings](docs/ess_control_settings.md) add bounded algorithm/encoder/current/lock configuration and checked readback. Current/model uncertainties remain guarded; a reversible stored lock-delay change and restoration have separate bench evidence.
+```sh
+cmake -S consumer -B consumer-build -DCMAKE_PREFIX_PATH=/absolute/core-install
+cmake --build consumer-build
+```
 
-
-[Typed optional ESS I/O](docs/ess_io.md) adds explicit function-zero disable, indexed assignments, polarity/custom masks and stored readback settlement; wiring, logical levels and electrical qualification stay separate.
-
-[Bounded ESS homing](docs/ess_homing.md) implements internal-index methods33/34 and current-position35 with checked staging, fresh completion transitions and zero/reference evidence. All35 documented methods have explicit prerequisites and dispositions; physical homing remains gated.
-
-A framework-independent serial motion library, starting with STEPPERONLINE
-ESS23-RS10/RS20. The package is `MotorControl-RS`; the C++ namespace, include
-directory and CMake package/target are `MotorControlRS`. The recommended GitHub
-repository and checkout name is `MotorControl-RS`; the folder name does not
-affect the API. Metadata is prepared for the rename from `ESS23-RS`.
-See [repository and folder rename steps](docs/repository_rename.md).
-
-The implementation supplies **configurable units, the ESS register catalogue
-and checked ESS Modbus RTU codecs**. A [standalone transaction runner](docs/runner.md)
-has native fake-transport tests. The [ESP32-S3 read-only probe](docs/esp32_probe.md) adds
-polling and timer UART capture, a JSONL console and Python load/bench tools.
-An [application-owned bus owner](docs/bus_owner.md) adds fair scheduling, urgent
-reservations, cancellation, absolute deadlines and retained results. The console
-now uses that owner, serves bounded input during transactions and retains
-correlated results with explicit release; [prompt 03 evidence](docs/reports/ess_release_03_2026-10-03.md).
-The [capture review](docs/reports/ess_release_04_2026-10-04.md) retains the
-20-us sampler, enforces starvation faults and adds a fixed checked 37-byte
-read fixture. Independent electrical timing remains unqualified.
-The [typed ESS read API](docs/ess_reads.md) supplies identity, configuration and
-state observations. Cached status/health keep separate ages and interpretation
-context; finite opt-in polling shares the bus owner. Read-only stationary evidence
-is recorded in [prompt 06](docs/reports/ess_release_06_2026-10-04.md).
-[Exact target preparation](docs/axis_preparation.md) preserves native integers and
-rational quantities, with frames, references, quantization and host-only configuration.
-The console exposes pure previews and [bounded enable/release, alarm-clear and
-priority stop operations](docs/ess_actions.md). Regular firmware admits actions under the configured receive/echo contract;
-electrical measurements are separate. Finite relative/absolute/wrapped-angle
-motion and zero-only device position-clear software are implemented through
-shared APIs; native finite motion and moving stops have drive-reported bench evidence;
-clear and broader motion semantics retain their own prerequisites.
-[Finite signed serial velocity](docs/ess_velocity.md) adds shared exact rate preparation,
-configured native ramp snapshots, bounded activity/stop observation and finite
-Python cleanup. Acceleration mapping and physical velocity/stop remain unqualified.
-The [typed driver-settings API](docs/ess_driver_settings.md) adds stopped-state
-single-word updates with checked readback and exact partial progress, plus raw
-soft-limit pair reads. Unreviewed pair setters and physical setting/limit tests
-remain guarded; active settings are not inferred from acknowledgements.
-The [release roadmap](docs/roadmap.md) records the delivery order and completion gates.
-The [numbered implementation prompts](docs/prompts/ess_release/README.md)
-split the remaining work into reviewed, independently dispatched blocks. Typed non-changing read
-communication has bench evidence; external timing qualification, physical motion,
-discovery orchestration and the full CLI remain future work. Other reviewed drives, including
-Leadshine iEM-RS, are design contrasts rather than implemented profiles.
-
-The core has no Arduino, ESP-IDF, FieldCore, UART, GPIO, clock, heap, retry or
-health-service dependency. Applications own those responsibilities. Common
-motion vocabulary and complete native profile access remain the accepted
-[architecture](docs/architecture.md).
-
-The standalone RS485 workflow is a working reference for any application,
-including a future FieldCore motor device. It does not depend on a FieldCore
-product or bus service. ESP32-S3 pins, SDK code and PSRAM allocation belong
-only to the bench example; another platform supplies its own transport.
-
-CANopen is planned as a separate future library, initially for the Lichuan
-CL86-C's verified capabilities. Both libraries will follow the same documented
-motion contract; shared units/types will be extracted only when the second
-implementation needs them. This repository continues with ESS and selected
-serial drive profiles.
+Run the resulting `motor_consumer` executable. It constructs bytes and sends
+nothing. A source consumer may use `add_subdirectory` and the same target.
+Root CMake also supports native IDF component consumption; that alone is not
+standalone firmware or board-adapter support.
 
 ## Units API
 
@@ -261,7 +212,7 @@ use `add_subdirectory` and link `MotorControlRS::MotorControlRS`, or install the
 package and use `find_package(MotorControlRS CONFIG REQUIRED)`. The root CMake file
 also supports ESP-IDF `EXTRA_COMPONENT_DIRS`. A clean core-only IDF consumer
 compiles all public headers without examples or vendor resources; the native
-standalone firmware has read-only bench evidence. Public headers require no
+standalone firmware has finite read/load/motion/stop evidence for its recorded subset. Public headers require no
 framework headers.
 
 The same [unit preview](examples/units_preview/main.cpp) builds for the
@@ -271,8 +222,8 @@ ESP32-S3 bench with 16 MB flash and 8 MB PSRAM:
 .\scripts\pio.cmd run -e bench_s3_units
 ```
 
-Build the read-only standalone console with `.\scripts\pio.cmd run -e bench_s3_probe`.
-It sends nothing until an explicit `probe`/`ping` command. See the
+Build the standalone console with `.\scripts\pio.cmd run -e bench_s3_probe`.
+Startup sends no motor command; explicit reads/actions/settings create traffic. See the
 [guide](docs/esp32_probe.md) for uploading, JSONL commands, Python stress/watch
 tools, PSRAM placement and qualification limits, and the
 [bench report](docs/reports/2026-10-03_e2_probe.md) for measured results.
@@ -291,31 +242,28 @@ python scripts/generate_version.py check
 python scripts/generate_ess_registers.py --check
 ```
 
-## Repository guide
+## Checkout resources and remaining coverage
 
-| Path | Responsibility |
-| --- | --- |
-| `include/MotorControlRS/`, `src/` | Public common API and implementation |
-| `include/MotorControlRS/profiles/ess_rs/`, `src/profiles/ess_rs/` | ESS catalogue, raw codecs, probe and word conversion |
-| `src/rtu/` | Small private byte/CRC/frame helpers, without device policy |
-| `examples/common/` | Board/build settings, native-tested RTU runner and ESP32-S3 UART adapter |
-| `examples/probe_cli/` | Standalone console, checked operation integration and platform-neutral JSONL command parser |
-| `examples/units_preview/` | Desktop/Arduino consumer of the current units API |
-| `test/` | Native units, catalogue and independent protocol verification |
-| `scripts/` | Reference preparation and deterministic generators |
-| `docs/reference/` | Register inventory, source evidence and implementation questions |
-| `docs/vendor/`, `docs/standards/`, `docs/pdf-extracted-md/` | Preserved original references and searchable extracts |
+The [full API/CLI coverage matrix](docs/ess_api_cli_coverage.md) retains nine
+named gaps: arbitrary position-profile candidates/archive restoration,
+positioning start-speed writes, standalone velocity/homing parameter reads,
+homing auxiliary choices/remaining methods, nonzero offsets, early collision
+access and position-interruption options. Eighteen paired setters (two limits,
+16 stored pulse targets) remain guarded. No fictional serial segment start,
+torque/current motion or guessed acceleration formula fills these gaps.
 
-Start with the [current architecture report](docs/architecture_report.md),
-[documentation](docs/README.md), [remaining work](docs/backlog.md),
-[bench notes](docs/hardware_bench.md) and [engineering guidance](AGENTS.md).
-The [axis](docs/axis_contract.md), [profiles](docs/profile_contract.md),
-[discovery](docs/discovery_contract.md) and [CLI](docs/cli_contract.md) contracts
-describe the intended complete library beyond this first implementation.
+- [Interactive console](docs/console.md), [Arduino](docs/esp32_probe.md),
+  [native ESP-IDF](docs/esp_idf_probe.md) and [finite scenarios](docs/bench_scenarios.md).
+- [Measured qualification](docs/reports/ess_release_29_2026-10-05.md),
+  [verification/CI](docs/verification.md), [roadmap](docs/roadmap.md),
+  [backlog](docs/backlog.md) and [engineering guidance](AGENTS.md).
+- [Architecture](docs/architecture.md), [axis](docs/axis_contract.md),
+  [profile](docs/profile_contract.md), [CLI](docs/cli_contract.md) and
+  [discovery](docs/discovery_contract.md) contracts.
 
-Code is MIT licensed. Vendor PDFs, CAD, software and standards retain their
-owners' rights and are excluded from the distributed source package.
-
-Typed identity and motion-prerequisite configuration reads are implemented through the installed public [read API](docs/ess_reads.md). The standalone console exposes `read identity`, `read config`, `caps` and matching ESS profile routes. These are non-changing reads; exact-model, state and motion qualification remain separate.
-
-Finite relative positioning is implemented in [Position.h](include/MotorControlRS/profiles/ess_rs/Position.h), with common intent in [MoveOperation.h](include/MotorControlRS/MoveOperation.h). `prepareMoveRelative`, `nextMove` and `advanceMove` reuse exact host preparation, checked staging/trigger and fresh motion observations without performing I/O. The standalone console calls these same APIs; short native finite motion and dynamic stops have drive-reported evidence. See [the current contract](docs/ess_position.md).
+Canonical metadata is prepared for `janhavelka/MotorControl-RS`. The working
+remote remains `janhavelka/ESS23-RS` until the new endpoint exists; follow
+[the rename guide](docs/repository_rename.md), preserving bench evidence/backups.
+`library.json` is version authority. Vendor references retain separate licensing
+and original hashes/provenance; they are excluded from core artifacts. CANopen
+and other manufacturers remain separately scoped future implementations.

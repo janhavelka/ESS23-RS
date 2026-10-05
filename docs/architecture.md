@@ -72,10 +72,12 @@ The [application bus reference](bus_owner.md) adds copied admission, per-produce
 FIFO/cyclic fairness, immutable deadlines, reserved urgent/results storage,
 cancellation and explicit recovery. Release prompt 03 connects the responsive
 console, retained results and qualified observation ages to this owner.
-The [current architecture report](architecture_report.md) maps existing files
-and dependencies, walks through a transaction and records the latest source
-review of standalone and FieldCore integration. The planned layout below is
-a design guide, not a list of implemented files.
+The [historical architecture report](architecture_report.md) maps the
+2026-10-03 source snapshot. The [integrated audit](reports/ess_release_28_2026-10-05.md)
+records current boundaries and corrections, and the
+[qualification matrix](reports/ess_release_29_2026-10-05.md) keeps software,
+functional and unperformed physical cases separate. The planned layout below
+is a design guide, not a list of implemented files.
 
 The [axis contract](axis_contract.md) defines common operations and units;
 the [profile contract](profile_contract.md) defines native command coverage;
@@ -233,9 +235,11 @@ members from siblings.
 
 ## Codec function vocabulary and buffer contract
 
-The raw codec families below are implemented in `profiles/ess_rs/Codec.h`;
-typed identity/status and motion helpers remain planned. The header records
-the callable signatures and validation precedence.
+The raw codec families below are implemented in `profiles/ess_rs/Codec.h`.
+Typed observations and bounded actions/motion/settings use their separate
+installed profile headers; the [API inventory](ess_api_cli_coverage.md) names
+the producing operations and remaining gaps. Codec headers record the callable
+signatures and validation precedence.
 Common axis names are specified separately in the [axis contract](axis_contract.md).
 Non-Modbus profiles retain suitable native framing and address types; these
 register-oriented helpers are not mandatory public operations for every drive.
@@ -497,11 +501,15 @@ Startup performs no automatic enable, movement, alarm clear, homing, save, resto
 or device communication change. Persistence, if added, stores explicitly
 selected host settings only and never replays commands after boot.
 
-Changing profile, target address, host serial tuple, scale, origin or word order
-invalidates the relevant identity, decoding and readiness assumptions. Retain
-historical observations and uncertain command results under their original
-target/tuple and decoding context; never reinterpret old words using a new
-word order or make another selected motor inherit an old command result.
+Logical profile/address rebinding and changes to scale, origin, word order or
+observed drive settings invalidate the affected identity, decoding and readiness
+assumptions. Ordinary UART tuple selection is transport configuration: it does
+not rebind the motor or invalidate coordinates solely because another request
+uses a different baud rate. Explicit host-session changes invalidate current
+communication applicability while retaining motor configuration generations;
+see [host serial context](host_serial.md). Retain historical observations and
+uncertain results under their original target/tuple and decoding context; never
+reinterpret old words using a new word order or make another motor inherit them.
 
 ## FieldCore integration boundary
 
@@ -533,18 +541,20 @@ work is requested.
    checked responses, raw exceptions, word helpers, minimal probe and native
    tests. General FC10 limits and typed field/motion ambiguities remain open.
    Wire support does not establish permission to write every register.
-3. The runner, ESP32-S3 adapter and probe CLI have native tests and bench evidence.
-   Finish external timing qualification and identity/settings/state reads;
-   preserve explicit raw-model uncertainty and the observed turnaround exception.
-4. Implement checked target preparation, ESS motion/stop sequencing and the
-   corresponding common/native commands in small tested blocks. Challenge
-   signatures against the documented Leadshine contrast. Qualify stop handling
-   alongside the first small moves, then velocity and supported homing.
-5. Expand full native ESS coverage and standalone Arduino S2/S3 and native
-   ESP-IDF consumers with equivalent semantics for equivalent features. Keep
-   protocol/unit/sequence tests runnable without either framework. Record
-   model/firmware-specific qualification and obtain contrasting hardware
-   before advertising another supported profile.
+3. The runner, owner, ESP32-S3 adapter and shared console have native tests and
+   bench evidence. Typed identity/configuration/state reads are implemented;
+   raw-model/firmware interpretation and independent electrical timing remain
+   unresolved. Preserve the observed turnaround exception and checked framing.
+4. Exact target preparation and bounded actions, relative/absolute/wrapped
+   positioning, velocity and homing33/34/35 are implemented through the same
+   common/profile APIs and console. Selected finite positive moves and both
+   moving stops have S3 functional evidence. Velocity/homing, calibrated units
+   and wider motion cases retain their own unperformed qualification gates.
+5. Arduino and native ESP-IDF S3 consumers share the application and implemented
+   command semantics. S2 core/portable fixtures compile without claiming a
+   physical adapter. Complete native ESS coverage remains open: nine named
+   gaps and guarded paired writes remain in the inventory. Obtain concrete
+   hardware and model/firmware evidence before advertising another profile.
 6. Integrate into FieldCore when requested, through its own contract/owner
    changes and tests. Standalone functionality does not depend on this step.
 
@@ -576,6 +586,11 @@ no-echo FC06 acknowledgement, late/overlong frames, short exceptions, deadline
 wrap, DE failure and uncertain writes. CLI tests must prove diagnostic commands
 do not emit writes and startup/recovery do not replay motor commands.
 
-Native/build success is distinct from hardware qualification. The offline ESP32-S3
-Arduino preview has compiled; motor communication/motion, native ESP-IDF
-firmware and S2 builds remain unverified. See [recorded checks](verification.md).
+Native/build success is distinct from hardware qualification. The
+[quick/full verifier](verification.md) builds clean core ZIP/install consumers,
+isolated public headers, all configured Arduino environments and native IDF
+firmware/core/portable fixtures. Available Arduino/native-IDF S3 campaigns
+exercise checked reads, finite positive moves, both stops and reversible stored
+settings. S2 remains compile-only; electrical/shaft measurements, physical fault
+injection, endurance and the remaining native-family cases stay open in the
+[qualification matrix](reports/ess_release_29_2026-10-05.md).

@@ -1,5 +1,21 @@
 # Features implementation tasks and open questions
 
+## Prompt30 partial candidate and integration handoff
+
+- [x] Reconcile current public/build/CLI documentation, self-contained core ZIP
+  instructions, model/platform scope and remaining release gates.
+- [x] Map current FieldCore RS485 module/owner/backend and mixed RTU/ASCII
+  boundaries read-only; name proposed changes and regression work.
+- [ ] Final clean candidate verification, pinned artifact/evidence/CI record.
+- [ ] Separately dispatched FieldCore motor integration and tag/release publication.
+- [ ] Close nine named native-family gaps and18 guarded pair setters in their
+  owning prompts; physical fixtures/endurance remain independent open gates.
+- [ ] Human motion commands need guided prerequisite refresh, owned result
+  management and precise rejection reasons; preserve the existing checked API.
+
+See [candidate/gates](release_candidate.md) and [handoff](fieldcore_handoff.md).
+
+
 ## Prompt29 bounded fault/load qualification
 
 - [x] Run the actual full verifier and available Arduino/native-IDF S3 finite
@@ -13,7 +29,7 @@
   require their actual fixture. Native-family/unused-write-shape gaps remain.
 
 See [qualification matrix, measurements and evidence](reports/ess_release_29_2026-10-05.md).
-This supplies30's disposition; it does not execute30 or approve a full release.
+This supplies30's qualification disposition; it does not approve a full release.
 
 ## Prompt28 integrated audit
 

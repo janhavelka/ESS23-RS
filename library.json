@@ -1,7 +1,7 @@
 {
   "name": "MotorControl-RS",
   "version": "0.6.0",
-  "description": "Framework-independent exact target preparation, motion units, ESS-RS codecs, typed reads and bounded enable/release/alarm-clear/stop operations. Passive raw/decoded traffic observation. Application-owned transport.",
+  "description": "Framework-independent C++11 exact targets, units, checked ESS-RS codecs, typed reads/settings and bounded motion/action operations. Partial native coverage; application-owned transport.",
   "keywords": ["rs485", "modbus", "stepper", "servo", "ess23", "motion"],
   "authors": [{"name": "Jan Havelka", "maintainer": true}],
   "repository": {"type": "git", "url": "https://github.com/janhavelka/MotorControl-RS.git"},

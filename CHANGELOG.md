@@ -1,6 +1,23 @@
 # Changelog
 
-## Unreleased
+## Unreleased - partial 0.6.0 development candidate
+
+- Prepare an unpublished source/install candidate and current FieldCore RS485
+  integration handoff; exact source commit, hashes and release gates are recorded
+  in docs/reports/ess_release_30_2026-10-05.md. The version remains0.6.0; no tag or
+  release publication is implied. Nine native-family gaps,18 guarded paired
+  setters and physical qualification limits remain explicit.
+- Add typed optional I/O, stored records, control/tuning settings, bounded
+  homing33-35, host serial selection, explicit communication/persistence sessions
+  and non-changing discovery, with retained partial/uncertain outcomes.
+- Share one complete application between Arduino and native ESP-IDF, add
+  human/JSONL console presentation, finite Python scenarios, exact-commit CI,
+  strict C++11/C++17 source/install/header checks and clean core packages.
+- Correct integrated configuration invalidation and common/profile boundaries.
+  Record bounded dual-platform capture/load/positive-native-motion/stop/settings
+  evidence without claiming calibrated units, all native families or endurance.
+  Original failed campaigns and separate corrections remain retained.
+
 
 - Add typed ESS driver-settings reads and seven stopped-state single-word
   updates with checked readback, immutable partial progress and settings effects.
@@ -22,8 +39,8 @@
 
 - Add bounded ESS enable/release, alarm-clear and explicit normal/direct stop
   operations, application axis reservations and reserved stop delivery. Preserve
-  write uncertainty separately from checked status completion; physical actions
-  remain gated by independent timing and echo qualification.
+  write uncertainty separately from checked status completion; physical qualification is
+  recorded per functional subset; independent shaft/electrical evidence remains open.
 
 - Add exact host target preparation, native/rational input, frame-aware scaling,
   origin/reference validation, quantization and limits. Reuse the units factor
@@ -38,7 +55,7 @@
   TX/RX/DE pins and direction polarity. Native tests cover alternate wiring,
   active-low direction and initialization failures. Core APIs are unchanged.
 - Specify optional/unconnected motor I/O and explicit ESS no-function assignment
-  in the contracts and prompts. Typed I/O setters remain planned work.
+  in the contracts and prompts. Typed I/O setters are now implemented with separate register/effect evidence.
 
 ## 0.6.0
 

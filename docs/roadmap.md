@@ -1,19 +1,27 @@
 # Roadmap to a supported ESS release
 
+[Prompt30](release_candidate.md) prepares the unpublished0.6.0 partial candidate,
+clean package and [FieldCore handoff](fieldcore_handoff.md). Software/package
+verification and functional evidence remain separate from full ESS/native
+coverage, endurance and fixture qualification. Publication/integration are
+separately dispatched work. Historical block summaries below retain their
+original test totals; the candidate report records the current verifier.
+
+
 The [29 qualification matrix](reports/ess_release_29_2026-10-05.md) records finite
 Arduino/native-IDF S3 load/fault/feature evidence and explicit per-frame limits.
 An initial stale-identity settings refusal remains a failed aggregate run;
 the zero-TX cause was reproduced and the prerequisite correction verified.
 The full74-check/eight-build verifier passes. Multi-hour endurance, physical
 fault fixtures, independent electrical/shaft measurements and the nine named
-native-family gaps remain open. Prompt30 is not executed.
+native-family gaps remain open. Prompt30 prepares an unpublished partial candidate and current-source FieldCore handoff; see [candidate disposition](release_candidate.md).
 
 The [integrated28 audit](reports/ess_release_28_2026-10-05.md) corrects immediate
 configuration invalidation, separates ESS discovery evidence from common
 headers, restores the umbrella velocity API and reconciles coverage roles.
 The full verifier passes74 checks, strict source/install consumers with28 public
 headers and eight firmware/core builds. Nine named native-family gaps remain;
-prompt29's available qualification is recorded above;30 remains separately dispatched.
+prompt29's available qualification is recorded above;30 records candidate and handoff dispositions; full-release gates stay open.
 The107-frame final-image COM13 regression passes grouped configuration reads,
 discovery, reversible lock-delay and finite relative motion with stop/profile
 restoration; physical fault injection, electrical/shaft and endurance proof remain open.
@@ -142,7 +150,7 @@ future version numbers are not commitments.
 
 The [ESS release prompt set](prompts/ess_release/README.md) turns these stages
 into 30 ordered implementation blocks with tests, independent audits and
-evidence handoffs. Prompts 01-20 have implementation and available verification
+evidence handoffs. Prompts 01-30 have implementation/candidate and available verification
 dispositions. [Prompt12](reports/ess_release_12_2026-10-04.md) consolidates the
 four reviewed FC10 windows into generated policy and records all paired-write
 proof gaps. Its [fresh audit](reports/ess_release_12_audit_2026-10-04.md) fixes
@@ -225,7 +233,7 @@ this session; integrating there is a separate delivery step.
 | --- | --- | --- | --- |
 | 1. Protocol foundation | Units, complete ESS register ledger, checked FC03/06/10 codecs and non-changing model probe | Native validation, generated-ledger checks, explicit unresolved fields and access limits | Implemented; checked model reads on the bench |
 | 2. Observable transport | Runner, independent capture, read-only CLI, load and failure tools | Delayed servicing/overflow/late-reply tests; measured load, memory and timing; no automatic replay | Implemented in 0.6.0; measured ESP32-S3 bench load envelope; electrical timing qualification remains open |
-| 3. Small bus-owner reference | Bounded request queue, retained results, fairness, deadlines and priority for a pending stop after settling in-flight TX | Multiple simulated clients, full queue, cancellation and starvation tests; read-only hardware regression under load | Prompts 01–03 implemented/native/build PASS; actual owner console and read-only loaded/interleaved timer bench PASS; no physical stop or electrical qualification |
+| 3. Small bus-owner reference | Bounded request queue, retained results, fairness, deadlines and priority for a pending stop after settling in-flight TX | Multiple simulated clients, full queue, cancellation and starvation tests; read-only hardware regression under load | Prompts 01–03 implemented/native/build PASS; actual owner console and read-only loaded/interleaved timer bench PASS; later26/29 functional stop evidence; electrical qualification open |
 | 4. Typed ESS observations | Identity, firmware/configuration, alarms, readiness and position/velocity observations | Original-manual review; exact model readback; validity/freshness independent of communication health | Prompts 05–06 implement typed reads and separate health; bench SKU is user-confirmed ESS23-RS20; wire-code/firmware interpretation, feedback source/sign/units and motion qualification remain unresolved |
 | 5. First controlled motion | Explicit enable/release, small relative move and documented stop | Verified units and limits, acknowledgement vs completion, interrupted/lost replies, stop while another operation is active; bench measurements | Exact preparation and action/finite sequence software pass; short positive relative motion and normal/direct stops functionally qualify on both S3 frameworks in26; independent shaft/electrical, negative encoding and other fixture cases remain open |
 | 6. Complete common motion API | Absolute/relative position, step/angle/travel modes, velocity, acceleration, homing and fault clear where supported | Same public API in firmware and CLI; unsupported operations fail before TX; origin/rounding/path policy tested | 07–11 implement exact preparation, origins, finite relative/absolute/wrapped positioning, zero clear and finite serial velocity/shared stop; bounded homing33/34/35 implemented in14; acceleration mapping, external-switch methods and physical qualification remain open |
