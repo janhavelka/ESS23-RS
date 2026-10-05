@@ -241,6 +241,9 @@ class DiscoveryTests(unittest.TestCase):
                 common=dict(id=rid,profile="ess_rs",command="probe",ok=True,operation_id=9,address=1)
                 admitted=dict(common,type="reply",result="accepted")
                 terminal=dict(common,type="probe",command_id=rid,raw_model=773,transport="FRAME",codec="OK",outcome="success",
+                              detail=0,frame_error=0,register_start=0,register_count=1,identity="responder_only",
+                              tx_hex="010300000001840A",rx_hex="010302030578B7",confidence="responder_model_unresolved",
+                              manufacturer_confirmed=False,exact_model_confirmed=False,collision_excluded=False,
                               execution_unknown=False,tx_bytes=8,rx_bytes=7,duration_us=100,timing_valid=True,raw_truncated=False,
                               observed_earliest_us=101,observed_latest_us=102,delivered_us=103,
                               host_serial=dict(known=True,baud=115200,format="8N1",generation=3))

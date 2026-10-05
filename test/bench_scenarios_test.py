@@ -395,6 +395,80 @@ class RecordedSessionTest(unittest.TestCase):
         self.assertEqual(self.summary()['failure_diagnostics'], {})
         self.assertIn('framing unavailable', self.summary()['failure_diagnostics_error'])
 
+    def test_port_close_failure_cannot_leave_a_passing_summary(self):
+        @contextmanager
+        def failing_close(*args):
+            yield object()
+            raise OSError('disconnect while closing')
+        def run(console, record):
+            record['workload_verified'] = True
+        with patch.object(session, 'Console', ScenarioConsole):
+            with self.assertRaisesRegex(OSError, 'disconnect while closing'):
+                session.run_recorded(port='fake', out=self.prefix, scenario='quick', inputs={},
+                                     run=run, port_opener=failing_close)
+        result = self.summary()
+        self.assertFalse(result['ok'])
+        self.assertEqual(result['error'], 'disconnect while closing')
+        self.assertIn('after', result)  # Successful work stays inspectable.
+
+    def test_work_and_port_close_failures_are_both_retained(self):
+        @contextmanager
+        def failing_close(*args):
+            try:
+                yield object()
+            finally:
+                raise OSError('port close failed')
+        def run(console, record):
+            raise probe.BenchError('original uncertain movement')
+        with patch.object(session, 'Console', ScenarioConsole):
+            with self.assertRaisesRegex(probe.BenchError, 'original uncertain movement') as caught:
+                session.run_recorded(port='fake', out=self.prefix, scenario='position', inputs={},
+                                     run=run, port_opener=failing_close)
+        result = self.summary()
+        self.assertFalse(result['ok'])
+        self.assertEqual(result['error'], 'original uncertain movement')
+        self.assertEqual(result['owner_error'], 'port close failed')
+        self.assertIsInstance(caught.exception.__cause__, OSError)
+        self.assertNotIn('after', result)
+
+    def test_startup_failure_survives_port_close_failure(self):
+        @contextmanager
+        def failing_close(*args):
+            try:
+                yield object()
+            finally:
+                raise OSError('port close failed')
+        for stage in ('__init__', 'drain_startup', 'identify'):
+            with self.subTest(stage=stage):
+                prefix = Path(self.tmp.name) / stage
+                with patch.object(session, 'Console', ScenarioConsole), \
+                        patch.object(ScenarioConsole, stage, side_effect=probe.BenchError('startup failed')):
+                    with self.assertRaisesRegex(probe.BenchError, 'startup failed'):
+                        session.run_recorded(port='fake', out=prefix, scenario='quick', inputs={},
+                                             run=lambda *_: self.fail('work must not run'), port_opener=failing_close)
+                result = json.loads(prefix.with_suffix('.json').read_text())
+                self.assertFalse(result['ok'])
+                self.assertEqual(result['error'], 'startup failed')
+                self.assertEqual(result['owner_error'], 'port close failed')
+                self.assertNotIn('before', result)
+                self.assertNotIn('after', result)
+
+    def test_interrupted_startup_read_prevents_diagnostic_writes(self):
+        port = wire.Serial()
+        @contextmanager
+        def opener(*args):
+            yield port
+        with patch.object(port, 'read', side_effect=[b'{"type":', KeyboardInterrupt()]):
+            with self.assertRaises(KeyboardInterrupt):
+                session.run_recorded(port='fake', out=self.prefix, scenario='quick', inputs={},
+                                     run=lambda *_: self.fail('work must not run'), port_opener=opener)
+        result = self.summary()
+        self.assertFalse(result['ok'])
+        self.assertEqual(result['error'], 'interrupted')
+        self.assertEqual(result['failure_diagnostics'], {})
+        self.assertIn('framing unavailable', result['failure_diagnostics_error'])
+        self.assertEqual(port.writes, [])
+
     def test_failed_campaign_summary_forbids_new_motor_after_reads(self):
         def run(console, record):
             console.emit('summary', mode='probe', ok=False, error='workload did not run')

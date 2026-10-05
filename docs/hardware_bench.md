@@ -1,5 +1,11 @@
 # Motor bench and testing authorization
 
+The [fresh prompt24 audit](reports/ess_release_24_audit_2026-10-05.md) adds322
+checked frames, bounded load, finite100-increment motion and a normal stop during
+finite250-increment motion. Both restore `[30,100,100,60,0,250]`; final checked
+alarm0/motion0/speed0, raw position1961, DE released and owner/results empty.
+Independent shaft/electrical measurements and endurance remain unqualified.
+
 [Prompt24 checks](reports/ess_release_24_2026-10-05.md) add461 checked frames on
 the unchanged ordinary timer image, finite relative motion and normal moving
 stop with exact current-session profile restoration. Filter2→3→2 restoration

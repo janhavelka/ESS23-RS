@@ -103,12 +103,14 @@ def run_recorded(*, port, out, scenario, inputs, run, address=1, timeout_s=5,
                 del record['campaigns'][:-16]
 
         started = time.monotonic()
+        primary_error = None
         try:
             with port_opener(port, 115200, timeout_s) as connection:
-                console = Console(connection, on_event=emit)
-                console.drain_startup(.5)
-                record['version'] = console.identify(timeout_s=timeout_s)
+                console = None
                 try:
+                    console = Console(connection, on_event=emit)
+                    console.drain_startup(.5)
+                    record['version'] = console.identify(timeout_s=timeout_s)
                     record['before'] = snapshot(console, address=address, refresh=refresh, timeout_s=timeout_s)
                     with debug_session(console, debug, timeout_s) as diagnostics:
                         record['debug'] = diagnostics
@@ -120,11 +122,17 @@ def run_recorded(*, port, out, scenario, inputs, run, address=1, timeout_s=5,
                     verify_restoration(record)
                     record['ok'] = True
                 except BaseException as error:
+                    primary_error = error
                     record['error'] = str(error) or 'interrupted'
-                    cached_failure(console, record, timeout_s=timeout_s)
+                    if console is not None:
+                        cached_failure(console, record, timeout_s=timeout_s)
                     raise
         except BaseException as error:
-            record['error'] = str(error) or 'interrupted'
+            record['ok'] = False  # Closing the port is part of this owned session.
+            record.setdefault('error', str(error) or 'interrupted')
+            if primary_error is not None and error is not primary_error:
+                record['owner_error'] = str(error) or 'interrupted'
+                raise primary_error from error
             raise
         finally:
             record['elapsed_s'] = time.monotonic() - started

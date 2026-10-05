@@ -456,21 +456,28 @@ class Serial:
                                  protocol=2, version="0.test", outstanding_capacity=10))
         if command == "probe":
             address = int(args[0]) if args else 1
+            tx = bytes((address, 3, 0, 0, 0, 1))
+            rx = bytes((address, 3, 2, 0, 60))
+            tx = (tx + bench.wire_crc(tx).to_bytes(2, "little")).hex()
+            rx = (rx + bench.wire_crc(rx).to_bytes(2, "little")).hex()
             return (encoded(reply(request_id, command, result="accepted", address=address))
                     + encoded(reply(request_id, command, type="probe", address=address,
-                                    transport="FRAME", codec="OK", detail=0, raw_model=60,
+                                    transport="FRAME", codec="OK", detail=0, frame_error=0, raw_model=60,
                                     outcome="success", execution_unknown=False,
                                     duration_us=12345, tx_bytes=8, rx_bytes=7,
                                     timing_valid=True, raw_truncated=False,
                                     observed_earliest_us=13300, observed_latest_us=13345,
                                     delivered_us=16000,
-                                    identity="responder_only")))
+                                    identity="responder_only", register_start=0, register_count=1,
+                                    tx_hex=tx, rx_hex=rx, confidence="responder_model_unresolved",
+                                    manufacturer_confirmed=False, exact_model_confirmed=False,
+                                    collision_excluded=False)))
         if command == "capture-read":
             address = int(args[0]) if args else 1
             assert address == 1  # This fixed independent raw-frame fixture is node 1.
             return (encoded(reply(request_id, command, result="accepted", address=address))
                     + encoded(reply(request_id, command, type="capture_read", address=address,
-                                    transport="FRAME", codec="OK", detail=0, raw_model=None,
+                                    transport="FRAME", codec="OK", detail=0, frame_error=0, raw_model=None,
                                     outcome="success", execution_unknown=False,
                                     duration_us=12345, tx_bytes=8, rx_bytes=37,
                                     capture_read=True, register_start=304, register_count=16,
@@ -3042,6 +3049,82 @@ class Framing(unittest.TestCase):
                 self.port.handler = malformed
                 self.failed(lambda: console.command("probe", timeout_s=0.1), "result evidence|result kind")
 
+    def test_probe_raw_frames_and_decoded_model_must_agree_before_release(self):
+        # CRC-valid wrong-address, wrong-window and wrong-model vectors test
+        # correlation independently of the parser's claimed OK disposition.
+        for change in ({"rx_hex": "010302003C0000"},
+                       {"rx_hex": "020302003CFC55"},
+                       {"rx_hex": "0103020000B844"},
+                       {"rx_hex": "010402003CB921"},
+                       {"rx_hex": "010304003C5854"},
+                       {"rx_hex": "010302003C"},
+                       {"rx_hex": "010302003CB85500"},
+                       {"rx_hex": "01 0302003CB855"},
+                       {"tx_hex": "010300000001840B"},
+                       {"tx_hex": "010300010001D5CA"},
+                       {"tx_hex": None}, {"rx_hex": True},
+                       {"register_start": 1}, {"register_count": 2},
+                       {"register_start": False}, {"register_count": True},
+                       {"identity": "exact_model"}):
+            with self.subTest(change=change):
+                console = self.session()
+                def malformed(i, cmd, args):
+                    accepted, terminal = map(json.loads, Serial.normal(i, cmd, args).splitlines())
+                    return encoded(accepted) + encoded({**terminal, **change})
+                self.port.handler = malformed
+                self.failed(lambda: console.command("probe", address=1, timeout_s=.1),
+                            "raw frame evidence")
+                self.assertEqual(self.port.writes, [b"@1 version\n", b"@2 probe 1\n"])
+
+    def test_successful_read_cannot_claim_parser_errors_or_omit_raw_evidence(self):
+        for command in ("probe", "capture-read"):
+            for key in ("detail", "frame_error", "tx_hex", "rx_hex"):
+                for value in (None, True, 7):
+                    with self.subTest(command=command, key=key, value=value):
+                        console = self.session()
+                        def malformed(i, cmd, args):
+                            accepted, terminal = map(json.loads, Serial.normal(i, cmd, args).splitlines())
+                            if value is None:
+                                terminal.pop(key)
+                            else:
+                                terminal[key] = value
+                            return encoded(accepted) + encoded(terminal)
+                        self.port.handler = malformed
+                        self.failed(lambda: console.command(command, address=1, timeout_s=.1),
+                                    "result evidence|raw frame evidence")
+                        self.assertEqual(len(self.port.writes), 2)
+
+    def test_successful_probe_requires_current_confidence_and_native_window_fields(self):
+        for key in ("confidence", "manufacturer_confirmed", "exact_model_confirmed",
+                    "collision_excluded", "register_start", "register_count", "identity"):
+            with self.subTest(key=key):
+                console = self.session()
+                def malformed(i, cmd, args):
+                    accepted, terminal = map(json.loads, Serial.normal(i, cmd, args).splitlines())
+                    terminal.pop(key)
+                    return encoded(accepted) + encoded(terminal)
+                self.port.handler = malformed
+                self.failed(lambda: console.command("probe", timeout_s=.1),
+                            "confidence|raw frame evidence")
+                self.assertEqual(len(self.port.writes), 2)
+
+    def test_probe_exception_remains_failure_without_replay(self):
+        console = self.session()
+        def exception(i, cmd, args):
+            if cmd != "probe":
+                return Serial.normal(i, cmd, args)
+            accepted, terminal = map(json.loads, Serial.normal(i, cmd, args).splitlines())
+            terminal.update(ok=False, codec="EXCEPTION", detail=2, frame_error=10,
+                            outcome="reply_error", raw_model=None, rx_bytes=5,
+                            rx_hex="018302C0F1", identity="unknown", confidence="responder_only")
+            return encoded(accepted) + encoded(terminal)
+        self.port.handler = exception
+        terminal = console.command("probe", address=1, timeout_s=.1)
+        self.assertFalse(terminal["ok"])
+        self.assertEqual((terminal["codec"], terminal["detail"], terminal["confidence"]),
+                         ("EXCEPTION", 2, "responder_only"))
+        self.assertEqual(self.port.writes, [b"@1 version\n", b"@2 probe 1\n", b"@3 release 102\n"])
+
     def test_terminal_arriving_after_deadline_stops(self):
         console = self.session()
         original_read = self.port.read
@@ -3569,9 +3652,9 @@ class Framing(unittest.TestCase):
 
     def test_result_inspection_rejects_changed_retained_terminal_evidence(self):
         for command, fields in (
-                ("probe", {"raw_model": 61}),
+                ("probe", {"raw_model": 61, "rx_hex": "010302003D7995"}),
                 ("probe", {"observed_earliest_us": 13301, "delivered_us": 16001}),
-                ("probe", {"ok": False, "outcome": "cancelled", "transport": "CANCELLED"}),
+                ("probe", {"ok": False, "outcome": "cancelled", "transport": "CANCELLED", "confidence": "none"}),
                 ("recover", {"finished_us": 1501}),
                 ("recover", {"ok": False, "outcome": "expired", "finished_us": 50000})):
             with self.subTest(command=command, fields=fields):
@@ -3894,7 +3977,7 @@ class HostDevice:
             if command == "probe" and self.active != self.original:
                 terminal.update(ok=False, transport=self.mismatch_transport, codec="NOT_CHECKED", outcome="transport",
                                 raw_model=None, execution_unknown=True, tx_bytes=8, rx_bytes=0,
-                                timing_valid=False, raw_truncated=False)
+                                timing_valid=False, raw_truncated=False, rx_hex="", identity="unknown", confidence="none")
                 terminal.update(self.mismatch_evidence)
                 self.recovery_required = True
             if command == "recover": self.recovery_required = False

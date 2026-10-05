@@ -770,7 +770,7 @@ class Console:
                     self.sleep(0.005)
             if self.buffer and not self._diagnostic_line_pending():
                 raise BenchError("startup ended with an incomplete line")
-        except Exception:
+        except BaseException:
             self.synchronized = False
             raise
 
@@ -805,13 +805,33 @@ class Console:
         model = item.get("raw_model")
         if item["ok"] and (type(model) is not int or not 0 <= model <= 65535):
             raise BenchError("successful probe lacks consistent result evidence")
-        if "confidence" in item:
+        if item["ok"] or "confidence" in item:
             confidence = ("responder_model_unresolved" if item["ok"] else "responder_only"
                           if item.get("transport") == "FRAME" and item.get("codec") == "EXCEPTION" else "none")
-            if (item["confidence"] != confidence or any(item.get(key) is not False for key in
+            if (item.get("confidence") != confidence or any(item.get(key) is not False for key in
                     ("manufacturer_confirmed", "exact_model_confirmed", "collision_excluded"))):
                 raise BenchError("probe confidence overstates checked identity evidence")
         Console._check_read_evidence(item, address, 7)
+        if not item["ok"]:
+            return
+        try:
+            frames = []
+            for name, size in (("tx_hex", 8), ("rx_hex", 7)):
+                value = item.get(name)
+                if (type(value) is not str or
+                        re.fullmatch(r"[0-9A-Fa-f]{%d}" % (2 * size), value) is None):
+                    raise ValueError("invalid raw frame")
+                frames.append(bytes.fromhex(value))
+            tx, rx = frames
+            if (tx[:6] != bytes((item["address"], 3, 0, 0, 0, 1)) or wire_crc(tx) != 0 or
+                    _reply_status(rx, len(rx), item["address"], 3, 7) != ("OK", 0, 0) or
+                    int.from_bytes(rx[3:5], "big") != model or
+                    type(item.get("register_start")) is not int or item["register_start"] != 0 or
+                    type(item.get("register_count")) is not int or item["register_count"] != 1 or
+                    item.get("identity") != "responder_only"):
+                raise ValueError("wrong probe request, reply or decoded model")
+        except ValueError as exc:
+            raise BenchError("probe raw frame evidence is inconsistent") from exc
 
     @staticmethod
     def _check_read_evidence(item: dict, address: int | None, reply_size: int) -> None:
@@ -822,6 +842,8 @@ class Console:
         if not item["ok"]:
             return
         if (item.get("transport") != "FRAME" or item.get("codec") != "OK"
+                or type(item.get("detail")) is not int or item["detail"] != 0
+                or type(item.get("frame_error")) is not int or item["frame_error"] != 0
                 or item.get("outcome") != "success" or item.get("execution_unknown") is not False
                 or type(item.get("tx_bytes")) is not int or item["tx_bytes"] != 8
                 or type(item.get("rx_bytes")) is not int or item["rx_bytes"] != reply_size

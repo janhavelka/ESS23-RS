@@ -7,6 +7,7 @@
 - [x] Actual workload/CPU validation, cached-only failure diagnostics, stop/zero-speed settlement and exact same-session motion/settings restoration.
 - [x] Native serial/session/cleanup failure tests, all65 CTest suites and three required firmware builds; COM13 read-only/finite motion/stop/filter/scan checks with461 new checked frames and retained failures.
 - [x] Filter experiment root cause corrected by reading changed native settings before rebuilding invalidated I/O/stationary prerequisites; no weakened firmware gate or replay.
+- [x] Fresh independent audit: raw probe/CRC/model proof, failed port closure, retained primary/secondary errors and interrupted-startup traffic guard;36 session cases and322 new COM13 frames. [Audit](reports/ess_release_24_audit_2026-10-05.md).
 - [ ] Autonomous velocity, unavailable homing fixtures, physical persistence/restart, independent shaft/electrical measurements and endurance remain unqualified; eight earlier native-family gaps retain their owners.
 
 See [scenario contract](bench_scenarios.md) and [verification/evidence](reports/ess_release_24_2026-10-05.md).

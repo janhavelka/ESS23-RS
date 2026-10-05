@@ -71,6 +71,8 @@ read kinds (discovery uses passive snapshots). Local console configuration and
 drive configuration occupy separate keys. CPU availability/percentages, resource
 watermarks, capture/owner gaps, protocol/parser evidence, operation IDs and
 latencies retain their original meanings. Missing workload evidence fails.
+Successful probes also require the recorded request/reply bytes to agree with
+the CRC, address, model window, decoded model and reported parser disposition.
 Ordinary read/configuration/motion scenarios compare before/after configuration;
 a deliberate factory restore instead preserves its changed readback.
 
@@ -90,6 +92,12 @@ reports, using at most ten reads under one observation deadline. Stop/restoratio
 failure remains failed even if another cleanup step succeeds. Broken framing,
 disconnect/restart, stale IDs or evidence failure leave cleanup unknown and
 prevent reuse of that connection. Host recovery is a separate explicit operation.
+An interrupted startup read also blocks further traffic. Failure while closing
+the owned port makes the session fail; simultaneous work/startup and closure
+errors retain the primary `error` and separate `owner_error`.
+
+The [fresh prompt24 audit](reports/ess_release_24_audit_2026-10-05.md) records
+these failure regressions and the repeated COM13 finite functional checks.
 
 Uncertain movement is never retried. A volatile profile backup is preserved by
 same-session restoration, but cannot survive a board restart. Historical archive

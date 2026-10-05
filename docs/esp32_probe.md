@@ -1,5 +1,9 @@
 # ESP32-S3 standalone motor bench
 
+The [fresh prompt24 audit](reports/ess_release_24_audit_2026-10-05.md) verifies
+strict raw probe bytes and interrupted/failed session ownership, plus322 new
+COM13 frames and repeated finite move/stop restoration on the unchanged image.
+
 Use [finite named Python scenarios](bench_scenarios.md) for repeatable checks.
 Default quick is read-only; selected motion/settings retain one connection
 through stop, standstill and restoration. [Prompt24 evidence](reports/ess_release_24_2026-10-05.md)

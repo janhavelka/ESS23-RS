@@ -1,5 +1,10 @@
 # Roadmap to a supported ESS release
 
+The [fresh prompt24 audit](reports/ess_release_24_audit_2026-10-05.md) closes
+raw-probe proof and session/startup failure reporting gaps.65 CTest suites and
+three firmware builds pass;322 additional COM13 frames include finite motion,
+moving stop and exact parameter restoration. Broader qualification is unchanged.
+
 Prompt24 implements [named finite scenarios](bench_scenarios.md), one strict
 serial/session owner, capped incremental evidence and explicit cleanup.
 [Verification](reports/ess_release_24_2026-10-05.md) passes65 native suites and
