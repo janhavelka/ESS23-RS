@@ -16,12 +16,12 @@
   },
   "artifacts": {
     "ess_release_30_core_0.6.0.zip": {
-      "bytes": 155126,
-      "sha256": "4b8d271ef02faf23bcac178d338d0aa02a9c18da757ec22066fea41216c55ad4"
+      "bytes": 154365,
+      "sha256": "89a3475fa8ab7fb6a7a8351f8591ab3339d4f4139e21f857ca8330829752b120"
     },
     "ess_release_30_evidence.zip": {
-      "bytes": 155204,
-      "sha256": "bf9b8fc3ed16bb28a46a5886d4adaa145960c821c04968251ea80cc66bd0f81d"
+      "bytes": 306898,
+      "sha256": "71ab9697ea273ffe690aa613e2c33c72cde014ab479aad82e21a4442275366c8"
     }
   },
   "verification": {
@@ -32,8 +32,9 @@
     "hardware": "separate read-only COM13 evidence; no runtime changes"
   },
   "commands": [
-    "git archive --format=tar -o build/p30/candidate-source.tar fe3f795877aca3f23c4e97a2124d6d970394b6b5",
-    "python build/p30/source/scripts/verify.py --mode full --build-dir build/p30/canonical-full --idf-python build/p25/idf-python/Scripts/python.exe"
+    "git -c core.autocrlf=false archive --format=tar -o build/p30/git-source.tar fe3f795877aca3f23c4e97a2124d6d970394b6b5",
+    "python build/p30/git-source/scripts/verify.py --mode full --build-dir build/p30/git-full --idf-python build/p25/idf-python/Scripts/python.exe"
   ],
-  "source_archive": "Extract git archive into a clean build/p30/source tree; do not export from CRLF-converted Windows working-tree bytes."
+  "source_archive": "Extract into a clean build/p30/git-source tree with Git archive conversion explicitly disabled; all55 exported members must equal Git blobs.",
+  "normalization_correction": "Earlier CRLF-converted export and passing summary retained in evidence prior-export; corrected full verifier and independent consumers rerun PASS."
 }
