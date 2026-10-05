@@ -1,5 +1,20 @@
 # Motor bench and testing authorization
 
+The [prompt29 qualification](reports/ess_release_29_2026-10-05.md) restores the
+same Arduino timer SHA-256
+`8de8f7198d0cccd44ebf5a3ddd0c0a4801fe6bb82d998c23872e42e4500c1c4f`
+after matched Arduino/native-IDF load and finite feature campaigns. All1,200
+planned load reads pass;1,760 checked frames include correction/restoration
+regressions. Each image's deliberate20ms owner-delay probe fails closed with
+zero TX and explicit recovery; the initial Arduino settings refusal remains a
+failed aggregate and was reproduced/corrected by refreshing stale identity.
+Final fresh readback: raw position4881, alarm0, enabled/non-running, speed0;
+profile `[30,100,100,60,0,250]`, lock delay200, node1/1152008N1. Debug/load/monitor
+off, DE released, owner/results empty and no recovery required. The restored
+image's33-frame read-only regression has zero errors. Motor power was not
+interrupted; independent shaft/electrical, physical fault fixtures and multi-hour
+endurance remain unqualified/deferred. Earlier entries are historical endings.
+
 The [prompt28 audit](reports/ess_release_28_2026-10-05.md) leaves COM13 on Arduino
 timer SHA-256 `8de8f7198d0cccd44ebf5a3ddd0c0a4801fe6bb82d998c23872e42e4500c1c4f`.
 Its107-frame campaign passes configuration/discovery, lock-delay restoration and

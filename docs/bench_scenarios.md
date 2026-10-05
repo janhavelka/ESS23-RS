@@ -1,5 +1,12 @@
 # Finite Python bench scenarios
 
+The [prompt29 qualification matrix](reports/ess_release_29_2026-10-05.md) records
+bounded combined load, owner-delay, result-pressure and finite feature campaigns
+using these helpers. Its evidence archive includes exact plans and orchestration.
+After a long phase or explicit recovery, refresh the prerequisites of the next
+operation: settings require fresh identity for the current target generation.
+A rejected admission is not permission to relax that check or replay a write.
+
 `scripts/bench_scenarios.py` selects one finite experiment on the ordinary
 firmware. Its default `quick` performs ten one-attempt probes, typed
 identity/configuration/state reads and passive diagnostics. It sends no motor

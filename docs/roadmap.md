@@ -1,11 +1,19 @@
 # Roadmap to a supported ESS release
 
+The [29 qualification matrix](reports/ess_release_29_2026-10-05.md) records finite
+Arduino/native-IDF S3 load/fault/feature evidence and explicit per-frame limits.
+An initial stale-identity settings refusal remains a failed aggregate run;
+the zero-TX cause was reproduced and the prerequisite correction verified.
+The full74-check/eight-build verifier passes. Multi-hour endurance, physical
+fault fixtures, independent electrical/shaft measurements and the nine named
+native-family gaps remain open. Prompt30 is not executed.
+
 The [integrated28 audit](reports/ess_release_28_2026-10-05.md) corrects immediate
 configuration invalidation, separates ESS discovery evidence from common
 headers, restores the umbrella velocity API and reconciles coverage roles.
 The full verifier passes74 checks, strict source/install consumers with28 public
 headers and eight firmware/core builds. Nine named native-family gaps remain;
-prompt29 qualification and prompt30 release are separately dispatched work.
+prompt29's available qualification is recorded above;30 remains separately dispatched.
 The107-frame final-image COM13 regression passes grouped configuration reads,
 discovery, reversible lock-delay and finite relative motion with stop/profile
 restoration; physical fault injection, electrical/shaft and endurance proof remain open.

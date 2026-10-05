@@ -7,8 +7,8 @@ this interface and its same-session harness; no subsequent numbered prompt is
 executed by this refactor.
 
 Prepared 2026-10-03 against MotorControl-RS `4ae0c4d` (0.6.0).
-Preparing this set executed no numbered prompt. **Prompts 01-28 have implementation and available verification dispositions;
-29-30 remain prepared and unexecuted. Prompt28 corrects configuration invalidation, discovery boundaries and coverage; its final-image107-frame COM13 configuration/discovery/finite-motion/restoration campaign passes. Prompt23 integration, prompt24 scenarios and prompt26's available platform subset are verified while nine named prerequisite/native-family gaps remain open. Independent electrical and shaft-motion qualification remain open; short functional motion has drive-reported evidence.**
+Preparing this set executed no numbered prompt. **Prompts 01-29 have implementation and available verification dispositions;
+30 remains prepared and unexecuted. Prompt29 records1,200 loaded short/long reads and1,760 checked frames across Arduino/native-IDF and restoration, expected faults and finite features. Its initial Arduino aggregate failure and corrected settings rerun remain separate. Deferred endurance, independent electrical/shaft qualification and nine named native-family gaps remain open. Prompt28 corrects configuration invalidation, discovery boundaries and coverage.**
 The current core, runner, ESP32-S3 capture and probe/load tools are existing work;
 do not rebuild them from an old prompt as if they were missing.
 
@@ -84,7 +84,7 @@ Never mark all preceding physical work qualified just because code compiles.
 | [26 — Qualify platform parity and document portability](26_platform_parity_and_portability.md) | 8 | Implemented and independently reviewed;68 CTest/233 Python/three Arduino builds PASS; matched S3 capture/load/state/finite motion/both stops/settings restoration; clean S2 core/portable and installed desktop builds; retained mismatch failure and unqualified fixtures remain explicit | [Handoff/evidence](../../reports/ess_release_26_2026-10-05.md), [S2 compile fixture](../../../test/portability_consumer/README.md), [Fresh25/26 audit](../../reports/ess_release_25_26_audit_2026-10-05.md) |
 | [27 — Repeatable verification, CI and clean packaging](27_repeatable_verification_and_packaging.md) | 8 | Implemented and freshly audited;72 checks, strict ZIP/install consumers and eight builds PASS; command/assertion/exit guards and local-link fixes; hardware unchanged | [Handoff](../../reports/ess_release_27_2026-10-05.md), [fresh audit](../../reports/ess_release_27_audit_2026-10-05.md) |
 | [28 — Integrated architecture, code and coverage audit](28_integrated_code_and_coverage_audit.md) | 8 | Corrective audit and independent re-review PASS; immediate configuration invalidation, discovery boundaries, umbrella API and coverage fixed;74 checks/package/eight builds and107-frame final-image COM13 configuration/discovery/finite-motion/restoration PASS; initial blocked attempts retained; nine named feature gaps remain | [Audit and disposition](../../reports/ess_release_28_2026-10-05.md) |
-| [29 — Fault, load and endurance qualification](29_fault_and_endurance_qualification.md) | 8 | Prepared | — |
+| [29 — Fault, load and endurance qualification](29_fault_and_endurance_qualification.md) | 8 | Available finite qualification and independent review complete; full verifier PASS;1,200 load reads/1,760 checked COM13 frames, expected faults, finite motion/stops/restoration; initial prerequisite refusal retained as FAIL with reproduced cause/correction; endurance/fixtures/native-family gaps open | [Matrix, evidence and blockers](../../reports/ess_release_29_2026-10-05.md) |
 | [30 — Release candidate and FieldCore integration handoff](30_release_candidate_and_fieldcore_handoff.md) | 8 | Prepared | — |
 
 ## Dependency and qualification rules

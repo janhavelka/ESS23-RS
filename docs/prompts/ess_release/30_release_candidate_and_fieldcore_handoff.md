@@ -5,6 +5,13 @@ Read [the sequence index](README.md); all prerequisite dispositions must be curr
 
 Prerequisite: 27's clean package verification, 28's corrected code/coverage and 29's exact qualification disposition. All remaining gaps must be visible.
 
+Consume [29's measured qualification matrix and open blockers](../../reports/ess_release_29_2026-10-05.md).
+Its finite Arduino/native-IDF results do not close deferred multi-hour endurance,
+missing physical fault fixtures, electrical/shaft measurements or the nine named
+native-family gaps. Preserve the original failed Arduino aggregate separately
+from its diagnosed prerequisite correction; no broad release PASS follows from
+the1,760 checked frames or green software verifier.
+
 ## Read and reuse
 
 Read the complete roadmap and operation/platform coverage, current package metadata, reports and actual FieldCore integration counterparts. Source paths/line numbers in earlier reports are inspection aids, not guarantees that FieldCore stayed unchanged.

@@ -1,5 +1,20 @@
 # Features implementation tasks and open questions
 
+## Prompt29 bounded fault/load qualification
+
+- [x] Run the actual full verifier and available Arduino/native-IDF S3 finite
+  load, retained-result pressure, stopped actions, motion/stop and settings cases.
+  Keep software/wire-schedule injection distinct from physical faults.
+- [x] Preserve the initial composite Arduino settings refusal; reproduce zero-TX
+  stale identity rejection, refresh exact prerequisites and verify one checked
+  setting update/restoration. No firmware freshness guard was relaxed.
+- [ ] Several-hour endurance remains deferred; controlled wire faults, motor
+  restart/disconnect, external I/O and independent shaft/electrical measurements
+  require their actual fixture. Native-family/unused-write-shape gaps remain.
+
+See [qualification matrix, measurements and evidence](reports/ess_release_29_2026-10-05.md).
+This supplies30's disposition; it does not execute30 or approve a full release.
+
 ## Prompt28 integrated audit
 
 - [x] Invalidate contradicted configuration after each checked read window,
@@ -14,7 +29,7 @@
 - [x] Full verifier:74 checks, source/install consumers,28 standalone headers
   and eight firmware/core builds. Independent reviews and regression evidence
   are in the [audit report](reports/ess_release_28_2026-10-05.md).
-- [ ] Prompt29 fault/endurance qualification and remaining named native-family,
+- [ ] Deferred endurance qualification and remaining named native-family,
   fixture, electrical and shaft evidence; no broad release completion claim.
 - [x] Upload28 candidate and run107-frame configuration/discovery/finite-motion
   regression with stop, profile and lock-delay restoration. Initial occupied-port
