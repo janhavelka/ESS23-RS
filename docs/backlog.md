@@ -1,5 +1,17 @@
 # Features implementation tasks and open questions
 
+## Unit-aware ESP32 move functions
+
+- [x] `moveBy` / `moveTo`, advanced `submitMove`, copied progress and explicit
+  result release reuse the ordinary conversion, admission and polling path.
+- [x] Host scales supplied at startup; missing scales/origins and unsupported
+  target encodings still reject. No second conversion or bus owner.
+- [x] Verify C++ entry/result ownership with Arduino/IDF fixtures and the shared
+  unit-aware motion path on COM13; see the
+  [verification record](reports/2026-10-05_user_move_functions.md).
+- [ ] Automatic initial configuration/state/profile refresh remains a separate
+  convenience; the [C++ example](move_example.md) documents the existing setup.
+
 ## Optional age policy and native position intent
 
 - [x] Default elapsed-age expiry to off in core, ordinary application and host

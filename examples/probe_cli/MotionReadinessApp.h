@@ -23,14 +23,16 @@ bool motionProfileStationary(const App& a, uint64_t now) {
 // This application envelope does not manufacture a command-coordinate reference
 // or claim a physical displacement; the core permits general native targets.
 bool absoluteMoveInEnvelope(const App& a, const MotorControlRS::MoveRequest& request, uint64_t now) {
-    const auto& value = request.position.value;
-    if (value.numerator < 0 || !value.denominator) return false;
-    const uint64_t numerator = static_cast<uint64_t>(value.numerator);
-    const uint64_t integral = numerator / value.denominator;
-    if (integral > 250 || (integral == 250 && numerator % value.denominator)) return false;
+    MotorControlRS::PreparedTarget target;
+    const auto reference = axisReference(a);
+    auto envelope = a.axis;
+    if (envelope.nativeMinimum < 0) envelope.nativeMinimum = 0;
+    if (envelope.nativeMaximum > 250) envelope.nativeMaximum = 250;
+    if (!MotorControlRS::preparePosition(request.position, envelope,
+            reference.nativeKnown ? &reference : nullptr, target) ||
+        target.effectiveNative < 0 || target.effectiveNative > 250) return false;
     const auto& feedback = a.stateCache.blocks[static_cast<uint8_t>(ESS::StateBlock::FEEDBACK)];
-    return !request.position.relative && request.position.frame == MotorControlRS::CoordinateFrame::NATIVE &&
-        request.position.unit == MotorControlRS::PositionUnit::STEPS &&
+    return !request.position.relative &&
         motionProfileBound(a) && motionProfileStationary(a, now) &&
         Probe::fresh(feedback, a.axis.target, now, a.observationAgeUs()) && feedback.value.pairKnown &&
         !feedback.value.rawSpeed && feedback.value.rawPosition <= 250;
@@ -39,11 +41,11 @@ bool moveRequirements(const App& a, const MotorControlRS::MoveRequest& request,
                       uint64_t now, ESS::MovePrerequisites& out) {
     using namespace MotorControlRS;
     const auto& profile = a.motionProfile.view;
+    if (request.position.frame == CoordinateFrame::NATIVE && request.position.unit == PositionUnit::STEPS &&
+        (request.position.relative ? request.position.value.numerator <= 0 : request.position.value.numerator < 0)) return false;
     if (!motionProfileBound(a) || !profile.ok || profile.pending || !profile.closureQualified ||
         !MotorControlRS::evidenceAgeValid(profile.closureEarliestUs, now, a.observationAgeUs()) ||
-        request.position.wrapped || request.position.frame != CoordinateFrame::NATIVE ||
-        request.position.unit != PositionUnit::STEPS ||
-        (request.position.relative ? request.position.value.numerator <= 0 : request.position.value.numerator < 0) ||
+        request.position.wrapped ||
         request.position.basis != RelativeBasis::ACTUAL || !motionProfileStationary(a, now)) return false;
     const auto& raw = a.configuration.raw;
     const auto& io = a.stateCache.blocks[static_cast<uint8_t>(ESS::StateBlock::IO)];
@@ -59,7 +61,8 @@ bool moveRequirements(const App& a, const MotorControlRS::MoveRequest& request,
     if (!request.position.relative && !absoluteMoveInEnvelope(a, request, now)) return false;
 
     // Publish only after every guard passes; rejected preparation preserves out.
-    // Native words need no physical scale or undocumented algorithm claim.
+    // prepareMove performs the shared unit conversion and signed/range checks.
+    // These facts qualify native command words, not the caller's physical scales.
     out = ESS::MovePrerequisites();
     out.target = a.axis.target;
     out.configurationGeneration = a.axis.generation;

@@ -1,5 +1,13 @@
 # Motor bench and testing authorization
 
+The [unit-aware move follow-up](reports/2026-10-05_user_move_functions.md)
+uploads the new Arduino timer image and passes a finite degree-to-native move,
+normal-stop interruption and exact profile/host-scale restoration. Ending
+position 5764, alarm 0, enabled/non-running, speed 0; node 1/115200/8N1,
+profile `[30,100,100,60,0,250]`. Load/monitor/debug off, DE released, owner/results
+empty, no recovery or queued motion. Its 105 checked frames establish functional
+feedback only; independent angle, travel and electrical timing remain unmeasured.
+
 The [optional-age/native-command follow-up](reports/2026-10-05_optional_age_and_native_position.md)
 uploads the new Arduino timer image (SHA256 in that report). A corrected finite
 campaign passes a move with31-second-old observations, normal/direct stops and

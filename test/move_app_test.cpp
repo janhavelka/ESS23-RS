@@ -22,7 +22,7 @@ FakeSerial Serial;
 #endif
 namespace {
 using namespace MotorControlRS;
-void fresh(uint32_t maximumAgeMs = 0) {
+void fresh(uint32_t maximumAgeMs = 0, const UnitConfig& units = UnitConfig()) {
     if (app) { app->~App(); std::free(app); app = nullptr; }
     uart.~Esp32S3Uart(); new (&uart) Esp32S3Uart;
     resetHardware(); Serial = FakeSerial(); platformReady = false; writeResponseConfirmed = false;
@@ -30,6 +30,7 @@ void fresh(uint32_t maximumAgeMs = 0) {
     resetUsbHardware(); Platform::consoleReady = false; Platform::pendingByte = -1;
 #endif
     ApplicationOptions options; options.observationMaxAgeMs = maximumAgeMs;
+    options.positionUnits = units;
     assert(beginApplication({Board::kRs485TxPin, Board::kRs485RxPin, Board::kRs485DeRePin,
         Board::kRs485DeReActiveHigh}, Board::kRs485ReceiverDisabledDuringTransmit, options));
     assert(app && uart.ready() && app->owner.valid() && hardware.writes == 0);
@@ -826,7 +827,82 @@ static void testProductionMoveOptionalObservationAge() {
         assert(hardware.writes == writes + 4 && !app->owner.needsRecovery());
     }
 }
+static void testUserMoveInUnits() {
+    UnitConfig units;
+    units.commandStepsPerMotorTurn = UnitScale(1000, 1, ScaleSource::ASSUMED);
+    units.fullStepsPerMotorTurn = UnitScale(200, 1, ScaleSource::ASSUMED);
+    units.motorTurnsPerLoadTurn = UnitScale(1, 1, ScaleSource::ASSUMED);
+    units.millimetresPerLoadTurn = UnitScale(2, 1, ScaleSource::ASSUMED);
+    units.encoder.countsPerUnit = UnitScale(4000, 1, ScaleSource::ASSUMED);
+    units.encoder.sourceId = 1;
+    const PositionUnit kinds[] = {PositionUnit::STEPS, PositionUnit::DEGREES, PositionUnit::TURNS,
+        PositionUnit::FULL_STEPS, PositionUnit::MILLIMETRES, PositionUnit::ENCODER_COUNTS};
+    const Rational values[] = {Rational(100), Rational(36), Rational(1, 10),
+        Rational(20), Rational(1, 5), Rational(400)};
+    for (unsigned i = 0; i < 6; ++i) {
+        fresh(0, units); readProductionMoveBaseline();
+        if (i == 0) Serial.writeCapacity = 0; // Programmatic results never depend on a writable console.
+        uint32_t id = 0;
+        assert(MotorControlRSExample::moveBy(values[i], kinds[i], id));
+        MoveProgress progress;
+        assert(moveProgress(id, progress) && progress.pending && progress.effectiveNative == 100);
+        assert(view(id).moveContext->request.position.unit == kinds[i]);
+        assert(!releaseMove(id));
+        uint32_t unchanged = 999;
+        assert(!MotorControlRSExample::moveBy(Rational(10), PositionUnit::STEPS, unchanged) && unchanged == 999);
+        moveStep(id);
+        assert(hardware.tx[15] == 0 && hardware.tx[16] == 100); // Same checked staging for every unit.
+        moveStep(id); moveStep(id, registers(1, {0, 4}));
+        assert(moveProgress(id, progress) && progress.pending && progress.runningObserved);
+        moveStep(id, registers(1, {0, 1})); pump();
+        assert(moveProgress(id, progress) && !progress.pending && !progress.uncertain);
+        assert(progress.completion == ActionCompletion::OBSERVED);
+        assert(Serial.output.find("\"type\":\"move\"") == std::string::npos);
+        assert(releaseMove(id) && !moveProgress(id, progress) && !releaseMove(id));
+    }
+    fresh(); readProductionMoveBaseline();
+    uint32_t id = 999; const auto writes = hardware.writes;
+    assert(!MotorControlRSExample::moveBy(Rational(36), PositionUnit::DEGREES, id));
+    assert(id == 999 && hardware.writes == writes); // No guessed scale.
+    assert(MotorControlRSExample::moveBy(Rational(100), PositionUnit::STEPS, id));
+    moveStep(id); moveStep(id); moveStep(id, registers(1, {0, 4}));
+    const uint32_t stop = admitStop();
+    actionStep(stop); actionStep(stop, registers(1, {0, 0})); pump();
+    MoveProgress interrupted;
+    assert(moveProgress(id, interrupted) && !interrupted.pending && interrupted.interruptedByStop);
+    assert(interrupted.completion == ActionCompletion::NOT_OBSERVED);
+    assert(releaseMove(id) && !axisReserved(*app, 1));
+
+    fresh(0, units); readProductionMoveBaseline();
+    AxisConfig configured;
+    assert(positionConfiguration(configured) && configured.generation == app->axis.generation);
+    PositionRequest stale; stale.configurationGeneration = configured.generation + 1;
+    stale.value = Rational(100);
+    const auto beforeRejected = hardware.writes;
+    assert(!submitMove(stale, 60, id) && hardware.writes == beforeRejected);
+    id = 999;
+    assert(!moveTo(Rational(36), PositionUnit::DEGREES, id) && id == 999); // No invented origin.
+    app->axis.originKnown = true; app->axis.originSource = ScaleSource::ASSUMED;
+    assert(moveTo(Rational(36), PositionUnit::DEGREES, id));
+    moveStep(id); moveStep(id);
+    assert(hardware.tx[5] == 5); // Absolute command, never substituted with relative.
+    moveStep(id, registers(1, {0, 4})); moveStep(id, registers(1, {0, 1})); pump();
+    assert(moveProgress(id, interrupted) && interrupted.effectiveNative == 100);
+    assert(releaseMove(id));
+
+    fresh(0, units); readProductionMoveBaseline();
+    PositionRequest radians; radians.configurationGeneration = app->axis.generation;
+    radians.unit = PositionUnit::RADIANS; radians.frame = CoordinateFrame::MOTOR;
+    radians.value = Rational(6283185, 10000000); radians.approximate = true;
+    radians.rounding = Rounding::NEAREST; radians.maximumQuantizationError = 0.5;
+    radians.maximumApproximationError = 0.01;
+    assert(submitMove(radians, 60, id));
+    assert(moveProgress(id, interrupted) && interrupted.effectiveNative == 100);
+    moveStep(id); moveStep(id); moveStep(id, registers(1, {0, 4})); moveStep(id, registers(1, {0, 1})); pump();
+    assert(releaseMove(id));
+}
 int main() {
+    testUserMoveInUnits();
     testProductionMoveOptionalObservationAge();
     testProductionGateAndImmutableAdmission(); testIndependentWritesRespectQualificationAndMoveStartup();
     testStageReservationAndFreshCompletion();

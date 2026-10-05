@@ -34,6 +34,8 @@ prove uninterrupted motor power or an unchanged physical state.
 [Candidate scope/gates](docs/release_candidate.md),
 [getting started/troubleshooting](docs/getting_started.md) and
 [API/CLI inventory](docs/ess_api_cli_coverage.md) describe current behavior.
+[The ESP32 C++ move example](docs/move_example.md) provides `moveBy`/`moveTo`
+with explicit units and background polling through the existing owner.
 [FieldCore handoff](docs/fieldcore_handoff.md) proposes later integration only.
 
 ## Core ZIP consumption

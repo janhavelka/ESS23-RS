@@ -116,7 +116,7 @@ struct App {
         bool actionOperation = false, axisReserved = false, effectsInvalidated = false, interruptedByStop = false;
         bool discoveryStop = false; ///< Urgent stop waits for the scan's original tuple.
         ESS::ActionContext action;
-        bool moveOperation = false;
+        bool moveOperation = false, programmaticMove = false;
         ESS::MoveContext move;
         bool velocityOperation = false;
         ESS::VelocityContext velocity;
@@ -196,6 +196,7 @@ struct App {
             }
         }
         axis.target.id = axis.target.address = 1; axis.target.generation = bindingGeneration;
+        axis.units = options.positionUnits;
         persistencePrerequisites.maxAgeUs = observationAgeUs();
         axis.supportedRelativeBases = 1;
         // Application bench declaration: only power/RS485, no terminal wiring.
@@ -2060,6 +2061,9 @@ void deliver(App& a) {
             record.delivered = true; record.deliveredUs = nowUs(); continue;
         }
         if (record.moveOperation) {
+            if (record.programmaticMove) {
+                record.delivered = true; record.deliveredUs = nowUs(); continue;
+            }
             if (!a.console.reportMove(record.commandId, record.operationId, record.move, record.interruptedByStop, &record.serialTuple, record.serialGeneration)) continue;
             record.delivered = true; record.deliveredUs = nowUs(); continue;
         }
@@ -2152,6 +2156,7 @@ void deliver(App& a) {
 namespace MotorControlRSExample {
 bool beginApplication(const Esp32S3Uart::Pins& pins, bool receiverDisabledDuringTransmit, const ApplicationOptions& options) {
     if (app) return false; // Construction and I/O are one explicit startup action.
+    if (!MotorControlRS::validateUnitConfig(options.positionUnits)) return false;
     const bool consoleReady = Platform::beginConsole();
     if (!consoleReady) { Platform::bootFailure("console_init"); return false; }
     void* memory = heap_caps_malloc(sizeof(App), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
@@ -2173,6 +2178,58 @@ bool beginApplication(const Esp32S3Uart::Pins& pins, bool receiverDisabledDuring
     app->console.welcome();
     if (failure) Platform::bootFailure(failure);
     return platformReady;
+}
+MotorControlRS::Status submitMove(const MotorControlRS::PositionRequest& position, uint16_t speedRpm,
+                            uint32_t& operationId) {
+    using namespace MotorControlRS;
+    if (!app) return Status(Err::INVALID_CONFIG, 0, "application is not started");
+    MoveRequest request; request.position = position;
+    request.speedRpm = speedRpm; request.ramp = MoveRamp::VERIFIED_CONFIGURED;
+    const auto admitted = startMove(app, 0, app->axis.target.address, request, operationId);
+    if (admitted != Probe::Action::OK)
+        return Status(admitted == Probe::Action::UNSUPPORTED ? Err::UNSUPPORTED : Err::INVALID_CONFIG,
+            static_cast<int32_t>(admitted), "move not admitted; inspect readiness, units, limits or owner capacity");
+    findRecord(*app, operationId)->programmaticMove = true;
+    return Ok();
+}
+static MotorControlRS::Status moveValue(MotorControlRS::Rational value, MotorControlRS::PositionUnit unit,
+                            bool relative, uint32_t& operationId, uint16_t speedRpm) {
+    using namespace MotorControlRS;
+    PositionRequest request; request.value = value; request.unit = unit; request.relative = relative;
+    request.frame = unit == PositionUnit::STEPS ? CoordinateFrame::NATIVE :
+        unit == PositionUnit::MILLIMETRES ? CoordinateFrame::LOAD : CoordinateFrame::MOTOR;
+    request.configurationGeneration = app ? app->axis.generation : 0;
+    return submitMove(request, speedRpm, operationId);
+}
+MotorControlRS::Status moveBy(MotorControlRS::Rational value, MotorControlRS::PositionUnit unit,
+                            uint32_t& operationId, uint16_t speedRpm) {
+    return moveValue(value, unit, true, operationId, speedRpm);
+}
+MotorControlRS::Status moveTo(MotorControlRS::Rational value, MotorControlRS::PositionUnit unit,
+                            uint32_t& operationId, uint16_t speedRpm) {
+    return moveValue(value, unit, false, operationId, speedRpm);
+}
+bool moveProgress(uint32_t operationId, MoveProgress& output) {
+    if (!app || !operationId) return false;
+    const auto* record = findRecord(*app, operationId);
+    if (!record || !record->programmaticMove) return false;
+    const auto& c = record->move;
+    MoveProgress result;
+    result.pending = !terminal(*app, *record); result.runningObserved = c.runningObserved;
+    result.interruptedByStop = record->interruptedByStop; result.uncertain = c.uncertain;
+    result.observationKnown = c.observationKnown; result.rawAlarm = c.rawAlarm; result.rawMotion = c.rawMotion;
+    result.outcome = c.outcome; result.execution = c.execution; result.completion = c.completion;
+    result.status = c.status; result.effectiveNative = c.prepared.effectiveNative;
+    output = result; return true;
+}
+bool positionConfiguration(MotorControlRS::AxisConfig& output) {
+    if (!app) return false;
+    output = app->axis; return true;
+}
+bool releaseMove(uint32_t operationId) {
+    if (!app || !operationId) return false;
+    const auto* record = findRecord(*app, operationId);
+    return record && record->programmaticMove && release(app, operationId) == Probe::Action::OK;
 }
 void serviceApplication() {
     if (!app) { Platform::idle(10); return; }

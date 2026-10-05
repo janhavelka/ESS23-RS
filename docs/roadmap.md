@@ -1,5 +1,11 @@
 # Roadmap to a supported ESS release
 
+The [ESP32 C++ move example](move_example.md) adds `moveBy` / `moveTo` with units
+and cached progress while the existing owner polls. Unit conversions are shared
+with direct core/CLI paths; physical angle/linear calibration remains separate.
+Its [verification record](reports/2026-10-05_user_move_functions.md) records
+75 native checks, eight embedded builds and the restored finite bench regression.
+
 The [optional-age/native-command follow-up](reports/2026-10-05_optional_age_and_native_position.md)
 disables elapsed-age rejection by default and adds caller-owned desired native
 position settings. Raw commands, setup/start acknowledgement and observed

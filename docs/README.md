@@ -1,5 +1,8 @@
 # MotorControl-RS documentation
 
+[Move by / move to in C++](move_example.md) shows the existing ESP32 application's
+unit-aware functions, background polling and retained progress/results.
+
 The [partial0.6.0 candidate](release_candidate.md),
 [getting started/troubleshooting](getting_started.md) and
 [FieldCore handoff](fieldcore_handoff.md) describe the independently usable

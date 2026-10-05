@@ -1,5 +1,8 @@
 # Finite ESS positioning
 
+For a user-facing ESP32 function, see [moveBy / moveTo](move_example.md).
+It submits the same observed move sequence; no console-string parsing is needed.
+
 The regular API and firmware implement these operations without a functional
 mode. [Short motion checks](functional_bench.md) use the same preparations as
 applications. Activity/completion reports remain separate from acknowledgement,
