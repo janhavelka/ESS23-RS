@@ -34,9 +34,10 @@ Focused tests:10 verifier cases and18 checker cases PASS. The extra cases exerci
 false PASS/failure paths rather than duplicate motor behavior. No new suite is
 needed: both existing suites remain registered in the unchanged72-check inventory.
 
-Final clean full verification results are recorded below; the pushed audit
-commit supplies the subsequent hosted CI evidence. The audit commit contains
-this report; root verifies its push
+Final clean full verification and hosted CI results are recorded below.
+Audit correction commit: `e838f4e`; pushed and verified synchronized with the
+configured upstream. The final evidence-only commit contains this completed
+report; root verifies its push
 against the configured upstream. Version remains0.6.0 and the canonical metadata
 URL remains `janhavelka/MotorControl-RS`, with the working upstream preserved.
 
@@ -73,3 +74,24 @@ fixtures. No passing rerun substitutes for an unresolved failure.
 The isolated final source snapshot excludes unrelated application/console work
 that appeared concurrently in the shared workspace. Those edits are preserved
 and excluded from this audit commit. The audit changes host verification only.
+
+## Hosted verification
+
+Correction commit `e838f4e` passes allfour jobs in
+[run37306495332](https://github.com/janhavelka/ESS23-RS/actions/runs/37306495332):
+Ubuntu GCC13.3.0 and Clang18.1.3 quick, Arduino full selection, and native
+IDF5.5.5 full selection. Each job passes72 repository checks and the source and
+installed consumers; Arduino builds allfour environments and IDF builds the
+S3 application/core plus S2 core/portable consumers. No hosted hardware is run.
+
+Downloaded artifacts are inspected and retained under
+`build/audit27/hosted-{gcc,clang,arduino,idf}`: all summary command exits are0,
+and runtime consumer logs confirm3/3 in each mode. Hosted CTest3.31.6 is
+recorded in the summaries. Both Linux compiler jobs produce the same archive
+SHA-256 `49865240555598ba123a5a4dc9795493a05ccd7ec82b7adda5fd2dd2d894c839`;
+their text checkout line endings differ from the Windows package inputs above.
+Original vendor bytes still pass their manifest hashes on both hosts.
+
+The final documentation synchronization changes no tested verifier, checker,
+consumer, build/SDK setting or CI job. Prompt27 audit is complete;28–30 are
+not started by this task.
