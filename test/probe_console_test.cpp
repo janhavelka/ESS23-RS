@@ -37,8 +37,9 @@ struct Fake {
         if (request) {
             self.simpleRequest = *request;
             using Kind = Probe::SimpleMotionCommandKind;
-            if (request->kind == Kind::MOVE_BY || request->kind == Kind::MOVE_TO || request->kind == Kind::SETTINGS) {
+            if (request->kind == Kind::MOVE_BY || request->kind == Kind::MOVE_TO || request->kind == Kind::SETTINGS || request->kind == Kind::SUBDIVISION) {
                 self.simpleView.settingsOnly = request->kind == Kind::SETTINGS;
+                self.simpleView.subdivisionOnly = request->kind == Kind::SUBDIVISION;
                 self.simpleView.operationId = self.nextOperation++;
                 self.simpleView.commandId = commandId;
                 self.simpleView.pending = true;
@@ -1465,30 +1466,27 @@ void testDriverProfileGrammarAndRetainedReports() {
 }
 
 void testSimpleSubdivisionUsesDriverPath() {
-    Fake fake; auto host = fake.host(false, true); host.startDriver = Fake::startDriver;
+    Fake fake; auto host = fake.host(false, true); host.simpleMotion = Fake::simpleMotion;
     Probe::Console console(host, Probe::Format::JSON);
-    send(console, "@710 subdivision options\n");
-    fake.contains("\"all_integers_in_range\":true"); fake.contains("\"minimum\":400");
-    fake.contains("\"maximum\":51200"); assert(fake.drivers == 0);
-    send(console, "@711 subdivision\n");
-    assert(fake.drivers == 1 && fake.driverKind == Ess::DriverKind::READ && !fake.driverRequest.fields);
-    assert(fake.address == fake.data.address); fake.contains("\"command\":\"subdivision\"");
-    for (unsigned value : {400U, 1000U, 1600U, 51200U}) {
-        send(console, "subdivision " + std::to_string(value) + "\n");
-        assert(fake.driverKind == Ess::DriverKind::UPDATE && fake.driverRequest.group == Ess::DriverGroup::DRIVE);
-        assert(fake.driverRequest.fields == static_cast<uint32_t>(Ess::DriverField::SUBDIVISION));
-        assert(fake.driverRequest.subdivision == value);
+    send(console, "subdivision options\n"); fake.contains("\"all_integers_in_range\":true");
+    assert(fake.simpleCalls == 0);
+    for (unsigned value : {0U,400U,1000U,1600U,51200U}) {
+        send(console, value ? "subdivision " + std::to_string(value) + "\n" : "subdivision\n");
+        assert(fake.simpleRequest.kind == Probe::SimpleMotionCommandKind::SUBDIVISION);
+        assert(fake.simpleRequest.nativeValue == value);
+        fake.simpleView.pending = false; fake.simpleView.ok = true;
+        assert(console.reportSimpleMotion(fake.simpleView.commandId, fake.simpleView.operationId, fake.simpleView));
     }
-    assert(fake.drivers == 5);
-    for (const char* line : {"subdivision -1", "subdivision 65536", "subdivision 1.0",
+    const auto calls = fake.simpleCalls;
+    for (const char* line : {"subdivision -1", "subdivision 399", "subdivision 51201", "subdivision 65536", "subdivision 1.0",
             "subdivision 1/1", "subdivision 1600 1", "subdivision options extra", "subdivision 18446744073709551616"}) {
-        send(console, std::string(line) + "\n"); fake.contains("\"ok\":false"); assert(fake.drivers == 5);
+        send(console, std::string(line) + "\n"); fake.contains("\"ok\":false"); assert(fake.simpleCalls == calls);
     }
     fake.actionResult = Probe::Action::AXIS_CONFLICT;
     send(console, "subdivision 1600\n"); fake.contains("axis_conflict");
     send(console, "help subdivision\n"); fake.contains("subdivision [INTEGER|options]");
     send(console, "help\n"); fake.contains("\"subdivision\"");
-    assert(fake.simpleCalls == 0 && fake.typedReads == 0); // The alias adds no second preparation path.
+    assert(fake.drivers == 0 && fake.typedReads == 0); // Application orchestrates the same typed driver API.
 }
 
 void testMaximumDriverReportFitsFixedOutput() {

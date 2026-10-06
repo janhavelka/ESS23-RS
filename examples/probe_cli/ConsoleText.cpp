@@ -299,8 +299,9 @@ bool hint(Writer& writer, const Value& report) {
         return writer.text("Hint: inspect result, then release a reviewed terminal operation by its ID.\n");
     if (equal(error, "unknown_command")) return writer.text("Hint: help lists commands; help COMMAND shows syntax.\n");
     if (operation.begin && !equal(operation, "0")) {
-        if (!writer.text("Hint: result ") || !writer.scalar(operation) || !writer.text("; release ") ||
-            !writer.scalar(operation) || !writer.text(" after reviewing the terminal result.\n")) return false;
+        if (!writer.text("Details: result ") || !writer.scalar(operation) || !writer.text(".\n")) return false;
+        if (equal(member(report, "ok"), "false") &&
+            (!writer.text("After review: release ") || !writer.scalar(operation) || !writer.text(".\n"))) return false;
         if (equal(member(report, "outcome"), "cancelled"))
             return writer.text("Local cancellation does not stop the motor.\n");
         return true;

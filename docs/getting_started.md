@@ -63,7 +63,9 @@ assignment. Do not declare wiring for an unknown fixture by copying the bench.
 `probe` tests presence. `read identity`, `read config`, `read state` refresh their
 own observations. `status`/`health` are cached; `read state` performs reads.
 Each admitted read/action has an operation ID and retained terminal record.
-Inspect with `result ID` and explicitly free a settled record with `release ID`.
+Inspect with `result ID`. Ordinary successful human results are recycled after
+output delivery when another bus command starts. Failed/uncertain and explicit
+`@ID`/JSON/API results require review and `release ID`.
 **`release ID` frees host storage; `motor-release` releases the drive.** Eight
 ordinary terminal slots are finite; stop has reserved capacity. Command IDs are
 separate correlation identifiers. Neither inspection nor statistics reset

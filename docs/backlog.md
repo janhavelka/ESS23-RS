@@ -1,5 +1,14 @@
 # Features implementation tasks and open questions
 
+## Simple subdivision workflow, 6 October
+
+- [x] One-command checked subdivision changes and stationary host scale/zero refresh.
+- [x] Recycle delivered successful human results; retain failures and explicit API results.
+- [x] Concise state output and stale configuration-history regression.
+- [x] Three consecutive COM13 workflows; 580 checked frames, subdivision 1600 restored.
+- [x] Reproduce and fix settling/feedback invalidation of the fixed RAM origin.
+- Details: [implementation and verification](reports/2026-10-06_simple_subdivision.md).
+
 ## Subdivision and boot-origin follow-up, 6 October
 
 - [x] Expose subdivision read/set/options through the existing typed setter.

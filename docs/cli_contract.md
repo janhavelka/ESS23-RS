@@ -20,27 +20,37 @@ host scale. The simple workflow establishes a RAM-only boot-session origin
 from its first stationary read under the documented ASSUMED feedback-coordinate
 convention; it writes neither the device counter nor ESP NVS. Enable and I/O
 assignments remain explicit. Completed finite moves preserve the fixed origin;
-uncertain/external motion and configuration changes invalidate it. Ramp times are not
+unresolved execution blocks new moves until reconciled by a checked stop.
+Release, unexpected running and interpretation changes invalidate the fixed zero;
+enabled feedback variation alone does not. Ramp times are not
 physical acceleration. Position speed accepts 0..3000 rpm (a move needs nonzero),
 ramps 0..2000 ms; old 60-rpm/250-increment experiment caps are removed.
 `settings` reads current configuration and position parameters without writes and
 separates those from next-move intent. It replaces the old host `config` alias.
 Existing detailed commands remain available to automation.
-`subdivision [INTEGER|options]` is the short route to typed drive settings:
-read, checked update or local400..51200 range/examples. It shares `driver`
-validation and retained results. A real scale change invalidates coordinate
-assumptions; profile restoration and idle observation expiry do not erase zero.
+`subdivision [INTEGER|options]` uses the shared application session to read,
+check stopped-state/configuration prerequisites, invoke the typed driver setter,
+verify readback and establish the standalone host scale/session zero. No manual
+preparatory reads are required. A same-value request performs no setting write.
+Successful human-command results may be recycled after output delivery on the
+next bus command; failed/uncertain and explicit correlated/API results remain
+pinned. Passive inspection is non-consuming. `read state` human terminals are
+concise; full JSON/result evidence remains available.
+
 Convenience `moveby`/`moveto` use nearest-command-step quantization, ties to even,
 bounded to half a step. Their prepared result includes `effective_native` and
 `rounding_error`; human output reports nonzero rounding. Zero displacement after
 rounding causes no motion write. Detailed requests preserve the EXACT default.
 No core scheduler, additional bus owner or conversion path is introduced.
 
-Simple session IDs own their read/move child records. `result N` inspects the
+Simple session IDs own their read/move/setting child records. `result N` inspects the
 session; its `move_operation_id` exposes full ordinary move evidence via
-`@ID result CHILD`. Release uses the session ID. Only a delivered successful
-session is reclaimed when the next simple move is requested. Failed/uncertain
-sessions require explicit review/release and existing recovery constraints.
+`@ID result CHILD`; `driver_operation_id` identifies setting evidence.
+Release uses the session ID while it owns its children. A new simple session
+reclaims delivered successful work; failed/uncertain move or setting children
+remain inspectable by their child IDs. Unresolved execution still interlocks
+motion until a checked stop/reconciliation. Retaining a historical failure alone
+does not reserve the motor after that stop.
 Accepted stop interrupts preparation only after urgent admission succeeds.
 Human motion/action replies are compact; diagnostic evidence remains available
 through explicit JSON inspection and copied `debug raw|decoded` traffic.

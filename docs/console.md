@@ -37,7 +37,7 @@ after success or a read-only preparation rejection. Actual enable, alarm, encodi
 | `settings` | Read actual drive settings; also show choices for the next move. |
 | `subdivision` | Read the drive's subdivision and related settings. |
 | `subdivision options` | Show the documented range and useful example values. |
-| `subdivision 1600` | Set subdivision through the checked driver settings operation; requires fresh stopped-state/configuration reads. |
+| `subdivision 1600` | Read/check/set/read back subdivision automatically while stopped. |
 | `moveby 100` | Move by 100 command increments (default unit: steps). |
 | `moveby 36 deg` | Move by 36 motor degrees using the host's scale. |
 | `moveby 1/10 turn` | Same angular displacement, expressed exactly. |
@@ -56,27 +56,26 @@ Native target encoding and configured limits still apply. Motion observation is
 bounded to 30 seconds by default (`ApplicationOptions::moveTimeoutMs`, 1..30000).
 A timeout is a failed/possibly uncertain observation, not proof the shaft stopped.
 
-To change subdivision, wait for each result in this sequence:
+Set subdivision with one command, for example `subdivision 1600`. The firmware
+reads configuration and stopped state, uses the typed setter, verifies readback,
+and refreshes configuration/state. No preparatory commands are needed.
+`subdivision` reads it; `subdivision options` lists the integer range 400..51200
+and useful examples. An unchanged setting sends no setting write. A matching host scale/origin is
+preserved; missing host context is established from fresh stopped feedback.
 
-```text
-read config
-subdivision
-read state
-subdivision 1600
-```
+A successful change updates the standalone host's assumed command steps/turn
+and establishes a new RAM-only zero at the checked stationary position. The
+completion message says so. It discards the old scale's profile snapshot; the
+next move takes a fresh one. No movement or nonvolatile save is implicit.
+`stepsperturn` remains a host-only declaration; the detailed `driver set`
+route retains explicit preparation and invalidation semantics.
 
-The ESS range is every integer from 400 to 51200; the documented default is 1000.
-Common examples include 400, 800, 1000, 1600, 2000, 3200, 6400, 12800, 25600 and 51200.
-The simple setter shares validation, write acknowledgement and checked readback
-with `driver set subdivision 1600`. This standalone permits the change while
-stopped with known passive, unwired inputs and disabled drive soft limits.
-It does not save to nonvolatile memory or trigger motion.
-
-`subdivision` changes the **drive**; `stepsperturn` declares the **host's angle
-conversion**. Changing subdivision invalidates the old scale and origin rather
-than silently reusing them. Re-establish the applicable scale/reference before
-angle motion. Controller reboot establishes a new session zero on the next
-stationary preparation; it does not restore drive subdivision or calibrate it.
+Successful ordinary interactive results remain inspectable until another bus
+command needs their storage. They are recycled only after terminal output has
+left both output queues. Failed/uncertain results, pending results and explicit
+`@ID`/JSON/API results still require review/release. `status` and `result` do not
+consume results. `read state` prints a short summary; `result ID` or `@1 result ID`
+shows full evidence. Routine successful use does not require `release` commands.
 
 `moveby` and `moveto` round to the nearest command increment, with half-step
 ties going to the even integer. Error is at most half a command step. For
@@ -106,7 +105,9 @@ keep the zero. Interrupting our move and then confirming a stop also keeps
 that fixed offset, but requires fresh position feedback before the next move.
 Idle observation expiry and `motion-profile restore` also preserve the fixed
 zero: neither changes the motor counter or coordinate scale.
-Motor release, external movement, counter clear or interpretation changes
+Enabled feedback variation does not erase that fixed counter offset. Our move
+settling remains associated with its command until fresh state confirms standstill.
+Motor release, unexpected running, counter clear or interpretation changes
 invalidate it without silently choosing a new zero.
 
 The advanced `move absolute ... steps native ...` route retains explicit device
@@ -212,7 +213,9 @@ their existing schemas, command correlations and operation semantics remain avai
 The new simple move commands add a `simple_move` report with a session operation
 ID and a separate `move_operation_id` for the ordinary typed move's full evidence.
 Release the session ID, not its owned child. A subsequent simple move reclaims
-only its previous delivered successful session; unrelated results are retained.
+its previous delivered successful session. Explicit JSON/API results remain
+retained; ordinary successful human results may also be recycled when another
+human bus command starts. Failed/uncertain results stay pinned.
 
 Reply format is attached to each admitted operation. A human `status` request
 cannot change a pending machine operation's terminal format, and a machine query

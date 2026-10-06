@@ -1,5 +1,15 @@
 # Motor bench and testing authorization
 
+**Latest, 6 October one-command subdivision follow-up:**
+[workflow and evidence](reports/2026-10-06_simple_subdivision.md) pass three
+consecutive finite campaigns: 36 ordinary state reads, 1600/51200/1600 subdivision
+changes, small moves/returns and stop. Subdivision is restored to the user's 1600;
+RAM-only zero is raw62346, assumed host scale1600. Speed/alarm0, enabled/nonrunning,
+no queued/autonomous motion, DE low, load/monitor/debug off, COM13 closed.
+Earlier snapshots below are historical. Failed diagnostic campaigns and the
+unexecuted staged-target disposition are preserved in the report.
+
+
 **Latest, 6 October subdivision/origin follow-up:** the
 [corrected image and retained evidence](reports/2026-10-06_subdivision_and_origin.md)
 pass absolute moves after profile restoration and subdivision 1000/1600/1000

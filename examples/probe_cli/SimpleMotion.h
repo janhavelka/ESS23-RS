@@ -4,8 +4,8 @@
 
 namespace MotorControlRSExample { namespace Probe {
 struct MotionProfileView;
-enum class SimpleMotionCommandKind : uint8_t { QUERY, SETTINGS, SPEED, ACCEL, DECEL, SETUP, SCALE, MOVE_BY, MOVE_TO };
-enum class SimpleMotionPhase : uint8_t { IDLE, CONFIG, PROFILE, STATE, MOVE, TERMINAL };
+enum class SimpleMotionCommandKind : uint8_t { QUERY, SETTINGS, SPEED, ACCEL, DECEL, SETUP, SCALE, MOVE_BY, MOVE_TO, SUBDIVISION };
+enum class SimpleMotionPhase : uint8_t { IDLE, CONFIG, PROFILE, STATE, MOVE, TERMINAL, DRIVER_READ, DRIVER_WRITE };
 /** Convenience moves use the existing exact converter with nearest-step
  * quantization (ties to even). Detailed requests retain their explicit policy. */
 inline MotorControlRS::PositionRequest simplePositionRequest() {
@@ -36,6 +36,9 @@ struct SimpleMotionView : SimpleMotionSettings {
     uint8_t address = 0;
     SimpleMotionPhase phase = SimpleMotionPhase::IDLE;
     bool pending = false, delivered = false, ok = false, moveAdmitted = false, relative = true;
+    bool subdivisionOnly = false, subdivisionVerified = false;
+    uint16_t requestedSubdivision = 0;
+    uint32_t driverOperationId = 0;
     bool settingsOnly = false, configKnown = false, profileKnown = false;
     const MotionProfileView* profileEvidence = nullptr; ///< Borrowed retained settings-only read evidence.
     uint16_t subdivision = 0, direction = 0, wordOrder = 0, algorithm = 0,

@@ -42,7 +42,7 @@ const Entry COMMANDS[] = {
     {"accel", Command::ACCEL, "accel [VALUE [ms]]", "host_intent_native_ramp_applied_by_next_simple_move", false, "Show or set acceleration ramp time in ms (0..2000; default 100)."},
     {"decel", Command::DECEL, "decel [VALUE [ms]]", "host_intent_native_ramp_applied_by_next_simple_move", false, "Show or set deceleration ramp time in ms (0..2000; default 100)."},
     {"motion", Command::MOTION, "motion [write|stored]", "inspect_or_select_simple_motion_setup", false, "Choose setup policy: write parameters before start, or explicitly reuse stored parameters."},
-    {"subdivision", Command::SUBDIVISION, "subdivision [INTEGER|options]", "typed_drive_subdivision_read_write_with_checked_readback", true, "Read or set motor subdivision (400..51200); options shows useful examples. Writes require stopped-state evidence."},
+    {"subdivision", Command::SUBDIVISION, "subdivision [INTEGER|options]", "typed_drive_subdivision_read_write_with_checked_readback", true, "Read or set motor subdivision (400..51200); options shows useful examples. Automatically checks stopped state and reads back the setting."},
     {"stepsperturn", Command::STEPS_PER_TURN, "stepsperturn POSITIVE_NUMBER", "host_command_scale_only_no_motor_settings", false, "Declare command steps per motor turn for angle conversion."},
     {"discover", Command::DISCOVER, "discover [profile ess_rs|manufacturer stepperonline] [addresses FIRST LAST] [tuple BAUD FORMAT] [query-ms 1..5000] [overall-ms 1..60000] [requests 1..256] [results 1..8] [identity] | discover inspect|cancel|restore|finish; max4 distinct tuples,128bytes,20tokens; defaults selected endpoint/current tuple,query500ms,overall5000ms,requests16,results8,no identity,no retries", "bounded_nonchanging_queries_retained_findings_host_restoration", true, "Find responding drives within explicit address, serial and time limits."},
     {"debug", Command::DEBUG, "debug [off|raw|decoded]", "observe_regular_operations_and_cached_diagnostics", false, "Show diagnostics; select raw or decoded traffic while ordinary commands run."},
@@ -496,7 +496,7 @@ const char* helpExample(Command command) {
     case Command::ACCEL: return "accel 100";
     case Command::DECEL: return "decel 100";
     case Command::MOTION: return "motion\n  motion write\n  motion stored";
-    case Command::SUBDIVISION: return "subdivision options\n  read config\n  subdivision\n  read state\n  subdivision 1600";
+    case Command::SUBDIVISION: return "subdivision\n  subdivision options\n  subdivision 1600";
     case Command::STEPS_PER_TURN: return "stepsperturn 1000  (only if this is your established scale)";
     case Command::PROBE: return "probe 1";
     case Command::READ: return "read config 1\n  read state 1";
@@ -695,6 +695,11 @@ bool Console::reportTraffic(const Core::TrafficRecord& record, DebugMode mode,
 bool Console::outstanding(uint32_t id) const noexcept {
     if (stopReply_.pending && stopReply_.id == id) return true;
     for (const auto& item : outstanding_) if (item.commandId == id) return true;
+    return false;
+}
+bool Console::humanResult(uint32_t operationId) const noexcept {
+    for (const auto& item : outstanding_)
+        if (item.operationId == operationId) return item.format == Format::HUMAN;
     return false;
 }
 bool Console::track(uint32_t id, uint32_t operationId, bool stop) noexcept {
@@ -928,6 +933,10 @@ bool discoveryScan(char* out, std::size_t capacity, std::size_t& used, const Dis
     return append(out,capacity,used,"]}");
 }
 
+void Console::beginWork() noexcept {
+    if (outputFormat_ == Format::HUMAN && !outputPending() && host_.beginInteractiveWork)
+        host_.beginInteractiveWork(host_.context);
+}
 void Console::dispatch() noexcept {
     char* tokens[22] = {}; // Full-width rationals, path policies and bounded preview options.
     std::size_t count = 0;
@@ -1275,24 +1284,23 @@ void Console::dispatch() noexcept {
         bool available = false;
         for (std::size_t i = 0; i < OUTSTANDING_CAPACITY - 1; ++i) available = available || !outstanding_[i].commandId;
         uint32_t operationId = 0;
+        if (available) beginWork();
         const Action result = available ? host_.startHome(host_.context, id, static_cast<uint8_t>(address), request, operationId) : Action::BUSY;
         if (result == Action::OK) track(id, operationId);
         action(id, "home", result, static_cast<uint8_t>(address), result == Action::OK ? operationId : 0);
         return;
     }
     const bool simpleSubdivision = entry->command == Command::SUBDIVISION;
-    const bool nativeDriver = entry->command == Command::DRIVER || simpleSubdivision;
+    const bool nativeDriver = entry->command == Command::DRIVER;
     const bool nativeIo = entry->command == Command::IO;
     const bool nativeSegment = entry->command == Command::SEGMENT;
     const bool nativeControl = entry->command == Command::CONTROL;
     const bool nativeTuning = entry->command == Command::TUNING;
-    if (nativeDriver || nativeIo || nativeSegment || nativeControl || nativeTuning) {
+    if (nativeDriver || nativeIo || nativeSegment || nativeControl || nativeTuning ||
+        (simpleSubdivision && count >= first + 2 && !std::strcmp(tokens[first + 1], "options"))) {
         const char* command = nativeTuning ? "tuning" : nativeControl ? "control" :
             nativeSegment ? "segment" : nativeIo ? "io" : simpleSubdivision ? "subdivision" : "driver";
         if (outputPending()) { ++inputDropped_; return; }
-        // Expand the short command into the existing checked driver grammar.
-        // No alternate register writer, validation policy or operation storage.
-        char readWord[] = "read", setWord[] = "set", subdivisionWord[] = "subdivision";
         if (simpleSubdivision) {
             if (count > first + 2) { error(id, command, "invalid_arguments"); return; }
             if (count == first + 2 && !std::strcmp(tokens[first + 1], "options")) {
@@ -1301,9 +1309,9 @@ void Console::dispatch() noexcept {
                         "Subdivision: any integer from 400 to 51200; documented default 1000.\n"
                         "Useful examples: 400, 800, 1000, 1600, 2000, 3200, 6400, 12800, 25600, 51200.\n"
                         "These are examples, not the only allowed values.\n"
-                        "Read: subdivision. Before setting, run read config, subdivision, and read state; wait for each result.\n"
-                        "Then set while stopped: subdivision 1600.\n"
-                        "Changing this drive setting invalidates the host scale and origin; no motion or save is automatic.");
+                        "Read: subdivision. Set while stopped with one command: subdivision 1600.\n"
+                        "Required reads, setting write and readback run automatically.\n"
+                        "A checked change updates the host scale and establishes a new zero at the current stationary position. No save or motion is automatic.");
                     emit(0, true);
                 } else {
                     std::snprintf(output_, sizeof(output_),
@@ -1312,11 +1320,6 @@ void Console::dispatch() noexcept {
                     emit();
                 }
                 return;
-            }
-            if (count == first + 1) { tokens[first + 1] = readWord; ++count; }
-            else {
-                tokens[first + 3] = tokens[first + 1];
-                tokens[first + 1] = setWord; tokens[first + 2] = subdivisionWord; count += 2;
             }
         }
         if (!host_.startDriver || !host_.snapshot) { error(id, command, "unavailable"); return; }
@@ -1432,6 +1435,7 @@ void Console::dispatch() noexcept {
         bool available = false;
         for (std::size_t i = 0; i < OUTSTANDING_CAPACITY - 1; ++i) available = available || !outstanding_[i].commandId;
         uint32_t operationId = 0;
+        if (available) beginWork();
         const Action result = available ? host_.startDriver(host_.context, id, static_cast<uint8_t>(address),
             reading ? Ess::DriverKind::READ : Ess::DriverKind::UPDATE, request, operationId) : Action::BUSY;
         if (result == Action::OK) track(id, operationId);
@@ -1475,6 +1479,7 @@ void Console::dispatch() noexcept {
         bool available = false;
         for (std::size_t i = 0; i < OUTSTANDING_CAPACITY - 1; ++i) available = available || !outstanding_[i].commandId;
         uint32_t operationId = 0;
+        if (available) beginWork();
         const Action result = available ? host_.startVelocity(host_.context, id, static_cast<uint8_t>(address), request, operationId) : Action::BUSY;
         if (result == Action::OK) track(id, operationId);
         action(id, "velocity", result, static_cast<uint8_t>(address), result == Action::OK ? operationId : 0);
@@ -1482,14 +1487,20 @@ void Console::dispatch() noexcept {
     }
     if (entry->command == Command::MOVE_BY || entry->command == Command::MOVE_TO ||
         entry->command == Command::SPEED || entry->command == Command::ACCEL ||
-        entry->command == Command::DECEL || entry->command == Command::MOTION || entry->command == Command::STEPS_PER_TURN || entry->command == Command::SETTINGS) {
+        entry->command == Command::DECEL || entry->command == Command::MOTION || entry->command == Command::STEPS_PER_TURN || entry->command == Command::SETTINGS || simpleSubdivision) {
         if (outputPending()) { ++inputDropped_; return; }
         if (!host_.simpleMotion) { error(id, entry->name, "unavailable"); return; }
         SimpleMotionCommand request;
         const bool move = entry->command == Command::MOVE_BY || entry->command == Command::MOVE_TO;
-        const bool session = move || entry->command == Command::SETTINGS;
+        const bool session = move || entry->command == Command::SETTINGS || simpleSubdivision;
         const std::size_t args = count - first - 1;
-        if (entry->command == Command::SETTINGS) {
+        if (simpleSubdivision) {
+            uint32_t value = 0;
+            if (args > 1 || (args && (!number(tokens[first+1], value) || value < 400 || value > 51200))) {
+                error(id, entry->name, "subdivision_must_be_400_to_51200"); return;
+            }
+            request.kind = SimpleMotionCommandKind::SUBDIVISION; request.nativeValue = static_cast<uint16_t>(value);
+        } else if (entry->command == Command::SETTINGS) {
             if (args) { error(id, entry->name, "invalid_arguments"); return; }
             request.kind = SimpleMotionCommandKind::SETTINGS;
         } else if (move) {
@@ -1542,6 +1553,7 @@ void Console::dispatch() noexcept {
         bool available = false;
         for (std::size_t i = 0; i < OUTSTANDING_CAPACITY - 1; ++i) available = available || !outstanding_[i].commandId;
         SimpleMotionView view;
+        if (session && available) beginWork();
         const auto result = session && !available ? Action::BUSY : host_.simpleMotion(host_.context, id, &request, view);
         if (result != Action::OK) { action(id, entry->name, result); return; }
         if (session) {
@@ -1633,6 +1645,7 @@ void Console::dispatch() noexcept {
         bool available = false;
         for (std::size_t i = 0; i < OUTSTANDING_CAPACITY - 1; ++i) available = available || !outstanding_[i].commandId;
         uint32_t operationId = 0;
+        if (available) beginWork();
         const Action result = available ? host_.startMove(host_.context, id, static_cast<uint8_t>(address), move, operationId) : Action::BUSY;
         if (result == Action::OK) track(id, operationId);
         action(id, command, result, static_cast<uint8_t>(address), result == Action::OK ? operationId : 0);
@@ -1672,6 +1685,7 @@ void Console::dispatch() noexcept {
         const std::size_t end = stop ? OUTSTANDING_CAPACITY : OUTSTANDING_CAPACITY - 1;
         for (std::size_t i = begin; i < end; ++i) available = available || !outstanding_[i].commandId;
         uint32_t operationId = 0;
+        if (available) beginWork();
         const Action result = available ? host_.startAction(host_.context, id, static_cast<uint8_t>(address), request, operationId) : Action::BUSY;
         if (result == Action::OK) track(id, operationId, stop);
         if (stop && outputPending_) {
@@ -1821,7 +1835,8 @@ void Console::dispatch() noexcept {
         case Command::SETTINGS: return host_.simpleMotion != nullptr;
         case Command::MOVE: return host_.startMove && host_.snapshot && host_.axis;
         case Command::VELOCITY: return host_.startVelocity && host_.snapshot && host_.axis;
-        case Command::SUBDIVISION: case Command::TUNING: case Command::CONTROL: case Command::SEGMENT: case Command::IO: case Command::DRIVER: return host_.startDriver && host_.snapshot;
+        case Command::SUBDIVISION: return host_.simpleMotion != nullptr;
+        case Command::TUNING: case Command::CONTROL: case Command::SEGMENT: case Command::IO: case Command::DRIVER: return host_.startDriver && host_.snapshot;
         case Command::HOME: return true; // Method inventory is local; execution checks its own hooks.
         case Command::PROFILE: return true; // Local inventory does not need a transport.
         case Command::READ: case Command::READ_IDENTITY: case Command::READ_CONFIG: case Command::READ_STATE: return host_.startTypedRead != nullptr;
@@ -2013,6 +2028,7 @@ void Console::dispatch() noexcept {
         std::size_t occupied = 0; for (std::size_t i = 0; i < OUTSTANDING_CAPACITY - 1; ++i) occupied += outstanding_[i].commandId != 0;
         if (occupied == OUTSTANDING_CAPACITY - 1) { action(id, entry->name, Action::BUSY); return; }
         const auto start = entry->command == Command::CAPTURE_READ ? host_.startCaptureRead : host_.startProbe;
+        beginWork();
         const Action result = typedCommand ? host_.startTypedRead(host_.context, id, static_cast<uint8_t>(address),
             entry->command == Command::READ_IDENTITY ? Ess::ReadKind::IDENTITY : entry->command == Command::READ_CONFIG ? Ess::ReadKind::CONFIG : Ess::ReadKind::STATE, operationId) :
             start(host_.context, id, static_cast<uint8_t>(address), operationId);
@@ -2414,6 +2430,31 @@ bool Console::formatHome(uint32_t id, uint32_t commandId, uint32_t operationId,
 }
 
 bool Console::formatSimpleMotion(uint32_t id, const SimpleMotionView& view, bool inspection) noexcept {
+    if (view.subdivisionOnly) {
+        if (outputFormat_ == Format::HUMAN) {
+            std::snprintf(output_, sizeof(output_), view.pending ?
+                "Checking subdivision and stopped state (operation %lu)..." :
+                "Subdivision failed (operation %lu).",
+                static_cast<unsigned long>(view.operationId));
+            if (!view.pending && view.ok) std::snprintf(output_, sizeof(output_),
+                "Subdivision: %u. Checked readback.\n%sDetails: @1 result %lu.", view.subdivision,
+                view.subdivisionVerified ? "Host angle scale updated. Current stationary position is the new session zero.\n" : "",
+                static_cast<unsigned long>(view.operationId));
+            if (!view.pending && !view.ok) std::snprintf(output_, sizeof(output_),
+                "Subdivision failed (operation %lu): %s.\n%sDetails: @1 result %lu; setting result %lu.",
+                static_cast<unsigned long>(view.operationId), view.error,
+                view.uncertain ? "Setting may have changed; do not repeat automatically.\n" : "",
+                static_cast<unsigned long>(view.operationId), static_cast<unsigned long>(view.driverOperationId));
+            emit(inspection || view.pending ? 0 : view.operationId, true); return true;
+        }
+        std::snprintf(output_, sizeof(output_),
+            "{\"type\":\"%s\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"%s\",\"command_id\":%lu,\"operation_id\":%lu,\"driver_operation_id\":%lu,\"ok\":%s,\"pending\":%s,\"requested\":%u,\"readback\":%u,\"uncertain\":%s,\"status\":\"%s\"}",
+            inspection ? "reply" : "subdivision", static_cast<unsigned long>(id), inspection ? "result" : "subdivision",
+            static_cast<unsigned long>(view.commandId), static_cast<unsigned long>(view.operationId),
+            static_cast<unsigned long>(view.driverOperationId), boolean(view.pending || view.ok), boolean(view.pending),
+            view.requestedSubdivision, view.subdivision, boolean(view.uncertain), Core::errToString(view.status.code));
+        emit(inspection || view.pending ? 0 : view.operationId); return true;
+    }
     const auto* move = view.move;
     // An in-flight trigger has no settled evidence yet. Do not claim it was
     // unsent merely because the eventual result has not been published.
@@ -2621,6 +2662,24 @@ bool Console::formatVelocity(uint32_t id, uint32_t commandId, uint32_t operation
 bool Console::formatRead(uint32_t id, uint32_t commandId, uint32_t operationId,
                          const Ess::ReadContext& context, bool inspection) noexcept {
     std::size_t used = 0;
+    if (outputFormat_ == Format::HUMAN && !inspection && context.kind == Ess::ReadKind::STATE) {
+        bool fits = append(output_, sizeof(output_), used, "State %s (operation %lu).\n",
+            context.state == Core::ReadState::SUCCEEDED ? "checked" : "read failed", static_cast<unsigned long>(operationId));
+        if (Ess::getStateBlock(context, 0, stateView_))
+            fits = fits && append(output_, sizeof(output_), used, "Motor: %s, %s. Alarm: %u. Unknown motion bits: 0x%X.\n",
+                stateView_.running ? "running" : "not running", stateView_.released ? "released" : "enabled",
+                stateView_.rawAlarm, stateView_.unknownMotionBits);
+        if (Ess::getStateBlock(context, 2, stateView_)) {
+            if (stateView_.pairKnown) fits = fits && append(output_, sizeof(output_), used,
+                "Position (raw): %lu. ", static_cast<unsigned long>(stateView_.rawPosition));
+            else fits = fits && append(output_, sizeof(output_), used, "Position: unavailable (word order unresolved). ");
+            fits = fits && append(output_, sizeof(output_), used, "Speed (raw): %u.\n", stateView_.rawSpeed);
+        }
+        fits = fits && append(output_, sizeof(output_), used, "Status: %s. Details: @1 result %lu.",
+            Core::errToString(context.status.code), static_cast<unsigned long>(operationId));
+        if (!fits) return false;
+        emit(operationId, true); return true;
+    }
     const bool identity = context.kind == Ess::ReadKind::IDENTITY;
     const bool decoded = context.state == MotorControlRS::ReadState::SUCCEEDED &&
         (identity ? Ess::getIdentity(context, identityView_).isOk() : context.kind == Ess::ReadKind::CONFIG ? Ess::getConfig(context, configView_).isOk() : true);

@@ -269,7 +269,7 @@ void unifiedHelpHasOneEntryPerCommand() {
     assert(!json(fake.lines.back()));
     contains(fake.lines.back(), "any integer from 400 to 51200");
     contains(fake.lines.back(), "examples, not the only allowed values");
-    contains(fake.lines.back(), "read config, subdivision, and read state");
+    contains(fake.lines.back(), "Required reads, setting write and readback run automatically");
     assert(fake.admitted.empty() && fake.actions == 0);
     send(console, "@89 subdivision options\n");
     assert(json(fake.lines.back()));

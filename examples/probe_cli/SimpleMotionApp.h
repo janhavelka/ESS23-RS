@@ -18,16 +18,22 @@ bool releaseSimpleChild(App& a, uint32_t& id) {
     if (!record || !record->delivered || (record->requestId.owner && !a.owner.release(record->requestId))) return false;
     clearRecord(*record); id = 0; return true;
 }
-Probe::Action releaseSimpleMotion(App& a, bool retainFailedMove = false) {
+Probe::Action releaseSimpleMotion(App& a, bool retainFailure = false) {
     auto& s = a.simple; auto& v = s.view;
     if (v.pending || !v.delivered || !releaseSimpleChild(a, v.readOperationId)) return Probe::Action::BUSY;
-    if (retainFailedMove && v.moveOperationId) {
+    if (retainFailure && v.moveOperationId) {
         auto* child = findRecord(a, v.moveOperationId);
         if (!child || !child->delivered) return Probe::Action::BUSY;
         // Keep the ordinary result and its transport evidence inspectable by
         // child ID. Historical failure is not the current axis interlock.
         child->simpleChild = false;
     } else if (!releaseSimpleChild(a, v.moveOperationId)) return Probe::Action::BUSY;
+    if (v.driverOperationId) {
+        auto* child = findRecord(a, v.driverOperationId);
+        if (child && retainFailure && !v.ok) {
+            child->simpleChild = false; // Failed/uncertain write evidence remains pinned.
+        } else if (!releaseSimpleChild(a, v.driverOperationId)) return Probe::Action::BUSY;
+    }
     const auto desired = s.desired;
     s = App::SimpleMotionSession(); s.desired = desired;
     static_cast<Probe::SimpleMotionSettings&>(s.view) = desired;
@@ -37,6 +43,10 @@ void cancelSimplePreparation(App& a, uint8_t address, uint64_t now) {
     auto& s = a.simple;
     if (!s.view.pending || s.view.address != address) return;
     s.cancelled = true; s.view.interruptedByStop = true;
+    if (auto* record = findRecord(a, s.view.driverOperationId)) {
+        record->cancelContinuation = true;
+        if (record->requestId.owner) a.owner.cancelUnsent(record->requestId, now);
+    }
     if (auto* record = findRecord(a, s.view.readOperationId)) {
         record->cancelContinuation = true;
         if (record->requestId.owner) a.owner.cancelUnsent(record->requestId, now);
@@ -82,7 +92,9 @@ Probe::Action simpleMotion(void* context, uint32_t commandId,
             command->position.value.denominator <= 0 || command->position.value.denominator > UINT32_MAX)
             return Probe::Action::INVALID;
         s.desired.stepsPerTurn = command->position.value; s.desired.scaleKnown = true; break;
-    case Kind::SETTINGS: case Kind::MOVE_BY: case Kind::MOVE_TO: {
+    case Kind::SETTINGS: case Kind::MOVE_BY: case Kind::MOVE_TO: case Kind::SUBDIVISION: {
+        if (command->kind == Kind::SUBDIVISION && command->nativeValue &&
+            (command->nativeValue < 400 || command->nativeValue > 51200)) return Probe::Action::INVALID;
         if (v.operationId && !v.delivered) return Probe::Action::BUSY;
         if (!platformReady) return Probe::Action::UNAVAILABLE;
         if (a.owner.needsRecovery() || uart.needsRecovery() || a.serial.blocked || !a.serial.activeKnown)
@@ -91,21 +103,23 @@ Probe::Action simpleMotion(void* context, uint32_t commandId,
             a.discovery.owned || acting(a) || reading(a) || a.monitorState.settings.enabled) return Probe::Action::BUSY;
         if (axisReserved(a, a.axis.target.address)) return Probe::Action::AXIS_CONFLICT;
         if (!a.nextOperationId) return Probe::Action::IDS_EXHAUSTED;
-        const bool retainFailedMove = v.moveAdmitted && !v.ok;
+        const bool retainFailure = !v.ok;
         bool space = false;
         for (std::size_t i = 0; i < REQUEST_CAPACITY; ++i) {
             const auto id = a.records[i].operationId;
-            space = space || !id || id == v.readOperationId || (!retainFailedMove && id == v.moveOperationId);
+            space = space || !id || id == v.readOperationId || (id == v.driverOperationId && v.ok) || (!retainFailure && id == v.moveOperationId);
         }
         if (!space) return Probe::Action::RESULTS_FULL;
-        if (v.operationId && releaseSimpleMotion(a, retainFailedMove) != Probe::Action::OK)
+        if (v.operationId && releaseSimpleMotion(a, retainFailure) != Probe::Action::OK)
             return Probe::Action::BUSY;
         static_cast<Probe::SimpleMotionSettings&>(v) = s.desired;
         s.position = command->position; s.position.relative = command->kind == Kind::MOVE_BY;
         v.operationId = a.nextOperationId++; v.commandId = commandId;
         v.target = a.axis.target.id; v.address = a.axis.target.address; v.relative = s.position.relative;
         v.settingsOnly = command->kind == Kind::SETTINGS;
-        v.pending = true; v.phase = !v.settingsOnly && simpleConfigurationReady(a, nowUs()) ? Probe::SimpleMotionPhase::STATE : Probe::SimpleMotionPhase::CONFIG;
+        v.subdivisionOnly = command->kind == Kind::SUBDIVISION;
+        v.requestedSubdivision = command->nativeValue;
+        v.pending = true; v.phase = !v.settingsOnly && !v.subdivisionOnly && simpleConfigurationReady(a, nowUs()) ? Probe::SimpleMotionPhase::STATE : Probe::SimpleMotionPhase::CONFIG;
         s.bindingGeneration = a.bindingGeneration; s.serialGeneration = a.serial.generation;
         s.deadlineUs = nowUs() + 5000000;
         a.latestOperationId = v.operationId;
@@ -114,6 +128,14 @@ Probe::Action simpleMotion(void* context, uint32_t commandId,
     default: return Probe::Action::INVALID;
     }
     out = v; static_cast<Probe::SimpleMotionSettings&>(out) = s.desired; return Probe::Action::OK;
+}
+void prepareSubdivisionCoordinates(App& a) {
+    auto& s = a.simple; auto& v = s.view;
+    v.subdivision = v.requestedSubdivision; v.subdivisionVerified = true;
+    // The drive value is checked. Refresh the host convention/reference before
+    // reporting success; this does not itself issue a write or save anything.
+    v.stepsPerTurn = MotorControlRS::Rational(v.subdivision); v.scaleKnown = true;
+    a.motionProfile.~MotionProfileState(); new (&a.motionProfile) App::MotionProfileState();
 }
 void serviceSimpleMotion(App& a, uint64_t now) {
     using namespace MotorControlRS;
@@ -146,6 +168,12 @@ void serviceSimpleMotion(App& a, uint64_t now) {
     if (s.bindingGeneration != a.bindingGeneration || s.serialGeneration != a.serial.generation || now >= s.deadlineUs)
         s.cancelled = true;
     if (s.cancelled) {
+        if (auto* driver = findRecord(a, v.driverOperationId)) {
+            driver->cancelContinuation = true;
+            if (driver->requestId.owner) a.owner.cancelUnsent(driver->requestId, now);
+            if (!driver->delivered) return;
+            v.uncertain = driver->driver.uncertain;
+        }
         if (auto* read = findRecord(a, s.view.readOperationId)) {
             read->cancelContinuation = true;
             if (read->requestId.owner) a.owner.cancelUnsent(read->requestId, now);
@@ -159,6 +187,37 @@ void serviceSimpleMotion(App& a, uint64_t now) {
             v.interruptedByStop ? "Preparation interrupted by stop; no move was admitted" :
             "Preparation cancelled or expired; no move was admitted", ActionOutcome::CANCELLED);
         return;
+    }
+    if (v.subdivisionOnly && (v.phase == Phase::DRIVER_READ || v.phase == Phase::DRIVER_WRITE)) {
+        if (!v.driverOperationId) {
+            ESS::DriverRequest request;
+            if (v.phase == Phase::DRIVER_WRITE) {
+                request.fields = static_cast<uint32_t>(ESS::DriverField::SUBDIVISION);
+                request.subdivision = v.requestedSubdivision;
+            }
+            const auto admitted = startDriver(&a, v.commandId, v.address,
+                v.phase == Phase::DRIVER_READ ? ESS::DriverKind::READ : ESS::DriverKind::UPDATE,
+                request, v.driverOperationId);
+            a.latestOperationId = v.operationId;
+            if (admitted != Probe::Action::OK) {
+                const auto status = v.status ? Status(Err::INVALID_CONFIG, static_cast<int32_t>(admitted), "subdivision admission") : v.status;
+                finishSimpleMotion(a, status, status.msg); return;
+            }
+            findRecord(a, v.driverOperationId)->simpleChild = true; return;
+        }
+        const auto* child = findRecord(a, v.driverOperationId);
+        if (!child || !child->delivered) return;
+        const auto& driver = child->driver;
+        v.uncertain = driver.uncertain;
+        if (driver.state != ReadState::SUCCEEDED) {
+            finishSimpleMotion(a, driver.status, "Subdivision operation failed; inspect the retained setting result"); return;
+        }
+        if (v.phase == Phase::DRIVER_READ) {
+            if (!releaseSimpleChild(a, v.driverOperationId)) return;
+            v.phase = Phase::STATE; return;
+        }
+        prepareSubdivisionCoordinates(a);
+        v.phase = Phase::CONFIG; return;
     }
     if (v.phase == Phase::CONFIG || v.phase == Phase::STATE) {
         if (!s.view.readOperationId) {
@@ -183,6 +242,14 @@ void serviceSimpleMotion(App& a, uint64_t now) {
             v.softLimitEnable = raw.softLimitEnable;
             v.directionKnown = config.directionKnown; v.wordOrderKnown = config.wordOrderKnown;
             v.algorithmKnown = config.algorithmKnown; v.softLimitKnown = config.softLimitEnableKnown;
+            if (v.subdivisionOnly) {
+                if (!v.requestedSubdivision) { v.ok = true; finishSimpleMotion(a, Ok(), "none", ActionOutcome::OBSERVED); return; }
+                if (v.subdivisionVerified && v.subdivision != v.requestedSubdivision) {
+                    finishSimpleMotion(a, Status(Err::INVALID_CONFIG, 0, "subdivision changed after readback"),
+                        "Refreshed subdivision disagrees with the setting; host scale and origin remain invalid"); return;
+                }
+                v.phase = v.subdivisionVerified ? Phase::STATE : Phase::DRIVER_READ; return;
+            }
             if (!v.settingsOnly) { v.phase = Phase::STATE; return; }
             Probe::MotionProfileView profile;
             v.profileEvidence = &s.settingsProfile.view;
@@ -204,6 +271,16 @@ void serviceSimpleMotion(App& a, uint64_t now) {
                 "Fresh enabled and alarm-free state with known feedback is required"); return;
         }
         if (motion.value.running || feedback.value.rawSpeed) return;
+        if (v.subdivisionOnly && !v.subdivisionVerified) {
+            if (v.requestedSubdivision != v.subdivision) { v.phase = Phase::DRIVER_WRITE; return; }
+            const auto& scale = a.axis.units.commandStepsPerMotorTurn;
+            if (a.axis.originKnown && scale.numerator == v.subdivision && scale.denominator == 1) {
+                s.desired.stepsPerTurn = v.stepsPerTurn = Rational(v.subdivision);
+                s.desired.scaleKnown = v.scaleKnown = true;
+                v.ok = true; finishSimpleMotion(a, Ok(), "none", ActionOutcome::OBSERVED); return;
+            }
+            prepareSubdivisionCoordinates(a); // Same drive value, missing host convention; no setting write.
+        }
         if (v.scaleKnown) {
             const auto& scale = a.axis.units.commandStepsPerMotorTurn;
             if (!scale.numerator || scale.numerator != static_cast<uint32_t>(v.stepsPerTurn.numerator) ||
@@ -214,6 +291,7 @@ void serviceSimpleMotion(App& a, uint64_t now) {
                 if (!status) { finishSimpleMotion(a, status, "Cannot apply steps per turn without stationary axis evidence"); return; }
             }
         }
+        if (v.subdivisionVerified) { a.bootOriginPending = true; a.bootCoordinates = false; }
         if (a.bootOriginPending) {
             // The standalone bench uses subdivision-equivalent feedback as its
             // command-coordinate convention. Keep this explicit ASSUMED host
@@ -239,6 +317,14 @@ void serviceSimpleMotion(App& a, uint64_t now) {
                 evidence.observedUs = std::min(motion.observedEarliestUs, feedback.observedEarliestUs);
                 a.coordinateReference = evidence;
             }
+        }
+        if (v.subdivisionVerified) {
+            if (!a.axis.originKnown || !a.coordinateReference.nativeKnown) {
+                finishSimpleMotion(a, Status(Err::INVALID_CONFIG, 0, "position encoding unresolved"),
+                    "Subdivision readback succeeded, but current position cannot establish a host zero"); return;
+            }
+            s.desired.stepsPerTurn = v.stepsPerTurn; s.desired.scaleKnown = true;
+            v.ok = true; finishSimpleMotion(a, Ok(), "none", ActionOutcome::OBSERVED); return;
         }
         if (simpleProfileReady(a, now)) { v.phase = Phase::PROFILE; return; }
         Probe::MotionProfileView profile;

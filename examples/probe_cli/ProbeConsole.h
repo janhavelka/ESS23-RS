@@ -294,6 +294,7 @@ struct ResultView {
  */
 struct Host {
     void* context = nullptr;
+    void (*beginInteractiveWork)(void*) = nullptr; ///< Recycle delivered successful human results before new work.
     bool (*emitLine)(void*, const char*, std::size_t) = nullptr;
     void (*snapshot)(void*, Snapshot&) = nullptr;
     Action (*startProbe)(void*, uint32_t commandId, uint8_t address, uint32_t& operationId) = nullptr;
@@ -384,6 +385,7 @@ public:
                         const HostTuple* tuple = nullptr, uint32_t serialGeneration = 0) noexcept;
     /** Same transfer contract as reportProbe. Context is borrowed during this
      * call only; operation identity and terminal state are checked before use. */
+    bool humanResult(uint32_t operationId) const noexcept;
     bool reportRead(uint32_t id, uint32_t operationId, const MotorControlRS::ESS_RS::ReadContext&,
                     const HostTuple* tuple = nullptr, uint32_t serialGeneration = 0) noexcept;
     bool reportAction(uint32_t id, uint32_t operationId, const MotorControlRS::ESS_RS::ActionContext&,
@@ -403,6 +405,7 @@ private:
     void setReportSerial(const HostTuple*, uint32_t generation) noexcept;
     bool appendReportSerial(std::size_t& used) noexcept;
     void dispatch() noexcept;
+    void beginWork() noexcept;
     void error(uint32_t id, const char* command, const char* reason) noexcept;
     void action(uint32_t id, const char* command, Action result, uint8_t address = 0, uint32_t operationId = 0) noexcept;
     void emit(uint32_t terminalOperation = 0, bool humanText = false) noexcept;

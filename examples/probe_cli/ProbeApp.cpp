@@ -66,6 +66,7 @@ Rtu::BusStorage busStorage(Rtu::PendingSlot* p, Rtu::ResultSlot* r, Rtu::Produce
 }
 struct App;
 Probe::Host host(App*);
+void recycleInteractiveResults(void* context);
 MotorControlRS::ActiveSerialTuple communicationTuple(const HostTuple&);
 struct App {
     ApplicationOptions options;
@@ -111,7 +112,7 @@ struct App {
         Rtu::RequestId requestId;
         uint64_t deliveredUs = 0;
         uint64_t deadlineUs = 0;
-        bool observed = false, delivered = false, captureRead = false;
+        bool observed = false, delivered = false, captureRead = false, interactive = false;
         bool typedRead = false, monitored = false, simpleChild = false;
         bool cancelContinuation = false; ///< Cancel the operation after its current frame settles.
         ESS::ReadContext read;
@@ -166,6 +167,7 @@ struct App {
     bool bootOriginPending = true; // RAM-only, consumed once before the first simple move.
     bool bootCoordinates = false; // Explicit standalone feedback/command coordinate convention.
     bool simpleEndpointKnown = false;
+    bool motionObservationPending = false; // Our terminal move/stop still needs a stationary feedback baseline.
     int64_t simpleEndpoint = 0;
     uint32_t simpleEndpointGeneration = 0;
     bool positionClearQualified = false; // Supplied commissioning semantics, independent of electrical qualification.
@@ -294,6 +296,7 @@ bool reading(const App& a) {
 void invalidateAxis(App& a, const App::Record* changing = nullptr, uint64_t sampled = 0) {
     a.bootOriginPending = false; // Loss of knowledge must never silently select a new zero.
     a.bootCoordinates = false;
+    a.motionObservationPending = false;
     a.simpleEndpointKnown = false;
     if (!sampled) sampled = nowUs();
     if (!MotorControlRS::invalidateAxisReference(a.axis, a.coordinateReference)) a.axis.generation = 0;
@@ -315,6 +318,7 @@ void invalidateMotionObservations(App& a, uint8_t address) {
     if (address == a.axis.target.address) {
         a.coordinateReference.nativeKnown = false;
         a.simpleEndpointKnown = false;
+        a.motionObservationPending = true;
     }
     const auto now = nowUs();
     for (auto& block : a.stateCache.blocks)
@@ -351,7 +355,7 @@ void serviceCoordinates(App& a, uint64_t now) {
     // stationary reference. Overlapping/newer bounds still invalidate it.
     const bool relevantMotion = !reference.nativeKnown || motion.observedLatestUs >= reference.observedUs;
     if (relevantMotion && Probe::fresh(motion, a.axis.target, now, a.observationAgeUs()) &&
-        (motion.value.released || (motion.value.running && !triggeredMotion(a, a.axis.target.address))))
+        (motion.value.released || (motion.value.running && !a.motionObservationPending && !triggeredMotion(a, a.axis.target.address))))
         invalidateAxis(a);
 }
 MotorControlRS::AxisReference axisReference(const App& a) {
@@ -1307,7 +1311,10 @@ Probe::Action startDriver(void* context, uint32_t commandId, uint8_t address, ES
             ESS::prepareTuningSettings(record->driver, target, a.nextOperationId, request, prerequisites, now, now + 3000000) :
             ESS::prepareDriverSettings(record->driver, target, a.nextOperationId, request, prerequisites, now, now + 3000000);
     } else return Probe::Action::INVALID;
-    if (!checked) { clearRecord(*record); return Probe::driverAdmissionStatus(checked); }
+    if (!checked) {
+        if (a.simple.admitting) a.simple.view.status = checked;
+        clearRecord(*record); return Probe::driverAdmissionStatus(checked);
+    }
     ESS::PreparedDriver work;
     if (!ESS::nextDriver(record->driver, now, work)) { clearRecord(*record); return Probe::Action::FAILED; }
     const auto admitted = admitDriverStep(a, *record, work, now);
@@ -1563,7 +1570,20 @@ void advanceReads(App& a, uint64_t sampled) {
                 if (block == static_cast<uint8_t>(ESS::StateBlock::FEEDBACK) && Probe::current(current, a.axis.target) &&
                     current.observedLatestUs > previousSuccess &&
                     ((hadPosition && current.value.pairKnown && current.value.rawPosition != previousPosition) || leftZero) && coordinateKnowledge(a) &&
-                    !triggeredMotion(a, a.axis.target.address)) invalidateAxis(a);
+                    !a.bootCoordinates && !a.motionObservationPending && !triggeredMotion(a, a.axis.target.address)) invalidateAxis(a);
+                // The standalone RAM zero is a fixed counter offset. Enabled
+                // feedback changes (including servo settling/quantization) do
+                // not reset that counter. Release, unexpected running, clear,
+                // configuration changes and unresolved encoding still invalidate
+                // through their evidence paths; homed references stay strict.
+                if (record.read.state == ReadState::SUCCEEDED && a.motionObservationPending) {
+                    const auto& motion = a.stateCache.blocks[static_cast<uint8_t>(ESS::StateBlock::MOTION)];
+                    const auto& feedback = a.stateCache.blocks[static_cast<uint8_t>(ESS::StateBlock::FEEDBACK)];
+                    if (Probe::fresh(motion, a.axis.target, sampled, a.observationAgeUs()) &&
+                        Probe::fresh(feedback, a.axis.target, sampled, a.observationAgeUs()) &&
+                        feedback.value.pairKnown && !motion.value.running && !feedback.value.rawSpeed)
+                        a.motionObservationPending = false;
+                }
             }
             if (record.read.state != ReadState::ACTIVE) continue;
             a.owner.release(record.requestId); record.requestId = Rtu::RequestId();
@@ -1984,7 +2004,8 @@ Probe::Action cancel(void* context, uint32_t operationId) {
 }
 Probe::Action release(void* context, uint32_t operationId) {
     App& a = *static_cast<App*>(context);
-    if (operationId && (operationId == a.simple.view.operationId || operationId == a.simple.view.moveOperationId))
+    if (operationId && (operationId == a.simple.view.operationId || operationId == a.simple.view.moveOperationId ||
+        operationId == a.simple.view.driverOperationId))
         return releaseSimpleMotion(a);
     if (operationId && operationId == a.simple.view.readOperationId)
         return Probe::Action::BUSY;
@@ -2205,6 +2226,7 @@ Probe::Host host(App* a) {
     Probe::Host h; h.context = a; h.emitLine = emit; h.snapshot = snapshot;
     h.startProbe = probe; h.startCaptureRead = captureRead; h.recover = recover; h.resetStats = reset;
     h.startTypedRead = typedRead;
+    h.beginInteractiveWork = recycleInteractiveResults;
     h.startAction = startAction; h.startMove = startMove; h.startVelocity = startVelocity; h.startDriver = startDriver; h.startHome = startHome;
     h.simpleMotion = simpleMotion;
     h.monitor = monitor; h.motionProfile = motionProfileCommand; h.debug = debugCommand;
@@ -2217,6 +2239,23 @@ Probe::Host host(App* a) {
     h.load = load;
 #endif
     return h;
+}
+void recycleInteractiveResults(void* context) {
+    App& a = *static_cast<App*>(context);
+    // The terminal text must have left both bounded output queues. Detailed
+    // JSON/API results and failures remain explicitly retained.
+    if (a.outputCount || a.console.outputPending()) return;
+    for (auto& r : a.records) {
+        if (!r.interactive || !r.delivered || r.simpleChild || r.axisReserved || r.motionUnresolved) continue;
+        const bool success = r.homeOperation ? r.home.state == MotorControlRS::ActionState::SUCCEEDED && !r.home.uncertain :
+            r.driverOperation ? r.driver.state == ReadState::SUCCEEDED && !r.driver.uncertain :
+            r.velocityOperation ? r.velocity.state == MotorControlRS::ActionState::SUCCEEDED && !r.velocity.uncertain :
+            r.moveOperation ? r.move.state == MotorControlRS::ActionState::SUCCEEDED && !r.move.uncertain :
+            r.actionOperation ? r.action.state == MotorControlRS::ActionState::SUCCEEDED :
+            r.typedRead ? r.read.state == ReadState::SUCCEEDED :
+            a.owner.result(r.requestId) && a.owner.result(r.requestId)->outcome == Rtu::Outcome::SUCCESS;
+        if (success && (!r.requestId.owner || a.owner.release(r.requestId))) clearRecord(r);
+    }
 }
 void deliver(App& a) {
     for (auto& record : a.records) {
@@ -2231,12 +2270,13 @@ void deliver(App& a) {
             continue;
         }
         Probe::ResultView view; if (!lookup(&a, record.operationId, view) || view.pending) continue;
+        record.interactive = a.console.humanResult(record.operationId);
         if (record.homeOperation) {
             if (!a.console.reportHome(record.commandId, record.operationId, record.home, record.interruptedByStop, &record.serialTuple, record.serialGeneration)) continue;
             record.delivered = true; record.deliveredUs = nowUs(); continue;
         }
         if (record.driverOperation) {
-            if (!a.console.reportDriver(record.commandId, record.operationId, record.driver, &record.serialTuple, record.serialGeneration)) continue;
+            if (!record.simpleChild && !a.console.reportDriver(record.commandId, record.operationId, record.driver, &record.serialTuple, record.serialGeneration)) continue;
             record.delivered = true; record.deliveredUs = nowUs(); continue;
         }
         if (record.velocityOperation) {
@@ -2266,6 +2306,7 @@ void deliver(App& a) {
                     record.operationId > a.controlSettings.operationId &&
                     record.configurationGeneration == a.axis.generation && record.read.target.generation == a.bindingGeneration) {
                     const ESS::RawConfig old = a.configuration.raw;
+                    const bool currentConfig = a.configuration.operationId != 0;
                     const bool same = a.configuration.target.id && Probe::sameTarget(a.configuration.target, record.read.target);
                     if (ESS::getConfig(record.read, a.configuration)) {
                         const auto& updated = a.configuration.raw;
@@ -2273,13 +2314,16 @@ void deliver(App& a) {
                             std::memcmp(old.inputFunctions, updated.inputFunctions, sizeof(old.inputFunctions)) != 0;
                         if (inputsChanged) a.driverInputsQualified = false;
                         uint32_t effects = 0;
-                        if (a.driverSettings.target.id && Probe::sameTarget(a.driverSettings.target, record.read.target))
+                        if (a.driverSettings.target.id && (a.driverSettings.operationId || !currentConfig) &&
+                            Probe::sameTarget(a.driverSettings.target, record.read.target))
                             effects = driverConfigEffects(updated, a.driverSettings);
-                        if (a.controlSettings.target.id && Probe::sameTarget(a.controlSettings.target, record.read.target))
+                        if (a.controlSettings.target.id && (a.controlSettings.operationId || !currentConfig) &&
+                            Probe::sameTarget(a.controlSettings.target, record.read.target))
                             effects |= controlConfigEffects(updated, a.controlSettings);
                         if (same && old.algorithm != updated.algorithm) effects |= static_cast<uint32_t>(ESS::DriverField::CONTROL_ALGORITHM);
                         if (same && old.encoderResolution != updated.encoderResolution) effects |= static_cast<uint32_t>(ESS::DriverField::CONFIGURED_ENCODER);
-                        if (a.ioSettings.target.id && Probe::sameTarget(a.ioSettings.target, record.read.target)) {
+                        if (a.ioSettings.target.id && (a.ioSettings.operationId || !currentConfig) &&
+                            Probe::sameTarget(a.ioSettings.target, record.read.target)) {
                             if (updated.inputPolarity != a.ioSettings.raw[7]) effects |= static_cast<uint32_t>(ESS::DriverField::INPUT_POLARITY);
                             for (uint8_t i = 0; i < 4; ++i)
                                 if (updated.inputFunctions[i] != a.ioSettings.raw[8+i]) effects |= uint32_t(1) << (10+i);

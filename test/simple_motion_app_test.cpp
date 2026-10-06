@@ -59,6 +59,119 @@ void completeSimple() {
     moveStep(child);
     moveStep(child,registers(1,{0,4})); moveStep(child,registers(1,{0,1})); pump(1000);
 }
+void finishSubdivision(uint16_t original, uint16_t value, bool rejectWrite = false, uint16_t changedAfterWrite = 0, uint32_t position = 100) {
+    using Phase = Probe::SimpleMotionPhase;
+    for (unsigned n=0;n<40 && app->simple.view.pending;++n) {
+        const auto phase = app->simple.view.phase;
+        if (phase == Phase::CONFIG || phase == Phase::STATE) { simpleReadStep(0,app->simple.view.subdivisionVerified ? (changedAfterWrite ? changedAfterWrite : value) : original,position); continue; }
+        assert(phase == Phase::DRIVER_READ || phase == Phase::DRIVER_WRITE);
+        for(unsigned i=0;i<100 && !app->simple.view.driverOperationId;++i) step();
+        if (!app->simple.view.pending) break;
+        const auto id=app->simple.view.driverOperationId;
+        auto* record=findRecord(*app,id); assert(record);
+        const auto token=record->driver.step;
+        assert(release(app,id)==Probe::Action::BUSY); // The wrapper owns this child until its terminal output.
+        waitTx(id);
+        std::vector<uint8_t> response;
+        if(phase == Phase::DRIVER_READ) {
+            switch(token) {
+            case 0: response=registers(1,{0,original}); break;
+            case 1: response=registers(1,{0,0,0}); break;
+            case 2: response=registers(1,{0,0,0,0}); break;
+            case 3: response=registers(1,{0,1}); break;
+            default: assert(false);
+            }
+        } else if(hardware.tx[1]==6) response=rejectWrite ? crc({1,0x86,3}) : hardware.tx;
+        else response=registers(1,{value});
+        scheduleReply(std::max(hardware.writeStarted+hardware.tx.size()*87+1000,hardware.time+1000),response);
+        for(unsigned i=0;i<25000;++i) {
+            step(); record=findRecord(*app,id);
+            if(!record || record->driver.step!=token || record->driver.state!=ReadState::ACTIVE) break;
+        }
+    }
+    pump(1000); assert(!app->simple.view.pending && app->simple.view.delivered);
+}
+void testOneCommandSubdivisionAndFollowingMove() {
+    fresh(); command("subdivision 1600\n"); finishSubdivision(1600,1600);
+    assert(app->simple.view.ok && app->simple.desired.stepsPerTurn.numerator==1600 && app->axis.originKnown);
+    assert(hardware.writes==12); // Config, driver baseline and state reads only.
+    fresh();
+    uint16_t current=1000;
+    for(unsigned i=0;i<12;++i) {
+        const uint16_t requested=i%2 ? 1000 : 51200;
+        command((std::string("subdivision ")+std::to_string(requested)+"\n").c_str());
+        assert(app->simple.view.pending && app->simple.view.subdivisionOnly);
+        finishSubdivision(current,requested);
+        assert(app->simple.view.ok && app->simple.desired.scaleKnown && app->simple.desired.stepsPerTurn.numerator==requested);
+        assert(app->axis.originKnown && app->axis.originNative==100 && !app->motionProfile.view.saved);
+        current=requested;
+    }
+    command("moveto 90 deg\n"); prepareSimple(true,100);
+    assert(app->simple.view.moveAdmitted && app->simple.view.move->prepared.effectiveNative==350);
+    completeSimple();
+    command("subdivision\n"); finishSubdivision(1000,0);
+    assert(app->simple.view.ok && app->simple.view.subdivision==1000);
+    command("subdivision 1000\n"); finishSubdivision(1000,1000);
+    assert(app->simple.view.ok && !app->simple.view.subdivisionVerified && app->axis.originKnown);
+    const auto inspected = app->simple.view.operationId;
+    command(("@310 result " + std::to_string(inspected) + "\n").c_str());
+    assert(Serial.output.find("\"id\":310,\"command\":\"result\"")!=std::string::npos);
+    app->simple.desired.scaleKnown=false;
+    command("@31 subdivision 1000\n"); finishSubdivision(1000,1000);
+    assert(app->simple.view.ok && !app->simple.view.subdivisionVerified && app->axis.originNative==100);
+    assert(app->simple.desired.scaleKnown && app->simple.desired.stepsPerTurn.numerator==1000);
+    command("subdivision 1600\n"); finishSubdivision(1000,1600,true);
+    assert(!app->simple.view.ok);
+    const auto failed=app->simple.view.driverOperationId;
+    command("subdivision\n"); finishSubdivision(1000,0);
+    assert(findRecord(*app,failed) && !findRecord(*app,failed)->simpleChild);
+    fresh(); command("subdivision 1600\n"); finishSubdivision(1000,1600,false,1200);
+    assert(!app->simple.view.ok && !app->axis.originKnown && !app->simple.desired.scaleKnown);
+    fresh(); command("subdivision 1600\n"); finishSubdivision(1000,1600,false,0,0x80000000U);
+    assert(!app->simple.view.ok && !app->axis.originKnown);
+    fresh(); command("subdivision 1600\n");
+    for(unsigned i=0;i<5;++i) simpleReadStep(0,1000,100);
+    for(unsigned i=0;i<100 && !app->simple.view.driverOperationId;++i) step();
+    const auto child=app->simple.view.driverOperationId;
+    waitTx(child); assert(hardware.tx[1]==3);
+    scheduleReply(hardware.time+2000,registers(1,{0,1000}));
+    assert(cancel(app,app->simple.view.operationId)==Probe::Action::OK);
+    pump(20000);
+    assert(!app->simple.view.pending && app->simple.view.delivered && !app->simple.view.ok);
+    assert(!app->simple.view.subdivisionVerified && !axisReserved(*app,1));
+    command("subdivision\n"); finishSubdivision(1000,0); assert(app->simple.view.ok);
+}
+void testInteractiveSuccessRecyclingAndExplicitRetention() {
+    fresh();
+    for(unsigned n=0;n<20;++n) {
+        command("probe\n"); const auto id=app->latestOperationId;
+        waitTx(id); scheduleReply(hardware.time+2000,registers(1,{0x4EEA})); pump(10000);
+        assert(findRecord(*app,id)->delivered && findRecord(*app,id)->interactive);
+    }
+    // Result/status inspection does not itself consume the newest success.
+    const auto last=app->latestOperationId;
+    Serial.writeCapacity=0; command("status\n");
+    recycleInteractiveResults(app); assert(findRecord(*app,last));
+    Serial.writeCapacity=4096; pump(1000);
+    command("status\n"); assert(findRecord(*app,last));
+    command("subdivision options\n"); assert(findRecord(*app,last));
+    command("subdivision invalid\n"); assert(findRecord(*app,last));
+    command((std::string("result ")+std::to_string(last)+"\n").c_str()); assert(findRecord(*app,last));
+    command("probe\n"); const auto bad=app->latestOperationId;
+    waitTx(bad); scheduleReply(hardware.time+2000,crc({1,0x83,2})); pump(10000);
+    command("probe\n"); const auto good=app->latestOperationId;
+    waitTx(good); scheduleReply(hardware.time+2000,registers(1,{0x4EEA})); pump(10000);
+    assert(findRecord(*app,bad)); // Checked rejection is not a recyclable success.
+    fresh();
+    for(unsigned n=0;n<REQUEST_CAPACITY;++n) {
+        command((std::string("@")+std::to_string(100+n)+" probe\n").c_str());
+        const auto id=app->latestOperationId;
+        waitTx(id); scheduleReply(hardware.time+2000,registers(1,{0x4EEA})); pump(10000);
+        assert(!findRecord(*app,id)->interactive);
+    }
+    const auto writes=hardware.writes;
+    command("probe\n"); assert(hardware.writes==writes && Serial.output.find("results_full")!=std::string::npos);
+}
 void testSettingsColdReadRetainsActualValuesAndReclaims() {
     fresh(); command("@1 speed 90\n@2 accel 125\n@3 decel 175\n@4 settings\n");
     const auto first=app->simple.view.operationId;
@@ -433,6 +546,24 @@ void testFailedReadIsInspectableAndOwned() {
     assert(release(app,child)==Probe::Action::BUSY);
     assert(release(app,wrapper)==Probe::Action::OK && !findRecord(*app,child));
 }
+void testEnabledFeedbackDoesNotEraseHostOffset() {
+    fresh(); command("@1 moveto 0 deg\n");
+    for(unsigned i=0;i<8;++i) simpleReadStep(0,1000,100);
+    prepareSimple(); pump(1000); assert(app->axis.originKnown && app->axis.originNative==100);
+    command("@2 subdivision 1600\n");
+    finishSubdivision(1000,1600,false,0,101);
+    assert(app->simple.view.ok && app->axis.originKnown && app->axis.originNative==101);
+}
+void testCompletedMoveSettlingPreservesOrigin() {
+    fresh(); command("@1 moveby 100\n"); prepareSimple(); completeSimple();
+    assert(app->axis.originKnown);
+    command("@2 moveto 0 deg\n");
+    for (unsigned i=0;i<3;++i) simpleReadStep(4,1000,98);
+    assert(app->simple.view.pending && app->axis.originKnown);
+    for (unsigned i=0;i<3;++i) simpleReadStep(0,1000,100);
+    assert(app->axis.originKnown); // Settling of our acknowledged move, not external displacement.
+    prepareSimple(true,100); completeSimple();
+}
 void testReportedArrivalWaitsForStoppedFeedback() {
     fresh(); command("@1 moveby 100\n");
     for(unsigned i=0;i<7;++i) simpleReadStep();
@@ -646,6 +777,8 @@ void testConvenienceRoundingUsesSharedPreparation() {
     assert(!MotorControlRSExample::submitMove(exact,60,id) && hardware.writes==before);
 }
 int main() {
+    testOneCommandSubdivisionAndFollowingMove();
+    testInteractiveSuccessRecyclingAndExplicitRetention();
     testIdleAndProfileRestoreKeepBootZero();
     testConvenienceRoundingUsesSharedPreparation();
     testCancelledUnsentAndRejectedStageAllowNextSession();
@@ -666,6 +799,8 @@ int main() {
     testCancelledWrapperKeepsOwnerUntilReadSettles();
     testBoundsAndUncertainResultNotReplayed();
     testRetainedChildAndBlockedTerminal();
+    testEnabledFeedbackDoesNotEraseHostOffset();
+    testCompletedMoveSettlingPreservesOrigin();
     testReportedArrivalWaitsForStoppedFeedback();
     testDesiredScaleDoesNotCrossTargets();
     testExplicitAxisScaleSupersedesSimpleDeclaration();

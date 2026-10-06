@@ -1,5 +1,11 @@
 # Roadmap to a supported ESS release
 
+[One-command subdivision](reports/2026-10-06_simple_subdivision.md) adds automatic
+preparatory reads and checked host scale/zero refresh, concise state output, and
+delivered-success recycling for human commands. Three consecutive finite COM13
+workflows pass (580 checked frames); subdivision 1600 is restored. Diagnosed
+origin/setting-context failures remain recorded separately from the corrected runs.
+
 [Subdivision/origin follow-up](reports/2026-10-06_subdivision_and_origin.md)
 adds simple typed subdivision access and fixes profile restoration erasing the
 boot zero. Actual subdivision changes still invalidate the old coordinate scale.
