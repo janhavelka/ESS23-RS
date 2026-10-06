@@ -5,6 +5,13 @@ readable headings, labeled values and next-step hints. `help COMMAND` shows the
 exact syntax, with examples for common commands. Both Arduino and native ESP-IDF
 use this console.
 
+For firmware diagnosis, `drv` reports owner-watchdog subscription, feed errors,
+completed turns, reset reason and the previous retained runtime progress marker.
+`stats` reports `cache_interrupted` separately from a sampling-gap violation;
+either can require explicit transport recovery. `reset` clears statistics, not
+that fault. A watchdog restart is not a motor stop and never replays a move.
+See the [firmware health report](reports/2026-10-06_firmware_health.md).
+
 Start with one read and one small move on the existing free-shaft example:
 
 ```text

@@ -1999,7 +1999,7 @@ void Console::dispatch() noexcept {
     switch (entry->command) {
     case Command::DRV: {
         const int written = std::snprintf(output_, sizeof(output_),
-            "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"drv\",\"ok\":true,\"phase\":\"%s\",\"busy\":%s,\"transmit_enabled\":%s,\"recovery_required\":%s,\"pending\":%u,\"retained\":%u,\"reserved\":%u,\"pending_capacity\":%u,\"result_capacity\":%u,\"outstanding_capacity\":%u,\"operation_id\":%lu,\"output_queued\":%u,\"output_blocked\":%llu,\"output_short_writes\":%llu,\"input_bytes\":%llu,\"input_lines\":%llu,\"input_dropped\":%llu,\"recovery_guard_until_us\":%llu,\"request_deadline_us\":%llu,\"capture_mode\":\"%s\",\"read_budget\":%lu,\"model_address\":%s,\"model_operation_id\":%lu,\"observed_earliest_us\":%llu,\"observed_latest_us\":%llu,\"delivered_us\":%llu,\"previous_runtime\":{\"valid\":%s,\"stage\":%lu,\"uptime_ms\":%lu,\"loops\":%lu,\"input_lines\":%lu,\"output_queued\":%lu,\"output_blocked\":%lu}}",
+            "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"drv\",\"ok\":true,\"phase\":\"%s\",\"busy\":%s,\"transmit_enabled\":%s,\"recovery_required\":%s,\"pending\":%u,\"retained\":%u,\"reserved\":%u,\"pending_capacity\":%u,\"result_capacity\":%u,\"outstanding_capacity\":%u,\"operation_id\":%lu,\"output_queued\":%u,\"output_blocked\":%llu,\"output_short_writes\":%llu,\"input_bytes\":%llu,\"input_lines\":%llu,\"input_dropped\":%llu,\"recovery_guard_until_us\":%llu,\"request_deadline_us\":%llu,\"capture_mode\":\"%s\",\"read_budget\":%lu,\"model_address\":%s,\"model_operation_id\":%lu,\"observed_earliest_us\":%llu,\"observed_latest_us\":%llu,\"delivered_us\":%llu,\"previous_runtime\":{\"valid\":%s,\"stage\":%lu,\"uptime_ms\":%lu,\"loops\":%lu,\"input_lines\":%lu,\"output_queued\":%lu,\"output_blocked\":%lu},\"owner_watchdog\":{\"subscribed\":%s,\"error\":%ld,\"timeout_ms\":%lu,\"last_feed_us\":%llu,\"completed_loops\":%llu},\"reset_reason\":%lu}",
             static_cast<unsigned long>(id), Rtu::phaseName(data.phase), boolean(data.busy),
             boolean(data.transmitEnabled), boolean(data.recoveryRequired),
             static_cast<unsigned>(data.pending), static_cast<unsigned>(data.retained), static_cast<unsigned>(data.reserved),
@@ -2015,7 +2015,10 @@ void Console::dispatch() noexcept {
             static_cast<unsigned long long>(data.deliveredUs), boolean(data.previousRuntimeValid),
             static_cast<unsigned long>(data.previousRuntimeStage), static_cast<unsigned long>(data.previousRuntimeUptimeMs),
             static_cast<unsigned long>(data.previousRuntimeLoops), static_cast<unsigned long>(data.previousRuntimeInputLines),
-            static_cast<unsigned long>(data.previousRuntimeOutputQueued), static_cast<unsigned long>(data.previousRuntimeOutputBlocked));
+            static_cast<unsigned long>(data.previousRuntimeOutputQueued), static_cast<unsigned long>(data.previousRuntimeOutputBlocked),
+            boolean(data.ownerWatchdog), static_cast<long>(data.ownerWatchdogError), static_cast<unsigned long>(data.ownerWatchdogTimeoutMs),
+            static_cast<unsigned long long>(data.ownerWatchdogFeedUs), static_cast<unsigned long long>(data.ownerCompletedLoops),
+            static_cast<unsigned long>(data.resetReason));
         if (written < 0 || static_cast<std::size_t>(written) >= sizeof(output_)) { error(id, entry->name, "output_full"); return; }
         break;
     }
@@ -2063,11 +2066,11 @@ void Console::dispatch() noexcept {
     }
     case Command::STATS:
         std::snprintf(output_, sizeof(output_),
-            "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"stats\",\"ok\":true,\"started\":%lu,\"frames\":%lu,\"failed\":%lu,\"timeouts\":%lu,\"cancelled\":%lu,\"rx_bytes\":%lu,\"discarded\":%lu,\"echo_bytes\":%lu,\"trace_overwritten\":%lu,\"max_poll_gap_us\":%llu,\"capture_faults\":%lu,\"rx_errors\":%lu,\"sample_gap_exceeded\":%s}",
+            "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"stats\",\"ok\":true,\"started\":%lu,\"frames\":%lu,\"failed\":%lu,\"timeouts\":%lu,\"cancelled\":%lu,\"rx_bytes\":%lu,\"discarded\":%lu,\"echo_bytes\":%lu,\"trace_overwritten\":%lu,\"max_poll_gap_us\":%llu,\"capture_faults\":%lu,\"rx_errors\":%lu,\"sample_gap_exceeded\":%s,\"cache_interrupted\":%s}",
             static_cast<unsigned long>(id), static_cast<unsigned long>(data.stats.started), static_cast<unsigned long>(data.stats.frames),
             static_cast<unsigned long>(data.stats.failed), static_cast<unsigned long>(data.stats.timeouts), static_cast<unsigned long>(data.stats.cancelled),
             static_cast<unsigned long>(data.stats.rxBytes), static_cast<unsigned long>(data.stats.discarded), static_cast<unsigned long>(data.stats.echoBytes), static_cast<unsigned long>(data.stats.traceOverwritten),
-            static_cast<unsigned long long>(data.maxPollGapUs), static_cast<unsigned long>(data.captureFaults), static_cast<unsigned long>(data.rxErrors), boolean(data.sampleGapExceeded));
+            static_cast<unsigned long long>(data.maxPollGapUs), static_cast<unsigned long>(data.captureFaults), static_cast<unsigned long>(data.rxErrors), boolean(data.sampleGapExceeded), boolean(data.cacheInterrupted));
         break;
     case Command::MEMORY:
         std::snprintf(output_, sizeof(output_),

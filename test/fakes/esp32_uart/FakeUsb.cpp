@@ -11,6 +11,7 @@ bool usb_serial_jtag_is_driver_installed() { return usbHardware.installed; }
 esp_err_t usb_serial_jtag_driver_install(const usb_serial_jtag_driver_config_t* config) {
     assert(config && !usbHardware.installed);
     ++usbHardware.installs; usbHardware.config = *config;
+    usbHardware.enableAtInstall = usbHardware.interruptEnable;
     if (usbHardware.installResult == ESP_OK) usbHardware.installed = true;
     return usbHardware.installResult;
 }

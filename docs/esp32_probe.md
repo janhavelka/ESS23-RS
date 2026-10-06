@@ -1,5 +1,12 @@
 # ESP32-S3 standalone motor bench
 
+Both consumers supervise the owner task after completed turns and check heap
+integrity at boot before capture starts. The timer's small IRAM entry prevents
+flash access during cache-disabled intervals; resumption faults capture until
+explicit recovery. This does not enable cache-off timing support. The
+[firmware health report](reports/2026-10-06_firmware_health.md) records the
+physical watchdog reproduction, fixes and remaining overnight uncertainty.
+
 For interactive use, see the [console guide](console.md): type `help` for
 grouped commands and `help COMMAND` for syntax. Bare commands produce readable
 text; `@ID` commands preserve machine JSONL for the existing Python tools.

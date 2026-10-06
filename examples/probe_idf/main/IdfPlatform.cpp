@@ -2,6 +2,7 @@
 #include "ProbePlatform.h"
 #include <cstdio>
 #include <driver/usb_serial_jtag.h>
+#include <hal/usb_serial_jtag_ll.h>
 #include <esp_idf_version.h>
 #include <esp_rom_sys.h>
 #include <freertos/FreeRTOS.h>
@@ -38,6 +39,9 @@
 #if !CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG
 #error Startup failure output requires the USB Serial/JTAG ROM console
 #endif
+#if !CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH || !CONFIG_ESP_COREDUMP_DATA_FORMAT_ELF || !CONFIG_ESP_COREDUMP_CHECKSUM_CRC32
+#error Standalone crash diagnostics require the espcoredump component and flash ELF dumps with CRC32
+#endif
 
 namespace MotorControlRSExample { namespace Platform {
 namespace {
@@ -51,6 +55,10 @@ bool beginConsole() {
     usb_serial_jtag_driver_config_t config = {};
     config.tx_buffer_size = 1024;
     config.rx_buffer_size = 256;
+    // CPU resets can retain HWCDC's BUS_RESET enable. This SDK driver only
+    // services RX/TX: mask inherited sources before it installs its own ISR.
+    // Keep pending status/FIFO contents, including TX-empty for the first write.
+    usb_serial_jtag_ll_disable_intr_mask(USB_SERIAL_JTAG_LL_INTR_MASK);
     if (usb_serial_jtag_driver_install(&config) != ESP_OK) return false;
     pendingByte = -1;
     consoleReady = true;

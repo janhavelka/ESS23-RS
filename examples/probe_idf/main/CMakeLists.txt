@@ -11,6 +11,6 @@ idf_component_register(
         "${EXAMPLES}/common/Esp32S3Uart.cpp"
     INCLUDE_DIRS "${EXAMPLES}/probe_cli" "${EXAMPLES}/common"
     REQUIRES MotorControlRS esp_driver_uart esp_driver_gpio esp_driver_gptimer
-        esp_driver_usb_serial_jtag esp_timer esp_hw_support esp_psram)
+        esp_driver_usb_serial_jtag esp_timer esp_hw_support esp_psram spi_flash espcoredump)
 target_compile_definitions(${COMPONENT_LIB} PRIVATE
     MOTORCONTROLRS_LOAD_FIXTURE=1 MOTORCONTROLRS_TIMER_CAPTURE=1)

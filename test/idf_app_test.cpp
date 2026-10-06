@@ -68,6 +68,8 @@ void testActualStartupAndPassiveCommands() {
     assert(hardware.writes == 0 && hardware.allocationCalls == 1);
     assert(hardware.allocationCaps == (MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
     assert(usbHardware.installs == 1 && usbHardware.config.tx_buffer_size == 1024 && usbHardware.config.rx_buffer_size == 256);
+    assert(usbHardware.maskCalls == 1 && usbHardware.enableAtInstall == 0);
+    assert(usbHardware.interruptRaw == 0x208); // Preserve pending status/FIFO; only mask inherited enables.
     assert(hardware.txPin == 47 && hardware.rxPin == 48 && hardware.dePin == 21);
     command("@1 version\n@2 status\n@3 health\n@4 memory\n@5 stats reset\n");
     contains("\"command\":\"version\""); contains("\"command\":\"stats\"");
@@ -162,6 +164,29 @@ void testOwnerAndLoadTaskFailuresRemainVisible() {
 #endif
 }
 
+void testHeapAndWatchdogStartupFailures() {
+    fresh(); hardware.heapIntegrity = false;
+    assert(!beginApplication({47, 48, 21, true}, true));
+    assert(!app && !hardware.allocationCalls && !hardware.writes && !hardware.timerRunning);
+    contains("heap_integrity");
+    for (unsigned failure = 0; failure < 3; ++failure) {
+        fresh();
+        if (failure == 0) hardware.watchdogSetupResult = 11;
+        if (failure == 1) hardware.watchdogAddResult = 12;
+        if (failure == 2) hardware.watchdogFeedResult = 13;
+        assert(!beginApplication({47, 48, 21, true}, true));
+        assert(app && !platformReady && !hardware.writes);
+        contains("owner_watchdog");
+        command("@1 probe\n"); contains("\"result\":\"unavailable\"");
+        assert(!hardware.writes);
+    }
+    fresh(); hardware.watchdogInitialized = false; hardware.resetReason = 6;
+    startOwner(); pump();
+    assert(platformReady && hardware.watchdogSubscribed && hardware.watchdogFeeds);
+    command("@1 drv\n");
+    contains("\"reset_reason\":6"); contains("\"subscribed\":true");
+}
+
 void testIdfUsbByteCachingBudgetsAndPartialOutput() {
     fresh(); startOwner();
     Serial.input = "ab";
@@ -216,6 +241,7 @@ void testSharedCompleteInventoryAndRejectedRequestsNoTx() {
 
 int main() {
     testActualStartupAndPassiveCommands();
+    testHeapAndWatchdogStartupFailures();
     testExplicitRuntimeTopologyRemainsUnconfirmed();
     testStartupDelimitsRetainedBootBytesBeforeCorrelatedReply();
     testStartupBoundaryPrecedesBootFailureAndMustBeQueued();

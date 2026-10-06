@@ -4,6 +4,10 @@
 #include <cstdlib>
 #include "Hardware.h"
 constexpr unsigned MALLOC_CAP_INTERNAL = 1, MALLOC_CAP_8BIT = 2, MALLOC_CAP_SPIRAM = 4;
+inline bool heap_caps_check_integrity_all(bool printErrors) {
+    assert(!printErrors && !hardware.timerRunning);
+    ++hardware.heapChecks; return hardware.heapIntegrity;
+}
 inline void* heap_caps_malloc(std::size_t size, unsigned caps) {
     assert(caps == (MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
     ++hardware.allocationCalls; hardware.allocationCaps = caps;

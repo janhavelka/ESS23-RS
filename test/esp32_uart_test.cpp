@@ -802,7 +802,27 @@ void testTwoStopFifoPublicationBeforeFinalStop() {
 }
 } // namespace
 
+void testCacheDisabledInterruptSkipsFlashWorkAndLatchesLoss() {
+    resetHardware(); Esp32S3Uart uart;
+    assert(uart.begin({47, 48, 21, true}));
+    hardware.captureObjectInternal = false;
+    assert(!uart.startCapture() && !hardware.timerCreated);
+    hardware.captureObjectInternal = true;
+    assert(uart.startCapture());
+    const auto before = uart.stats();
+    hardware.cacheEnabled = false;
+    advanceHardware(hardware.time + 40); // Shorter than a character; cache loss itself must latch.
+    assert(uart.stats().samples == before.samples);
+    hardware.cacheEnabled = true;
+    uart.sample();
+    assert(uart.needsRecovery() && uart.stats().cacheInterrupted && !uart.stats().sampleGapExceeded);
+    uart.resetStats(); assert(uart.needsRecovery());
+    assert(uart.clear()); uart.sample();
+    assert(!uart.needsRecovery() && !uart.stats().cacheInterrupted);
+    assert(hardware.writes == 0 && uart.stopCapture());
+}
 int main() {
+    testCacheDisabledInterruptSkipsFlashWorkAndLatchesLoss();
     testInitialization(); testPhysicalTx(); testReceiveCapture();
     testPinValidation(); testAlternatePinsAndPolarity();
     testIdleSnapshotRace(); testSlowSnapshotFails();

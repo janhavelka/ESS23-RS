@@ -197,7 +197,7 @@ struct Snapshot {
     uint64_t recoveryGuardUntilUs = 0;
     uint64_t deadlineUs = 0; ///< Earliest outstanding request/recovery absolute deadline.
     bool timerCapture = false;
-    bool cacheOffSupported = false, sampleGapExceeded = false;
+    bool cacheOffSupported = false, sampleGapExceeded = false, cacheInterrupted = false;
     uint32_t sampleGapLimitUs = 0;
     uint32_t readBudget = Rtu::READ_BUDGET;
     uint32_t operationId = 0;
@@ -209,6 +209,10 @@ struct Snapshot {
     std::size_t outputQueued = 0;
     uint64_t outputBlocked = 0, outputShortWrites = 0, inputBytes = 0, inputLines = 0, inputDropped = 0;
     bool previousRuntimeValid = false;
+    bool ownerWatchdog = false;
+    int32_t ownerWatchdogError = 0;
+    uint32_t resetReason = 0, ownerWatchdogTimeoutMs = 0;
+    uint64_t ownerCompletedLoops = 0, ownerWatchdogFeedUs = 0;
     uint32_t previousRuntimeStage = 0, previousRuntimeUptimeMs = 0, previousRuntimeLoops = 0;
     uint32_t previousRuntimeInputLines = 0, previousRuntimeOutputQueued = 0, previousRuntimeOutputBlocked = 0;
     const StateCache* stateCache = nullptr; ///< Borrowed for synchronous snapshot formatting only.

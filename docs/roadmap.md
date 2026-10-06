@@ -1,5 +1,11 @@
 # Roadmap to a supported ESS release
 
+The [firmware health investigation](reports/2026-10-06_firmware_health.md)
+adds owner-task supervision and fixes a reproduced capture-interrupt crash
+during watchdog dump generation, plus native-IDF inherited USB enables.
+The original overnight trigger and endurance rerun remain open; these fixes
+do not turn the failed overnight campaign into a pass.
+
 The [motion/USB follow-up](reports/2026-10-06_motion_console_and_usb.md) fixes rejection lockout, boot-session coordinates,
 unit syntax and repeated completed-target handling. Its finite hardware regression
 and full software verifier pass; USB root cause/endurance remain open.

@@ -375,7 +375,7 @@ MEMORY_FIELDS = (
     "psram_largest", "stack_free_bytes",
 )
 FAULT_TEXT = re.compile(
-    r"Guru Meditation|stack canary|watchdog.*(?:trigger|timeout)|assert failed|"
+    r"Guru Meditation|stack canary|\bwatchdog\b.*(?:trigger|timeout)|assert failed|"
     r"abort\(\) was called|brownout detector|backtrace:|(?:^|\s)rst:0x",
     re.IGNORECASE,
 )

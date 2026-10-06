@@ -1556,7 +1556,27 @@ void testRuntimeWitnessSurvivesResetWithoutMotorState() {
     assert(diagnostic.previousRuntimeOutputQueued == 3 && diagnostic.previousRuntimeOutputBlocked == 200);
     assert(!app->axis.originKnown && app->bootOriginPending && hardware.writes == 0);
 }
+void testOwnerWatchdogTracksCompletedTurnsAndBlocksAdmissionOnFeedFailure() {
+    fresh();
+    assert(hardware.heapChecks == 1 && hardware.watchdogSubscribed);
+    assert(hardware.watchdogPanic && hardware.watchdogTimeoutMs == 5000 && hardware.watchdogIdleMask == 1);
+    const unsigned initialFeeds = hardware.watchdogFeeds;
+    Serial.writeCapacity = 0;
+    command("@1 status\n@2 drv\n");
+    for (unsigned i = 0; i < 150; ++i) step(1000);
+    assert(OwnerWatchdog::completedLoops > 150 && hardware.watchdogFeeds > initialFeeds);
+    assert(app->outputCount && hardware.writes == 0); // Backpressure returns; owner still completes turns.
+    Serial.writeCapacity = 4096;
+    hardware.watchdogFeedResult = 17;
+    for (unsigned i = 0; i < 150 && platformReady; ++i) step(1000);
+    assert(!platformReady && OwnerWatchdog::error == 17);
+    command("@3 probe\n"); contains("\"result\":\"unavailable\"");
+    assert(hardware.writes == 0);
+    const unsigned failedFeeds = hardware.watchdogFeeds;
+    pump(); assert(hardware.watchdogFeeds == failedFeeds); // Fault is not silently repaired/retried.
+}
 int main() {
+    testOwnerWatchdogTracksCompletedTurnsAndBlocksAdmissionOnFeedFailure();
     testRuntimeWitnessSurvivesResetWithoutMotorState();
     testDefaultAgeKeepsEstablishedHostEvidence();
     std::printf("Storage bytes: App=%zu Record=%zu Console=%zu ReadContext=%zu PreparedRead=%zu Identity=%zu Config=%zu StateCache=%zu StateObservation=%zu\n",

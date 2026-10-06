@@ -1,5 +1,13 @@
 # Motor bench and testing authorization
 
+**Current state, 6 October after the firmware-health checks:** the
+[health follow-up](reports/2026-10-06_firmware_health.md) restores the normal
+Arduino image with owner supervision and the capture crash-path fix. Final
+read-only verification establishes RAM-only zero at raw position 61430;
+speed/alarm zero, enabled/nonrunning, DE released, owner/output queues empty,
+load/monitor/debug off, COM13 released. `moveto 0 deg` was a no-op. The original
+overnight trigger remains unresolved. The following earlier state is historical.
+
 The [motion/USB follow-up](reports/2026-10-06_motion_console_and_usb.md) flashes the corrected Arduino image and verifies four
 quarter-turn commands, return to RAM-only boot zero, repeated-target no-op,
 stop and exact profile restoration. The subsequent 100,000-query USB test and

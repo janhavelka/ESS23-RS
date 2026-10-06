@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 #pragma once
 #include "HostSerial.h"
+#include <esp_attr.h>
+#include <driver/gptimer.h>
 
 namespace MotorControlRSExample {
 
@@ -61,6 +63,7 @@ public:
         uint32_t actualBaud = 0; ///< SDK readback of the programmed divider.
         bool ready = false, failed = false, timer = false;
         bool sampleGapExceeded = false; ///< Sticky cause; statistics reset preserves it.
+        bool cacheInterrupted = false; ///< Sticky cache-off callback skip; never establishes valid capture.
     };
     CaptureStats stats() const noexcept; ///< Atomic task-context snapshot.
     bool ready() const noexcept { return stats().ready; }
@@ -74,6 +77,7 @@ public:
     void resetStats() noexcept;
 
 private:
+    static bool IRAM_ATTR alarm(gptimer_handle_t, const gptimer_alarm_event_data_t*, void*);
     static bool direction(void*, bool);
     static Rtu::WriteResult write(void*, const uint8_t*, std::size_t);
     static Rtu::TxState txState(void*, uint64_t, Rtu::TxObservation&);
@@ -102,6 +106,7 @@ private:
     bool txPending_ = false, txIdle_ = true, rxIdle_ = false;
     bool timerEnabled_ = false, timerRunning_ = false;
     bool sampleGapExceeded_ = false;
+    volatile bool cacheInterrupted_ = false; // Same-core ISR/owner; cleared only under the capture lock.
     bool configurationBlocked_ = false, captureWanted_ = false;
 };
 } // namespace MotorControlRSExample

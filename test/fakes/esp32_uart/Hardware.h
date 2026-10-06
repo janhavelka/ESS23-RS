@@ -51,6 +51,14 @@ struct Hardware {
     void (*createdTask)(void*) = nullptr;
     void* createdTaskContext = nullptr;
     bool stopOnIdle = false;
+    bool heapIntegrity = true;
+    unsigned heapChecks = 0;
+    bool watchdogInitialized = true, watchdogSubscribed = false, watchdogPanic = false;
+    int watchdogSetupResult = 0, watchdogAddResult = 0, watchdogFeedResult = 0;
+    unsigned watchdogFeeds = 0, watchdogTimeoutMs = 0, watchdogIdleMask = 0;
+    uint64_t watchdogFeedAt = 0;
+    uint32_t resetReason = 1;
+    bool cacheEnabled = true, captureObjectInternal = true;
 };
 struct FakeTaskStopped {};
 extern Hardware hardware;

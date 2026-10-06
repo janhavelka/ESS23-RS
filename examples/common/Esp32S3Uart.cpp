@@ -7,6 +7,8 @@
 #include <driver/gptimer.h>
 #include <esp_timer.h>
 #include <esp_rom_sys.h>
+#include <esp_memory_utils.h>
+#include <esp_private/cache_utils.h>
 #include <freertos/FreeRTOS.h>
 #include <hal/uart_ll.h>
 #include <hal/gpio_ll.h>
@@ -42,6 +44,8 @@ Esp32S3Uart::~Esp32S3Uart() {
 }
 
 bool Esp32S3Uart::startCapture(uint32_t periodUs, uint32_t holdUs) noexcept {
+    if (!esp_ptr_internal(this) ||
+        !esp_ptr_internal(reinterpret_cast<const uint8_t*>(this) + sizeof(*this) - 1)) return false;
     {
         Guard guard;
         if (!ready_ || configurationBlocked_ || failed_ || timer_ || transmitting_ || periodUs < 10 || periodUs > 40 ||
@@ -56,10 +60,7 @@ bool Esp32S3Uart::startCapture(uint32_t periodUs, uint32_t holdUs) noexcept {
     if (gptimer_new_timer(&config, &timer) != ESP_OK) return false;
     timer_ = timer; // Preserve ownership even when an initialization cleanup fails.
     gptimer_event_callbacks_t callbacks = {};
-    callbacks.on_alarm = [](gptimer_handle_t, const gptimer_alarm_event_data_t*, void* context) {
-        static_cast<Esp32S3Uart*>(context)->captureSample(true);
-        return false;
-    };
+    callbacks.on_alarm = alarm;
     gptimer_alarm_config_t alarm = {};
     alarm.alarm_count = periodUs;
     alarm.flags.auto_reload_on_alarm = true;
@@ -194,6 +195,7 @@ void Esp32S3Uart::newEpoch() noexcept {
     txPending_ = transmitting_ = rxIdle_ = false;
     txIdle_ = true;
     failed_ = sampleGapExceeded_ = false;
+    cacheInterrupted_ = false;
     sampled_ = emptySince_ = idleThrough_ = now();
 }
 
@@ -241,9 +243,23 @@ uint64_t Esp32S3Uart::sample() noexcept {
     return captureSample(false);
 }
 
+bool IRAM_ATTR Esp32S3Uart::alarm(gptimer_handle_t, const gptimer_alarm_event_data_t*, void* context) {
+    auto* self = static_cast<Esp32S3Uart*>(context);
+    // The pinned SDK installs an IRAM ISR even with ISR_CACHE_SAFE disabled.
+    // In particular, panic-time flash dumps can interrupt normal operation.
+    // Do not enter flash code or touch external memory while caches are off.
+    if (!spi_flash_cache_enabled()) {
+        self->cacheInterrupted_ = true;
+        return false;
+    }
+    self->captureSample(true);
+    return false;
+}
+
 uint64_t Esp32S3Uart::captureSample(bool timerCallback) noexcept {
     Guard guard;
     if (!ready_) return now();
+    if (cacheInterrupted_) fault(false);
     uint8_t value = 0;
     const uint64_t before = now();
     if (timerCallback) ++timerCallbacks_;
@@ -413,6 +429,7 @@ bool Esp32S3Uart::clear() noexcept {
     head_ = count_ = 0;
     failed_ = false;
     sampleGapExceeded_ = false;
+    cacheInterrupted_ = false;
     rxIdle_ = false; // Recovery is not fresh silence evidence; sample again first.
     emptySince_ = idleThrough_ = sampled_ = now();
     return true;
@@ -432,6 +449,7 @@ Esp32S3Uart::CaptureStats Esp32S3Uart::stats() const noexcept {
     s.ready = ready_ && !configurationBlocked_; s.failed = failed_ || configurationBlocked_; s.timer = timerRunning_;
     s.actualBaud = actualBaud_;
     s.sampleGapLimitUs = charMin_; s.sampleGapExceeded = sampleGapExceeded_;
+    s.cacheInterrupted = cacheInterrupted_;
     return s;
 }
 Rtu::Port Esp32S3Uart::port() noexcept {

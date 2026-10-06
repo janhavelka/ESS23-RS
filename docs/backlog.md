@@ -1,5 +1,15 @@
 # Features implementation tasks and open questions
 
+## Firmware health follow-up, 6 October
+
+- [x] Watch the actual owner task, feeding only after completed application turns.
+- [x] Reproduce and fix capture ISR crash during watchdog flash dump; preserve
+  explicit capture fault after a cache-disabled interval.
+- [x] Mask inherited native-IDF USB interrupt enables before driver installation.
+- [x] Test boot heap checks, watchdog failures, bounded output and retained faults.
+- [ ] Establish the original overnight stall trigger and repeat its duration.
+- Evidence: [firmware health investigation](reports/2026-10-06_firmware_health.md).
+
 ## Simple motion and USB follow-up, 6 October
 
 - [x] Reclaim delivered unsent preparation failures without locking the next move.

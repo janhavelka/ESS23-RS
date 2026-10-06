@@ -3625,6 +3625,18 @@ class Framing(unittest.TestCase):
         self.failed(lambda: console.command("probe", timeout_s=0.1), "watchdog fault")
         self.assertEqual(len(self.port.writes), 1)
 
+    def test_owner_watchdog_diagnostics_are_not_a_panic_line(self):
+        console = self.session()
+        def diagnostic(request_id, command, args):
+            return encoded({**json.loads(Serial.normal(request_id, command, args)),
+                            "owner_watchdog": {"subscribed": True, "error": 0,
+                                               "timeout_ms": 5000, "last_feed_us": 123,
+                                               "completed_loops": 42}, "reset_reason": 6})
+        self.port.handler = diagnostic
+        result = console.command("drv", timeout_s=0.1)
+        self.assertTrue(result["owner_watchdog"]["subscribed"])
+        self.assertTrue(console.synchronized)
+
     def test_memory_requires_valid_measurements(self):
         for change in ({"valid": False}, {"internal_free": True}, {"psram_min": None},
                        {"internal_largest": -1}, {"stack_free_bytes": 2**64}):

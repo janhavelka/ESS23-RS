@@ -2,6 +2,7 @@
 #include "ProbePlatform.h"
 #include "ProbeApp.h"
 #include "RuntimeWitness.h"
+#include "OwnerWatchdog.h"
 #include <MotorControlRS/profiles/ess_rs/Discovery.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -447,6 +448,12 @@ void snapshot(void* context, Probe::Snapshot& s) {
     s.previousRuntimeInputLines = RuntimeWitness::previous.inputLines;
     s.previousRuntimeOutputQueued = RuntimeWitness::previous.outputQueued;
     s.previousRuntimeOutputBlocked = RuntimeWitness::previous.outputBlocked;
+    s.ownerWatchdog = OwnerWatchdog::subscribed;
+    s.ownerWatchdogError = OwnerWatchdog::error;
+    s.ownerWatchdogTimeoutMs = OwnerWatchdog::TIMEOUT_MS;
+    s.resetReason = OwnerWatchdog::resetReason;
+    s.ownerCompletedLoops = OwnerWatchdog::completedLoops;
+    s.ownerWatchdogFeedUs = OwnerWatchdog::lastFeedUs;
     s.replyGapUs = a.serial.timing.replyGapUs; s.gap15Us = a.serial.timing.runner.gap15Us; s.gap35Us = a.serial.timing.runner.gap35Us;
     s.uptimeMs = nowUs() / 1000; s.ready = platformReady && a.serial.activeKnown && !a.serial.blocked; s.timingQualified = false;
     s.writeResponseConfirmed = writeResponseConfirmed; s.axisReserved = axisReserved(a);
@@ -480,6 +487,7 @@ void snapshot(void* context, Probe::Snapshot& s) {
     s.cacheOffSupported = Esp32S3Uart::CACHE_OFF_SUPPORTED;
     s.sampleGapLimitUs = capture.timer ? capture.sampleGapLimitUs : 0;
     s.sampleGapExceeded = capture.sampleGapExceeded;
+    s.cacheInterrupted = capture.cacheInterrupted;
     s.memoryValid = true;
     RuntimeWitness::mark(RuntimeWitness::HEAP_STATS);
     s.internalFree = heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
@@ -2265,6 +2273,9 @@ bool beginApplication(const Esp32S3Uart::Pins& pins, bool receiverDisabledDuring
         !options.moveTimeoutMs || options.moveTimeoutMs > 30000) return false;
     const bool consoleReady = Platform::beginConsole();
     if (!consoleReady) { Platform::bootFailure("console_init"); return false; }
+    // Walk heap metadata only at startup, before real-time capture starts.
+    // Runtime memory/free-space queries remain passive and do not scan payloads.
+    if (!heap_caps_check_integrity_all(false)) { Platform::bootFailure("heap_integrity"); return false; }
     void* memory = heap_caps_malloc(sizeof(App), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (!memory) { Platform::bootFailure("psram_allocation"); return false; }
     writeResponseConfirmed = receiverDisabledDuringTransmit;
@@ -2280,6 +2291,7 @@ bool beginApplication(const Esp32S3Uart::Pins& pins, bool receiverDisabledDuring
     if (!fixtureReady) { platformReady = false; failure = "load_init"; }
 #endif
     app = new (memory) App(options);
+    if (!OwnerWatchdog::begin()) { platformReady = false; failure = "owner_watchdog"; }
     app->runner.setTrafficCapture(&app->debug.capture);
     app->console.welcome();
     if (failure) Platform::bootFailure(failure);
@@ -2378,7 +2390,8 @@ void serviceApplication() {
     serviceDiscovery(a, nowUs());
     advanceReads(a, nowUs());
     advanceActions(a, nowUs());
-    serviceCoordinates(a, nowUs());
+    const uint64_t completedSampleUs = nowUs();
+    serviceCoordinates(a, completedSampleUs);
     RuntimeWitness::mark(RuntimeWitness::CONSOLE);
     a.console.serviceOutput(); deliver(a);
     serviceSimpleMotion(a, nowUs());
@@ -2396,6 +2409,7 @@ void serviceApplication() {
 #endif
     serviceDebug(a);
     drainOutput(a);
+    if (!OwnerWatchdog::completed(completedSampleUs)) platformReady = false;
     RuntimeWitness::mark(RuntimeWitness::IDLE);
     if (!a.owner.active() || !serviceDue) Platform::idle(1);
 }
