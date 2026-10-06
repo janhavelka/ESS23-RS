@@ -84,6 +84,15 @@ prepare angle <value> turn|deg|rad motor|load positive|negative|shortest reject|
 
 Round tokens are `exact`, `nearest`, `zero`, `floor`, `ceil`; omitted rounding/error is EXACT/0. Nonzero radians require a non-EXACT rounding policy and explicit positive radian error allowance. Strict numbers are ASCII signed integers, decimals with digits on both sides of the point, or integer/positive-denominator fractions. Exponents, hex, NaN, infinity, whitespace within a token, trailing junk and storage overflow reject. The public `parseExactNumber` is reused; no CLI conversion arithmetic exists. Line capacity is 128 bytes including terminator, token capacity 20 including correlation; overflow rejects the entire line. Output is bounded at 4608 bytes with existing backpressure disposition. Host `axis origin` takes an exact native integer and never changes drive counters. Actual `move relative|absolute|angle` and profile routes use the separate shared ESS executor and its admission prerequisites.
 
-The standalone starts with unknown scales/origins and no relative-basis policy. `relative-bases` is an operator-declared host arithmetic policy, not ESS wire capability or readiness. Fresh checked non-running/alarm-clear motion flags allow idle host configuration; cached model identity cannot provide that witness. Monitoring, bus activity, faults or stale motion evidence reject changes. The current ESS algorithm/source/sign uncertainty never becomes `nativeKnown`, even at raw zero: origin and reference-dependent soft-limit changes remain unavailable through this bench application. Host assumptions do not resolve that firmware evidence.
+The core requires supplied scale/reference evidence. The standalone convenience
+workflow uses the explicit ASSUMED 1000 command steps/turn convention and establishes
+a RAM-only session zero at the first checked stationary preparation; it performs
+no counter clear or NVS write. Idle sample expiry and motion-profile restoration
+preserve this fixed offset while requiring fresh current-position evidence.
+Release, external movement or coordinate interpretation changes invalidate it.
+`relative-bases` is a host arithmetic policy, not ESS wire capability. Monitoring,
+bus activity, faults and missing stationary evidence still reject host changes.
+The standalone convention does not qualify physical scale, signed encoding or
+homing/limit semantics. See [the current console policy](console.md).
 
 Preview JSON keeps `bus_traffic:false`, `motion_command:false`, `wire_motion:"not_requested"`, independent host and binding generations, original request and validity/error fields. Exact requested values use a mixed integer/fraction; approximate requests use `requested_native:null` and a separate approximate number. Enum ordinals: frames native/motor/load 0/1/2; relative bases actual/commanded/queued 0/1/2; rounding EXACT/NEAREST/TOWARD_ZERO/FLOOR/CEIL 0..4; angle paths POSITIVE/NEGATIVE/SHORTEST 0/1/2 and half-turn ties REJECT/POSITIVE/NEGATIVE 0/1/2. The Python Console preserves correlation and checks evidence without reimplementing conversion. Framing failure never causes replay.

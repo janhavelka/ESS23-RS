@@ -1,5 +1,13 @@
 # Features implementation tasks and open questions
 
+## Subdivision and boot-origin follow-up, 6 October
+
+- [x] Expose subdivision read/set/options through the existing typed setter.
+- [x] Admit stopped subdivision-only changes from checked passive input evidence.
+- [x] Preserve boot zero after profile restoration and observation expiry.
+- [x] Prefer fresh configuration over invalidated driver history during reconciliation.
+- Evidence: [regression and settings restoration](reports/2026-10-06_subdivision_and_origin.md).
+
 ## Convenience rounding and live-speed review, 6 October
 
 - [x] Shared nearest-step defaults for simple CLI/C++ moves; retain rounding error.

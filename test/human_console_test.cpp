@@ -247,7 +247,7 @@ void unifiedHelpHasOneEntryPerCommand() {
     Probe::Console console(host);
     send(console, "help\n");
     const auto menu=fake.lines.back();
-    for(const char* name : {"settings", "moveby", "moveto", "driver", "motion-profile", "debug", "stop"}) {
+    for(const char* name : {"settings", "moveby", "moveto", "subdivision", "driver", "motion-profile", "debug", "stop"}) {
         const std::string row=std::string("\n  ")+name+" ";
         const auto at=menu.find(row);
         assert(at!=std::string::npos && menu.find(row,at+1)==std::string::npos);
@@ -262,6 +262,18 @@ void unifiedHelpHasOneEntryPerCommand() {
         contains(fake.lines.back(), "ERROR");
         assert(fake.admitted.empty() && fake.actions == 0);
     }
+    send(console, "help subdivision\n");
+    contains(fake.lines.back(), "subdivision [INTEGER|options]");
+    contains(fake.lines.back(), "400..51200");
+    send(console, "subdivision options\n");
+    assert(!json(fake.lines.back()));
+    contains(fake.lines.back(), "any integer from 400 to 51200");
+    contains(fake.lines.back(), "examples, not the only allowed values");
+    contains(fake.lines.back(), "read config, subdivision, and read state");
+    assert(fake.admitted.empty() && fake.actions == 0);
+    send(console, "@89 subdivision options\n");
+    assert(json(fake.lines.back()));
+    contains(fake.lines.back(), "\"all_integers_in_range\":true");
     send(console, "help stop\n");
     contains(fake.lines.back(),"stop normal|fast");
     contains(fake.lines.back(),"reserved priority");

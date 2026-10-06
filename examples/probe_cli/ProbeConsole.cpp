@@ -33,7 +33,7 @@ Action driverAdmissionStatus(const MotorControlRS::Status& status) noexcept {
 }
 namespace {
 
-enum class Command : uint8_t { HELP, VERSION, CONFIG, STATUS, HEALTH, STATS, PROBE, CAPTURE_READ, RECOVER, MEMORY, LOAD, DRV, RESULT, CANCEL, RELEASE, READ, PROFILE, CAPS, READ_IDENTITY, READ_CONFIG, READ_STATE, MONITOR, AXIS, PREPARE, ENABLE, MOTOR_RELEASE, ALARM_CLEAR, STOP, MOVE, POSITION_CLEAR, VELOCITY, DRIVER, IO, HOME, SEGMENT, CONTROL, TUNING, HOST, COMMUNICATION, PERSISTENCE, MOTION_PROFILE, DEBUG, DISCOVER, USEADDR, WIRING, MOVE_BY, MOVE_TO, SPEED, ACCEL, DECEL, MOTION, STEPS_PER_TURN, SETTINGS };
+enum class Command : uint8_t { HELP, VERSION, CONFIG, STATUS, HEALTH, STATS, PROBE, CAPTURE_READ, RECOVER, MEMORY, LOAD, DRV, RESULT, CANCEL, RELEASE, READ, PROFILE, CAPS, READ_IDENTITY, READ_CONFIG, READ_STATE, MONITOR, AXIS, PREPARE, ENABLE, MOTOR_RELEASE, ALARM_CLEAR, STOP, MOVE, POSITION_CLEAR, VELOCITY, DRIVER, IO, HOME, SEGMENT, CONTROL, TUNING, HOST, COMMUNICATION, PERSISTENCE, MOTION_PROFILE, DEBUG, DISCOVER, USEADDR, WIRING, MOVE_BY, MOVE_TO, SPEED, ACCEL, DECEL, MOTION, STEPS_PER_TURN, SETTINGS, SUBDIVISION };
 struct Entry { const char* name; Command command; const char* syntax; const char* effect; bool bus; const char* description; };
 const Entry COMMANDS[] = {
     {"moveby", Command::MOVE_BY, "moveby VALUE [steps|deg|turn|mm]", "finite_relative_move_with_readonly_preparation", true, "Move by an amount; default unit is command steps. Round to nearest command step, ties to even."},
@@ -42,6 +42,7 @@ const Entry COMMANDS[] = {
     {"accel", Command::ACCEL, "accel [VALUE [ms]]", "host_intent_native_ramp_applied_by_next_simple_move", false, "Show or set acceleration ramp time in ms (0..2000; default 100)."},
     {"decel", Command::DECEL, "decel [VALUE [ms]]", "host_intent_native_ramp_applied_by_next_simple_move", false, "Show or set deceleration ramp time in ms (0..2000; default 100)."},
     {"motion", Command::MOTION, "motion [write|stored]", "inspect_or_select_simple_motion_setup", false, "Choose setup policy: write parameters before start, or explicitly reuse stored parameters."},
+    {"subdivision", Command::SUBDIVISION, "subdivision [INTEGER|options]", "typed_drive_subdivision_read_write_with_checked_readback", true, "Read or set motor subdivision (400..51200); options shows useful examples. Writes require stopped-state evidence."},
     {"stepsperturn", Command::STEPS_PER_TURN, "stepsperturn POSITIVE_NUMBER", "host_command_scale_only_no_motor_settings", false, "Declare command steps per motor turn for angle conversion."},
     {"discover", Command::DISCOVER, "discover [profile ess_rs|manufacturer stepperonline] [addresses FIRST LAST] [tuple BAUD FORMAT] [query-ms 1..5000] [overall-ms 1..60000] [requests 1..256] [results 1..8] [identity] | discover inspect|cancel|restore|finish; max4 distinct tuples,128bytes,20tokens; defaults selected endpoint/current tuple,query500ms,overall5000ms,requests16,results8,no identity,no retries", "bounded_nonchanging_queries_retained_findings_host_restoration", true, "Find responding drives within explicit address, serial and time limits."},
     {"debug", Command::DEBUG, "debug [off|raw|decoded]", "observe_regular_operations_and_cached_diagnostics", false, "Show diagnostics; select raw or decoded traffic while ordinary commands run."},
@@ -475,7 +476,7 @@ const char* helpGroup(Command command) {
     case Command::MOVE: case Command::VELOCITY: case Command::HOME: case Command::ENABLE:
     case Command::MOTOR_RELEASE: case Command::ALARM_CLEAR: case Command::POSITION_CLEAR: case Command::STOP:
         return "Motor operations";
-    case Command::DRIVER: case Command::IO: case Command::SEGMENT: case Command::CONTROL: case Command::TUNING:
+    case Command::SUBDIVISION: case Command::DRIVER: case Command::IO: case Command::SEGMENT: case Command::CONTROL: case Command::TUNING:
     case Command::MOTION_PROFILE: case Command::PERSISTENCE:
         return "Drive settings";
     case Command::STEPS_PER_TURN: case Command::CONFIG: case Command::HOST: case Command::USEADDR: case Command::WIRING:
@@ -495,6 +496,7 @@ const char* helpExample(Command command) {
     case Command::ACCEL: return "accel 100";
     case Command::DECEL: return "decel 100";
     case Command::MOTION: return "motion\n  motion write\n  motion stored";
+    case Command::SUBDIVISION: return "subdivision options\n  read config\n  subdivision\n  read state\n  subdivision 1600";
     case Command::STEPS_PER_TURN: return "stepsperturn 1000  (only if this is your established scale)";
     case Command::PROBE: return "probe 1";
     case Command::READ: return "read config 1\n  read state 1";
@@ -1278,15 +1280,45 @@ void Console::dispatch() noexcept {
         action(id, "home", result, static_cast<uint8_t>(address), result == Action::OK ? operationId : 0);
         return;
     }
-    const bool nativeDriver = entry->command == Command::DRIVER;
+    const bool simpleSubdivision = entry->command == Command::SUBDIVISION;
+    const bool nativeDriver = entry->command == Command::DRIVER || simpleSubdivision;
     const bool nativeIo = entry->command == Command::IO;
     const bool nativeSegment = entry->command == Command::SEGMENT;
     const bool nativeControl = entry->command == Command::CONTROL;
     const bool nativeTuning = entry->command == Command::TUNING;
     if (nativeDriver || nativeIo || nativeSegment || nativeControl || nativeTuning) {
         const char* command = nativeTuning ? "tuning" : nativeControl ? "control" :
-            nativeSegment ? "segment" : nativeIo ? "io" : "driver";
+            nativeSegment ? "segment" : nativeIo ? "io" : simpleSubdivision ? "subdivision" : "driver";
         if (outputPending()) { ++inputDropped_; return; }
+        // Expand the short command into the existing checked driver grammar.
+        // No alternate register writer, validation policy or operation storage.
+        char readWord[] = "read", setWord[] = "set", subdivisionWord[] = "subdivision";
+        if (simpleSubdivision) {
+            if (count > first + 2) { error(id, command, "invalid_arguments"); return; }
+            if (count == first + 2 && !std::strcmp(tokens[first + 1], "options")) {
+                if (outputFormat_ == Format::HUMAN) {
+                    std::snprintf(output_, sizeof(output_),
+                        "Subdivision: any integer from 400 to 51200; documented default 1000.\n"
+                        "Useful examples: 400, 800, 1000, 1600, 2000, 3200, 6400, 12800, 25600, 51200.\n"
+                        "These are examples, not the only allowed values.\n"
+                        "Read: subdivision. Before setting, run read config, subdivision, and read state; wait for each result.\n"
+                        "Then set while stopped: subdivision 1600.\n"
+                        "Changing this drive setting invalidates the host scale and origin; no motion or save is automatic.");
+                    emit(0, true);
+                } else {
+                    std::snprintf(output_, sizeof(output_),
+                        "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"subdivision\",\"ok\":true,\"minimum\":400,\"maximum\":51200,\"default\":1000,\"examples\":[400,800,1000,1600,2000,3200,6400,12800,25600,51200],\"all_integers_in_range\":true,\"device_settings_changed\":false}",
+                        static_cast<unsigned long>(id));
+                    emit();
+                }
+                return;
+            }
+            if (count == first + 1) { tokens[first + 1] = readWord; ++count; }
+            else {
+                tokens[first + 3] = tokens[first + 1];
+                tokens[first + 1] = setWord; tokens[first + 2] = subdivisionWord; count += 2;
+            }
+        }
         if (!host_.startDriver || !host_.snapshot) { error(id, command, "unavailable"); return; }
         std::size_t next = first + 1;
         if (next >= count) { error(id, command, "invalid_arguments"); return; }
@@ -1789,7 +1821,7 @@ void Console::dispatch() noexcept {
         case Command::SETTINGS: return host_.simpleMotion != nullptr;
         case Command::MOVE: return host_.startMove && host_.snapshot && host_.axis;
         case Command::VELOCITY: return host_.startVelocity && host_.snapshot && host_.axis;
-        case Command::TUNING: case Command::CONTROL: case Command::SEGMENT: case Command::IO: case Command::DRIVER: return host_.startDriver && host_.snapshot;
+        case Command::SUBDIVISION: case Command::TUNING: case Command::CONTROL: case Command::SEGMENT: case Command::IO: case Command::DRIVER: return host_.startDriver && host_.snapshot;
         case Command::HOME: return true; // Method inventory is local; execution checks its own hooks.
         case Command::PROFILE: return true; // Local inventory does not need a transport.
         case Command::READ: case Command::READ_IDENTITY: case Command::READ_CONFIG: case Command::READ_STATE: return host_.startTypedRead != nullptr;

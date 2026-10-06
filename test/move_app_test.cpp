@@ -640,7 +640,7 @@ void testOriginIsHostOnlyAndConfidenceInvalidates() {
     command("@2 status\n"); command("@3 axis config\n");
     assert(app->coordinateReference.observedUs == observed && hardware.writes == 0);
     advanceHardware(observed + app->coordinateReference.maximumAgeUs + 1); step();
-    assert(!app->axis.originKnown && !app->coordinateReference.nativeKnown && hardware.writes == 0);
+    assert(app->axis.originKnown && app->axis.originNative == 10 && !app->coordinateReference.nativeKnown && hardware.writes == 0);
     qualify(); coordinates();
     auto& motion = app->stateCache.blocks[static_cast<uint8_t>(ESS::StateBlock::MOTION)];
     motion.value.released = true; step();
@@ -664,8 +664,9 @@ void testHostPreferencesPreserveReferenceAge() {
         command("@2 prepare angle 36 deg motor shortest reject\n");
         assert(Serial.output.find("\"ok\":true") != std::string::npos);
         assert(hardware.writes == 0);
+        const bool limitsKnown = app->axis.softLimitsKnown;
         advanceHardware(observed + maximumAge + 1); step();
-        assert(!app->axis.originKnown && !app->coordinateReference.nativeKnown && !app->axis.softLimitsKnown);
+        assert(app->axis.originKnown && !app->coordinateReference.nativeKnown && app->axis.softLimitsKnown == limitsKnown);
         assert(hardware.writes == 0);
     }
     fresh(); qualify(); coordinates();
@@ -676,7 +677,7 @@ void testHostPreferencesPreserveReferenceAge() {
     command("@2 axis config set command 1000\n"); // Idempotent interpretation keeps the original witness.
     assert(app->coordinateReference.nativeKnown && app->axis.originKnown && app->coordinateReference.observedUs == observed);
     advanceHardware(observed + app->coordinateReference.maximumAgeUs + 1); step();
-    assert(!app->axis.originKnown && !app->coordinateReference.nativeKnown);
+    assert(app->axis.originKnown && !app->coordinateReference.nativeKnown);
     qualify(); coordinates();
     command("@1 axis config set polarity -1\n");
     assert(Serial.output.find("\"ok\":true") != std::string::npos);

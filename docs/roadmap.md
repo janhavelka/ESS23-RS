@@ -1,5 +1,9 @@
 # Roadmap to a supported ESS release
 
+[Subdivision/origin follow-up](reports/2026-10-06_subdivision_and_origin.md)
+adds simple typed subdivision access and fixes profile restoration erasing the
+boot zero. Actual subdivision changes still invalidate the old coordinate scale.
+
 [Convenience rounding and live-speed review](reports/2026-10-06_rounding_and_live_speed.md)
 adds bounded nearest-step simple moves. ESS position-command replacement while
 running is documented; bare speed-write and smooth transition behavior remain

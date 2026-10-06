@@ -114,7 +114,13 @@ void serviceMotionProfile(App& a, App::MotionProfileState& session, uint64_t now
     if (view.phase == Probe::MotionProfilePhase::RESTORE && !view.restoreUnsettled &&
         a.owner.txAccepted(session.request)) {
         view.restoreUnsettled = true;
-        invalidateAxis(a); view.generation = a.axis.generation;
+        // Staging speed/ramp/target words does not change the position counter
+        // or coordinate scale. Expire prepared work and current-position evidence
+        // while retaining the established host zero and coordinate limits.
+        a.axis.generation = !a.axis.generation || a.axis.generation == UINT32_MAX ? 0 : a.axis.generation + 1;
+        a.coordinateReference = MotorControlRS::AxisReference();
+        a.simpleEndpointKnown = false;
+        view.generation = a.axis.generation;
         a.movePrerequisites = ESS::MovePrerequisites(); a.velocityPrerequisites = ESS::VelocityPrerequisites();
         a.homePrerequisites = ESS::HomePrerequisites(); a.positionClearQualified = false;
     }

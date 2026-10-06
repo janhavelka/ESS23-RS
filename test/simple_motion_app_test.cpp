@@ -36,9 +36,9 @@ void simpleReadStep(uint16_t rawSpeed = 0, uint16_t subdivision = 1000, uint32_t
     }
     assert(false);
 }
-void prepareSimple(bool serviceAfterAdmission = true) {
+void prepareSimple(bool serviceAfterAdmission = true, uint32_t position = 0) {
     for(unsigned i=0;i<20 && app->simple.view.pending && app->simple.view.phase!=Probe::SimpleMotionPhase::PROFILE;++i)
-        simpleReadStep();
+        simpleReadStep(0,1000,position);
     assert(app->simple.view.pending && app->simple.view.phase==Probe::SimpleMotionPhase::PROFILE);
     auto& profile=app->simple.view.settingsOnly ? app->simple.settingsProfile : app->motionProfile;
     if (!profile.view.pending) {
@@ -297,6 +297,47 @@ void testBootZeroSurvivesCompletedMovesAndInvalidatesOnLoss() {
     const auto rejected=app->simple.view.operationId;
     command("@4 moveby 90 deg\n"); prepareSimple();
     assert(app->simple.view.operationId!=rejected && app->simple.view.moveAdmitted);
+    completeSimple();
+}
+void testIdleAndProfileRestoreKeepBootZero() {
+    fresh(5000); command("@1 moveto 0 deg\n");
+    for(unsigned i=0;i<8;++i) simpleReadStep(0,1000,49890);
+    prepareSimple(); pump(1000);
+    assert(app->simple.view.ok && app->simple.view.alreadyAtTarget);
+    assert(app->axis.originKnown && app->axis.originNative==49890 && app->coordinateReference.nativeKnown);
+    const auto generation=app->axis.generation;
+    // A human can pause between commands without losing the boot zero.
+    advanceHardware(hardware.time+app->observationAgeUs()+1); step();
+    assert(app->axis.originKnown && app->axis.originNative==49890 && !app->coordinateReference.nativeKnown);
+    assert(app->axis.generation==generation && !app->bootOriginPending);
+    command("@2 moveto 90 deg\n"); prepareSimple(true,49890);
+    assert(app->simple.view.moveAdmitted && app->simple.view.move->prepared.effectiveNative==50140);
+    completeSimple();
+    command("@20 read state\n");
+    const uint32_t state=app->latestOperationId;
+    const std::vector<uint8_t> responses[]={registers(1,{0,1}),registers(1,{0,0}),registers(1,{0,50140,0})};
+    for(unsigned block=0;block<3;++block) {
+        waitTx(state); scheduleReply(hardware.time+2000,responses[block]);
+        for(unsigned n=0;n<25000 && view(state).pending && view(state).typedRead->step==block;++n) step();
+    }
+    pump(1000); assert(view(state).typedRead->state==ReadState::SUCCEEDED);
+    assert(release(app,state)==Probe::Action::OK);
+    Probe::MotionProfileView profile;
+    assert(motionProfileCommand(app,Probe::MotionProfileCommand::RESTORE,profile)==Probe::Action::OK);
+    for(unsigned i=0;i<2;++i) {
+        const auto request=app->motionProfile.request;
+        const auto phase=app->motionProfile.view.phase;
+        for(unsigned n=0;n<25000 && !app->owner.txAccepted(request);++n) step();
+        assert(app->owner.txAccepted(request));
+        const auto reply=i==0 ? crc({1,16,0,0x21,0,5}) : registers(1,{30,100,100,60,0,5000});
+        scheduleReply(std::max(hardware.writeStarted+hardware.tx.size()*87+1000,hardware.time+1000),reply);
+        for(unsigned n=0;n<25000 && app->motionProfile.view.pending && app->motionProfile.view.phase==phase;++n) step();
+    }
+    assert(app->motionProfile.view.restored && app->motionProfile.view.ok);
+    assert(app->axis.generation==generation+1 && app->axis.originKnown && app->axis.originNative==49890);
+    assert(!app->coordinateReference.nativeKnown && app->bootCoordinates && !app->bootOriginPending);
+    command("@3 moveto 10 deg\n"); prepareSimple(true,50140);
+    assert(app->simple.view.moveAdmitted && app->simple.view.move->prepared.effectiveNative==49918);
     completeSimple();
 }
 void testRejectedAndAcceptedStopDuringPreparation() {
@@ -605,6 +646,7 @@ void testConvenienceRoundingUsesSharedPreparation() {
     assert(!MotorControlRSExample::submitMove(exact,60,id) && hardware.writes==before);
 }
 int main() {
+    testIdleAndProfileRestoreKeepBootZero();
     testConvenienceRoundingUsesSharedPreparation();
     testCancelledUnsentAndRejectedStageAllowNextSession();
     testStoppedSimpleMoveRetainsFailureAndAllowsNextSession();

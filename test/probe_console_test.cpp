@@ -1464,6 +1464,33 @@ void testDriverProfileGrammarAndRetainedReports() {
     Fake noHook; Probe::Console unavailable(noHook.host(), Probe::Format::JSON); send(unavailable, "driver read\n"); noHook.contains("unavailable");
 }
 
+void testSimpleSubdivisionUsesDriverPath() {
+    Fake fake; auto host = fake.host(false, true); host.startDriver = Fake::startDriver;
+    Probe::Console console(host, Probe::Format::JSON);
+    send(console, "@710 subdivision options\n");
+    fake.contains("\"all_integers_in_range\":true"); fake.contains("\"minimum\":400");
+    fake.contains("\"maximum\":51200"); assert(fake.drivers == 0);
+    send(console, "@711 subdivision\n");
+    assert(fake.drivers == 1 && fake.driverKind == Ess::DriverKind::READ && !fake.driverRequest.fields);
+    assert(fake.address == fake.data.address); fake.contains("\"command\":\"subdivision\"");
+    for (unsigned value : {400U, 1000U, 1600U, 51200U}) {
+        send(console, "subdivision " + std::to_string(value) + "\n");
+        assert(fake.driverKind == Ess::DriverKind::UPDATE && fake.driverRequest.group == Ess::DriverGroup::DRIVE);
+        assert(fake.driverRequest.fields == static_cast<uint32_t>(Ess::DriverField::SUBDIVISION));
+        assert(fake.driverRequest.subdivision == value);
+    }
+    assert(fake.drivers == 5);
+    for (const char* line : {"subdivision -1", "subdivision 65536", "subdivision 1.0",
+            "subdivision 1/1", "subdivision 1600 1", "subdivision options extra", "subdivision 18446744073709551616"}) {
+        send(console, std::string(line) + "\n"); fake.contains("\"ok\":false"); assert(fake.drivers == 5);
+    }
+    fake.actionResult = Probe::Action::AXIS_CONFLICT;
+    send(console, "subdivision 1600\n"); fake.contains("axis_conflict");
+    send(console, "help subdivision\n"); fake.contains("subdivision [INTEGER|options]");
+    send(console, "help\n"); fake.contains("\"subdivision\"");
+    assert(fake.simpleCalls == 0 && fake.typedReads == 0); // The alias adds no second preparation path.
+}
+
 void testMaximumDriverReportFitsFixedOutput() {
     Fake fake; auto host = fake.host(false, true); host.startDriver = Fake::startDriver;
     Probe::Console console(host, Probe::Format::JSON); send(console, "@900 driver set direction 1\n");
@@ -2234,5 +2261,6 @@ int main(int argc, char** argv) {
     testAbsoluteAngleAndClearRoutesUsePublicRequests();
     testVelocityExactRoutesRetentionAndBound();
     testDriverProfileGrammarAndRetainedReports();
+    testSimpleSubdivisionUsesDriverPath();
     testMaximumDriverReportFitsFixedOutput();
 }

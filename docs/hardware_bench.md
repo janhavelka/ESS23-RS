@@ -1,5 +1,13 @@
 # Motor bench and testing authorization
 
+**Latest, 6 October subdivision/origin follow-up:** the
+[corrected image and retained evidence](reports/2026-10-06_subdivision_and_origin.md)
+pass absolute moves after profile restoration and subdivision 1000/1600/1000
+write/readback. Original settings are restored. After a controller reset, the
+RAM-only boot zero is confirmed at raw 62060; `moveto 0 deg` sends no motion.
+Speed/alarm zero, enabled/nonrunning, DE released, owner/output queues empty,
+load/monitor/debug off, COM13 closed. Earlier snapshots below are historical.
+
 **6 October rounding follow-up:** [nearest-step regression](reports/2026-10-06_rounding_and_live_speed.md)
 passes on the installed normal Arduino image:100deg→278increments, rounded-zero
 no-op, return, explicit stop and original profile restoration. Final raw62060,

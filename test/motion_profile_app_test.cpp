@@ -86,7 +86,7 @@ void testUncertainRestoreRequiresExplicitReadOnlySettlement() {
     const auto historical=app->motionProfile.view;
     assert(historical.restoreUnsettled && historical.writeExecutionUnknown);
     assert(!historical.ok && historical.writeTxAccepted && axisReserved(*app,1));
-    assert(app->axis.generation==generation+1 && !app->axis.originKnown && !app->coordinateReference.nativeKnown);
+    assert(app->axis.generation==generation+1 && app->axis.originKnown && !app->coordinateReference.nativeKnown);
     const auto writes=hardware.writes;
     assert(motionProfileCommand(app,Probe::MotionProfileCommand::FORGET,view)==Probe::Action::BUSY);
     assert(motionProfileCommand(app,Probe::MotionProfileCommand::RESTORE,view)!=Probe::Action::OK);

@@ -384,7 +384,41 @@ void backpressureAndPolarityParity() {
     assert(untouched == 99 && hardware.writes == writes);
 }
 } // namespace
+void subdivisionUsesCheckedPassiveInputs() {
+    fresh(); readConfig(); readSettings(); qualify();
+    app->driverInputsQualified=false; // No hidden qualification switch.
+    auto& io=app->stateCache.blocks[static_cast<uint8_t>(ESS::StateBlock::IO)];
+    auto& feedback=app->stateCache.blocks[static_cast<uint8_t>(ESS::StateBlock::FEEDBACK)];
+    for (auto* block : {&io,&feedback}) {
+        block->valid=true; block->value.target=app->axis.target;
+        block->observedEarliestUs=block->observedLatestUs=hardware.time;
+    }
+    ESS::DriverRequest request; request.fields=static_cast<uint32_t>(ESS::DriverField::SUBDIVISION);
+    request.subdivision=1600;
+    uint32_t id=999;
+    const auto before=hardware.writes;
+    app->inputWiring[0]=InputWiring::UNKNOWN;
+    assert(host(app).startDriver(app,3,1,ESS::DriverKind::UPDATE,request,id)!=Probe::Action::OK);
+    app->inputWiring[0]=InputWiring::UNCONNECTED; io.value.inputs[0]=true;
+    assert(host(app).startDriver(app,3,1,ESS::DriverKind::UPDATE,request,id)!=Probe::Action::OK);
+    io.value.inputs[0]=false; feedback.value.rawSpeed=10;
+    assert(host(app).startDriver(app,3,1,ESS::DriverKind::UPDATE,request,id)!=Probe::Action::OK);
+    feedback.value.rawSpeed=0;
+    assert(id==999 && hardware.writes==before);
+    assert(host(app).startDriver(app,3,1,ESS::DriverKind::UPDATE,request,id)==Probe::Action::OK);
+    reply(id,{}); reply(id,words({1600}));
+    assert(view(id).driverContext->outcome==ESS::DriverOutcome::SUCCESS);
+    assert(!app->axis.originKnown && !app->axis.units.commandStepsPerMotorTurn.numerator);
+    assert(!app->simple.desired.scaleKnown); // Old convenience scale cannot undo invalidation.
+    readConfig(0,1600);
+    const auto refreshed=app->configuration.operationId;
+    const auto generation=app->axis.generation;
+    readSettings(0,0,1600);
+    assert(app->configuration.operationId==refreshed && app->axis.generation==generation);
+    assert(app->driverSettings.configurationGeneration==generation);
+}
 int main() {
+    subdivisionUsesCheckedPassiveInputs();
     gatesAndReadContext(); successAndEffects(); failuresAndCancellation(); staleContinuation(); externalChangesAndRecovery();
     configurationReconcilesDriverBaseline(); changedInputsInvalidateQualification(); secondaryReadsPreserveAxisBaseline();
     hostChangesPreserveCrossReadBaselines();

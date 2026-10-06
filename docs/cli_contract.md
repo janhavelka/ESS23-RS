@@ -26,6 +26,10 @@ ramps 0..2000 ms; old 60-rpm/250-increment experiment caps are removed.
 `settings` reads current configuration and position parameters without writes and
 separates those from next-move intent. It replaces the old host `config` alias.
 Existing detailed commands remain available to automation.
+`subdivision [INTEGER|options]` is the short route to typed drive settings:
+read, checked update or local400..51200 range/examples. It shares `driver`
+validation and retained results. A real scale change invalidates coordinate
+assumptions; profile restoration and idle observation expiry do not erase zero.
 Convenience `moveby`/`moveto` use nearest-command-step quantization, ties to even,
 bounded to half a step. Their prepared result includes `effective_native` and
 `rounding_error`; human output reports nonzero rounding. Zero displacement after

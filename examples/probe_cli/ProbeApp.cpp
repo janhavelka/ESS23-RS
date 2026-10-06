@@ -341,7 +341,10 @@ void serviceCoordinates(App& a, uint64_t now) {
     const auto& reference = a.coordinateReference;
     if (reference.nativeKnown && (now < reference.observedUs ||
         (reference.maximumAgeUs && now - reference.observedUs > reference.maximumAgeUs))) {
-        invalidateAxis(a); return;
+        // The last position sample expires; the fixed counter-to-host offset
+        // does not. A later move obtains fresh state before using this origin.
+        a.coordinateReference.nativeKnown = false;
+        a.simpleEndpointKnown = false;
     }
     const auto& motion = a.stateCache.blocks[static_cast<uint8_t>(ESS::StateBlock::MOTION)];
     // A status captured during our search cannot erase a newer correlated
@@ -1197,6 +1200,26 @@ Probe::Action startDriver(void* context, uint32_t commandId, uint8_t address, ES
         prerequisites.inputsPermit = a.driverInputsQualified;
         ESS::DriverRequest request = supplied;
         if (!request.configurationGeneration) request.configurationGeneration = generation;
+        if (request.group == ESS::DriverGroup::DRIVE &&
+            request.fields == static_cast<uint32_t>(ESS::DriverField::SUBDIVISION)) {
+            // Changing only subdivision is a stopped settings operation. The
+            // standalone unwired fixture has no active external motion source;
+            // prove assignments/levels rather than requiring a hidden flag.
+            const auto& io = a.stateCache.blocks[static_cast<uint8_t>(ESS::StateBlock::IO)];
+            const auto& feedback = a.stateCache.blocks[static_cast<uint8_t>(ESS::StateBlock::FEEDBACK)];
+            bool passive = a.configuration.operationId && Probe::sameTarget(a.configuration.target, target) &&
+                a.configuration.raw.softLimitEnable == 0 && !a.configuration.unknownPolarityBits &&
+                Probe::fresh(io, target, now, prerequisites.maxAgeUs) && !io.value.unknownInputBits &&
+                Probe::fresh(feedback, target, now, prerequisites.maxAgeUs) && !feedback.value.rawSpeed;
+            for (const auto& evidence : a.configuration.provenance)
+                passive = passive && evidence.qualified && evidence.status &&
+                    evidenceAgeValid(evidence.earliestUs, now, prerequisites.maxAgeUs);
+            for (uint8_t i = 0; i < 4; ++i)
+                passive = passive && a.inputWiring[i] == InputWiring::UNCONNECTED &&
+                    a.configuration.raw.inputFunctions[i] <= 3 &&
+                    (!a.configuration.raw.inputFunctions[i] || !io.value.inputs[i]);
+            prerequisites.inputsPermit = prerequisites.inputsPermit || passive;
+        }
         if (request.group == ESS::DriverGroup::IO) {
             const auto& io = a.stateCache.blocks[static_cast<uint8_t>(ESS::StateBlock::IO)];
             prerequisites.inputsPermit = true; // Changed-terminal policy below, not global mandatory I/O.
@@ -1302,8 +1325,10 @@ void invalidateDriverAssumptions(App& a, uint8_t address, uint32_t changed, uint
     const bool tuning = ESS::isTuningGroup(group);
     if (address == a.axis.target.address) {
         invalidateAxis(a, changing, now);
-        if (!tuning && (changed & (static_cast<uint16_t>(ESS::DriverField::DIRECTION) | static_cast<uint16_t>(ESS::DriverField::SUBDIVISION))))
+        if (!tuning && (changed & (static_cast<uint16_t>(ESS::DriverField::DIRECTION) | static_cast<uint16_t>(ESS::DriverField::SUBDIVISION)))) {
             a.axis.units.commandStepsPerMotorTurn = MotorControlRS::UnitScale();
+            a.simple.desired.scaleKnown = false;
+        }
         if (!tuning && (changed & static_cast<uint16_t>(ESS::DriverField::DIRECTION))) a.commandPolarityKnown = false;
         if (!tuning && (changed & static_cast<uint32_t>(ESS::DriverField::CONFIGURED_ENCODER)))
             a.axis.units.encoder = MotorControlRS::EncoderScale();
@@ -1592,7 +1617,11 @@ void updateActionReservation(App& a, App::Record& record) {
                 cache = observed;
                 return; // Different indexed records do not invalidate a shared scale.
             }
-            if (cache.target.id && cache.group == observed.group && Probe::sameTarget(cache.target, observed.target)) {
+            // Prefer a current configuration read over invalidated driver raw
+            // history. Keep the historical baseline after a host-only tuple
+            // change when neither observation is current.
+            if (cache.target.id && (cache.operationId || !a.configuration.operationId) &&
+                cache.group == observed.group && Probe::sameTarget(cache.target, observed.target)) {
                 for (uint8_t i = first; i < end; ++i)
                     if (cache.raw[i] != observed.raw[i]) changed |= static_cast<uint32_t>(ESS::driverFieldAt(i, record.driver.group));
                 if (record.driver.group == ESS::DriverGroup::DRIVE &&
