@@ -1,6 +1,61 @@
 # Overnight HIL campaign - 5 to 6 October 2026
 
-Status at dispatch: **RUNNING, not a completed endurance PASS**. The user
+## Final disposition, inspected 6 October
+
+**FAIL: the requested duration did not complete.** The active continuation
+stopped at **04:24:00 CEST**, before the 10:00 cutoff. It completed 2262
+observation cycles and 377 finite motion cases, including 38 dynamic-stop cases,
+plus 19 loaded read windows. UTC start/end span is about 6 h 17 min. The earlier
+cleanly ended segment contains six additional motion cases; do not combine its
+PASS with this failed aggregate to claim a complete overnight PASS.
+
+The last command sent was local `stats`, command ID 85347 at 04:23:55.460 CEST.
+The five-second USB-console response deadline expired with no reply, partial
+line, panic text or RS485 error record. The failed iteration had obtained local
+`version`, `host` and `config` replies but had **not admitted its next move**.
+All new work then stopped; there was no automatic reconnect, recovery or replay.
+Final stop/profile restoration could not be issued through the broken console,
+so final cleanup remains **UNKNOWN**, separately from the previous successful
+motion cases' checked stop and restoration.
+
+By the last complete statistics snapshot, 40,836 additional checked motor frames
+had completed, with zero failures, timeouts, discarded bytes, capture faults or
+RX errors. The last drive observation reported alarm 0, nonrunning, raw speed 0
+and raw position 49890. Owner pending/reserved/output counts were zero, DE
+released, recovery false; the pre-existing retained terminal count remained 1.
+Warmed-to-last free internal RAM stayed 336624 bytes and PSRAM 8177196 bytes;
+owner stack watermark stayed 1524 bytes, worker 3268 bytes. Last CPU estimates
+were 0% / 9%. These are last recorded values, not fresh morning observations.
+
+At 09:54 CEST, a new explicitly read-only inspection found COM13 still enumerated
+but the controller did not answer even local `version`. No motor request, board
+reset, device power operation or movement was sent in that inspection. The user
+independently reports a stationary motor and no communication activity. This
+does not replace unavailable fresh firmware/drive state or establish the cause.
+
+**Root cause remains unresolved:** evidence establishes console nonresponse,
+but does not distinguish a controller task/USB stall from a host/USB-driver
+problem. Stable prior memory and zero bus errors do not prove either cause.
+The stopped harness explains the subsequent absence of traffic/motion. The
+current fault state was preserved rather than reset before inspection.
+
+[Failure evidence and morning read-only attempt](2026-10-06_overnight_hil_failure_evidence.zip)
+contain the bounded summary, exact runner, stdout/stderr, final 2048 raw records
+and full-log manifest. Archive SHA-256:
+`a0dee20c78b917b590551ddec3fd610eedd8858f5a8cb85562de66e638e1b73c`.
+The complete local `build/overnight_20261005/night2.jsonl` is retained separately:
+364099662 bytes / 393649 records, SHA-256
+`5522e6731e84f3908f0707691ff9d80b51078ec88a5f9b9464622d6dccb9d446`.
+Its evidence capacity was not exhausted. Heartbeat finalized at 04:24:00;
+the summary finalized at 04:24:30, a separate timestamp retained for diagnosis.
+
+Next required work is diagnosing the console/controller stall, then deliberately
+repeating the original scenario with appropriate diagnostic evidence. A later
+short passing run or reset alone cannot close this failed endurance result.
+
+## Historical launch and preflight
+
+Status at dispatch was **RUNNING, not a completed endurance PASS**. The user
 explicitly requested overnight tests including motion, ending at 10:00 next
 morning. This supersedes the earlier direction to defer a several-hour test.
 Existing no-replay, finite-movement and fixture limitations still apply.

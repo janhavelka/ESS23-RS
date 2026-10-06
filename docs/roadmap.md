@@ -1,10 +1,11 @@
 # Roadmap to a supported ESS release
 
-The [overnight HIL experiment](reports/2026-10-05_overnight_hil.md) is running
-under the user's explicit extended-test authorization, until 10:00 CEST on
-6 October. Its finite motion/stop and health/resource pilots passed; the actual
-overnight aggregate and final cleanup remain open until completion is inspected.
-It does not close missing external fixtures or unresolved native families.
+The [overnight HIL experiment](reports/2026-10-05_overnight_hil.md) failed early
+at 04:24 CEST on 6 October after 377 motion cases: the controller stopped
+answering local console queries. Prior motor-bus errors were zero and memory
+stable; final cleanup is unknown. A fresh morning local query also failed.
+Console/controller diagnosis and the original endurance rerun remain open,
+alongside missing external fixtures and unresolved native families.
 
 
 The [canonical-command follow-up](reports/2026-10-05_fast_stop_console.md)

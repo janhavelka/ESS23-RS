@@ -4,8 +4,11 @@
 
 - [x] Prepare and launch one-port finite motion/stop, health/native-read and
   bounded load campaign with fixed 10:00 CEST cutoff and verified pilot cleanup.
-- [ ] Inspect the completed overnight aggregate, resource trends, any failures
-  and final stop/restoration evidence before closing endurance qualification.
+- [x] Inspect the overnight aggregate: FAIL at 04:24 after 377 motion cases;
+  local console response timeout, previous stable memory/no bus errors, final
+  cleanup unknown and fresh morning console query also unanswered.
+- [ ] Diagnose the controller/USB console nonresponse and repeat the original
+  endurance scenario with evidence; no reset-only fix or inferred overnight PASS.
 - [Experiment and live evidence paths](reports/2026-10-05_overnight_hil.md).
 
 
