@@ -1,5 +1,11 @@
 # Roadmap to a supported ESS release
 
+[High-subdivision completion investigation](reports/2026-10-06_completion_discrepancy.md)
+reproduces a drive-reported running/arrival discrepancy at51200 subdivision,
+2000 speed and128000 increments. It remains open; fast stop and the tested
+1600/2000 and51200/60 alternatives work. The independent Python interleaved
+reply-budget bug is fixed. No broad speed/subdivision qualification is claimed.
+
 [One-command subdivision](reports/2026-10-06_simple_subdivision.md) adds automatic
 preparatory reads and checked host scale/zero refresh, concise state output, and
 delivered-success recycling for human commands. Three consecutive finite COM13

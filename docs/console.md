@@ -245,3 +245,13 @@ fresh stationary/arrived observation to avoid retriggering the same target.
 Feedback may differ by the drive's arrival window; this does not claim exact
 shaft alignment. A changed target, generation or intervening motion cannot
 reuse that completion. The advanced native route remains explicit.
+
+### Known high-subdivision completion discrepancy
+
+On the recorded ESS23-RS20,51200 subdivision with speed2000 and a900-degree
+relative request can leave the drive reporting running after the main movement.
+Do not release/replay the move to bypass this. `stop fast` established stopped
+state in the reproduced case; normal stop did not. The same assumed2.5-turn
+request completed at1600/2000 and51200/60. Use `subdivision 1600` for the tested
+2000-speed path; changing subdivision explicitly establishes a new session zero.
+The exact drive cause remains [open with evidence](reports/2026-10-06_completion_discrepancy.md).

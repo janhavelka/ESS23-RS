@@ -1,5 +1,14 @@
 # Features implementation tasks and open questions
 
+## High-subdivision completion discrepancy, 6 October
+
+- [x] Retain result219 and reproduce51200/2000-rpm completion failure; fast stop confirms cleanup.
+- [x] Verify1600/2000-rpm and51200/60-rpm alternatives with finite motion.
+- [x] Fix unrelated interleaved replies consuming the pending command input budget.
+- [ ] Resolve exact-drive persistent-running/normal-stop behavior at51200/2000;
+  no false completion or blanket parameter qualification.
+- [Evidence and limitations](reports/2026-10-06_completion_discrepancy.md).
+
 ## Simple subdivision workflow, 6 October
 
 - [x] One-command checked subdivision changes and stationary host scale/zero refresh.

@@ -1796,6 +1796,28 @@ class Framing(unittest.TestCase):
         self.assertEqual(self.events[-1]["response"]["raw_hex"],bad["raw_hex"])
         with self.assertRaises(bench.BenchError): console._dispatch(bad)
 
+    def test_interleaved_replies_do_not_exhaust_another_command_budget(self):
+        retained = []
+        def handler(i, cmd, args):
+            normal = Serial.normal(i, cmd, args)
+            if cmd == "probe":
+                accepted, terminal = normal.splitlines(keepends=True)
+                retained.append(terminal)
+                return accepted
+            if cmd == "status":
+                item = json.loads(normal)
+                item["padding"] = "x" * 4000
+                return encoded(item)
+            return normal
+        console = self.session(handler)
+        pending = console.begin("probe", address=1, timeout_s=10)
+        initial = pending.input_bytes
+        for _ in range(12):
+            self.assertTrue(console.command("status")["ok"])
+        self.assertEqual(pending.input_bytes, initial)
+        self.port.input.extend(retained[0])
+        self.assertTrue(console.wait(pending, release=True)["ok"])
+
     def test_debug_noise_budget_is_separate_from_command_response(self):
         def handler(request_id,command,args):
             normal=Serial.normal(request_id,command,args)

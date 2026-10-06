@@ -3625,7 +3625,10 @@ class Console:
                         handle.traffic_bytes += len(raw) + 1
                         if handle.traffic_bytes > MAX_TRAFFIC_INPUT:
                             raise BenchError("traffic exceeds command diagnostic limit")
-                    else:
+                    elif item is None or item.get("id") == handle.id:
+                        # Interleaved checked replies belong to their own command.
+                        # Unframed noise still consumes every pending budget;
+                        # _dispatch independently rejects unknown/stale IDs.
                         handle.input_bytes += len(raw) + 1
                         if handle.input_bytes > MAX_INPUT:
                             raise BenchError("command response exceeds input limit")

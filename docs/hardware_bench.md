@@ -1,5 +1,13 @@
 # Motor bench and testing authorization
 
+**Latest, 6 October completion investigation:**
+[Retained failures and finite comparisons](reports/2026-10-06_completion_discrepancy.md)
+confirm fast-stop cleanup. Subdivision restored to the user's51200, new RAM
+zero raw728310; speed/alarm0, non-running/enabled, no queued motion, COM13 closed.
+51200/2000-rpm completion and normal-stop behavior remain unresolved;1600/2000
+and51200/60 finite cases passed. No new firmware was flashed. Earlier snapshots
+below are historical.
+
 **Latest, 6 October one-command subdivision follow-up:**
 [workflow and evidence](reports/2026-10-06_simple_subdivision.md) pass three
 consecutive finite campaigns: 36 ordinary state reads, 1600/51200/1600 subdivision
