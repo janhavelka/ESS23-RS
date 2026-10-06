@@ -1,5 +1,10 @@
 # Roadmap to a supported ESS release
 
+[Convenience rounding and live-speed review](reports/2026-10-06_rounding_and_live_speed.md)
+adds bounded nearest-step simple moves. ESS position-command replacement while
+running is documented; bare speed-write and smooth transition behavior remain
+unqualified and are not exposed as a live-update API.
+
 The [stop/resume audit](reports/2026-10-06_stop_and_resume.md) separates retained
 results from current motor ownership. Move → fast stop → move and repeated
 stops now pass on the ordinary firmware; failed outcomes remain inspectable.

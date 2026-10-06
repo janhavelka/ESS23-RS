@@ -568,7 +568,44 @@ void testFailedStopAndBlockedResultDoNotReleaseSimpleSession() {
     assert(release(app,child)==Probe::Action::OK);
 }
 }
+void testConvenienceRoundingUsesSharedPreparation() {
+    struct Case { const char* text; int64_t target; };
+    const Case cases[] = {{"moveby 10 deg",28},{"moveby 10.5 steps",10},
+        {"moveby 11.5 steps",12},{"moveto 10 deg",28},{"moveby 0.1 steps",0}};
+    for (const auto& item : cases) {
+        fresh(); command(std::string("@1 ")+item.text+"\n"); prepareSimple(); pump(1000);
+        const auto& v=app->simple.view;
+        assert(v.targetPrepared && v.effectiveNative==item.target);
+        assert(v.roundingError>=-0.5 && v.roundingError<=0.5);
+        if (!item.target) {
+            assert(v.ok && v.alreadyAtTarget && !v.moveAdmitted);
+            assert(hardware.writes==9); // CONFIG + STATE + profile reads only.
+        } else {
+            assert(v.moveAdmitted && v.move->prepared.effectiveNative==item.target);
+            assert(v.move->request.position.rounding==Rounding::NEAREST);
+            completeSimple();
+        }
+        assert(Serial.output.find("\"rounding_error\":")!=std::string::npos);
+    }
+    // The application C++ shortcut follows the same policy; detailed requests
+    // still reject a nonintegral native target unless the caller opts in.
+    UnitConfig units; units.commandStepsPerMotorTurn=UnitScale(1000,1,ScaleSource::ASSUMED);
+    fresh(0,units); readProductionMoveBaseline();
+    uint32_t id=0;
+    assert(MotorControlRSExample::moveBy(Rational(10),PositionUnit::DEGREES,id));
+    assert(view(id).moveContext->prepared.effectiveNative==28);
+    fresh(0,units); readProductionMoveBaseline();
+    id=999; const auto beforeZero=hardware.writes;
+    assert(!MotorControlRSExample::moveBy(Rational(1,10),PositionUnit::STEPS,id));
+    assert(id==999 && hardware.writes==beforeZero); // Core move rejects zero; wrapper may report a no-op.
+    fresh(0,units); readProductionMoveBaseline();
+    PositionRequest exact; exact.value=Rational(10); exact.unit=PositionUnit::DEGREES;
+    exact.frame=CoordinateFrame::MOTOR; exact.relative=true; exact.configurationGeneration=app->axis.generation;
+    const auto before=hardware.writes;
+    assert(!MotorControlRSExample::submitMove(exact,60,id) && hardware.writes==before);
+}
 int main() {
+    testConvenienceRoundingUsesSharedPreparation();
     testCancelledUnsentAndRejectedStageAllowNextSession();
     testStoppedSimpleMoveRetainsFailureAndAllowsNextSession();
     testRetainedFailedMovesReportCapacityAndCanBeReleased();

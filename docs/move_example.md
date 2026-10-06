@@ -36,6 +36,17 @@ millimetres use configured load travel. Full steps and identified encoder counts
 are also available when their scales are supplied. A missing scale/origin is an
 error, never an assumed zero or guessed conversion.
 
+The convenience `moveBy`/`moveTo` functions round the converted native target
+to the nearest command step (half-step ties to even, maximum error half a step),
+matching simple console moves. `submitMove(PositionRequest, ...)` retains the
+request's explicit rounding policy, including the core's EXACT default.
+Retained `PreparedTarget` evidence includes the effective target and error.
+A rounded zero displacement is rejected before TX by the direct move API;
+the interactive preparation session instead reports a successful no-op.
+This does not change the existing coordinate distinction: direct `moveTo` in
+STEPS uses native device coordinates, while console `moveto ... steps` uses
+its RAM-only boot origin.
+
 The optional fourth argument is native motor RPM (default 60). Ramps come from
 the example's checked motion-profile snapshot. By default every move stages the
 selected ramps, speed and converted target together. This is the ordinary observed move

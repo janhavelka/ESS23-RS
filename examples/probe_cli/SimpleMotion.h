@@ -6,12 +6,20 @@ namespace MotorControlRSExample { namespace Probe {
 struct MotionProfileView;
 enum class SimpleMotionCommandKind : uint8_t { QUERY, SETTINGS, SPEED, ACCEL, DECEL, SETUP, SCALE, MOVE_BY, MOVE_TO };
 enum class SimpleMotionPhase : uint8_t { IDLE, CONFIG, PROFILE, STATE, MOVE, TERMINAL };
+/** Convenience moves use the existing exact converter with nearest-step
+ * quantization (ties to even). Detailed requests retain their explicit policy. */
+inline MotorControlRS::PositionRequest simplePositionRequest() {
+    MotorControlRS::PositionRequest request;
+    request.rounding = MotorControlRS::Rounding::NEAREST;
+    request.maximumQuantizationError = 0.5;
+    return request;
+}
 /** Local desired settings or one finite move. No command retains caller storage. */
 struct SimpleMotionCommand {
     SimpleMotionCommandKind kind = SimpleMotionCommandKind::QUERY;
     uint16_t nativeValue = 0;
     MotorControlRS::MoveSetup setup = MotorControlRS::MoveSetup::WRITE_ALL;
-    MotorControlRS::PositionRequest position;
+    MotorControlRS::PositionRequest position = simplePositionRequest();
 };
 /** Desired host settings. Applying these never writes the drive. */
 struct SimpleMotionSettings {
@@ -35,6 +43,9 @@ struct SimpleMotionView : SimpleMotionSettings {
     bool directionKnown = false, wordOrderKnown = false, algorithmKnown = false, softLimitKnown = false;
     bool runningObserved = false, uncertain = false, interruptedByStop = false;
     bool alreadyAtTarget = false;
+    bool targetPrepared = false;
+    int64_t effectiveNative = 0;
+    double roundingError = 0;
     MotorControlRS::ActionOutcome outcome = MotorControlRS::ActionOutcome::NONE;
     MotorControlRS::ActionExecution execution = MotorControlRS::ActionExecution::NOT_TRANSMITTED;
     MotorControlRS::ActionCompletion completion = MotorControlRS::ActionCompletion::NOT_OBSERVED;

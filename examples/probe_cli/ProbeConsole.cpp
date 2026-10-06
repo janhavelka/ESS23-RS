@@ -36,8 +36,8 @@ namespace {
 enum class Command : uint8_t { HELP, VERSION, CONFIG, STATUS, HEALTH, STATS, PROBE, CAPTURE_READ, RECOVER, MEMORY, LOAD, DRV, RESULT, CANCEL, RELEASE, READ, PROFILE, CAPS, READ_IDENTITY, READ_CONFIG, READ_STATE, MONITOR, AXIS, PREPARE, ENABLE, MOTOR_RELEASE, ALARM_CLEAR, STOP, MOVE, POSITION_CLEAR, VELOCITY, DRIVER, IO, HOME, SEGMENT, CONTROL, TUNING, HOST, COMMUNICATION, PERSISTENCE, MOTION_PROFILE, DEBUG, DISCOVER, USEADDR, WIRING, MOVE_BY, MOVE_TO, SPEED, ACCEL, DECEL, MOTION, STEPS_PER_TURN, SETTINGS };
 struct Entry { const char* name; Command command; const char* syntax; const char* effect; bool bus; const char* description; };
 const Entry COMMANDS[] = {
-    {"moveby", Command::MOVE_BY, "moveby VALUE [steps|deg|turn|mm]", "finite_relative_move_with_readonly_preparation", true, "Move by an amount; default unit is command steps."},
-    {"moveto", Command::MOVE_TO, "moveto VALUE [steps|deg|turn|mm]", "finite_absolute_move_with_readonly_preparation", true, "Move relative to this boot's stationary zero; no device counter clear or NVS. Requires valid position confidence."},
+    {"moveby", Command::MOVE_BY, "moveby VALUE [steps|deg|turn|mm]", "finite_relative_move_with_readonly_preparation", true, "Move by an amount; default unit is command steps. Round to nearest command step, ties to even."},
+    {"moveto", Command::MOVE_TO, "moveto VALUE [steps|deg|turn|mm]", "finite_absolute_move_with_readonly_preparation", true, "Move relative to this boot's stationary zero; no device counter clear or NVS. Round to nearest command step, ties to even. Requires valid position confidence."},
     {"speed", Command::SPEED, "speed [VALUE [rpm]]", "host_intent_applied_by_next_simple_move", false, "Show or set speed for the next move (0..3000 rpm; default 60; zero prevents a move)."},
     {"accel", Command::ACCEL, "accel [VALUE [ms]]", "host_intent_native_ramp_applied_by_next_simple_move", false, "Show or set acceleration ramp time in ms (0..2000; default 100)."},
     {"decel", Command::DECEL, "decel [VALUE [ms]]", "host_intent_native_ramp_applied_by_next_simple_move", false, "Show or set deceleration ramp time in ms (0..2000; default 100)."},
@@ -2422,6 +2422,11 @@ bool Console::formatSimpleMotion(uint32_t id, const SimpleMotionView& view, bool
     }
     fits = fits && append(output_,sizeof(output_),used,"\",\"read_operation_id\":%lu}",
         static_cast<unsigned long>(view.readOperationId));
+    if (fits && !view.settingsOnly && view.targetPrepared) {
+        --used;
+        fits = append(output_,sizeof(output_),used,",\"effective_native\":%lld,\"rounding_error\":%.17g}",
+            static_cast<long long>(view.effectiveNative),view.roundingError);
+    }
     if (fits && view.settingsOnly && view.profileEvidence) {
         const auto& evidence = *view.profileEvidence;
         char tx[sizeof(evidence.tx) * 2 + 1], rx[sizeof(evidence.rx) * 2 + 1];

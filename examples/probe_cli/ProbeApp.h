@@ -35,6 +35,8 @@ void serviceApplication();
  * Optional setup policy defaults to full write. USE_STORED requires a matching
  * remembered profile/binding in this example; it does not detect an unseen reset.
  */
+// Convenience targets round to nearest command step, ties to even, at most
+// half a step. Use submitMove for explicit EXACT or another rounding policy.
 MotorControlRS::Status moveBy(MotorControlRS::Rational value, MotorControlRS::PositionUnit unit,
                             uint32_t& operationId, uint16_t speedRpm = 60,
                             MotorControlRS::MoveSetup = MotorControlRS::MoveSetup::WRITE_ALL);

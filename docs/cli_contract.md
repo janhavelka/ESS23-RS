@@ -26,6 +26,10 @@ ramps 0..2000 ms; old 60-rpm/250-increment experiment caps are removed.
 `settings` reads current configuration and position parameters without writes and
 separates those from next-move intent. It replaces the old host `config` alias.
 Existing detailed commands remain available to automation.
+Convenience `moveby`/`moveto` use nearest-command-step quantization, ties to even,
+bounded to half a step. Their prepared result includes `effective_native` and
+`rounding_error`; human output reports nonzero rounding. Zero displacement after
+rounding causes no motion write. Detailed requests preserve the EXACT default.
 No core scheduler, additional bus owner or conversion path is introduced.
 
 Simple session IDs own their read/move child records. `result N` inspects the

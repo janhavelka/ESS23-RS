@@ -1,5 +1,13 @@
 # Features implementation tasks and open questions
 
+## Convenience rounding and live-speed review, 6 October
+
+- [x] Shared nearest-step defaults for simple CLI/C++ moves; retain rounding error.
+- [x] Recheck original ESS positioning interrupt/start and speed-register semantics.
+- [ ] Qualify same-endpoint in-motion speed changes on exact firmware; distinguish
+  bare speed writes from replacing the motion command. No live-update API claimed.
+- Evidence: [investigation and checks](reports/2026-10-06_rounding_and_live_speed.md).
+
 ## Stop/resume ownership, 6 October
 
 - [x] Confirmed stop unblocks a new simple move without discarding interrupted evidence.

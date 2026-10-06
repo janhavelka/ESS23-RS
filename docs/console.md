@@ -53,6 +53,20 @@ Native target encoding and configured limits still apply. Motion observation is
 bounded to 30 seconds by default (`ApplicationOptions::moveTimeoutMs`, 1..30000).
 A timeout is a failed/possibly uncertain observation, not proof the shaft stopped.
 
+`moveby` and `moveto` round to the nearest command increment, with half-step
+ties going to the even integer. Error is at most half a command step. For
+example, with 1000 command steps/turn, `moveby 10 deg` requests 27.777... steps
+and uses 28. A changed target is reported with its rounding error; a target
+that rounds to zero displacement sends no motion command. Requested and rounded
+limits remain checked. Advanced `move`/`prepare` requests still default to exact
+conversion and expose explicit rounding options.
+
+The ESS manual documents replacing a positioning command while running via
+the positioning interrupt bit. It does not guarantee that writing speed alone
+updates an active move, or that replacement is a smooth speed transition.
+The current `speed` command remains a next-move setting and rejects changes
+during an active move. See [the investigation](reports/2026-10-06_rounding_and_live_speed.md).
+
 The boot angle scale is a declared **ASSUMED 1000 command increments per turn**,
 not a measured calibration or an inferred subdivision relationship. Set the
 correct scale for your machine before relying on angles. Explicit target changes

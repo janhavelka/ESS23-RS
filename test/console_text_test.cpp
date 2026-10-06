@@ -277,7 +277,16 @@ void boundsAndMalformed() {
     contains(output, "[INFO] status");
 }
 } // namespace
+void roundedMotion() {
+    char output[4096];
+    assert(renderHuman("{\"type\":\"simple_move\",\"command\":\"moveby\",\"ok\":true,\"state\":\"succeeded\",\"completion\":\"observed\",\"effective_native\":28,\"rounding_error\":0.222222}",output,sizeof(output)));
+    contains(output,"Rounded native target: 28 command steps; rounding error: 0.222222 step(s).");
+    assert(renderHuman("{\"type\":\"simple_move\",\"command\":\"moveby\",\"ok\":true,\"state\":\"succeeded\",\"completion\":\"observed\",\"effective_native\":0,\"rounding_error\":-0.1,\"already_at_target\":true}",output,sizeof(output)));
+    contains(output,"Rounded native target: 0");
+    contains(output,"No new motion command was sent.");
+}
 int main() {
+    roundedMotion();
     statusAndAdmission();
     evidenceAndHints();
     conciseMotion();

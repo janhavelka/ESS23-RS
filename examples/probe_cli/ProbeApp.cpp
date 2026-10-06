@@ -2356,7 +2356,8 @@ MotorControlRS::Status submitMove(const MotorControlRS::PositionRequest& positio
 static MotorControlRS::Status moveValue(MotorControlRS::Rational value, MotorControlRS::PositionUnit unit,
                             bool relative, uint32_t& operationId, uint16_t speedRpm, MotorControlRS::MoveSetup setup) {
     using namespace MotorControlRS;
-    PositionRequest request; request.value = value; request.unit = unit; request.relative = relative;
+    PositionRequest request = Probe::simplePositionRequest();
+    request.value = value; request.unit = unit; request.relative = relative;
     request.frame = unit == PositionUnit::STEPS ? CoordinateFrame::NATIVE :
         unit == PositionUnit::MILLIMETRES ? CoordinateFrame::LOAD : CoordinateFrame::MOTOR;
     request.configurationGeneration = app ? app->axis.generation : 0;

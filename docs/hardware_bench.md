@@ -1,5 +1,12 @@
 # Motor bench and testing authorization
 
+**6 October rounding follow-up:** [nearest-step regression](reports/2026-10-06_rounding_and_live_speed.md)
+passes on the installed normal Arduino image:100deg→278increments, rounded-zero
+no-op, return, explicit stop and original profile restoration. Final raw62060,
+speed/alarm0, nonrunning/enabled, no pending owner/output work, DE released,
+load/monitor/debug off, COM13 closed. In-motion speed replacement was not tested.
+Earlier final-state snapshots below are historical.
+
 **Current state after the 6 October stop/resume audit:**
 [ordinary move → fast stop → move](reports/2026-10-06_stop_and_resume.md) and
 repeated stops passed. The normal Arduino image is installed; after explicit

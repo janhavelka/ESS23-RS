@@ -457,6 +457,12 @@ bool motionReport(Writer& writer, const Value& report, const char* subject) {
         observed ? " complete" : !terminal ? " rejected" : " not confirmed complete";
     if (!writer.text(subject) || !writer.text(disposition) || !operationNumber(writer, report) || !writer.text(".\n")) return false;
     if (accepted || pending) return true;
+    const Value roundingError = member(report, "rounding_error");
+    if (roundingError.begin && !equal(roundingError, "0")) {
+        if (!writer.text("Rounded native target: ") || !writer.scalar(member(report, "effective_native")) ||
+            !writer.text(" command steps; rounding error: ") || !writer.scalar(roundingError) ||
+            !writer.text(" step(s).\n")) return false;
+    }
     if (equal(member(report, "already_at_target"), "true"))
         return writer.text("Requested target already satisfied; drive reports standstill. No new motion command was sent.\n") && motionDetails(writer, report);
     if (observed && !uncertain && !interrupted && !cancelled) {

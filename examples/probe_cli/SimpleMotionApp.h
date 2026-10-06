@@ -276,6 +276,7 @@ void serviceSimpleMotion(App& a, uint64_t now) {
             "Absolute host coordinates need an established axis origin; use help axis" : converted.msg);
         return;
     }
+    v.targetPrepared = true; v.effectiveNative = target.effectiveNative; v.roundingError = target.roundingError;
     const auto& currentMotion = a.stateCache.blocks[static_cast<uint8_t>(ESS::StateBlock::MOTION)];
     const bool completedTarget = !request.position.relative && a.simpleEndpointKnown &&
         a.simpleEndpointGeneration == a.axis.generation && target.effectiveNative == a.simpleEndpoint &&
