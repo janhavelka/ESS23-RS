@@ -255,3 +255,5 @@ state in the reproduced case; normal stop did not. The same assumed2.5-turn
 request completed at1600/2000 and51200/60. Use `subdivision 1600` for the tested
 2000-speed path; changing subdivision explicitly establishes a new session zero.
 The exact drive cause remains [open with evidence](reports/2026-10-06_completion_discrepancy.md).
+
+Normal stop allows up to three seconds of bounded status observation so the documented two-second deceleration can finish. Fast stop keeps its existing policy. A deadline still means completion was not established; no stop is replayed automatically. See the [measured stop correction](reports/2026-10-06_normal_stop_budget.md).

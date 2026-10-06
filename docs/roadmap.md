@@ -429,3 +429,5 @@ stay guarded. Prompt14 now implements the bounded33/34/35 subset; prompt15 remai
 Prompt14 [homing delivery](reports/ess_release_14_2026-10-04.md) reuses checked staging/trigger and priority stop with fresh transition/zero proof, explicit35-method coverage and conservative reference age. Native/package/firmware and current-image read-only/gate checks are separate from physical homing qualification, which remains NOT RUN. External input methods await15 and actual fixtures; collision and nonzero offset semantics remain unresolved.
 
 Prompt14 [fresh audit](reports/ess_release_14_audit_2026-10-04.md) corrects historical feedback invalidation and host outcome checks, with native/package/firmware and corrected-image read-only/gate PASS. Physical homing prerequisites remain open; prompt15 remains separately dispatched.
+
+- 6 October overnight finding: [normal-stop budget corrected](reports/2026-10-06_normal_stop_budget.md), with500/2000ms hardware comparisons and bounded/no-replay regressions. This does not close the ongoing endurance or high-subdivision profile discrepancy.

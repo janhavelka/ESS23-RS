@@ -575,6 +575,35 @@ void testStopSupersedesOnlyAfterAdmissionAndSettlesInflight() {
         assert(hardware.writes == oldWrites + 2);
     }
 }
+void testNormalStopObservesLegalRampWithoutReplay() {
+    using namespace MotorControlRS;
+    fresh(); timerCapture(); qualifyActions();
+    command("@20 stop normal\n");
+    const uint32_t stopping = view(0).operationId;
+    actionStep(stopping);
+    const uint64_t acknowledged = view(stopping).actionContext->writeEvidence.deliveredUs;
+    unsigned polls = 0;
+    while (hardware.time - acknowledged < 2000000) {
+        actionStep(stopping, registerReply({0, 4}));
+        ++polls;
+        assert(view(stopping).pending); // A legal ramp outlasts the old 20-poll budget.
+    }
+    actionStep(stopping, registerReply({0, 0}));
+    assert(view(stopping).actionContext->completion == ActionCompletion::OBSERVED);
+    assert(hardware.writes == polls + 2); // One stop write; every later frame is an observation.
+    assert(!axisReserved(*app, 1));
+
+    fresh(); timerCapture(); qualifyActions();
+    command("@20 stop normal\n");
+    const uint32_t unresolved = view(0).operationId;
+    actionStep(unresolved);
+    const uint64_t deadline = view(unresolved).actionContext->deadlineUs;
+    advanceHardware(deadline); loop();
+    assert(!view(unresolved).pending);
+    assert(view(unresolved).actionContext->completion == ActionCompletion::NOT_OBSERVED);
+    assert(view(unresolved).actionContext->outcome == ActionOutcome::DEADLINE);
+    assert(hardware.writes == 1); // Expiry cannot replay the stop or infer standstill.
+}
 void testStopUsesReservedCapacityAndFullAdmissionPreservesWork() {
     using namespace MotorControlRS;
     fresh(); timerCapture(); qualifyActions();
@@ -1684,7 +1713,7 @@ int main() {
     testSegmentRecoveryCancelsReadbackContinuation();
     testSuccessfulProbeAndReset(); testCheckedExceptionAndParserRejection();
     testActionGateAndSeparateAcknowledgement(); testStopSupersedesOnlyAfterAdmissionAndSettlesInflight();
-    testStopUsesReservedCapacityAndFullAdmissionPreservesWork();
+    testNormalStopObservesLegalRampWithoutReplay(); testStopUsesReservedCapacityAndFullAdmissionPreservesWork();
     testRepeatedStopPreservesEvidenceAndReservedCapacity();
     testSuccessfulStopsDoNotFillOrdinaryResults();
     testRepeatedStopCannotDiscardUndeliveredResult();

@@ -37,6 +37,7 @@ using MotorControlRS::ReadEventKind;
 namespace {
 constexpr uint32_t BAUD = 115200;
 constexpr uint32_t REQUEST_US = 500000, RECOVER_US = 500000;
+constexpr uint32_t NORMAL_STOP_US = 2000000 + 2 * REQUEST_US, NORMAL_STOP_POLL_US = 50000;
 constexpr std::size_t REQUEST_CAPACITY = 8, OUTPUT_LINES = 8;
 DRAM_ATTR Esp32S3Uart uart; // Internal driver/ISR state; App storage is PSRAM.
 #if MOTORCONTROLRS_LOAD_FIXTURE
@@ -677,6 +678,16 @@ Probe::Action startAction(void* context, uint32_t commandId, uint8_t address,
     const uint64_t now = uart.sample();
     ActionRequest admittedRequest = request;
     uint64_t deadline = now + REQUEST_US;
+    ActionOptions actionOptions;
+    if (request.kind == ActionKind::STOP && request.stop.behavior == StopBehavior::CONFIGURED_DECELERATION) {
+        // ESS permits a 2000-ms native deceleration. Observe that ramp plus
+        // request/settlement margin; the short generic action policy can end
+        // before a valid stop finishes. This bounds observation, not the wire
+        // response timeout, and never delays or repeats the priority stop write.
+        deadline = now + NORMAL_STOP_US;
+        actionOptions.pollIntervalUs = NORMAL_STOP_POLL_US;
+        actionOptions.maxPolls = ESS::ACTION_MAX_POLLS;
+    }
     if (request.kind == ActionKind::CLEAR_POSITION) {
         if (request.devicePosition != 0) return Probe::Action::UNSUPPORTED;
         if (!a.positionClearQualified) return Probe::Action::UNAVAILABLE;
@@ -692,7 +703,7 @@ Probe::Action startAction(void* context, uint32_t commandId, uint8_t address,
     }
     ReadTarget target; target.id = address; target.address = address; target.generation = a.bindingGeneration;
     ESS::ActionContext preparedContext;
-    const Status prepared = ESS::prepareAction(preparedContext, target, a.nextOperationId, admittedRequest, now, deadline);
+    const Status prepared = ESS::prepareAction(preparedContext, target, a.nextOperationId, admittedRequest, now, deadline, actionOptions);
     if (!prepared) return prepared.code == Err::UNSUPPORTED ? Probe::Action::UNSUPPORTED : Probe::Action::INVALID;
     if (a.owner.needsRecovery() || uart.needsRecovery()) return Probe::Action::RECOVERY_REQUIRED;
     if (!(a.knownTargets[address / 8] & (1U << (address % 8))) &&
@@ -936,9 +947,12 @@ Probe::Action startVelocity(void* context, uint32_t commandId, uint8_t address,
         prerequisites.observedUs = motion.observedEarliestUs;
     }
     // Proposed finite free-shaft envelope only; commissioning flags remain
-    // false in production. Setup consumes duration and two seconds remain for stop.
-    const uint64_t deadline = now + supplied.durationUs + 2000000;
+    // false in production. Setup consumes duration; the normal-stop observation
+    // budget covers the same legal ramp as an independently requested stop.
+    const bool normalStop = supplied.stop.behavior == StopBehavior::CONFIGURED_DECELERATION;
+    const uint64_t deadline = now + supplied.durationUs + (normalStop ? NORMAL_STOP_US : 2000000);
     ActionOptions options; options.maxPolls = ESS::ACTION_MAX_POLLS; options.pollIntervalUs = 20000;
+    if (normalStop) options.pollIntervalUs = NORMAL_STOP_POLL_US;
     const auto checked = ESS::prepareVelocity(record->velocity, a.axis, a.nextOperationId,
         supplied, prerequisites, now, deadline, options);
     if (!checked) { clearRecord(*record); return checked.code == Err::UNSUPPORTED ? Probe::Action::UNSUPPORTED : Probe::Action::INVALID; }

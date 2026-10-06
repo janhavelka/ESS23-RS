@@ -195,7 +195,7 @@ void delayedEvidenceAndRecovery() {
     fresh(); qualify(); const auto id=admitVelocity(); velocityStep(id); velocityStep(id); waitTx(id);
     const auto due=view(id).velocityContext->stopDueUs;
     scheduleReply(hardware.writeStarted+8*87+1000,registers(1,{0,4}));
-    advanceHardware(due+30000); loop();
+    advanceHardware(due+100000); loop(); // Beyond the declared 50-ms normal-stop service interval.
     const auto& context=*view(id).velocityContext;
     assert(context.runningObserved && context.serviceMissed && context.needsStop);
     assert(context.phase == ESS::VelocityPhase::STOPPING && context.stopDueUs == due);
@@ -242,6 +242,24 @@ void urgentPressureDefersWithinOriginalDeadline() {
         assert(view(id).velocityContext->deadlineUs == deadline);
     }
 }
+void normalStopAllowsFullConfiguredRamp() {
+    fresh(); qualify(); app->velocityPrerequisites.decelerationTime = 2000;
+    const auto id = admitVelocity();
+    velocityStep(id); velocityStep(id); velocityStep(id, registers(1,{0,4}));
+    advanceHardware(view(id).velocityContext->stopDueUs); loop();
+    velocityStep(id); // One stop write after the finite running interval.
+    const auto stopAck = view(id).velocityContext->stop.writeEvidence.deliveredUs;
+    const auto writes = hardware.writes;
+    unsigned polls = 0;
+    while (hardware.time - stopAck < 2000000) {
+        velocityStep(id, registers(1,{0,4})); ++polls;
+        assert(view(id).pending);
+    }
+    velocityStep(id, registers(1,{0,0}));
+    assert(view(id).velocityContext->completion == ActionCompletion::OBSERVED);
+    assert(!view(id).velocityContext->needsStop && !axisReserved(*app,1));
+    assert(hardware.writes == writes + polls + 1);
+}
 void lostStartNeverReplays() {
     fresh(); qualify(); command("@1 velocity 30 rpm native 200 configured normal\n");
     const auto id = view(0).operationId;
@@ -254,4 +272,4 @@ void lostStartNeverReplays() {
     assert(host(app).release(app,id) == Probe::Action::OK && axisReserved(*app,1));
 }
 } // namespace
-int main() { gatesAndParity(); externalStopAndLocalCancel(); pressureAndPhysicalCancellation(); delayedEvidenceAndRecovery(); urgentPressureDefersWithinOriginalDeadline(); lostStartNeverReplays(); }
+int main() { gatesAndParity(); externalStopAndLocalCancel(); pressureAndPhysicalCancellation(); delayedEvidenceAndRecovery(); urgentPressureDefersWithinOriginalDeadline(); normalStopAllowsFullConfiguredRamp(); lostStartNeverReplays(); }

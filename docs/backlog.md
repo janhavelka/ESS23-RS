@@ -1017,3 +1017,5 @@ from the still unperformed physical motion and dynamic-stop qualification.
 
 Prompt11 remains separately dispatched. Unknown algorithm3/firmware0x0029 and
 unsigned feedback never become qualified command-reference or ramp semantics.
+
+- Normal-stop observation budget fixed during the [overnight investigation](reports/2026-10-06_normal_stop_budget.md): legal500/2000ms ramps outlasted the generic20-poll action policy. Native regressions and both hardware reruns pass; high-subdivision completion and ongoing endurance remain separate/open.
