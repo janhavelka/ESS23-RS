@@ -60,8 +60,35 @@ policy or SDK version was changed speculatively.
 After the user's reset, 10,000 local queries passed in 111.172 seconds. A second
 attempt completed 24,986 queries and stopped because its 100,000-record evidence
 capacity was exhausted, not because of a board fault; it remains a failed test
-attempt. A larger bounded reproduction uses 500,000 records/256 MiB for 100,000
-queries. Its final disposition will be recorded separately.
+attempt. The larger bounded reproduction passed all 100,000 queries (`stats`,
+`version`, `host`, `config` repeated) on the corrected image, with 400,094
+evidence records / 150,017,487 bytes and no evidence exhaustion. Maximum logged
+command duration was 63 ms. The last reply arrived at 09:12:46 UTC; the complete
+session, including port closure, finished at 09:13:16 UTC (1131.844 seconds).
+The approximately 30-second closing delay is investigated separately below;
+it was not a missing firmware reply. This shorter test does not replace the
+failed six-hour overnight run or prove that its failure is corrected.
+
+Windows USB/Kernel-PnP/System logs around 04:15–04:35 CEST contain no recorded
+USB-device failure/removal explaining the overnight timeout. The actual compiled
+HWCDC source matches pinned upstream 3.3.11 byte-for-byte (SHA-256
+`c5ed5fdd05aa0df9b74d390812643599223f96b459256718d0ad328aeaba6a8a`).
+Neither an unlogged host USB failure nor a controller/service stall is excluded.
+
+An explicit reopen after 195 seconds with the port closed passed without a
+controller reset (uptime continued to 1413013 ms). Instrumented Windows
+`SetCommTimeouts`, `GetOverlappedResult` and `CloseHandle` calls then returned
+immediately. The preceding close delay did not reproduce and its exact call
+site was not captured. It is not established as the cause of the overnight
+missing reply, which happened while the port was open. No automatic reconnect,
+recovery, SDK patch or speculative Windows power-setting change was introduced.
+
+The stress run's final counters show zero failed transactions, timeouts, capture
+faults, RX errors, console drops or output blocking. Free internal RAM remained
+336600 bytes, PSRAM 8177196 bytes and stack watermark 2180 bytes. These finite
+checks do **not** identify a definitive USB culprit. The next occurrence needs
+its live fault state or retained diagnostic stage before further diagnosis;
+no USB fix is claimed.
 
 The application now records 28 bytes of diagnostic progress in RTC RAM and
 exposes the previous boot's record through `drv.previous_runtime`. Native tests
@@ -123,3 +150,30 @@ manifest. Complete local USB logs remain under `build/usb_motion_fix`.
 Current FieldCore owner types were inspected read-only; its eight-byte TX
 capacity and suffix/RTU modes remain unchanged. These are standalone application
 policy/diagnostic fixes, with no framework types added to the core.
+
+Implementation commit `bba676f739d4ffa5cb793a5922546845f82078c9` is synchronized;
+all four [exact-commit CI jobs](https://github.com/janhavelka/ESS23-RS/actions/runs/37439647130)
+passed (GCC, Clang, Arduino, native IDF).
+
+## Final bench state and follow-up artifacts
+
+The same hash-verified image was uploaded/reset after the USB tests. Fresh
+configuration and stationary feedback established RAM-only zero at native
+50887; `moveto 0 deg` returned already-at-target with no movement write. The
+result was released, final speed/alarm were zero, DE released, pending/reserved/
+retained/output queues empty, recovery false, load/monitor/debug off. COM13 was
+closed and released. Host defaults are 60 rpm and 100 ms ramps; no ESP NVS
+position exists. Fixed origin remains known for the user's subsequent commands.
+
+`final_zero` is a retained failed **harness** attempt: it compared against an
+undecoded pre-configuration pair (`pair_known=false`), although firmware
+correctly established zero and sent no motion. The corrected `final_zero2`
+loads configuration first and asserts the pair is known; after another explicit
+controller reset it passed, with 20 checked read frames and zero errors.
+
+[USB/final-state evidence](2026-10-06_usb_followup_evidence.zip), SHA-256
+`41527710662f0b52f34268cd9137589846e4d6f261766af598e178ea0b040211`,
+contains exact scripts, summaries, bounded stress tail, SDK/event-log inspection,
+both zero-check attempts and upload logs. Full stress raw log is retained locally
+under `build/usb_motion_fix/after_stress.jsonl`, SHA-256
+`b7e470b2ca008b146ea30955c727347810bd7fee058c5d615c971b0ce14bb5af`.

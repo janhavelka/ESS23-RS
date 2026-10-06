@@ -2,9 +2,11 @@
 
 The [motion/USB follow-up](reports/2026-10-06_motion_console_and_usb.md) flashes the corrected Arduino image and verifies four
 quarter-turn commands, return to RAM-only boot zero, repeated-target no-op,
-stop and exact profile restoration. Final raw position50887, speed/alarm0,
-nonrunning/enabled, DE released and owner empty. USB root cause remains open;
-additional read-only reproduction is recorded in that report.
+stop and exact profile restoration. The subsequent 100,000-query USB test and
+explicit reopen passed; the original USB root cause remains open. After a final
+controller reset, RAM-only zero is established at raw position50887, speed/alarm0,
+nonrunning/enabled, DE released and owner empty. `moveto 0 deg` was a no-op;
+load/monitor/debug are off and COM13 is released. Host defaults are60rpm/100ms ramps.
 
 **Historical fault state, 6 October 09:54 CEST (user subsequently reset the board):** the
 [overnight HIL runner](reports/2026-10-05_overnight_hil.md) ended early at 04:24
