@@ -2142,8 +2142,12 @@ void testSimpleMotionGrammarAndReports() {
     send(c, "@42 moveto 25\n");
     assert(f.simpleRequest.kind == Kind::MOVE_TO && !f.simpleRequest.position.relative);
     assert(f.simpleRequest.position.unit == MotorControlRS::PositionUnit::STEPS);
-    assert(f.simpleRequest.position.frame == MotorControlRS::CoordinateFrame::NATIVE);
+    assert(f.simpleRequest.position.frame == MotorControlRS::CoordinateFrame::MOTOR);
     send(c, "speed 30\n"); assert(f.simpleRequest.kind == Kind::SPEED && f.simpleRequest.nativeValue == 30);
+    send(c, "speed 600 rpm\n"); assert(f.simpleRequest.nativeValue == 600);
+    send(c, "speed 600rpm\n"); assert(f.simpleRequest.nativeValue == 600);
+    send(c, "accel 200 ms\n"); assert(f.simpleRequest.kind == Kind::ACCEL && f.simpleRequest.nativeValue == 200);
+    send(c, "decel 50ms\n"); assert(f.simpleRequest.kind == Kind::DECEL && f.simpleRequest.nativeValue == 50);
     send(c, "speed 0\n"); assert(f.simpleRequest.nativeValue == 0);
     send(c, "speed 3000\n"); assert(f.simpleRequest.nativeValue == 3000);
     send(c, "accel 0\n"); assert(f.simpleRequest.kind == Kind::ACCEL && f.simpleRequest.nativeValue == 0);
@@ -2153,7 +2157,7 @@ void testSimpleMotionGrammarAndReports() {
     send(c, "stepsperturn 1000\n"); assert(f.simpleRequest.kind == Kind::SCALE && f.simpleRequest.position.value.numerator == 1000);
     const auto calls = f.simpleCalls;
     for (const char* bad : {"moveby nan", "moveto 1 unknown", "moveby 1 rad", "moveby 1 steps extra", "speed -1", "speed 3001",
-        "speed 1/2", "accel -1", "decel 2001", "motion verify", "stepsperturn 0", "stepsperturn -1", "stepsperturn 4294967296"}) {
+        "speed 1/2", "speed 600ms", "speed 600 rpm extra", "speed 600rpm rpm", "decel 50 rpm", "accel -1", "decel 2001", "motion verify", "stepsperturn 0", "stepsperturn -1", "stepsperturn 4294967296"}) {
         send(c, std::string(bad) + "\n"); f.contains("\"ok\":false"); assert(f.simpleCalls == calls);
     }
     send(c, "help moveby\n"); f.contains("moveby VALUE");

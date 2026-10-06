@@ -451,6 +451,8 @@ bool motionReport(Writer& writer, const Value& report, const char* subject) {
         observed ? " complete" : !terminal ? " rejected" : " not confirmed complete";
     if (!writer.text(subject) || !writer.text(disposition) || !operationNumber(writer, report) || !writer.text(".\n")) return false;
     if (accepted || pending) return true;
+    if (equal(member(report, "already_at_target"), "true"))
+        return writer.text("Requested target already satisfied; drive reports standstill. No new motion command was sent.\n") && motionDetails(writer, report);
     if (observed && !uncertain && !interrupted && !cancelled) {
         const char* observation = !std::strcmp(subject, "Move") ?
             (equal(member(report, "running_observed"), "true") ? "Drive reported running, then target reached." : "Drive reported target reached; running was not observed.") :
@@ -488,7 +490,8 @@ bool motionReport(Writer& writer, const Value& report, const char* subject) {
     if (suppliedHint.kind == Kind::STRING && suppliedHint.begin != suppliedHint.end &&
         (!writer.text("Next: ") || !writer.string(suppliedHint) || !writer.character('\n'))) return false;
     if (!motionDetails(writer, report)) return false;
-    if (equal(member(report, "type"), "simple_move") && equal(member(report, "ok"), "false"))
+    if (equal(member(report, "type"), "simple_move") && equal(member(report, "ok"), "false") &&
+        !equal(member(report, "move_operation_id"), "0"))
         return reviewReleaseHint(writer, report);
     return true;
 }

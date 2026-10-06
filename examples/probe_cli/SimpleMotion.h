@@ -34,6 +34,7 @@ struct SimpleMotionView : SimpleMotionSettings {
         encoderResolution = 0, softLimitEnable = 0, profile[6] = {};
     bool directionKnown = false, wordOrderKnown = false, algorithmKnown = false, softLimitKnown = false;
     bool runningObserved = false, uncertain = false, interruptedByStop = false;
+    bool alreadyAtTarget = false;
     MotorControlRS::ActionOutcome outcome = MotorControlRS::ActionOutcome::NONE;
     MotorControlRS::ActionExecution execution = MotorControlRS::ActionExecution::NOT_TRANSMITTED;
     MotorControlRS::ActionCompletion completion = MotorControlRS::ActionCompletion::NOT_OBSERVED;

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 #include "ProbePlatform.h"
 #include "ProbeApp.h"
+#include "RuntimeWitness.h"
 #include <MotorControlRS/profiles/ess_rs/Discovery.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -160,6 +161,11 @@ struct App {
     MotorControlRS::AxisConfig axis;
     bool commandPolarityKnown = true; // Host declaration; invalidated by possible device-direction changes.
     MotorControlRS::AxisReference coordinateReference; // Qualified command-coordinate evidence; never inferred from an unsigned/raw zero.
+    bool bootOriginPending = true; // RAM-only, consumed once before the first simple move.
+    bool bootCoordinates = false; // Explicit standalone feedback/command coordinate convention.
+    bool simpleEndpointKnown = false;
+    int64_t simpleEndpoint = 0;
+    uint32_t simpleEndpointGeneration = 0;
     bool positionClearQualified = false; // Supplied commissioning semantics, independent of electrical qualification.
     Probe::DebugSession debug;
     struct MotionProfileState {
@@ -235,10 +241,12 @@ bool emit(void* context, const char* text, std::size_t size) {
 }
 void drainOutput(App& a) {
     if (!a.outputCount) return;
+    RuntimeWitness::mark(RuntimeWitness::OUTPUT_SPACE);
     const int available = Platform::writableConsole();
     if (available <= 0) { ++a.outputBlocked; return; }
     App::Line& line = a.output[a.outputHead];
     const std::size_t count = std::min(std::size_t(64), std::min(line.size - line.offset, static_cast<std::size_t>(available)));
+    RuntimeWitness::mark(RuntimeWitness::OUTPUT_WRITE);
     const std::size_t written = Platform::writeConsole(reinterpret_cast<const uint8_t*>(line.text + line.offset), count);
     if (written < count) ++a.outputShortWrites;
     line.offset += written;
@@ -282,6 +290,9 @@ bool reading(const App& a) {
 // Raw observations keep their original transport generation. Only derived host
 // coordinates are invalidated; exhaustion disables preparation instead of wrap.
 void invalidateAxis(App& a, const App::Record* changing = nullptr, uint64_t sampled = 0) {
+    a.bootOriginPending = false; // Loss of knowledge must never silently select a new zero.
+    a.bootCoordinates = false;
+    a.simpleEndpointKnown = false;
     if (!sampled) sampled = nowUs();
     if (!MotorControlRS::invalidateAxisReference(a.axis, a.coordinateReference)) a.axis.generation = 0;
     a.axis.target.generation = a.bindingGeneration;
@@ -428,6 +439,14 @@ void snapshot(void* context, Probe::Snapshot& s) {
     s.cachedConfigGeneration = a.configuration.target.generation;
     s.address = a.axis.target.address; s.probeAddress = a.address; s.baud = a.serial.activeKnown ? a.serial.active.baud : 0; s.responseTimeoutUs = a.serial.timing.responseTimeoutUs;
     s.serial = a.serial;
+    RuntimeWitness::mark(RuntimeWitness::SNAPSHOT);
+    s.previousRuntimeValid = RuntimeWitness::previous.magic == RuntimeWitness::MAGIC;
+    s.previousRuntimeStage = RuntimeWitness::previous.stage;
+    s.previousRuntimeUptimeMs = RuntimeWitness::previous.uptimeMs;
+    s.previousRuntimeLoops = RuntimeWitness::previous.loops;
+    s.previousRuntimeInputLines = RuntimeWitness::previous.inputLines;
+    s.previousRuntimeOutputQueued = RuntimeWitness::previous.outputQueued;
+    s.previousRuntimeOutputBlocked = RuntimeWitness::previous.outputBlocked;
     s.replyGapUs = a.serial.timing.replyGapUs; s.gap15Us = a.serial.timing.runner.gap15Us; s.gap35Us = a.serial.timing.runner.gap35Us;
     s.uptimeMs = nowUs() / 1000; s.ready = platformReady && a.serial.activeKnown && !a.serial.blocked; s.timingQualified = false;
     s.writeResponseConfirmed = writeResponseConfirmed; s.axisReserved = axisReserved(a);
@@ -448,6 +467,7 @@ void snapshot(void* context, Probe::Snapshot& s) {
     s.outputQueued = a.outputCount; s.outputBlocked = a.outputBlocked; s.outputShortWrites = a.outputShortWrites;
     s.inputBytes = a.inputBytes; s.inputLines = a.inputLines; s.stats = a.runner.stats();
     s.inputDropped = a.console.inputDropped();
+    RuntimeWitness::mark(RuntimeWitness::CAPTURE_STATS);
     s.timerCapture = uart.stats().timer;
     for (const auto& record : a.records) if (record.operationId && !terminal(a, record)) {
         if (!s.deadlineUs || record.deadlineUs < s.deadlineUs) s.deadlineUs = record.deadlineUs;
@@ -461,13 +481,16 @@ void snapshot(void* context, Probe::Snapshot& s) {
     s.sampleGapLimitUs = capture.timer ? capture.sampleGapLimitUs : 0;
     s.sampleGapExceeded = capture.sampleGapExceeded;
     s.memoryValid = true;
+    RuntimeWitness::mark(RuntimeWitness::HEAP_STATS);
     s.internalFree = heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
     s.internalMin = heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
     s.internalLargest = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
     s.psramFree = heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     s.psramMin = heap_caps_get_minimum_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     s.psramLargest = heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    RuntimeWitness::mark(RuntimeWitness::STACK_STATS);
     s.stackFreeBytes = uxTaskGetStackHighWaterMark(nullptr);
+    RuntimeWitness::mark(RuntimeWitness::CONSOLE);
 }
 MotorControlRS::Status checkProbe(const Rtu::Expectation& e, const uint8_t* bytes, std::size_t size) {
     uint16_t model = 0; return MotorControlRS::ESS_RS::parseProbe(bytes, size, e.address, model);
@@ -1545,12 +1568,14 @@ void updateActionReservation(App& a, App::Record& record) {
         }
         return;
     }
-    // Arrival flags alone do not establish an exact new command coordinate.
-    // Retain the move's original reference/result; invalidate dependent host
-    // knowledge until an application can supply a newly qualified reference.
+    // Arrival does not establish a new current coordinate, but a completed
+    // finite move does not change the fixed host zero. Uncertain/interrupted
+    // motion still invalidates that reference, as do velocity and release.
     if (((record.moveOperation && record.move.triggerEvidence.txAccepted) ||
         (record.velocityOperation && record.velocity.triggerEvidence.txAccepted)) &&
-        record.address == a.axis.target.address && coordinateKnowledge(a)) invalidateAxis(a);
+        record.address == a.axis.target.address && coordinateKnowledge(a) &&
+        !(record.moveOperation && record.move.state == MotorControlRS::ActionState::SUCCEEDED &&
+          !record.move.uncertain && !record.interruptedByStop)) invalidateAxis(a);
     record.axisReserved = false;
     if (record.moveOperation && record.move.uncertain) a.rememberedMoveGeneration = 0;
     const uint8_t mask = static_cast<uint8_t>(1U << (record.address % 8));
@@ -1606,7 +1631,10 @@ void advanceActions(App& a, uint64_t now) {
             }
             if (((record.moveOperation && record.move.step == record.move.triggerStep) ||
                 (record.velocityOperation && record.velocity.phase == ESS::VelocityPhase::TRIGGER)) && record.address == a.axis.target.address &&
-                a.owner.txAccepted(record.requestId)) a.coordinateReference.nativeKnown = false;
+                a.owner.txAccepted(record.requestId)) {
+                a.coordinateReference.nativeKnown = false;
+                a.simpleEndpointKnown = false;
+            }
             if (!record.driverOperation && !record.homeOperation && !record.effectsInvalidated &&
                 (record.velocityOperation ? record.velocity.step == 0 : record.moveOperation ?
                     (record.move.step <= record.move.triggerStep && !(record.move.request.setup == MotorControlRS::MoveSetup::VERIFY_AND_UPDATE && record.move.step == 0)) :
@@ -2232,6 +2260,7 @@ void deliver(App& a) {
 namespace MotorControlRSExample {
 bool beginApplication(const Esp32S3Uart::Pins& pins, bool receiverDisabledDuringTransmit, const ApplicationOptions& options) {
     if (app) return false; // Construction and I/O are one explicit startup action.
+    RuntimeWitness::begin();
     if (!MotorControlRS::validateUnitConfig(options.positionUnits) ||
         !options.moveTimeoutMs || options.moveTimeoutMs > 30000) return false;
     const bool consoleReady = Platform::beginConsole();
@@ -2312,11 +2341,14 @@ bool releaseMove(uint32_t operationId) {
 void serviceApplication() {
     if (!app) { Platform::idle(10); return; }
     App& a = *app; bool serviceDue = true;
+    RuntimeWitness::mark(RuntimeWitness::OWNER);
 #if MOTORCONTROLRS_LOAD_FIXTURE
     serviceDue = !a.owner.active() || nowUs() >= nextServiceUs;
 #endif
     if (serviceDue) {
         uint64_t sampled = uart.sample(); bool recoveryReady = !a.owner.recovering();
+        RuntimeWitness::service(static_cast<uint32_t>(sampled / 1000), static_cast<uint32_t>(a.inputLines),
+            static_cast<uint32_t>(a.outputCount), static_cast<uint32_t>(a.outputBlocked));
         if (a.owner.recovering() && sampled < a.recovery.deadlineUs && !a.runner.busy() &&
             !a.runner.transmitEnabled() && sampled >= a.recoveryGuardUntilUs) {
             if (!a.recovery.prepared) a.recovery.prepared = uart.clear();
@@ -2339,6 +2371,7 @@ void serviceApplication() {
         a.modelOperationId = a.recovery.operationId;
         a.observedEarliestUs = a.observedLatestUs = a.deliveredUs = 0;
     }
+    RuntimeWitness::mark(RuntimeWitness::OPERATIONS);
     serviceMotionProfile(a, nowUs());
     serviceCommissioning(a, nowUs());
     servicePersistence(a, nowUs());
@@ -2346,6 +2379,7 @@ void serviceApplication() {
     advanceReads(a, nowUs());
     advanceActions(a, nowUs());
     serviceCoordinates(a, nowUs());
+    RuntimeWitness::mark(RuntimeWitness::CONSOLE);
     a.console.serviceOutput(); deliver(a);
     serviceSimpleMotion(a, nowUs());
     serviceMonitor(a, nowUs());
@@ -2362,6 +2396,7 @@ void serviceApplication() {
 #endif
     serviceDebug(a);
     drainOutput(a);
+    RuntimeWitness::mark(RuntimeWitness::IDLE);
     if (!a.owner.active() || !serviceDue) Platform::idle(1);
 }
 } // namespace MotorControlRSExample

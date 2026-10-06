@@ -208,6 +208,9 @@ struct Snapshot {
     std::size_t pendingCapacity = 0, resultCapacity = 0, outstandingCapacity = OUTSTANDING_CAPACITY;
     std::size_t outputQueued = 0;
     uint64_t outputBlocked = 0, outputShortWrites = 0, inputBytes = 0, inputLines = 0, inputDropped = 0;
+    bool previousRuntimeValid = false;
+    uint32_t previousRuntimeStage = 0, previousRuntimeUptimeMs = 0, previousRuntimeLoops = 0;
+    uint32_t previousRuntimeInputLines = 0, previousRuntimeOutputQueued = 0, previousRuntimeOutputBlocked = 0;
     const StateCache* stateCache = nullptr; ///< Borrowed for synchronous snapshot formatting only.
     uint64_t nowUs = 0;
     MonitorSnapshot monitorState;

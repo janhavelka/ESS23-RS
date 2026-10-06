@@ -23,7 +23,7 @@ At boot the example chooses **60 rpm**, **100 ms acceleration ramp** and **100 m
 deceleration ramp**. It starts no movement. `moveby` performs missing read-only
 preparation, sends the selected parameters and start, and polls the drive.
 Wait for `Move complete`; repeating `moveby 100` needs no manual result release
-after success. Actual enable, alarm, encoding and limit checks still apply.
+after success or a read-only preparation rejection. Actual enable, alarm, encoding and limit checks still apply.
 
 | Command | Meaning |
 | --- | --- |
@@ -31,10 +31,10 @@ after success. Actual enable, alarm, encoding and limit checks still apply.
 | `moveby 100` | Move by 100 command increments (default unit: steps). |
 | `moveby 36 deg` | Move by 36 motor degrees using the host's scale. |
 | `moveby 1/10 turn` | Same angular displacement, expressed exactly. |
-| `moveto 100 steps` | Move to native absolute target 100. |
-| `moveto 36 deg` | Move to a host angular coordinate; also requires an origin. |
-| `speed 90` | Choose 0..3000 rpm; zero is accepted as a setting but prevents a move. |
-| `accel 100` / `decel 100` | Choose each ramp time in 0..2000 ms; these are not acceleration in steps/s^2. |
+| `moveto 100 steps` | Move to 100 command increments from this boot session's zero. |
+| `moveto 0 deg` | Return to this boot session's zero. |
+| `speed 90` / `speed 90 rpm` / `speed 90rpm` | Choose 0..3000 rpm; zero is accepted as a setting but prevents a move. |
+| `accel 100 ms` / `decel 100ms` | Choose each ramp time in 0..2000 ms; these are not acceleration in steps/s^2. |
 | `stepsperturn 1000` | Declare command increments per motor turn in the host; no drive subdivision write. |
 | `stop normal` | Stop using the configured deceleration. |
 | `stop fast` | Request ESS emergency stop without that ramp; RS485 command, not a hardwired safety circuit. |
@@ -50,7 +50,17 @@ The boot angle scale is a declared **ASSUMED 1000 command increments per turn**,
 not a measured calibration or an inferred subdivision relationship. Set the
 correct scale for your machine before relying on angles. Explicit target changes
 clear that declaration. Millimetres (`mm`) require configured load travel;
-`moveto` does not invent an origin. Negative encoding remains unavailable unless
+the simple commands establish a RAM-only zero from the first checked stationary
+feedback before movement in that boot session. No motor counter is cleared and
+no axis position is saved in ESP NVS. The feedback-to-command coordinate relation
+is an explicit standalone ASSUMED convention, restricted to nonnegative signed
+32-bit values. This is not homing or calibrated position proof. Motion occurring
+before that first observation cannot be reconstructed. Completed finite moves
+keep the zero; release, external/uncertain motion or interpretation changes
+invalidate it without silently choosing a new zero.
+
+The advanced `move absolute ... steps native ...` route retains explicit device
+counter semantics. Negative encoding remains unavailable unless
 its existing profile prerequisite is established.
 
 `help` is one complete grouped menu, covering everyday control and diagnostics.
@@ -72,8 +82,10 @@ Details: @1 result 15.
 
 This describes checked drive feedback; it is not independent shaft measurement.
 If preparation fails, the console says no motion command was sent and gives the
-reason. Failed, cancelled or uncertain results stay retained: inspect `result N`
-and explicitly `release N` after review. Release is local result housekeeping,
+reason. A delivered preparation-only rejection is inspectable until the next
+simple command automatically reclaims it; it does not lock the motor. Results
+from admitted failed/uncertain motor operations still require review and explicit
+`release N`. Release is local result housekeeping,
 not motor winding release. An uncertain write is never automatically retried.
 
 For basic communication inspection:
@@ -153,3 +165,20 @@ same bounded queue on both platforms. A slow terminal may delay or drop diagnost
 display, but it cannot consume motor results or block the bus owner. There are no
 ANSI color codes or blocking direct serial prints. Machine commands retain
 single-line JSON; human replies are complete multiline blocks.
+
+## Controller-reset diagnostics
+
+`drv` includes `previous_runtime`: a 28-byte diagnostic record in RTC RAM,
+read once at startup. It is not NVS and contains no motor position, queued work
+or replay state. After a controller reset it can retain the prior uptime,
+service-loop count, input-line count, output queue/backpressure and last stage:
+1 startup, 2 owner, 3 operations, 4 console, 5 USB output-space check,
+6 USB write, 7 idle, 8 snapshot, 9 capture statistics, 10 heap statistics,
+11 stack statistics. Power loss may erase it. A stage is a progress witness,
+not a stack trace or proof of a particular USB fault.
+
+Repeated absolute simple targets use retained successful completion plus a
+fresh stationary/arrived observation to avoid retriggering the same target.
+Feedback may differ by the drive's arrival window; this does not claim exact
+shaft alignment. A changed target, generation or intervening motion cannot
+reuse that completion. The advanced native route remains explicit.

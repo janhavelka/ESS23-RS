@@ -598,7 +598,7 @@ void testAbsoluteAngleApiCliAndLostReference() {
         step(); assert(view(operation).pending); // Starting-reference age cannot cancel a triggered move.
         moveStep(operation, registers(1, {0, 4})); moveStep(operation, registers(1, {0, 1}));
         assert(!view(operation).pending && view(operation).moveContext->state == ActionState::SUCCEEDED);
-        assert(!app->axis.originKnown && !app->coordinateReference.nativeKnown);
+        assert(app->axis.originKnown && !app->coordinateReference.nativeKnown); // Fixed zero survives; current pose does not.
         assert(view(operation).moveContext->reference.nativePosition == retainedReference.nativePosition);
     }
     // Preserve a multi-turn endpoint and its small relative displacement.

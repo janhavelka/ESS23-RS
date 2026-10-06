@@ -16,7 +16,11 @@ one finite preparation session in the application. `speed`, `accel`, `decel`,
 configuration/profile data is read through existing typed executors; fresh
 state is obtained before admission. Default movement still writes parameters
 and then starts through the public move sequence. Boot intent is 60 rpm with 100 ms ramps and an explicitly ASSUMED 1000-command-steps/turn
-host scale. Origins, enable and I/O changes are not inferred. Ramp times are not
+host scale. The simple workflow establishes a RAM-only boot-session origin
+from its first stationary read under the documented ASSUMED feedback-coordinate
+convention; it writes neither the device counter nor ESP NVS. Enable and I/O
+assignments remain explicit. Completed finite moves preserve the fixed origin;
+uncertain/external motion and configuration changes invalidate it. Ramp times are not
 physical acceleration. Position speed accepts 0..3000 rpm (a move needs nonzero),
 ramps 0..2000 ms; old 60-rpm/250-increment experiment caps are removed.
 `settings` reads current configuration and position parameters without writes and

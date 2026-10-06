@@ -90,13 +90,13 @@ void conciseMotion() {
     contains(output, "No motion command was sent.");
     contains(output, "Next: Set steps-per-turn before using degrees.");
     contains(output, "Details: @1 result 99.");
-    contains(output, "After reviewing: release 99.");
+    assert(!std::strstr(output, "After reviewing"));
     assert(!std::strstr(output, "result 0") && !std::strstr(output, "completion was not observed"));
     assert(renderHuman("{\"type\":\"simple_move\",\"command\":\"moveby\",\"ok\":false,\"state\":\"failed\",\"operation_id\":99,\"move_operation_id\":0,\"read_operation_id\":100,\"no_motion_sent\":true,\"message\":\"Configuration read failed; motor settings are unknown.\"}", output, sizeof(output)));
     contains(output, "Configuration read failed; motor settings are unknown.");
     contains(output, "No motion command was sent.");
     contains(output, "Details: @1 result 100.");
-    contains(output, "After reviewing: release 99.");
+    assert(!std::strstr(output, "After reviewing"));
     assert(renderHuman("{\"type\":\"simple_move\",\"command\":\"moveby\",\"ok\":true,\"state\":\"succeeded\",\"completion\":\"observed\",\"running_observed\":true,\"operation_id\":99,\"move_operation_id\":101}", output, sizeof(output)));
     contains(output, "Move complete (operation 99)");
     contains(output, "Details: @1 result 101.");

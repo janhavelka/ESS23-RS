@@ -1,6 +1,12 @@
 # Motor bench and testing authorization
 
-**Current fault state, 6 October 09:54 CEST:** the
+The [motion/USB follow-up](reports/2026-10-06_motion_console_and_usb.md) flashes the corrected Arduino image and verifies four
+quarter-turn commands, return to RAM-only boot zero, repeated-target no-op,
+stop and exact profile restoration. Final raw position50887, speed/alarm0,
+nonrunning/enabled, DE released and owner empty. USB root cause remains open;
+additional read-only reproduction is recorded in that report.
+
+**Historical fault state, 6 October 09:54 CEST (user subsequently reset the board):** the
 [overnight HIL runner](reports/2026-10-05_overnight_hil.md) ended early at 04:24
 after 377 motion cases because a local USB-console `stats` query received no
 reply. PID 36772 has exited. COM13 still enumerates but also failed a fresh
@@ -9,7 +15,7 @@ cause and final cleanup remain unresolved. Last recorded drive state was
 nonrunning, speed/alarm zero, raw position 49890, DE released and no pending
 owner work. These are historical values; the user independently reports the
 motor stationary this morning. Do not treat the failed overnight aggregate
-as PASS. Its raw evidence and fault state are preserved for diagnosis.
+as PASS. Its raw evidence is preserved; the user reset the controller before subsequent diagnosis.
 
 The overnight request authorized extended finite tests previously deferred,
 without adding switches, restart control or shaft/electrical measurement fixtures.

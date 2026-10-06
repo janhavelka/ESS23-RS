@@ -1542,7 +1542,22 @@ static void testDefaultAgeKeepsEstablishedHostEvidence() {
     command("@3 axis config set gear 1\n"); contains("\"ok\":false");
     assert(hardware.writes == writes);
 }
+void testRuntimeWitnessSurvivesResetWithoutMotorState() {
+    RuntimeWitness::retained.magic = 0;
+    fresh();
+    assert(RuntimeWitness::previous.magic == 0);
+    RuntimeWitness::service(123456, 42, 3, 200);
+    RuntimeWitness::mark(RuntimeWitness::OUTPUT_WRITE);
+    fresh();
+    Probe::Snapshot diagnostic;
+    snapshot(app, diagnostic);
+    assert(diagnostic.previousRuntimeValid && diagnostic.previousRuntimeStage == RuntimeWitness::OUTPUT_WRITE);
+    assert(diagnostic.previousRuntimeUptimeMs == 123456 && diagnostic.previousRuntimeInputLines == 42);
+    assert(diagnostic.previousRuntimeOutputQueued == 3 && diagnostic.previousRuntimeOutputBlocked == 200);
+    assert(!app->axis.originKnown && app->bootOriginPending && hardware.writes == 0);
+}
 int main() {
+    testRuntimeWitnessSurvivesResetWithoutMotorState();
     testDefaultAgeKeepsEstablishedHostEvidence();
     std::printf("Storage bytes: App=%zu Record=%zu Console=%zu ReadContext=%zu PreparedRead=%zu Identity=%zu Config=%zu StateCache=%zu StateObservation=%zu\n",
         sizeof(App), sizeof(App::Record), sizeof(Probe::Console), sizeof(ESS::ReadContext), sizeof(ESS::PreparedRead),

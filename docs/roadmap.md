@@ -1,5 +1,9 @@
 # Roadmap to a supported ESS release
 
+The [motion/USB follow-up](reports/2026-10-06_motion_console_and_usb.md) fixes rejection lockout, boot-session coordinates,
+unit syntax and repeated completed-target handling. Its finite hardware regression
+and full software verifier pass; USB root cause/endurance remain open.
+
 The [overnight HIL experiment](reports/2026-10-05_overnight_hil.md) failed early
 at 04:24 CEST on 6 October after 377 motion cases: the controller stopped
 answering local console queries. Prior motor-bus errors were zero and memory

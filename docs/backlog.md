@@ -1,5 +1,15 @@
 # Features implementation tasks and open questions
 
+## Simple motion and USB follow-up, 6 October
+
+- [x] Reclaim delivered unsent preparation failures without locking the next move.
+- [x] RAM-only boot-session zero, preserved across completed finite moves; no NVS/counter clear.
+- [x] Strict optional rpm/ms suffixes and explicit host-versus-drive settings text.
+- [x] Avoid retriggering an unchanged completed simple endpoint; fresh stationary evidence required.
+- [x] Preserve diagnostic progress across controller reset in RTC RAM, without motor replay state.
+- [ ] Establish USB/controller root cause and repeat failed overnight duration.
+- Evidence: [motion/USB follow-up](reports/2026-10-06_motion_console_and_usb.md).
+
 ## User-authorized overnight HIL, 5-6 October 2026
 
 - [x] Prepare and launch one-port finite motion/stop, health/native-read and

@@ -37,10 +37,10 @@ enum class Command : uint8_t { HELP, VERSION, CONFIG, STATUS, HEALTH, STATS, PRO
 struct Entry { const char* name; Command command; const char* syntax; const char* effect; bool bus; const char* description; };
 const Entry COMMANDS[] = {
     {"moveby", Command::MOVE_BY, "moveby VALUE [steps|deg|turn|mm]", "finite_relative_move_with_readonly_preparation", true, "Move by an amount; default unit is command steps."},
-    {"moveto", Command::MOVE_TO, "moveto VALUE [steps|deg|turn|mm]", "finite_absolute_move_with_readonly_preparation", true, "Move to an absolute target; angles need a configured origin."},
-    {"speed", Command::SPEED, "speed [RPM]", "host_intent_applied_by_next_simple_move", false, "Show or set speed for the next move (0..3000 rpm; default 60; zero prevents a move)."},
-    {"accel", Command::ACCEL, "accel [0..2000]", "host_intent_native_ramp_applied_by_next_simple_move", false, "Show or set acceleration ramp time in ms (0..2000; default 100)."},
-    {"decel", Command::DECEL, "decel [0..2000]", "host_intent_native_ramp_applied_by_next_simple_move", false, "Show or set deceleration ramp time in ms (0..2000; default 100)."},
+    {"moveto", Command::MOVE_TO, "moveto VALUE [steps|deg|turn|mm]", "finite_absolute_move_with_readonly_preparation", true, "Move relative to this boot's stationary zero; no device counter clear or NVS. Requires valid position confidence."},
+    {"speed", Command::SPEED, "speed [VALUE [rpm]]", "host_intent_applied_by_next_simple_move", false, "Show or set speed for the next move (0..3000 rpm; default 60; zero prevents a move)."},
+    {"accel", Command::ACCEL, "accel [VALUE [ms]]", "host_intent_native_ramp_applied_by_next_simple_move", false, "Show or set acceleration ramp time in ms (0..2000; default 100)."},
+    {"decel", Command::DECEL, "decel [VALUE [ms]]", "host_intent_native_ramp_applied_by_next_simple_move", false, "Show or set deceleration ramp time in ms (0..2000; default 100)."},
     {"motion", Command::MOTION, "motion [write|stored]", "inspect_or_select_simple_motion_setup", false, "Choose setup policy: write parameters before start, or explicitly reuse stored parameters."},
     {"stepsperturn", Command::STEPS_PER_TURN, "stepsperturn POSITIVE_NUMBER", "host_command_scale_only_no_motor_settings", false, "Declare command steps per motor turn for angle conversion."},
     {"discover", Command::DISCOVER, "discover [profile ess_rs|manufacturer stepperonline] [addresses FIRST LAST] [tuple BAUD FORMAT] [query-ms 1..5000] [overall-ms 1..60000] [requests 1..256] [results 1..8] [identity] | discover inspect|cancel|restore|finish; max4 distinct tuples,128bytes,20tokens; defaults selected endpoint/current tuple,query500ms,overall5000ms,requests16,results8,no identity,no retries", "bounded_nonchanging_queries_retained_findings_host_restoration", true, "Find responding drives within explicit address, serial and time limits."},
@@ -1471,7 +1471,7 @@ void Console::dispatch() noexcept {
             }
             request.kind = entry->command == Command::MOVE_BY ? SimpleMotionCommandKind::MOVE_BY : SimpleMotionCommandKind::MOVE_TO;
             request.position.relative = entry->command == Command::MOVE_BY;
-            request.position.frame = request.position.unit == Core::PositionUnit::STEPS ? Core::CoordinateFrame::NATIVE :
+            request.position.frame = request.position.unit == Core::PositionUnit::STEPS && request.position.relative ? Core::CoordinateFrame::NATIVE :
                 request.position.unit == Core::PositionUnit::MILLIMETRES ? Core::CoordinateFrame::LOAD : Core::CoordinateFrame::MOTOR;
         } else if (entry->command == Command::STEPS_PER_TURN) {
             if (args != 1 || !Core::parseExactNumber(tokens[first + 1], request.position.value) ||
@@ -1481,7 +1481,7 @@ void Console::dispatch() noexcept {
             }
             request.kind = SimpleMotionCommandKind::SCALE;
         } else {
-            if (args > 1) { error(id, entry->name, "invalid_arguments"); return; }
+            if (args > 2 || (entry->command == Command::MOTION && args > 1)) { error(id, entry->name, "invalid_arguments"); return; }
             if (args && entry->command == Command::MOTION) {
                 request.kind = SimpleMotionCommandKind::SETUP;
                 if (!std::strcmp(tokens[first + 1], "write")) request.setup = Core::MoveSetup::WRITE_ALL;
@@ -1490,7 +1490,15 @@ void Console::dispatch() noexcept {
             } else if (args) {
                 Core::Rational value;
                 const bool speed = entry->command == Command::SPEED;
-                if (!Core::parseExactNumber(tokens[first + 1], value) || value.denominator != 1 ||
+                const char* unit = speed ? "rpm" : "ms";
+                char* number = tokens[first + 1];
+                const std::size_t length = std::strlen(number), unitLength = std::strlen(unit);
+                const bool suffix = length > unitLength && !std::strcmp(number + length - unitLength, unit);
+                if (args == 2 && (suffix || std::strcmp(tokens[first + 2], unit))) {
+                    error(id, entry->name, "invalid_arguments"); return;
+                }
+                if (suffix) number[length - unitLength] = '\0';
+                if (!Core::parseExactNumber(number, value) || value.denominator != 1 ||
                     value.numerator < 0 || value.numerator > (speed ? 3000 : 2000)) {
                     error(id, entry->name, speed ? "speed_must_be_0_to_3000_rpm" : "ramp_must_be_0_to_2000_ms"); return;
                 }
@@ -1524,7 +1532,7 @@ void Console::dispatch() noexcept {
             if (view.decelerationKnown) std::snprintf(decel,sizeof(decel),"%u",view.deceleration);
             else std::snprintf(decel,sizeof(decel),"use drive setting");
             std::snprintf(output_,sizeof(output_),
-                "Next move: speed %u rpm; accel %s ms; decel %s ms.\nSetup: %s. Settings apply when you request a move.\nUse settings to read the motor's actual values.",
+                "Host settings: speed %u rpm; accel %s ms; decel %s ms.\nNo motor setting changed yet. Next move will %s.\nUse settings to compare with the motor's actual values.",
                 view.speedRpm,accel,decel,view.setup == Core::MoveSetup::USE_STORED ? "reuse stored parameters" : "send parameters before start");
             emit(0,true);
         } else {
@@ -1991,7 +1999,7 @@ void Console::dispatch() noexcept {
     switch (entry->command) {
     case Command::DRV: {
         const int written = std::snprintf(output_, sizeof(output_),
-            "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"drv\",\"ok\":true,\"phase\":\"%s\",\"busy\":%s,\"transmit_enabled\":%s,\"recovery_required\":%s,\"pending\":%u,\"retained\":%u,\"reserved\":%u,\"pending_capacity\":%u,\"result_capacity\":%u,\"outstanding_capacity\":%u,\"operation_id\":%lu,\"output_queued\":%u,\"output_blocked\":%llu,\"output_short_writes\":%llu,\"input_bytes\":%llu,\"input_lines\":%llu,\"input_dropped\":%llu,\"recovery_guard_until_us\":%llu,\"request_deadline_us\":%llu,\"capture_mode\":\"%s\",\"read_budget\":%lu,\"model_address\":%s,\"model_operation_id\":%lu,\"observed_earliest_us\":%llu,\"observed_latest_us\":%llu,\"delivered_us\":%llu}",
+            "{\"type\":\"reply\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"drv\",\"ok\":true,\"phase\":\"%s\",\"busy\":%s,\"transmit_enabled\":%s,\"recovery_required\":%s,\"pending\":%u,\"retained\":%u,\"reserved\":%u,\"pending_capacity\":%u,\"result_capacity\":%u,\"outstanding_capacity\":%u,\"operation_id\":%lu,\"output_queued\":%u,\"output_blocked\":%llu,\"output_short_writes\":%llu,\"input_bytes\":%llu,\"input_lines\":%llu,\"input_dropped\":%llu,\"recovery_guard_until_us\":%llu,\"request_deadline_us\":%llu,\"capture_mode\":\"%s\",\"read_budget\":%lu,\"model_address\":%s,\"model_operation_id\":%lu,\"observed_earliest_us\":%llu,\"observed_latest_us\":%llu,\"delivered_us\":%llu,\"previous_runtime\":{\"valid\":%s,\"stage\":%lu,\"uptime_ms\":%lu,\"loops\":%lu,\"input_lines\":%lu,\"output_queued\":%lu,\"output_blocked\":%lu}}",
             static_cast<unsigned long>(id), Rtu::phaseName(data.phase), boolean(data.busy),
             boolean(data.transmitEnabled), boolean(data.recoveryRequired),
             static_cast<unsigned>(data.pending), static_cast<unsigned>(data.retained), static_cast<unsigned>(data.reserved),
@@ -2004,7 +2012,10 @@ void Console::dispatch() noexcept {
             static_cast<unsigned long long>(data.deadlineUs), data.timerCapture ? "timer" : "poll",
             static_cast<unsigned long>(data.readBudget), modelAddress, static_cast<unsigned long>(data.modelOperationId),
             static_cast<unsigned long long>(data.observedEarliestUs), static_cast<unsigned long long>(data.observedLatestUs),
-            static_cast<unsigned long long>(data.deliveredUs));
+            static_cast<unsigned long long>(data.deliveredUs), boolean(data.previousRuntimeValid),
+            static_cast<unsigned long>(data.previousRuntimeStage), static_cast<unsigned long>(data.previousRuntimeUptimeMs),
+            static_cast<unsigned long>(data.previousRuntimeLoops), static_cast<unsigned long>(data.previousRuntimeInputLines),
+            static_cast<unsigned long>(data.previousRuntimeOutputQueued), static_cast<unsigned long>(data.previousRuntimeOutputBlocked));
         if (written < 0 || static_cast<std::size_t>(written) >= sizeof(output_)) { error(id, entry->name, "output_full"); return; }
         break;
     }
@@ -2390,13 +2401,13 @@ bool Console::formatSimpleMotion(uint32_t id, const SimpleMotionView& view, bool
             view.algorithm,boolean(view.algorithmKnown),view.encoderResolution,view.softLimitEnable,boolean(view.softLimitKnown),
             boolean(view.profileKnown),view.profile[0],view.profile[1],view.profile[2],view.profile[3],view.profile[4],view.profile[5]);
     } else fits = append(output_,sizeof(output_),used,
-        "{\"type\":\"simple_move\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"%s\",\"command_id\":%lu,\"operation_id\":%lu,\"move_operation_id\":%lu,\"address\":%u,\"ok\":%s,\"pending\":%s,\"state\":\"%s\",\"phase\":%u,\"outcome\":\"%s\",\"execution\":\"%s\",\"completion\":\"%s\",\"running_observed\":%s,\"uncertain\":%s,\"interrupted_by_stop\":%s,\"no_motion_sent\":%s,\"observation_known\":%s,\"raw_alarm\":%u,\"status\":\"%s\",\"detail\":%ld,\"message\":\"",
+        "{\"type\":\"simple_move\",\"profile\":\"ess_rs\",\"id\":%lu,\"command\":\"%s\",\"command_id\":%lu,\"operation_id\":%lu,\"move_operation_id\":%lu,\"address\":%u,\"ok\":%s,\"pending\":%s,\"state\":\"%s\",\"phase\":%u,\"outcome\":\"%s\",\"execution\":\"%s\",\"completion\":\"%s\",\"running_observed\":%s,\"uncertain\":%s,\"interrupted_by_stop\":%s,\"no_motion_sent\":%s,\"already_at_target\":%s,\"observation_known\":%s,\"raw_alarm\":%u,\"status\":\"%s\",\"detail\":%ld,\"message\":\"",
         static_cast<unsigned long>(id),view.relative ? "moveby" : "moveto",static_cast<unsigned long>(view.commandId),
         static_cast<unsigned long>(view.operationId),static_cast<unsigned long>(view.moveOperationId),view.address,
         boolean(view.pending || view.ok),boolean(view.pending),view.pending ? "active" : view.ok ? "succeeded" : "failed",
         static_cast<unsigned>(view.phase),motorOutcome(view.outcome),executionName(view.execution),
         view.completion == Core::ActionCompletion::OBSERVED ? "observed" : "not_observed",boolean(view.runningObserved),
-        boolean(view.uncertain),boolean(view.interruptedByStop),boolean(noMotionSent),boolean(move && move->observationKnown),
+        boolean(view.uncertain),boolean(view.interruptedByStop),boolean(noMotionSent),boolean(view.alreadyAtTarget),boolean(move && move->observationKnown),
         move ? move->rawAlarm : 0,Core::errToString(view.status.code),static_cast<long>(view.status.detail));
     // Error messages are application-owned text; escape them even in diagnostics.
     const char* message = view.error ? view.error : "";

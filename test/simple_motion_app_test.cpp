@@ -4,7 +4,7 @@
 #include "move_app_test.cpp"
 #undef main
 namespace {
-void simpleReadStep(uint16_t rawSpeed = 0, uint16_t subdivision = 1000) {
+void simpleReadStep(uint16_t rawSpeed = 0, uint16_t subdivision = 1000, uint32_t position = 0) {
     for (unsigned i=0;i<100 && !app->simple.view.readOperationId;++i) step();
     const auto id=app->simple.view.readOperationId; assert(id);
     const auto kind=findRecord(*app,id)->read.kind;
@@ -24,7 +24,7 @@ void simpleReadStep(uint16_t rawSpeed = 0, uint16_t subdivision = 1000) {
         switch(token) {
         case 0: reply=registers(app->simple.view.address,{0,1}); break;
         case 1: reply=registers(app->simple.view.address,{0,0}); break;
-        case 2: reply=registers(app->simple.view.address,{0,0,rawSpeed}); break;
+        case 2: reply=registers(app->simple.view.address,{uint16_t(position>>16),uint16_t(position),rawSpeed}); break;
         default: assert(false);
         }
     }
@@ -115,11 +115,9 @@ void testSettingsFailureRemainsExplicitAndOwned() {
             assert(result.profileEvidence==&app->simple.settingsProfile.view);
             assert(!result.profileEvidence->ok && result.profileEvidence->rxLength==5);
         }
-        const auto transactions=hardware.writes;
-        command("@2 settings\n@3 moveby 100\n");
-        assert(app->simple.view.operationId==wrapper && hardware.writes==transactions);
-        assert(release(app,wrapper)==Probe::Action::OK);
-        command("@4 settings\n"); prepareSimple(); pump(1000);
+        command("@2 settings\n");
+        assert(app->simple.view.operationId!=wrapper);
+        prepareSimple(); pump(1000);
         assert(app->simple.view.ok && app->simple.view.delivered);
     }
 }
@@ -186,9 +184,9 @@ void testSimpleAbsoluteMoveUsesOrdinaryAbsoluteTrigger() {
     const auto child=app->simple.view.moveOperationId;
     assert(child && app->simple.view.moveAdmitted);
     const auto& move=findRecord(*app,child)->move;
-    assert(!move.request.position.relative && move.request.position.frame==CoordinateFrame::NATIVE);
+    assert(!move.request.position.relative && move.request.position.frame==CoordinateFrame::MOTOR);
     assert(move.prepared.endpointKnown && move.prepared.effectiveNative==100);
-    assert(!move.reference.nativeKnown && !move.prepared.displacementKnown);
+    assert(move.reference.nativeKnown && move.prepared.displacementKnown);
     moveStep(child); // Checked ordinary 0x0021/5 staging.
     assert(hardware.tx[1]==16 && hardware.tx[3]==0x21);
     moveStep(child); // Absolute-position bit plus position-start bit.
@@ -262,13 +260,39 @@ void testUnknownScaleAndExplicitColdScale() {
     assert(!app->simple.view.moveAdmitted && !app->simple.view.ok && app->simple.view.delivered);
     assert(hardware.writes==9); // Five config + three state + one profile, all FC03.
     const auto failed=app->simple.view.operationId;
-    command("@2 moveby 100\n"); assert(app->simple.view.operationId==failed);
-    assert(release(app,failed)==Probe::Action::OK);
+    // A conversion rejected before staging must not require manual release.
     command("@3 stepsperturn 1000\n"); assert(hardware.writes==9);
-    command("@4 moveby 36 deg\n"); prepareSimple();
+    command("@4 moveby 36 deg\n"); assert(app->simple.view.operationId!=failed); prepareSimple();
     assert(app->simple.view.moveAdmitted);
     assert(app->simple.view.move->prepared.effectiveNative==100);
     assert(app->axis.units.commandStepsPerMotorTurn.source==ScaleSource::ASSUMED);
+    completeSimple();
+}
+void testBootZeroSurvivesCompletedMovesAndInvalidatesOnLoss() {
+    fresh(); command("@1 moveby 90 deg\n");
+    for(unsigned i=0;i<8;++i) simpleReadStep(0,1000,49890);
+    prepareSimple();
+    assert(app->axis.originKnown && app->axis.originNative==49890);
+    assert(app->axis.originSource==ScaleSource::ASSUMED && !app->bootOriginPending);
+    completeSimple();
+    assert(app->axis.originKnown && app->axis.originNative==49890);
+    command("@2 moveto 0 deg\n"); prepareSimple();
+    assert(app->simple.view.moveAdmitted && app->simple.view.move->prepared.effectiveNative==49890);
+    completeSimple();
+    // The same completed target must not retrigger a sub-arrival-window
+    // correction merely because reported feedback differs by one increment.
+    const unsigned writes = hardware.writes;
+    command("@20 moveto 0 steps\n");
+    for(unsigned i=0;i<3;++i) simpleReadStep(0,1000,49889);
+    pump(1000);
+    assert(app->simple.view.alreadyAtTarget && app->simple.view.ok && !app->simple.view.moveAdmitted);
+    assert(hardware.writes == writes + 3); // Only the mandatory new STATE read.
+    invalidateAxis(*app); // release/unknown motion/configuration loss cannot re-zero.
+    command("@3 moveto 0 deg\n"); prepareSimple(); pump(1000);
+    assert(!app->simple.view.moveAdmitted && !app->axis.originKnown);
+    const auto rejected=app->simple.view.operationId;
+    command("@4 moveby 90 deg\n"); prepareSimple();
+    assert(app->simple.view.operationId!=rejected && app->simple.view.moveAdmitted);
     completeSimple();
 }
 void testRejectedAndAcceptedStopDuringPreparation() {
@@ -414,6 +438,7 @@ void testBoundsAndUncertainResultNotReplayed() {
 }
 }
 int main() {
+    testBootZeroSurvivesCompletedMovesAndInvalidatesOnLoss();
     testColdSettingsReadPreparationAndRepeat();
     testSettingsColdReadRetainsActualValuesAndReclaims();
     testSettingsFailureRemainsExplicitAndOwned();

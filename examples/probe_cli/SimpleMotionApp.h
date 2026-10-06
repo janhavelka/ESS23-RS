@@ -78,7 +78,10 @@ Probe::Action simpleMotion(void* context, uint32_t commandId,
         s.desired.stepsPerTurn = command->position.value; s.desired.scaleKnown = true; break;
     case Kind::SETTINGS: case Kind::MOVE_BY: case Kind::MOVE_TO: {
         if (v.operationId) {
-            if (!v.delivered || !v.ok || v.uncertain || (!v.settingsOnly && v.execution != ActionExecution::ACKNOWLEDGED))
+            // Read-only preparation failures cannot leave the motor executing.
+            // Reclaim delivered results just as for successful simple moves.
+            if (!v.delivered || v.uncertain || (v.moveAdmitted &&
+                (!v.ok || v.execution != ActionExecution::ACKNOWLEDGED)))
                 return Probe::Action::BUSY;
             if (releaseSimpleMotion(a) != Probe::Action::OK) return Probe::Action::BUSY;
         }
@@ -124,6 +127,11 @@ void serviceSimpleMotion(App& a, uint64_t now) {
         v.completion = child->move.completion; v.interruptedByStop = child->interruptedByStop;
         if (!child->delivered) return;
         v.ok = child->move.state == ActionState::SUCCEEDED && !v.uncertain && v.execution == ActionExecution::ACKNOWLEDGED;
+        if (v.ok && child->move.prepared.endpointKnown) {
+            a.simpleEndpoint = child->move.prepared.endpointNative;
+            a.simpleEndpointGeneration = a.axis.generation;
+            a.simpleEndpointKnown = true;
+        }
         finishSimpleMotion(a, child->move.status, v.ok ? "none" : "Move did not complete with a definite acknowledged result", child->move.outcome);
         return;
     }
@@ -198,6 +206,32 @@ void serviceSimpleMotion(App& a, uint64_t now) {
                 if (!status) { finishSimpleMotion(a, status, "Cannot apply steps per turn without stationary axis evidence"); return; }
             }
         }
+        if (a.bootOriginPending) {
+            // The standalone bench uses subdivision-equivalent feedback as its
+            // command-coordinate convention. Keep this explicit ASSUMED host
+            // policy outside the profile; high-bit signed encoding is unresolved.
+            if (!a.axis.originKnown && feedback.value.rawPosition <= INT32_MAX) {
+                auto evidence = axisReference(a);
+                evidence.nativeKnown = true;
+                evidence.nativePosition = feedback.value.rawPosition;
+                evidence.source = ScaleSource::ASSUMED;
+                evidence.observedUs = std::min(motion.observedEarliestUs, feedback.observedEarliestUs);
+                const auto status = setAxisOrigin(a.axis, evidence.nativePosition, evidence);
+                if (!status) { finishSimpleMotion(a, status, "Cannot establish stationary boot zero"); return; }
+                a.bootCoordinates = true;
+            }
+            a.bootOriginPending = false;
+        }
+        if (a.bootCoordinates && a.axis.originKnown) {
+            if (feedback.value.rawPosition > INT32_MAX) invalidateAxis(a);
+            else {
+                auto evidence = axisReference(a);
+                evidence.nativeKnown = true; evidence.nativePosition = feedback.value.rawPosition;
+                evidence.source = ScaleSource::ASSUMED;
+                evidence.observedUs = std::min(motion.observedEarliestUs, feedback.observedEarliestUs);
+                a.coordinateReference = evidence;
+            }
+        }
         if (simpleProfileReady(a, now)) { v.phase = Phase::PROFILE; return; }
         Probe::MotionProfileView profile;
         const auto admitted = motionProfileCommand(&a, Probe::MotionProfileCommand::SNAPSHOT, profile);
@@ -232,6 +266,16 @@ void serviceSimpleMotion(App& a, uint64_t now) {
         finishSimpleMotion(a, converted, missingScale ? "Command scale is unknown; set stepsperturn to the established steps per motor turn" :
             (!request.position.relative && request.position.frame != CoordinateFrame::NATIVE && !a.axis.originKnown) ?
             "Absolute host coordinates need an established axis origin; use help axis" : converted.msg);
+        return;
+    }
+    const auto& currentMotion = a.stateCache.blocks[static_cast<uint8_t>(ESS::StateBlock::MOTION)];
+    const bool completedTarget = !request.position.relative && a.simpleEndpointKnown &&
+        a.simpleEndpointGeneration == a.axis.generation && target.effectiveNative == a.simpleEndpoint &&
+        Probe::fresh(currentMotion, a.axis.target, now, a.observationAgeUs()) && currentMotion.value.inPosition;
+    if (target.zeroDisplacement || completedTarget) {
+        v.ok = v.alreadyAtTarget = true;
+        v.completion = ActionCompletion::OBSERVED;
+        finishSimpleMotion(a, Ok(), "Requested target already satisfied; no new motion command was sent", ActionOutcome::OBSERVED);
         return;
     }
     const auto admitted = startMove(&a, v.commandId, v.address, request, v.moveOperationId);
