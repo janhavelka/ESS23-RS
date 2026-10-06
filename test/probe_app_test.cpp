@@ -603,6 +603,104 @@ void testStopUsesReservedCapacityAndFullAdmissionPreservesWork() {
     assert(hardware.writes == REQUEST_CAPACITY + 2);
     command(("@21 release " + std::to_string(stopping) + "\n").c_str()); contains("\"result\":\"done\"");
 }
+void testRepeatedStopPreservesEvidenceAndReservedCapacity() {
+    using namespace MotorControlRS;
+    for (bool full : {false, true}) for (unsigned failure = 0; failure < 3; ++failure) {
+        fresh(); timerCapture(); qualifyActions();
+        uint32_t retained[REQUEST_CAPACITY] = {};
+        if (full) for (unsigned i = 0; i < REQUEST_CAPACITY; ++i) {
+            retained[i] = admit(i + 1); reply(retained[i], i);
+        }
+        command("@20 stop normal\n"); const uint32_t previous = view(0).operationId;
+        ActionRequest stop; stop.kind = ActionKind::STOP; stop.stop.behavior = StopBehavior::DIRECT;
+        uint32_t next = 777;
+        assert(startAction(app, 21, 1, stop, next) == Probe::Action::RESULTS_FULL && next == 777);
+        if (failure) {
+            std::vector<uint8_t> exception = {1, 0x86, static_cast<uint8_t>(failure == 1 ? 0xE7 : 2)};
+            const auto crc = ESS::calcCrc16(exception.data(), exception.size());
+            exception.push_back(static_cast<uint8_t>(crc)); exception.push_back(static_cast<uint8_t>(crc >> 8));
+            actionStep(previous, exception);
+        } else {
+            actionStep(previous); actionStep(previous, registerReply({0, 0}));
+        }
+        pump(1000);
+        assert(findRecord(*app, previous)->delivered && !view(previous).pending);
+        const auto saved = *view(previous).actionContext;
+        const unsigned writes = hardware.writes;
+        const auto admitted = startAction(app, 22, 1, stop, next);
+        if (full && failure) {
+            assert(admitted == Probe::Action::RESULTS_FULL && next == 777);
+            assert(view(previous).actionContext->execution == saved.execution);
+            assert(axisReserved(*app, 1) == (failure == 1) && hardware.writes == writes);
+        } else {
+            assert(admitted == Probe::Action::OK && next != previous && next != 777);
+            Probe::ResultView old;
+            assert(lookup(app, previous, old) == (!full && failure != 0));
+            if (!full && failure) {
+                assert(old.actionContext->operationId == saved.operationId);
+                assert(old.actionContext->execution == saved.execution && old.actionContext->outcome == saved.outcome);
+                assert(findRecord(*app, previous) != &app->records[REQUEST_CAPACITY + 1]);
+            }
+            actionStep(next); actionStep(next, registerReply({0, 0}));
+            assert(!axisReserved(*app, 1));
+            if (!full && failure) assert(view(previous).actionContext->execution == saved.execution);
+        }
+        if (full) for (auto id : retained) assert(view(id).probe.outcome == Rtu::Outcome::SUCCESS);
+    }
+}
+void testSuccessfulStopsDoNotFillOrdinaryResults() {
+    fresh(); timerCapture(); qualifyActions();
+    uint32_t previous = 0;
+    for (unsigned i = 0; i < REQUEST_CAPACITY + 3; ++i) {
+        command(("@" + std::to_string(i + 1) + " stop fast\n").c_str());
+        const auto stopping = view(0).operationId;
+        assert(stopping != previous);
+        Probe::ResultView old;
+        if (previous) assert(!lookup(app, previous, old));
+        actionStep(stopping); actionStep(stopping, registerReply({0, 0})); pump(1000);
+        assert(findRecord(*app, stopping)->delivered && !axisReserved(*app, 1));
+        for (unsigned j = 0; j < REQUEST_CAPACITY; ++j) assert(!app->records[j].operationId);
+        previous = stopping;
+    }
+    assert(hardware.writes == 2 * (REQUEST_CAPACITY + 3));
+}
+void testRepeatedStopCannotDiscardUndeliveredResult() {
+    using namespace MotorControlRS;
+    fresh(); timerCapture(); qualifyActions();
+    command("@1 stop normal\n"); const auto previous = view(0).operationId;
+    Serial.writeCapacity = 0;
+    while (app->outputCount < OUTPUT_LINES) assert(emit(app, "blocked", 7));
+    for (const char c : std::string("@2 status\n")) app->console.feed(c);
+    assert(app->console.outputPending());
+    actionStep(previous); actionStep(previous, registerReply({0, 0}));
+    assert(!view(previous).pending && !findRecord(*app, previous)->delivered);
+    ActionRequest stop; stop.kind = ActionKind::STOP; stop.stop.behavior = StopBehavior::DIRECT;
+    uint32_t next = 777;
+    assert(startAction(app, 3, 1, stop, next) == Probe::Action::RESULTS_FULL && next == 777);
+    assert(view(previous).actionContext->completion == ActionCompletion::OBSERVED);
+    Serial.writeCapacity = 64; pump(6000);
+    assert(findRecord(*app, previous)->delivered);
+    assert(startAction(app, 4, 1, stop, next) == Probe::Action::OK);
+    Probe::ResultView old; assert(!lookup(app, previous, old));
+}
+void testRepeatedStopAdmissionFailureKeepsPreviousResult() {
+    using namespace MotorControlRS;
+    fresh(); timerCapture(); qualifyActions();
+    command("@1 stop normal\n"); const auto previous = view(0).operationId;
+    actionStep(previous); actionStep(previous, registerReply({0, 0})); pump(1000);
+    const auto saved = *view(previous).actionContext;
+    App::Record occupied; occupied.action.request.kind = ActionKind::STOP;
+    ESS::ActionContext stopContext; ReadTarget target; target.id = target.address = target.generation = 1;
+    assert(ESS::prepareNormalStop(stopContext, target, 999, nowUs(), nowUs() + REQUEST_US));
+    ESS::PreparedAction work; assert(ESS::nextAction(stopContext, nowUs(), work));
+    assert(admitActionStep(*app, occupied, work, nowUs()) == Rtu::BusAdmission::ACCEPTED);
+    ActionRequest stop; stop.kind = ActionKind::STOP; stop.stop.behavior = StopBehavior::DIRECT;
+    uint32_t next = 777;
+    assert(startAction(app, 2, 1, stop, next) == Probe::Action::RESULTS_FULL && next == 777);
+    assert(findRecord(*app, previous) == &app->records[REQUEST_CAPACITY + 1]);
+    assert(view(previous).actionContext->operationId == saved.operationId &&
+        view(previous).actionContext->completion == saved.completion);
+}
 void testUncertainStopSurvivesReleaseRecoveryAndCanBeStoppedAgain() {
     using namespace MotorControlRS;
     fresh(); timerCapture(); qualifyActions();
@@ -1587,6 +1685,10 @@ int main() {
     testSuccessfulProbeAndReset(); testCheckedExceptionAndParserRejection();
     testActionGateAndSeparateAcknowledgement(); testStopSupersedesOnlyAfterAdmissionAndSettlesInflight();
     testStopUsesReservedCapacityAndFullAdmissionPreservesWork();
+    testRepeatedStopPreservesEvidenceAndReservedCapacity();
+    testSuccessfulStopsDoNotFillOrdinaryResults();
+    testRepeatedStopCannotDiscardUndeliveredResult();
+    testRepeatedStopAdmissionFailureKeepsPreviousResult();
     testUncertainStopSurvivesReleaseRecoveryAndCanBeStoppedAgain(); testBadActionReplyKeepsCodecEvidenceAndNoReplay();
     testRetainedUnknownWriteSurvivesInspectionResetAndRecovery();
     testUnknownActionExceptionKeepsReservationAcrossReleaseAndRecovery();

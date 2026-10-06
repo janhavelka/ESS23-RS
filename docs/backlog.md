@@ -1,5 +1,13 @@
 # Features implementation tasks and open questions
 
+## Stop/resume ownership, 6 October
+
+- [x] Confirmed stop unblocks a new simple move without discarding interrupted evidence.
+- [x] Repeated successful stops reuse their reservation without consuming ordinary results.
+- [x] Preserve fixed origin across own interrupted motion; refresh current position.
+- [x] Exercise cancellation, failure, backpressure, capacity and stale-history boundaries.
+- Evidence: [stop/resume audit](reports/2026-10-06_stop_and_resume.md).
+
 ## Firmware health follow-up, 6 October
 
 - [x] Watch the actual owner task, feeding only after completed application turns.

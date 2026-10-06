@@ -260,9 +260,13 @@ void testWrongStageEchoAndLostTriggerNeverReplay() {
         assert(view(operation).moveContext->outcome == retained.outcome && hardware.writes == writes);
     }
 }
+void coordinates(int64_t native);
 void testCancellationAndStopAtSequenceBoundaries() {
     for (unsigned phase = 0; phase < 8; ++phase) {
-        fresh(); qualify(); const uint32_t operation = admitMove();
+        fresh(); qualify(); coordinates(0);
+        const auto origin = app->axis.originNative;
+        const auto generation = app->axis.generation;
+        const uint32_t operation = admitMove();
         if (phase == 1) {
             for (unsigned i = 0; i < 1000 && app->runner.phase() != Rtu::Phase::SETUP; ++i) step();
             assert(app->runner.phase() == Rtu::Phase::SETUP);
@@ -282,6 +286,8 @@ void testCancellationAndStopAtSequenceBoundaries() {
         actionStep(stopping); actionStep(stopping, registers(1, {0, 1}));
         assert(view(stopping).actionContext->completion == ActionCompletion::OBSERVED);
         assert(view(operation).moveContext->outcome == cancelled.outcome && !axisReserved(*app, 1));
+        assert(app->axis.originKnown && app->axis.originNative == origin && app->axis.generation == generation);
+        assert(!app->coordinateReference.nativeKnown); // A new move must read its actual starting position.
         assert(hardware.writes == previousWrites + 2);
     }
     fresh(); qualify(); const uint32_t unsent = admitMove();
@@ -298,6 +304,14 @@ void testCancellationAndStopAtSequenceBoundaries() {
     assert(cancel(app, moving) == Probe::Action::OK); pump();
     assert(!view(moving).pending && view(moving).moveContext->uncertain && axisReserved(*app, 1));
     const unsigned writes = hardware.writes; pump(1000); assert(hardware.writes == writes);
+    assert(triggeredMotion(*app, 1));
+    const uint32_t stopping = admitStop();
+    actionStep(stopping); actionStep(stopping, registers(1, {0, 1}));
+    assert(!triggeredMotion(*app, 1) && view(moving).moveContext->uncertain);
+    qualify(); const auto later = admitMove();
+    moveStep(later, crc({1, 0x90, 2}));
+    assert(view(later).moveContext->uncertain && axisReserved(*app, 1));
+    assert(!triggeredMotion(*app, 1)); // An old stopped trigger cannot explain later external movement.
 }
 void testFullRetainedResultsStillReserveStop() {
     fresh(); qualify();

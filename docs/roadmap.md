@@ -1,5 +1,10 @@
 # Roadmap to a supported ESS release
 
+The [stop/resume audit](reports/2026-10-06_stop_and_resume.md) separates retained
+results from current motor ownership. Move → fast stop → move and repeated
+stops now pass on the ordinary firmware; failed outcomes remain inspectable.
+This finite regression does not close the original overnight-stall investigation.
+
 The [firmware health investigation](reports/2026-10-06_firmware_health.md)
 adds owner-task supervision and fixes a reproduced capture-interrupt crash
 during watchdog dump generation, plus native-IDF inherited USB enables.

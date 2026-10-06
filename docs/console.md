@@ -63,7 +63,9 @@ no axis position is saved in ESP NVS. The feedback-to-command coordinate relatio
 is an explicit standalone ASSUMED convention, restricted to nonnegative signed
 32-bit values. This is not homing or calibrated position proof. Motion occurring
 before that first observation cannot be reconstructed. Completed finite moves
-keep the zero; release, external/uncertain motion or interpretation changes
+keep the zero. Interrupting our move and then confirming a stop also keeps
+that fixed offset, but requires fresh position feedback before the next move.
+Motor release, external movement, counter clear or interpretation changes
 invalidate it without silently choosing a new zero.
 
 The advanced `move absolute ... steps native ...` route retains explicit device
@@ -91,9 +93,19 @@ This describes checked drive feedback; it is not independent shaft measurement.
 If preparation fails, the console says no motion command was sent and gives the
 reason. A delivered preparation-only rejection is inspectable until the next
 simple command automatically reclaims it; it does not lock the motor. Results
-from admitted failed/uncertain motor operations still require review and explicit
-`release N`. Release is local result housekeeping,
-not motor winding release. An uncertain write is never automatically retried.
+from admitted failed/uncertain motor operations remain available under the
+child ID printed by `Details`. They do not keep owning the motor after a
+confirmed stop. You can issue the next move immediately; `release N` frees
+retained result storage only, before or after that next move. Eight ordinary
+result slots are finite: a full store reports `results_full`, not an ownership
+conflict. An uncertain write is never automatically retried.
+
+The next explicit stop replaces a delivered successful stop result in its
+reserved slot, so repeated successful stops do not fill ordinary storage.
+A failed/unknown stop is retained in a free ordinary slot before admitting
+another stop; if none exists, inspect and release a terminal result first.
+Active or undelivered stops cannot be replaced. Local cancellation, `reset`
+and `recover` never substitute for a confirmed motor stop.
 
 For basic communication inspection:
 

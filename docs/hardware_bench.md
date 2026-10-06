@@ -1,5 +1,12 @@
 # Motor bench and testing authorization
 
+**Current state after the 6 October stop/resume audit:**
+[ordinary move → fast stop → move](reports/2026-10-06_stop_and_resume.md) and
+repeated stops passed. The normal Arduino image is installed; after explicit
+controller reset, a read-only check established RAM-only zero at raw 61810.
+Speed/alarm zero, enabled/nonrunning, DE released, owner/output queues empty,
+load/monitor/debug off, COM13 released. Earlier snapshots below are historical.
+
 **Current state, 6 October after the firmware-health checks:** the
 [health follow-up](reports/2026-10-06_firmware_health.md) restores the normal
 Arduino image with owner supervision and the capture crash-path fix. Final

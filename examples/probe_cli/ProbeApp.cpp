@@ -116,6 +116,7 @@ struct App {
         bool cancelContinuation = false; ///< Cancel the operation after its current frame settles.
         ESS::ReadContext read;
         bool actionOperation = false, axisReserved = false, effectsInvalidated = false, interruptedByStop = false;
+        bool motionUnresolved = false; // Our possible movement, until a later checked stop; not historical outcome.
         bool discoveryStop = false; ///< Urgent stop waits for the scan's original tuple.
         ESS::ActionContext action;
         bool moveOperation = false, programmaticMove = false;
@@ -308,9 +309,23 @@ void invalidateAxis(App& a, const App::Record* changing = nullptr, uint64_t samp
 bool coordinateKnowledge(const App& a) {
     return a.axis.originKnown || a.axis.encoderOriginKnown || a.axis.softLimitsKnown || a.coordinateReference.nativeKnown;
 }
+void invalidateMotionObservations(App& a, uint8_t address) {
+    // Motion changes current position, not the fixed counter-to-host offset.
+    // Keep raw history; require new observations before preparing another move.
+    if (address == a.axis.target.address) {
+        a.coordinateReference.nativeKnown = false;
+        a.simpleEndpointKnown = false;
+    }
+    const auto now = nowUs();
+    for (auto& block : a.stateCache.blocks)
+        if (block.value.target.address == address) block.invalidatedUs = now;
+}
 bool triggeredMotion(const App& a, uint8_t address) {
     for (const auto& record : a.records) {
-        if (record.address != address || terminal(a, record)) continue;
+        if (record.address != address) continue;
+        // A locally cancelled operation can still be moving until a checked
+        // stop resolves the interlock. Do not mistake that for external motion.
+        if (terminal(a, record) && !record.motionUnresolved) continue;
         if (record.velocityOperation && (record.velocity.triggerEvidence.txAccepted ||
             (record.velocity.phase == ESS::VelocityPhase::TRIGGER && record.requestId.owner && a.owner.txAccepted(record.requestId)))) return true;
         if (record.homeOperation && (record.home.triggerEvidence.txAccepted ||
@@ -678,22 +693,44 @@ Probe::Action startAction(void* context, uint32_t commandId, uint8_t address,
     const bool stop = request.kind == ActionKind::STOP;
     if (!stop && axisReserved(a, address)) return Probe::Action::AXIS_CONFLICT;
     App::Record* record = nullptr;
+    App::Record* previousStop = nullptr;
     if (stop) {
-        if (!a.records[REQUEST_CAPACITY + 1].operationId) record = &a.records[REQUEST_CAPACITY + 1];
+        record = &a.records[REQUEST_CAPACITY + 1];
+        if (record->operationId) {
+            if (!terminal(a, *record) || !record->delivered) return Probe::Action::RESULTS_FULL;
+            // The next explicit stop acknowledges and replaces a delivered,
+            // checked successful stop. Failed/unknown results retain storage.
+            if (record->action.state != ActionState::SUCCEEDED ||
+                record->action.execution != ActionExecution::ACKNOWLEDGED ||
+                record->action.completion != ActionCompletion::OBSERVED) {
+                for (std::size_t i = 0; i < REQUEST_CAPACITY; ++i)
+                    if (!a.records[i].operationId) { previousStop = &a.records[i]; break; }
+                if (!previousStop) return Probe::Action::RESULTS_FULL;
+            }
+        }
     } else for (std::size_t i = 0; i < REQUEST_CAPACITY; ++i)
         if (!a.records[i].operationId) { record = &a.records[i]; break; }
     if (!record) return Probe::Action::RESULTS_FULL;
-    record->action = preparedContext;
     ESS::PreparedAction work;
-    if (!ESS::nextAction(record->action, now, work) || work.kind != ESS::ActionWork::TRANSACTION) {
-        clearRecord(*record); return Probe::Action::FAILED;
-    }
+    if (!ESS::nextAction(preparedContext, now, work) || work.kind != ESS::ActionWork::TRANSACTION)
+        return Probe::Action::FAILED;
+    const bool replacingStop = record->operationId != 0;
+    const Rtu::RequestId previousRequest = record->requestId;
+    if (!replacingStop) record->action = preparedContext;
     const auto admitted = scanStop ? Rtu::BusAdmission::ACCEPTED : admitActionStep(a, *record, work, now);
     if (admitted != Rtu::BusAdmission::ACCEPTED) {
-        clearRecord(*record);
+        if (!replacingStop) clearRecord(*record);
         return admitted == Rtu::BusAdmission::QUEUE_FULL ? Probe::Action::QUEUE_FULL :
             admitted == Rtu::BusAdmission::RESULTS_FULL || admitted == Rtu::BusAdmission::URGENT_FULL ?
             Probe::Action::RESULTS_FULL : Probe::Action::FAILED;
+    }
+    if (replacingStop) {
+        const Rtu::RequestId admittedRequestId = scanStop ? Rtu::RequestId() : record->requestId;
+        record->requestId = previousRequest;
+        if (previousStop) *previousStop = *record;
+        clearRecord(*record);
+        record->requestId = admittedRequestId;
+        record->action = preparedContext;
     }
     record->serialTuple = scanStop ? a.discovery.originalTuple : a.serial.active;
     record->serialGeneration = scanStop ? a.discovery.originalSerialGeneration : a.serial.generation;
@@ -1519,6 +1556,9 @@ void advanceReads(App& a, uint64_t sampled) {
 void updateActionReservation(App& a, App::Record& record) {
     using namespace MotorControlRS;
     if (!terminal(a, record)) return;
+    record.motionUnresolved = (record.moveOperation && record.move.uncertain && record.move.triggerEvidence.txAccepted) ||
+        (record.velocityOperation && (record.velocity.uncertain || record.velocity.needsStop) && record.velocity.triggerEvidence.txAccepted) ||
+        (record.homeOperation && record.home.uncertain && record.home.triggerEvidence.txAccepted);
     if (record.homeOperation) {
         record.axisReserved = false;
         if (record.home.uncertain)
@@ -1576,14 +1616,12 @@ void updateActionReservation(App& a, App::Record& record) {
         }
         return;
     }
-    // Arrival does not establish a new current coordinate, but a completed
-    // finite move does not change the fixed host zero. Uncertain/interrupted
-    // motion still invalidates that reference, as do velocity and release.
+    // Completion/cancellation does not supply a fresh current position. Neither
+    // changes the fixed origin; release, counter clear and configuration still
+    // invalidate it through their own effect paths.
     if (((record.moveOperation && record.move.triggerEvidence.txAccepted) ||
-        (record.velocityOperation && record.velocity.triggerEvidence.txAccepted)) &&
-        record.address == a.axis.target.address && coordinateKnowledge(a) &&
-        !(record.moveOperation && record.move.state == MotorControlRS::ActionState::SUCCEEDED &&
-          !record.move.uncertain && !record.interruptedByStop)) invalidateAxis(a);
+        (record.velocityOperation && record.velocity.triggerEvidence.txAccepted)))
+        invalidateMotionObservations(a, record.address);
     record.axisReserved = false;
     if (record.moveOperation && record.move.uncertain) a.rememberedMoveGeneration = 0;
     const uint8_t mask = static_cast<uint8_t>(1U << (record.address % 8));
@@ -1596,6 +1634,9 @@ void updateActionReservation(App& a, App::Record& record) {
         // A new checked stopped-state report reconciles conflicts; historical
         // interrupted outcomes and their execution uncertainty stay unchanged.
         a.actionConflicts[record.address / 8] &= static_cast<uint8_t>(~mask);
+        for (auto& previous : a.records)
+            if (previous.address == record.address && terminal(a, previous)) previous.motionUnresolved = false;
+        invalidateMotionObservations(a, record.address);
     }
 }
 MotorControlRS::Status advanceOperation(App::Record& record, const MotorControlRS::ActionEvent& event, uint64_t now) {
@@ -1914,8 +1955,9 @@ Probe::Action cancel(void* context, uint32_t operationId) {
 }
 Probe::Action release(void* context, uint32_t operationId) {
     App& a = *static_cast<App*>(context);
-    if (operationId && operationId == a.simple.view.operationId) return releaseSimpleMotion(a);
-    if (operationId && (operationId == a.simple.view.moveOperationId || operationId == a.simple.view.readOperationId))
+    if (operationId && (operationId == a.simple.view.operationId || operationId == a.simple.view.moveOperationId))
+        return releaseSimpleMotion(a);
+    if (operationId && operationId == a.simple.view.readOperationId)
         return Probe::Action::BUSY;
     if (operationId && operationId == a.recovery.operationId) {
         if (!a.recovery.delivered || !a.owner.releaseRecovery(a.recovery.id)) return Probe::Action::BUSY;

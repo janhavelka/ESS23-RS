@@ -71,6 +71,9 @@ void conciseMotion() {
     contains(output, "Move interrupted by stop");
     contains(output, "Check the separate stop result");
     assert(!std::strstr(output, "Local cancellation"));
+    assert(renderHuman("{\"command\":\"moveby\",\"ok\":false,\"state\":\"failed\",\"outcome\":\"cancelled\",\"interrupted_by_stop\":true,\"uncertain\":true,\"execution\":\"acknowledged\"}", output, sizeof(output)));
+    contains(output, "Command acknowledged; final completion is uncertain");
+    assert(!std::strstr(output, "Execution is unknown"));
     assert(renderHuman("{\"command\":\"move-relative\",\"ok\":false,\"state\":\"failed\",\"outcome\":\"cancelled\"}", output, sizeof(output)));
     contains(output, "Move cancelled locally");
     contains(output, "Local cancellation does not stop the motor");
@@ -105,7 +108,7 @@ void conciseMotion() {
     assert(renderHuman("{\"type\":\"simple_move\",\"command\":\"moveby\",\"ok\":false,\"state\":\"failed\",\"execution\":\"unknown\",\"operation_id\":99,\"move_operation_id\":101}", output, sizeof(output)));
     contains(output, "Do not repeat the write.");
     contains(output, "Details: @1 result 101.");
-    contains(output, "After reviewing: release 99.");
+    contains(output, "Retained details: release 101 after review; this frees result storage only.");
     char tiny[100];
     assert(!renderHuman(complete, tiny, sizeof(tiny)) && tiny[0] == '\0');
 }

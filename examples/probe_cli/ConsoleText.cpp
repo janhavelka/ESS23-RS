@@ -413,12 +413,18 @@ bool motionDetails(Writer& writer, const Value& report) {
         (writer.text("Details: @1 result ") && writer.scalar(operation) && writer.text(".\n"));
 }
 bool reviewReleaseHint(Writer& writer, const Value& report) {
-    const Value wrapper = member(report, "operation_id");
-    return wrapper.kind != Kind::NUMBER || equal(wrapper, "0") ||
-        (writer.text("After reviewing: release ") && writer.scalar(wrapper) && writer.text(".\n"));
+    Value operation = member(report, "move_operation_id");
+    if (operation.kind != Kind::NUMBER || equal(operation, "0")) {
+        operation = member(report, "operation_id");
+        return operation.kind != Kind::NUMBER || equal(operation, "0") ||
+            (writer.text("After reviewing: release ") && writer.scalar(operation) && writer.text(".\n"));
+    }
+    return operation.kind != Kind::NUMBER || equal(operation, "0") ||
+        (writer.text("Retained details: release ") && writer.scalar(operation) && writer.text(" after review; this frees result storage only.\n"));
 }
 const char* motionReason(const Value& reason) {
-    if (equal(reason, "busy") || equal(reason, "axis_conflict")) return "another operation still owns this motor";
+    if (equal(reason, "busy")) return "the application is still finishing an operation or delivering its result";
+    if (equal(reason, "axis_conflict")) return "the motor has active or unresolved work; a confirmed stop is required before a new move";
     if (equal(reason, "queue_full")) return "the request queue is full";
     if (equal(reason, "results_full")) return "retained results are full; inspect and release a terminal result";
     if (equal(reason, "recovery_required")) return "host transport needs explicit recovery";
@@ -471,14 +477,16 @@ bool motionReport(Writer& writer, const Value& report, const char* subject) {
             const char* explanation = motionReason(reason);
             if (!writer.text("Reason: ") || !(explanation ? writer.text(explanation) : writer.scalar(reason)) || !writer.text(".\n")) return false;
         }
-        if (uncertain && !writer.text("Execution is unknown. Do not repeat the write.\n")) return false;
+        if (uncertain && !writer.text(equal(execution, "acknowledged") ?
+            "Command acknowledged; final completion is uncertain. Do not replay automatically.\n" :
+            "Execution is unknown. Do not repeat the write.\n")) return false;
         if (noMotionSent && !writer.text("No motion command was sent.\n")) return false;
         if (interrupted) {
             if (!writer.text("Check the separate stop result; interruption does not prove the motor stopped.\n")) return false;
         } else if (cancelled && !writer.text("Local cancellation does not stop the motor.\n")) return false;
         if (!cancelled && !noMotionSent && terminal && !writer.text(equal(completion, "observed") ?
             "Completion was observed; the operation still has an error.\n" : "Motion/state completion was not observed.\n")) return false;
-        if (equal(execution, "acknowledged") && !writer.text("Command acknowledged by the drive.\n")) return false;
+        if (!uncertain && equal(execution, "acknowledged") && !writer.text("Command acknowledged by the drive.\n")) return false;
         if (equal(member(report, "setup_execution"), "acknowledged") && !writer.text("Motion settings were acknowledged.\n")) return false;
     }
     const Value alarm = member(report, "raw_alarm");

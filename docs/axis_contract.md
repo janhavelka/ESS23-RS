@@ -503,6 +503,13 @@ be discarded or preserved. Distinguish drive release from stop. Reject an
 unsupported requested combination instead of silently changing queue or torque
 behavior. Stop has its own acknowledgement and observed-stop result; it does
 not retroactively make an uncertain interrupted operation successful.
+Retaining that historical result does not itself reserve the axis. A checked
+stop resolves the current motion interlock while the interrupted result stays
+unchanged. Ordinary positioning/velocity motion does not change the fixed
+host-to-counter origin; applications invalidate current position observations
+and obtain fresh feedback before another dependent preparation. Counter changes,
+release, external motion and interpretation changes retain their separate
+origin-invalidation rules.
 An unreachable drive and shared-bus contention prevent a universal stop-time
 guarantee; no software API implies an independent hardware emergency stop.
 

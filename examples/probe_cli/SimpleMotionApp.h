@@ -18,10 +18,16 @@ bool releaseSimpleChild(App& a, uint32_t& id) {
     if (!record || !record->delivered || (record->requestId.owner && !a.owner.release(record->requestId))) return false;
     clearRecord(*record); id = 0; return true;
 }
-Probe::Action releaseSimpleMotion(App& a) {
+Probe::Action releaseSimpleMotion(App& a, bool retainFailedMove = false) {
     auto& s = a.simple; auto& v = s.view;
-    if (v.pending || !v.delivered || !releaseSimpleChild(a, s.view.readOperationId) ||
-        !releaseSimpleChild(a, v.moveOperationId)) return Probe::Action::BUSY;
+    if (v.pending || !v.delivered || !releaseSimpleChild(a, v.readOperationId)) return Probe::Action::BUSY;
+    if (retainFailedMove && v.moveOperationId) {
+        auto* child = findRecord(a, v.moveOperationId);
+        if (!child || !child->delivered) return Probe::Action::BUSY;
+        // Keep the ordinary result and its transport evidence inspectable by
+        // child ID. Historical failure is not the current axis interlock.
+        child->simpleChild = false;
+    } else if (!releaseSimpleChild(a, v.moveOperationId)) return Probe::Action::BUSY;
     const auto desired = s.desired;
     s = App::SimpleMotionSession(); s.desired = desired;
     static_cast<Probe::SimpleMotionSettings&>(s.view) = desired;
@@ -77,21 +83,23 @@ Probe::Action simpleMotion(void* context, uint32_t commandId,
             return Probe::Action::INVALID;
         s.desired.stepsPerTurn = command->position.value; s.desired.scaleKnown = true; break;
     case Kind::SETTINGS: case Kind::MOVE_BY: case Kind::MOVE_TO: {
-        if (v.operationId) {
-            // Read-only preparation failures cannot leave the motor executing.
-            // Reclaim delivered results just as for successful simple moves.
-            if (!v.delivered || v.uncertain || (v.moveAdmitted &&
-                (!v.ok || v.execution != ActionExecution::ACKNOWLEDGED)))
-                return Probe::Action::BUSY;
-            if (releaseSimpleMotion(a) != Probe::Action::OK) return Probe::Action::BUSY;
-        }
+        if (v.operationId && !v.delivered) return Probe::Action::BUSY;
         if (!platformReady) return Probe::Action::UNAVAILABLE;
         if (a.owner.needsRecovery() || uart.needsRecovery() || a.serial.blocked || !a.serial.activeKnown)
             return Probe::Action::RECOVERY_REQUIRED;
         if (a.owner.active() || a.owner.pending() || a.owner.commissioningOwned() || a.owner.configurationOwned() ||
-            a.discovery.owned || acting(a) || reading(a) || a.monitorState.settings.enabled ||
-            axisReserved(a, a.axis.target.address)) return Probe::Action::BUSY;
+            a.discovery.owned || acting(a) || reading(a) || a.monitorState.settings.enabled) return Probe::Action::BUSY;
+        if (axisReserved(a, a.axis.target.address)) return Probe::Action::AXIS_CONFLICT;
         if (!a.nextOperationId) return Probe::Action::IDS_EXHAUSTED;
+        const bool retainFailedMove = v.moveAdmitted && !v.ok;
+        bool space = false;
+        for (std::size_t i = 0; i < REQUEST_CAPACITY; ++i) {
+            const auto id = a.records[i].operationId;
+            space = space || !id || id == v.readOperationId || (!retainFailedMove && id == v.moveOperationId);
+        }
+        if (!space) return Probe::Action::RESULTS_FULL;
+        if (v.operationId && releaseSimpleMotion(a, retainFailedMove) != Probe::Action::OK)
+            return Probe::Action::BUSY;
         static_cast<Probe::SimpleMotionSettings&>(v) = s.desired;
         s.position = command->position; s.position.relative = command->kind == Kind::MOVE_BY;
         v.operationId = a.nextOperationId++; v.commandId = commandId;

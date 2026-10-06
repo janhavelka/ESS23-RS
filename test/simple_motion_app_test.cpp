@@ -36,18 +36,22 @@ void simpleReadStep(uint16_t rawSpeed = 0, uint16_t subdivision = 1000, uint32_t
     }
     assert(false);
 }
-void prepareSimple() {
+void prepareSimple(bool serviceAfterAdmission = true) {
     for(unsigned i=0;i<20 && app->simple.view.pending && app->simple.view.phase!=Probe::SimpleMotionPhase::PROFILE;++i)
         simpleReadStep();
     assert(app->simple.view.pending && app->simple.view.phase==Probe::SimpleMotionPhase::PROFILE);
     auto& profile=app->simple.view.settingsOnly ? app->simple.settingsProfile : app->motionProfile;
-    if (!profile.view.pending) { pump(); return; }
+    if (!profile.view.pending) {
+        if (serviceAfterAdmission) pump();
+        else serviceSimpleMotion(*app,hardware.time);
+        return;
+    }
     const auto id=profile.request;
     for(unsigned i=0;i<25000 && !app->owner.txAccepted(id);++i) step();
     assert(app->owner.txAccepted(id) && hardware.tx[1]==3 && hardware.tx[3]==0x20);
     scheduleReply(std::max(hardware.writeStarted+hardware.tx.size()*87+1000,hardware.time+1000),registers(app->simple.view.address,{30,100,100,60,0,5000}));
     for(unsigned i=0;i<25000 && profile.view.pending;++i) step();
-    pump();
+    if (serviceAfterAdmission) pump();
 }
 void completeSimple() {
     const auto child=app->simple.view.moveOperationId; assert(child);
@@ -433,11 +437,142 @@ void testBoundsAndUncertainResultNotReplayed() {
     for(unsigned i=0;i<50000 && view(child).pending;++i) step();
     pump(1000); assert(app->simple.view.uncertain && !app->simple.view.ok);
     const auto previous=app->simple.view.operationId, writes=hardware.writes;
+    const auto retained=*view(child).moveContext;
     command("@2 moveby 100\n");
     assert(app->simple.view.operationId==previous && hardware.writes==writes);
+    command("@3 stats reset\n");
+    assert(app->simple.view.uncertain && axisReserved(*app,1) && hardware.writes==writes);
+    uint32_t recovery=0; assert(recover(app,4,recovery)==Probe::Action::OK);
+    for(unsigned i=0;i<80000 && app->owner.recovering();++i) step();
+    assert(!app->owner.needsRecovery() && axisReserved(*app,1));
+    command("@5 moveby 100\n");
+    assert(Serial.output.find("axis_conflict")!=std::string::npos);
+    assert(app->simple.view.operationId==previous && hardware.writes==writes);
+    assert(view(child).moveContext->uncertain && view(child).moveContext->outcome==retained.outcome);
+    assert(view(child).moveContext->execution==retained.execution);
+}
+void testCancelledUnsentAndRejectedStageAllowNextSession() {
+    for (const bool rejectStage : {false, true}) {
+        fresh(); command("@1 moveby 100\n"); prepareSimple(false);
+        const auto wrapper=app->simple.view.operationId, child=app->simple.view.moveOperationId;
+        assert(child && !app->owner.txAccepted(findRecord(*app,child)->requestId));
+        if (rejectStage) moveStep(child,crc({1,0x90,2}));
+        else assert(cancel(app,wrapper)==Probe::Action::OK);
+        pump(1000);
+        assert(app->simple.view.delivered && !app->simple.view.ok);
+        assert(app->simple.view.uncertain==rejectStage);
+        if (rejectStage) {
+            // FC10 exceptions do not establish atomic rejection of parameters.
+            command("@20 moveby 50\n");
+            assert(app->simple.view.operationId==wrapper && axisReserved(*app,1));
+            assert(Serial.output.find("axis_conflict")!=std::string::npos);
+            command("@21 stop fast\n"); const auto stopping=app->latestOperationId;
+            actionStep(stopping); actionStep(stopping,registers(1,{0,1})); pump(1000);
+        }
+        assert(!axisReserved(*app,1));
+        const auto retained=*view(child).moveContext;
+        command("@2 moveby 50\n");
+        assert(app->simple.view.operationId!=wrapper && app->simple.view.pending);
+        assert(findRecord(*app,child) && !findRecord(*app,child)->simpleChild);
+        assert(view(child).moveContext->outcome==retained.outcome);
+        assert(view(child).moveContext->execution==retained.execution);
+        Probe::ResultView gone; assert(!lookup(app,wrapper,gone));
+        prepareSimple(); completeSimple();
+        assert(app->simple.view.ok && release(app,child)==Probe::Action::OK);
+    }
+}
+void testStoppedSimpleMoveRetainsFailureAndAllowsNextSession() {
+    for (const bool triggerInFlight : {false, true}) {
+        fresh(); command("@1 moveto 100\n"); prepareSimple();
+        const auto wrapper=app->simple.view.operationId, child=app->simple.view.moveOperationId;
+        moveStep(child);
+        if (triggerInFlight) waitTx(child);
+        else { moveStep(child); moveStep(child,registers(1,{0,4})); }
+        command("@2 stop fast\n");
+        const auto stopping=app->latestOperationId;
+        assert(stopping!=wrapper && view(stopping).actionContext);
+        if (triggerInFlight) moveStep(child);
+        pump(1000);
+        assert(app->simple.view.delivered && app->simple.view.interruptedByStop);
+        const auto retained=*view(child).moveContext;
+        assert(retained.uncertain && axisReserved(*app,1));
+        command("@3 moveby 50\n"); assert(app->simple.view.operationId==wrapper);
+        actionStep(stopping); // A checked stop echo still does not prove stopping.
+        command("@4 moveby 50\n"); assert(app->simple.view.operationId==wrapper);
+        actionStep(stopping,registers(1,{0,1})); pump(1000);
+        assert(!axisReserved(*app,1));
+        assert(app->axis.originKnown && app->axis.originNative==0);
+        command("@5 moveto 50\n");
+        assert(app->simple.view.operationId!=wrapper && app->simple.view.pending);
+        assert(view(child).moveContext->uncertain && view(child).interruptedByStop);
+        assert(view(child).moveContext->execution==retained.execution);
+        assert(view(child).moveContext->outcome==retained.outcome);
+        assert(view(child).moveContext->completion==retained.completion);
+        prepareSimple();
+        assert(app->simple.view.move->prepared.effectiveNative==50);
+        completeSimple();
+        assert(app->simple.view.ok && release(app,child)==Probe::Action::OK);
+    }
+}
+void testRetainedFailedMovesReportCapacityAndCanBeReleased() {
+    fresh();
+    for (unsigned i=0;i<REQUEST_CAPACITY;++i) {
+        command("@"+std::to_string(i+1)+" moveby 100\n"); prepareSimple(false);
+        assert(cancel(app,app->simple.view.operationId)==Probe::Action::OK); pump(1000);
+        assert(app->simple.view.delivered && !axisReserved(*app,1));
+    }
+    const auto wrapper=app->simple.view.operationId;
+    Probe::SimpleMotionCommand next; next.kind=Probe::SimpleMotionCommandKind::MOVE_BY;
+    next.position.value=Rational(10); Probe::SimpleMotionView result;
+    assert(simpleMotion(app,50,&next,result)==Probe::Action::RESULTS_FULL);
+    assert(app->simple.view.operationId==wrapper && app->simple.view.delivered);
+    const auto old=app->records[0].operationId;
+    assert(old && old!=app->simple.view.moveOperationId && release(app,old)==Probe::Action::OK);
+    command("@51 moveby 10\n"); prepareSimple(); completeSimple();
+    assert(app->simple.view.ok);
+}
+void testFailedStopAndBlockedResultDoNotReleaseSimpleSession() {
+    fresh(); command("@1 moveby 100\n"); prepareSimple();
+    const auto wrapper=app->simple.view.operationId, child=app->simple.view.moveOperationId;
+    moveStep(child); moveStep(child); moveStep(child,registers(1,{0,4}));
+    command("@2 stop fast\n"); const auto failedStop=app->latestOperationId;
+    actionStep(failedStop,crc({1,0x86,2})); pump(1000);
+    assert(view(failedStop).actionContext->completion!=ActionCompletion::OBSERVED);
+    assert(app->simple.view.delivered && app->simple.view.uncertain && axisReserved(*app,1));
+    command("@3 moveby 50\n"); assert(app->simple.view.operationId==wrapper);
+    assert(Serial.output.find("axis_conflict")!=std::string::npos);
+    assert(release(app,failedStop)==Probe::Action::OK);
+    command("@4 stop fast\n"); const auto stopped=app->latestOperationId;
+    actionStep(stopped); actionStep(stopped,registers(1,{0,1})); pump(1000);
+    assert(!axisReserved(*app,1));
+    const auto retained=*view(child).moveContext;
+    command("@5 moveby 50\n"); prepareSimple(false);
+    const auto nextWrapper=app->simple.view.operationId;
+    const auto unsent=app->simple.view.moveOperationId;
+    Serial.writeCapacity=0;
+    while(app->outputCount<OUTPUT_LINES) assert(emit(app,"blocked",7));
+    for(const char c : std::string("@6 status\n")) app->console.feed(c);
+    assert(cancel(app,nextWrapper)==Probe::Action::OK); pump(1000);
+    assert(!app->simple.view.pending && !app->simple.view.delivered && !axisReserved(*app,1));
+    Probe::SimpleMotionCommand next; next.kind=Probe::SimpleMotionCommandKind::MOVE_BY;
+    next.position.value=Rational(10); Probe::SimpleMotionView result;
+    assert(simpleMotion(app,7,&next,result)==Probe::Action::BUSY);
+    assert(release(app,nextWrapper)==Probe::Action::BUSY && findRecord(*app,unsent));
+    Serial.writeCapacity=64; pump(6000);
+    assert(app->simple.view.delivered);
+    // The displayed child ID also releases its current delivered wrapper.
+    assert(release(app,unsent)==Probe::Action::OK && !app->simple.view.operationId);
+    command("@8 moveby 10\n"); prepareSimple(); completeSimple();
+    assert(app->simple.view.ok && app->simple.view.operationId!=nextWrapper);
+    assert(view(child).moveContext->outcome==retained.outcome && view(child).moveContext->uncertain);
+    assert(release(app,child)==Probe::Action::OK);
 }
 }
 int main() {
+    testCancelledUnsentAndRejectedStageAllowNextSession();
+    testStoppedSimpleMoveRetainsFailureAndAllowsNextSession();
+    testRetainedFailedMovesReportCapacityAndCanBeReleased();
+    testFailedStopAndBlockedResultDoNotReleaseSimpleSession();
     testBootZeroSurvivesCompletedMovesAndInvalidatesOnLoss();
     testColdSettingsReadPreparationAndRepeat();
     testSettingsColdReadRetainsActualValuesAndReclaims();
