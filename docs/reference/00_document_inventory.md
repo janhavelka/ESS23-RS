@@ -21,6 +21,11 @@ are retained in [sources.json](sources.json).
 
 ## Supplemental product evidence
 
+The [7 October motion web review](12_ess_rs_motion_web_review.md) records
+vendor FAQ/community source applicability, current download findings and the
+exact hardware manual's unresolved 200 kHz entry. It supplements the preserved
+PDFs; it does not replace their bytes or establish new register constants.
+
 On 2026-10-04 the user confirmed the bench motor as ESS23-RS20. Its official
 product page supplements the original PDFs with incremental/differential,
 three-channel 1000-PPR encoder specifications. See [the checked source note](11_ess23_rs20_identity.md)

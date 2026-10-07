@@ -8,6 +8,12 @@ without observed RUNNING. This closes that demonstrated false uncertainty,
 not all feedback quantization or high-speed cases. No motor firmware update
 has been established or applied.
 
+The [manual/FAQ/forum follow-up](reference/12_ess_rs_motion_web_review.md)
+identifies an unresolved 200 kHz pulse-frequency specification in the exact RS
+hardware manual. Its effect on internal serial motion needs vendor clarification;
+short passing moves do not establish sustained requested speed. No matching
+public firmware fix was found, and the motor-side issue remains open.
+
 
 [7 October overnight evidence](reports/2026-10-07_overnight_hil.md) records9,325
 matrix cases and2,799 simple commands. Normal-stop budgeting is corrected.

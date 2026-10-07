@@ -3,6 +3,8 @@
 ## Position completion and firmware identification, 7 October
 
 - [x] Read raw firmware0x0029/model0x4EEA; recheck official manuals/downloads.
+- [x] Review current vendor FAQs and community reports; distinguish other driver families in the [source review](reference/12_ess_rs_motion_web_review.md).
+- [ ] Resolve the exact RS hardware manual's 200 kHz pulse-frequency applicability to serial positioning; requested-speed results do not establish actual peak rates.
 - [x] Run25 parameter cases plus9 repeats with checked staged values and stop/restore.
 - [x] Confirm short moves using two fresh exact stopped endpoint reports in the shared mover;15/15 physical regressions pass.
 - [ ] Resolve drive-side persistent RUNNING/normal-stop behavior; vendor firmware mapping/update procedure remains unavailable.

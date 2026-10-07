@@ -3,6 +3,14 @@
 For a user-facing ESP32 function, see [moveBy / moveTo](move_example.md).
 It submits the same observed move sequence; no console-string parsing is needed.
 
+**Known motor limitation:** some high-subdivision speed/ramp combinations leave
+firmware `0x0029` reporting RUNNING after expected travel. See the
+[measured cases](reports/2026-10-07_position_completion.md) and
+[manual, FAQ and forum review](reference/12_ess_rs_motion_web_review.md).
+The exact RS hardware manual lists an unexplained 200 kHz pulse-frequency limit;
+its applicability to serial motion remains unresolved. Legal individual fields
+do not qualify all combinations. No guessed limit or completion override is used.
+
 The regular API and firmware implement these operations without a functional
 mode. [Short motion checks](functional_bench.md) use the same preparations as
 applications. Activity/completion reports remain separate from acknowledgement,

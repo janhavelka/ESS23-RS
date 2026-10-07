@@ -1,5 +1,9 @@
 # MotorControl-RS documentation
 
+[High-subdivision motion research](reference/12_ess_rs_motion_web_review.md)
+compares the exact ESS-RS manuals, current vendor FAQs and community reports
+against firmware `0x0029` bench evidence, including the unresolved 200 kHz entry.
+
 [Move by / move to in C++](move_example.md) shows the existing ESP32 application's
 unit-aware functions, background polling and retained progress/results.
 

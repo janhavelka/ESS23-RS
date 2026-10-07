@@ -124,9 +124,14 @@ scale. Lower subdivision1600/2000rpm/4000 and12800/2000rpm/32000 passed the same
 
 Repeated on the new ESP32 completion image:51200/100/900/12800 failed3/3;
 51200/100/2000/12800 completed3/3;51200/2000/2000/128000 completed3/3.
-Thus failure is not a monotonic speed/frequency threshold. Slower configured
-ramps improve some cases, but we did not change defaults or claim a universal
-ramp conversion. A drive speed word is not an independent tachometer reading.
+Failure is not monotonic with requested speed. This does not rule out an
+internal frequency limit: short moves may never attain their requested speed.
+The subsequent [manual/FAQ/forum review](../reference/12_ess_rs_motion_web_review.md)
+identifies the exact RS hardware manual's unexplained 200 kHz pulse-frequency
+maximum. Its application to serial positioning still needs clarification.
+Slower configured ramps improve some cases, but we did not change defaults or
+claim a universal ramp conversion. A drive speed word is not an independent
+tachometer reading.
 
 An earlier retained batch requested100 ramps in host preferences but actually
 staged500/500 from the saved native profile. Its raw staging words identify this
