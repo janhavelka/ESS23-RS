@@ -9,7 +9,7 @@ namespace {
 E::PositionCommand motor() {
     E::PositionCommand m;
     m.target.id = 1; m.target.address = 1; m.target.generation = 2;
-    m.speedRpm = 60; m.accelerationTime = m.decelerationTime = 100;
+    m.subdivision = 1000; m.speedRpm = 60; m.accelerationTime = m.decelerationTime = 100;
     return m;
 }
 std::vector<uint8_t> crc(std::vector<uint8_t> bytes) {
@@ -204,4 +204,37 @@ void setupPolicies() {
     }
 }
 }
-int main() { setupPolicies(); intentSnapshotAndNormalSequence(); rejectionAndRawAccess(); failuresNeverStartOrReplay(); acknowledgementEvidence(); }
+void operatingBoundary() {
+    // Exhaust every legal integer subdivision, including non-preset values.
+    for (unsigned sub=400; sub<=51200; ++sub) {
+        const uint16_t rpm=E::positionSpeedLimit(static_cast<uint16_t>(sub));
+        assert(rpm && rpm<=2000 && uint64_t(sub)*rpm<=12000000);
+        assert(rpm==2000 || uint64_t(sub)*(rpm+1)>12000000);
+        auto m=motor(); m.subdivision=sub; m.speedRpm=rpm;
+        E::MoveContext c;
+        assert(m.prepareRelative(c,1,100,10,1000));
+        assert(c.prerequisites.subdivision==sub);
+        const auto saved=c;
+        ++m.speedRpm;
+        assert(!m.prepareRelative(c,2,100,10,1000));
+        assert(!std::memcmp(&saved,&c,sizeof(c)));
+    }
+    for (uint16_t sub : {0,399,51201,65535}) assert(!E::positionSpeedLimit(sub));
+    auto m=motor(); E::MoveContext c;
+    for (auto setup : {MoveSetup::WRITE_ALL,MoveSetup::VERIFY_AND_UPDATE,MoveSetup::USE_STORED}) {
+        m.setup=setup;
+        m.accelerationTime=99; assert(!m.prepareAbsolute(c,1,100,10,1000));
+        m.accelerationTime=100; m.decelerationTime=99; assert(!m.prepareAbsolute(c,1,100,10,1000));
+        m.decelerationTime=2000; assert(m.prepareAbsolute(c,1,100,10,1000));
+    }
+    E::PositionLimits custom;
+    custom.maximumRpm=0; assert(!E::positionSpeedLimit(1000,custom));
+    custom.maximumRpm=3001; assert(!E::positionSpeedLimit(1000,custom));
+    custom.maximumRpm=3000; custom.maximumCommandRate=UINT32_MAX;
+    assert(E::positionSpeedLimit(51200,custom)==3000); // Checked widened arithmetic.
+    custom.minimumRampTime=2001; assert(!E::positionSpeedLimit(1000,custom));
+    custom.minimumRampTime=0;
+    m.limits=custom; m.accelerationTime=m.decelerationTime=0; m.speedRpm=2700;
+    assert(m.prepareAbsolute(c,1,100,10,1000)); // Explicit caller policy, no default bypass.
+}
+int main() { operatingBoundary(); setupPolicies(); intentSnapshotAndNormalSequence(); rejectionAndRawAccess(); failuresNeverStartOrReplay(); acknowledgementEvidence(); }

@@ -81,6 +81,27 @@ uint16_t startValue(bool relative) {
 }
 } // namespace
 
+uint16_t positionSpeedLimit(uint16_t subdivision, const PositionLimits& limits) noexcept {
+    if (subdivision < 400 || subdivision > 51200 || !limits.maximumRpm ||
+        limits.maximumRpm > 3000 || !limits.maximumCommandRate || limits.minimumRampTime > 2000)
+        return 0;
+    const uint64_t rateRpm = static_cast<uint64_t>(limits.maximumCommandRate) * 60 / subdivision;
+    return static_cast<uint16_t>(rateRpm < limits.maximumRpm ? rateRpm : limits.maximumRpm);
+}
+Status checkPositionLimits(uint16_t subdivision, uint16_t rpm, uint16_t acceleration,
+                           uint16_t deceleration, const PositionLimits& limits) noexcept {
+    if (subdivision < 400 || subdivision > 51200)
+        return invalid(MoveError::UNRESOLVED_UNITS, "active drive subdivision is required for position speed limits");
+    const uint16_t ceiling = positionSpeedLimit(subdivision, limits);
+    if (!ceiling) return invalid(MoveError::OPERATING_LIMIT, "invalid position operating limits");
+    if (!rpm || rpm > ceiling)
+        return failed(MoveError::OPERATING_LIMIT, "position speed exceeds RPM/subdivision limit; use settings to see maximum rpm");
+    if (acceleration < limits.minimumRampTime || deceleration < limits.minimumRampTime ||
+        acceleration > 2000 || deceleration > 2000)
+        return failed(MoveError::OPERATING_LIMIT, "position ramps outside operating limits (default 100..2000 ms)");
+    return Ok();
+}
+
 std::size_t buildReadPositionProfile(uint8_t address, uint8_t* out, std::size_t capacity) noexcept {
     return buildReadRegisters(address, Registers::POSITION_START_SPEED, 6, out, capacity);
 }
@@ -118,8 +139,13 @@ static Status prepareNative(MoveContext& output, const PositionCommand& command,
     if (!command.speedRpm || command.speedRpm > 3000 || command.accelerationTime > 2000 ||
         command.decelerationTime > 2000 || (relative && !bits))
         return invalid(MoveError::INVALID_REQUEST, "invalid native position parameters");
+    const Status limits = checkPositionLimits(command.subdivision, command.speedRpm,
+        command.accelerationTime, command.decelerationTime, command.limits);
+    if (!limits) return limits;
     MoveContext prepared;
     prepared.admission = MoveAdmission::NATIVE_INTENT;
+    prepared.prerequisites.subdivision = command.subdivision;
+    prepared.prerequisites.limits = command.limits;
     prepared.request.position.relative = relative;
     prepared.request.setup = command.setup;
     prepared.words[0] = command.accelerationTime; prepared.words[1] = command.decelerationTime;
@@ -172,6 +198,9 @@ static Status prepareMove(MoveContext& output, const AxisConfig& axis, const Axi
     if (!request.speedRpm || request.speedRpm > 3000 || !prerequisites.startSpeedKnown ||
         prerequisites.startSpeed > request.speedRpm)
         return invalid(MoveError::INVALID_REQUEST, "invalid speed or unresolved configured start speed");
+    const Status limits = checkPositionLimits(prerequisites.subdivision, request.speedRpm,
+        prerequisites.accelerationTime, prerequisites.decelerationTime, prerequisites.limits);
+    if (!limits) return limits;
     if (!prerequisites.wordOrderKnown || prerequisites.wordOrder > WordOrder::LOW_WORD_FIRST)
         return invalid(MoveError::STALE_CONFIGURATION, "move word order is unresolved");
     if (!prerequisites.readinessQualified || !prerequisites.serialInputsPermit ||

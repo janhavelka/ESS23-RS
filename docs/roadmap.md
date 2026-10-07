@@ -1,5 +1,10 @@
 # Roadmap to a supported ESS release
 
+[Default position limits](reports/2026-10-07_position_limits.md) combine
+2,000 rpm, 200,000 command increments/s and 100..2,000 ms native ramps.
+This is a conservative preparation policy, not repaired or universally qualified
+motor firmware. Raw codecs retain their existing access contract.
+
 The [pulse-rate boundary study](reports/2026-10-07_rate_boundary.md) reproduces
 motor-controller reset-like loss of volatile settings both above and below
 200,000 command increments/s. Ramp controls narrow the failing combination,

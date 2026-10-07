@@ -1,6 +1,14 @@
 # Motor bench and testing authorization
 
-Latest [rate-boundary/endurance experiment](reports/2026-10-07_rate_boundary.md)
+Latest [default-position boundary follow-up](reports/2026-10-07_position_limits.md)
+passed408 matrix cases plus the ordinary relative/absolute/rejection regression.
+The installed Arduino image now enforces combined RPM/rate/ramp defaults; hash
+and full evidence are in that report. Final subdivision51200, profile
+`[30,500,500,60,0,32000]`, raw position240971966, speed0/motion1/alarm0.
+Load/monitor/debug off, no queued/reserved/retained operation, UART/DE settled,
+COM13 free. Motor firmware remains0x0029; no persistence writes.
+
+Earlier [rate-boundary/endurance experiment](reports/2026-10-07_rate_boundary.md)
 completed 4h08s active testing and 4,580 cases in the stated <=2,000-rpm,
 <=200,000-increment/s ramp envelope. Broader high-speed tests reproduced four
 motor reset-like failures, including two below 200 kHz; their cause remains open.

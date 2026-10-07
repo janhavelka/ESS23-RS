@@ -2,6 +2,14 @@
 
 ## Unreleased - partial 0.6.0 development candidate
 
+- Default ESS position preparation to a conservative combined 2,000-rpm /
+  200,000-command-increment/s ceiling and 100..2,000 ms native ramp words.
+  Native/common callers must supply the active drive subdivision; raw codecs
+  retain their documented wire contract. Explicit caller policies remain possible.
+  `settings` shows the subdivision-specific maximum rpm; a rejected simple move
+  reports the shared validator's reason and leaves the next command usable.
+  Firmware-specific measured scope: docs/reports/2026-10-07_position_limits.md.
+
 - Prepare an unpublished source/install candidate and current FieldCore RS485
   integration handoff; exact source commit, hashes and release gates are recorded
   in docs/reports/ess_release_30_2026-10-05.md. The version remains0.6.0; no tag or

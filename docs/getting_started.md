@@ -37,7 +37,8 @@ invent prerequisite booleans to force admission. See [API inventory](ess_api_cli
 and [FieldCore mapping](fieldcore_handoff.md) for the event/result boundary.
 
 When the application already knows the desired native command, use
-`ESS_RS::PositionCommand` to remember speed and raw ramps and prepare an exact
+`ESS_RS::PositionCommand` with the established active `subdivision` to remember
+speed and raw ramps and prepare an exact
 32-bit relative/absolute target. It shares `nextMove`/`advanceMove` and the same
 bus owner, but requires no prior state reads. Its successful result means setup
 and start were acknowledged; completion remains `NOT_OBSERVED`. The

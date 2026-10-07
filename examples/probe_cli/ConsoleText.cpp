@@ -613,6 +613,8 @@ bool motorSettingsReport(Writer& writer, const Value& report) {
         if (!profileSettings(writer, member(actual, "profile"), member(actual, "word_order"),
             equal(member(actual, "config_known"), "true") && equal(member(actual, "word_order_known"), "true"))) return false;
     } else if (!writer.text("Position profile: unavailable.\n")) return false;
+    if (!setting(writer, "Position speed limit at this subdivision", member(report, "maximum_position_rpm"), " rpm") ||
+        !writer.text("Position policy: <=2000 rpm, <=200000 command increments/s, ramps 100..2000 ms.\n")) return false;
     const Value desired = member(report, "desired");
     if (desired.kind == Kind::OBJECT) {
         if (!writer.text("Next move (host preferences; applied when requested)\n") ||

@@ -868,6 +868,7 @@ Probe::Action startMove(void* context, uint32_t commandId, uint8_t address,
     }
     prerequisites.wordOrderKnown = a.configuration.wordOrderKnown;
     prerequisites.wordOrder = a.configuration.wordOrder;
+    prerequisites.subdivision = a.configuration.raw.subdivision;
     if (a.simple.admitting) {
         if (a.simple.view.accelerationKnown) prerequisites.accelerationTime = a.simple.view.acceleration;
         if (a.simple.view.decelerationKnown) prerequisites.decelerationTime = a.simple.view.deceleration;
@@ -885,7 +886,10 @@ Probe::Action startMove(void* context, uint32_t commandId, uint8_t address,
         request.position.relative ? ESS::prepareMoveRelative : ESS::prepareMoveAbsolute;
     const Status checked = prepare(prepared, a.axis, reference.nativeKnown ? &reference : nullptr,
         a.nextOperationId, request, prerequisites, now, deadline, options);
-    if (!checked) return checked.code == Err::UNSUPPORTED ? Probe::Action::UNSUPPORTED : Probe::Action::INVALID;
+    if (!checked) {
+        if (a.simple.admitting) a.simple.view.status = checked;
+        return checked.code == Err::UNSUPPORTED ? Probe::Action::UNSUPPORTED : Probe::Action::INVALID;
+    }
     if (request.setup == MoveSetup::USE_STORED &&
         (a.rememberedMoveGeneration != a.axis.generation || a.rememberedMoveBinding != a.bindingGeneration ||
          a.rememberedMoveSerial != a.serial.generation ||

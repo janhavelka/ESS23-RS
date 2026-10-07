@@ -96,7 +96,7 @@ void qualify() {
     app->axis.nativeMinimum = -1000; app->axis.nativeMaximum = 1000;
     app->axis.supportedRelativeBases = 1;
     auto& p = app->movePrerequisites;
-    p.target = app->axis.target; p.configurationGeneration = app->axis.generation;
+    p.subdivision = 1000; p.target = app->axis.target; p.configurationGeneration = app->axis.generation;
     p.commandUnitsVerified = p.relativeBasisVerified = p.negativeTwosComplementVerified = true;
     p.configuredRampVerified = p.serialInputsPermit = p.readinessQualified = true;
     p.accelerationTime = p.decelerationTime = 100;
@@ -1003,7 +1003,21 @@ static void testLocalMoveCancellationInvalidatesRememberedSettings() {
     assert(!app->rememberedMoveGeneration && !record->move.triggerEvidence.txAccepted);
     assert(hardware.writes == 1 && axisReserved(*app, 1));
 }
+void testPositionLimitUsesDriveSubdivision() {
+    fresh(); qualify(); app->configuration.raw.subdivision=51200;
+    auto r=request(); r.speedRpm=235;
+    uint32_t id=999; const auto before=hardware.writes;
+    assert(host(app).startMove(app,1,1,r,id)==Probe::Action::INVALID);
+    assert(id==999 && hardware.writes==before && !app->owner.pending());
+    r.speedRpm=234;
+    assert(host(app).startMove(app,2,1,r,id)==Probe::Action::OK);
+    assert(findRecord(*app,id)->move.prerequisites.subdivision==51200);
+    assert(findRecord(*app,id)->move.words[2]==234);
+    assert(host(app).cancel(app,id)==Probe::Action::OK);
+    pump(); assert(hardware.writes==before);
+}
 int main() {
+    testPositionLimitUsesDriveSubdivision();
     testVerificationReadDoesNotAdoptNewGeneration();
     testLocalMoveCancellationInvalidatesRememberedSettings();
     testRepeatedMovePolicies();

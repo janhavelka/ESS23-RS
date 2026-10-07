@@ -3364,6 +3364,21 @@
       "classification": "CODEC",
       "reason": "API-only raw checked start frame for the already stored native position profile; no setup, admission, I/O or completion claim.",
       "cli_topics": []
+    },
+    {
+      "header": "include/MotorControlRS/profiles/ess_rs/Position.h",
+      "symbols": [
+        "positionSpeedLimit",
+        "checkPositionLimits"
+      ],
+      "classification": "HOST_CONFIGURATION",
+      "cli_topics": [
+        "settings",
+        "move",
+        "moveby",
+        "moveto"
+      ],
+      "reason": "Pure default position operating-policy checks shared by native/common preparation; settings exposes the subdivision RPM ceiling. No device traffic or implicit clamp."
     }
   ],
   "non_operation_choices": [

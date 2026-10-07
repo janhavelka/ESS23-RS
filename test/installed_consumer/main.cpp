@@ -39,7 +39,7 @@ int main() {
     using namespace MotorControlRS::ESS_RS;
     ReadTarget target; target.id = 1; target.address = 1; target.generation = 2;
     PositionCommand desired;
-    desired.target = target; desired.speedRpm = 60;
+    desired.subdivision = 1000; desired.target = target; desired.speedRpm = 60;
     desired.accelerationTime = desired.decelerationTime = 100;
     MoveContext nativeMove; PreparedMove nativeWork;
     if (!desired.prepareRelative(nativeMove, 12, 100, 100, 1000000) ||
@@ -120,7 +120,7 @@ int main() {
     if (!advanceAction(action, evidence, 1400) || action.outcome != ActionOutcome::CANCELLED ||
         action.execution != ActionExecution::ACKNOWLEDGED) return 20;
     MovePrerequisites prerequisites; prerequisites.target = target;
-    prerequisites.configurationGeneration = axis.generation;
+    prerequisites.subdivision = 1000; prerequisites.configurationGeneration = axis.generation;
     prerequisites.commandUnitsVerified = prerequisites.relativeBasisVerified = true;
     prerequisites.configuredRampVerified = prerequisites.serialInputsPermit = prerequisites.readinessQualified = true;
     prerequisites.wordOrderKnown = prerequisites.startSpeedKnown = true;

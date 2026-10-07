@@ -37,7 +37,7 @@ Ess::MovePrerequisites prerequisites() {
     p.commandUnitsVerified = p.relativeBasisVerified = p.configuredRampVerified = true;
     p.serialInputsPermit = p.readinessQualified = p.wordOrderKnown = p.startSpeedKnown = true;
     p.accelerationTime = 100; p.decelerationTime = 120; p.startSpeed = 30;
-    p.observedUs = 80; p.maximumAgeUs = 1000; p.rawMotion = 1; return p;
+    p.subdivision = 1000; p.observedUs = 80; p.maximumAgeUs = 1000; p.rawMotion = 1; return p;
 }
 ActionOptions options() { ActionOptions o; o.pollIntervalUs = 100; o.maxPolls = 4; return o; }
 Ess::MoveContext move(uint64_t deadline = 10000) {
@@ -705,7 +705,28 @@ static void testShortMoveEndpointEvidence() {
     Ess::MoveContext untouched; const Saved<Ess::MoveContext> saved(untouched);
     assert(!Ess::prepareMoveRelative(untouched, axis(), nullptr, 12, request(), p, 100, 10000)); saved.check(untouched);
 }
+void testOperatingLimitsCommonParity() {
+    auto p=prerequisites(); p.subdivision=51200;
+    auto r=request(); r.speedRpm=234;
+    Ess::MoveContext c;
+    assert(Ess::prepareMoveRelative(c,axis(),nullptr,1,r,p,100,10000));
+    const Saved<Ess::MoveContext> before(c);
+    r.speedRpm=235;
+    auto status=MotorControlRS::prepareMoveRelative(c,axis(),nullptr,1,r,p,100,10000);
+    assert(!status && status.detail==static_cast<int>(MoveError::OPERATING_LIMIT)); before.check(c);
+    p.subdivision=4000; r.speedRpm=2001;
+    assert(!Ess::prepareMoveRelative(c,axis(),nullptr,1,r,p,100,10000)); before.check(c);
+    r.speedRpm=2000; p.decelerationTime=99;
+    assert(!Ess::prepareMoveRelative(c,axis(),nullptr,1,r,p,100,10000)); before.check(c);
+    p.decelerationTime=100; p.subdivision=0;
+    assert(!Ess::prepareMoveRelative(c,axis(),nullptr,1,r,p,100,10000)); before.check(c);
+    p.subdivision=4000;
+    assert(Ess::prepareMoveRelative(c,axis(),nullptr,1,r,p,100,10000));
+    // Native displacement still needs no host origin, gear or travel scale.
+    assert(!axis().originKnown && !axis().units.commandStepsPerMotorTurn.numerator);
+}
 int main() {
+    testOperatingLimitsCommonParity();
     testShortMoveEndpointEvidence();
     testOptionalAgePolicy();
     testTypedPositionProfile(); testNativeAbsoluteDoesNotInventDisplacement(); testNativeAbsoluteTargetsAndReadiness();

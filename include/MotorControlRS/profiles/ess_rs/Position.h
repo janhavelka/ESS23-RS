@@ -8,6 +8,24 @@
 
 namespace MotorControlRS { namespace ESS_RS {
 constexpr std::size_t MOVE_REQUEST_BYTES = 19;
+/** Conservative position policy, not a vendor rating or a reliability guarantee.
+ * Defaults follow the ESS23-RS20 / raw firmware 0x0029 free-shaft study:
+ * <=2000 rpm AND <=200000 command increments/s, ramps >=100 native ms.
+ * Other fixtures/firmware need their own qualification. Explicitly changing this
+ * policy is caller-owned qualification; wire ranges remain enforced.
+ * No speed/ramp is silently clamped. Does not apply to raw codec builders. */
+struct PositionLimits {
+    uint16_t maximumRpm = 2000;
+    uint32_t maximumCommandRate = 200000;
+    uint16_t minimumRampTime = 100;
+};
+/** Integer RPM ceiling for the supplied active drive subdivision (400..51200).
+ * Returns zero for invalid subdivision/policy. No host gear/origin is needed. */
+uint16_t positionSpeedLimit(uint16_t subdivision, const PositionLimits& = PositionLimits()) noexcept;
+/** Shared preparation check; supplied subdivision must describe active drive
+ * command increments per motor revolution, not encoder counts or host scale. */
+Status checkPositionLimits(uint16_t subdivision, uint16_t rpm, uint16_t acceleration,
+                           uint16_t deceleration, const PositionLimits& = PositionLimits()) noexcept;
 /** Stored native finite-position profile, read from 0x0020/6. Ramp words are
  * device encodings, not physical acceleration. targetBits preserves the full
  * existing pair for explicit restoration without interpreting signed motion. */
@@ -36,6 +54,8 @@ std::size_t buildStartPosition(uint8_t address, bool relative,
  * No encoder/origin is required by an otherwise valid native relative request. */
 struct MovePrerequisites {
     ReadTarget target;
+    uint16_t subdivision = 0; ///< Active drive value; zero/unknown rejects before work is published.
+    PositionLimits limits;
     uint32_t configurationGeneration = 0;
     bool commandUnitsVerified = false, relativeBasisVerified = false;
     bool negativeTwosComplementVerified = false;
@@ -126,6 +146,8 @@ struct PreparedMove {
  */
 struct PositionCommand {
     ReadTarget target;
+    uint16_t subdivision = 0; ///< Caller-supplied active drive value; not inferred from target bits.
+    PositionLimits limits;
     WordOrder wordOrder = WordOrder::HIGH_WORD_FIRST;
     uint16_t accelerationTime = 0, decelerationTime = 0, speedRpm = 0;
     MoveSetup setup = MoveSetup::WRITE_ALL;

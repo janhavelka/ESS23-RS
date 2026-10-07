@@ -227,7 +227,7 @@ void optionalInputsAreNotGlobalPrerequisites() {
     fresh(); stateEvidence(); writeResponseConfirmed = true;
     app->axis.nativeMinimum = -1000; app->axis.nativeMaximum = 1000; app->axis.supportedRelativeBases = 1;
     app->configuration.target = app->axis.target; app->configuration.operationId = 99;
-    app->configuration.wordOrderKnown = true;
+    app->configuration.raw.subdivision = 1000; app->configuration.wordOrderKnown = true;
     app->configuration.raw.inputFunctions[0] = 1; app->configuration.raw.inputFunctions[1] = 2;
     app->configuration.raw.inputFunctions[2] = 3;
     auto& p = app->movePrerequisites; p.target = app->axis.target; p.configurationGeneration = app->axis.generation;

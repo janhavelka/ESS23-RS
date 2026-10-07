@@ -1,5 +1,8 @@
 # MotorControl-RS documentation
 
+[Default position policy and boundary follow-up](reports/2026-10-07_position_limits.md)
+records enforcement of the empirically supported RPM/rate/ramp envelope.
+
 [Pulse-rate boundary and endurance evidence](reports/2026-10-07_rate_boundary.md)
 records the measured speed/subdivision/ramp matrix, reproducible reset-like
 failures below and above 200 kHz, and the tested practical envelope.

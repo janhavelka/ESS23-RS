@@ -19,11 +19,19 @@ no qualified S2 UART adapter. No industrial certification is claimed.
 The recorded subset includes positive finite native positioning, normal/direct
 stop, enable/release, reads and selected reversible stored settings. It does not
 qualify every motion mode, calibrated shaft/travel units, electrical timing,
-communication-loss stopping, persistence/restart survival or endurance.
+communication-loss stopping or persistence/restart survival. Four-hour positive
+position endurance evidence is limited to the documented operating envelope.
 Cache-off capture is unsupported; capture costs about20-21% of one S3 core.
 A write echo is not completion; local cancellation is not a motor stop. Lost
 write acknowledgements can leave unknown execution and must not be replayed
 implicitly. External wiring, drive assignments and observed levels are distinct.
+
+Finite position preparations default to <=2,000 rpm **and** <=200,000 command
+increments/s, with native ramps 100..2,000 ms. Subdivision 51,200 therefore permits
+at most 234 rpm. `settings` shows the current ceiling. Native/common preparation
+requires the active drive subdivision; values are never silently clamped. These
+are conservative defaults from one ESS23-RS20 / firmware `0x0029` fixture, not
+guaranteed motor ratings. See [position limits](docs/ess_position.md).
 
 Observation age expiry is off by default: core `maxAgeUs`/`maximumAgeUs=0` and
 standalone `ApplicationOptions::observationMaxAgeMs=0`. Nonzero values opt in to

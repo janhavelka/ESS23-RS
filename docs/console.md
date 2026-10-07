@@ -43,8 +43,8 @@ after success or a read-only preparation rejection. Actual enable, alarm, encodi
 | `moveby 1/10 turn` | Same angular displacement, expressed exactly. |
 | `moveto 100 steps` | Move to 100 command increments from this boot session's zero. |
 | `moveto 0 deg` | Return to this boot session's zero. |
-| `speed 90` / `speed 90 rpm` / `speed 90rpm` | Choose 0..3000 rpm; zero is accepted as a setting but prevents a move. |
-| `accel 100 ms` / `decel 100ms` | Choose each ramp time in 0..2000 ms; these are not acceleration in steps/s^2. |
+| `speed 90` / `speed 90 rpm` / `speed 90rpm` | Store 0..3000 rpm intent; position admission limits it to <=2000 rpm and <=200000 increments/s. Zero prevents a move. |
+| `accel 100 ms` / `decel 100ms` | Store each native ramp time in 0..2000 ms; position admission requires 100..2000 ms. Not acceleration in steps/s^2. |
 | `stepsperturn 1000` | Declare command increments per motor turn in the host; no drive subdivision write. |
 | `stop normal` | Stop using the configured deceleration. |
 | `stop fast` | Request ESS emergency stop without that ramp; RS485 command, not a hardwired safety circuit. |
@@ -257,3 +257,12 @@ request completed at1600/2000 and51200/60. Use `subdivision 1600` for the tested
 The exact drive cause remains [open with evidence](reports/2026-10-06_completion_discrepancy.md).
 
 Normal stop allows up to three seconds of bounded status observation so the documented two-second deceleration can finish. Fast stop keeps its existing policy. A deadline still means completion was not established; no stop is replayed automatically. See the [measured stop correction](reports/2026-10-06_normal_stop_budget.md).
+
+### Default speed boundary
+
+`settings` reports **Position speed limit at this subdivision**: 234 rpm at
+51200, 468 at 25600, 937 at 12800, and 2000 at subdivision 6000 or lower. A larger
+`speed` preference is stored locally but the next move rejects before motor
+writes, with the reason shown. There is no silent slowdown. Use `speed 200`
+with subdivision 51200, or explicitly select a lower subdivision for higher rpm.
+Both ramps must be 100..2000 ms. See [shared policy and evidence](ess_position.md#default-position-operating-limits).

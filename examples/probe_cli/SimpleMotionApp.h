@@ -376,6 +376,7 @@ void serviceSimpleMotion(App& a, uint64_t now) {
     const auto admitted = startMove(&a, v.commandId, v.address, request, v.moveOperationId);
     a.latestOperationId = v.operationId;
     if (admitted != Probe::Action::OK) {
+        if (!v.status) { finishSimpleMotion(a, v.status, v.status.msg); return; }
         finishSimpleMotion(a, Status(Err::INVALID_CONFIG, static_cast<int32_t>(admitted), "move prerequisites"),
             request.setup == MoveSetup::USE_STORED ? "Stored setup does not match the checked move or motion prerequisites are unavailable" :
             "Motion prerequisites are unavailable; check enable, inputs, limits, starting speed and position units"); return;

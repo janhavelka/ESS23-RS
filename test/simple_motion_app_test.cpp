@@ -793,7 +793,19 @@ void testShortMoveUsesFreshExactEndpoint() {
     assert(app->simple.view.ok && c.positionConfirmed && !c.runningObserved);
     assert(Serial.output.find("Final position verified twice") != std::string::npos);
 }
+void testDefaultPositionBoundary() {
+    for (const char* settings : {"speed 2001\n", "accel 99\n", "decel 99\n"}) {
+        fresh(); command(settings); command("moveby 90 deg\n"); prepareSimple(); pump(1000);
+        assert(!app->simple.view.ok && !app->simple.view.moveAdmitted);
+        assert(hardware.writes==9); // Only prerequisite reads, no stage/start.
+        assert(app->simple.view.status.detail==static_cast<int>(MoveError::OPERATING_LIMIT));
+        assert(Serial.output.find("operating limits")!=std::string::npos || Serial.output.find("RPM/subdivision limit")!=std::string::npos);
+        command("speed 60\naccel 100\ndecel 100\nmoveby 90 deg\n"); prepareSimple(); completeSimple();
+        assert(app->simple.view.ok); // Rejection cannot pin the motor reservation.
+    }
+}
 int main() {
+    testDefaultPositionBoundary();
     testShortMoveUsesFreshExactEndpoint();
     testOneCommandSubdivisionAndFollowingMove();
     testInteractiveSuccessRecyclingAndExplicitRetention();

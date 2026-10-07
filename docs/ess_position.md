@@ -9,7 +9,8 @@ firmware `0x0029` reporting RUNNING after expected travel. See the
 [manual, FAQ and forum review](reference/12_ess_rs_motion_web_review.md).
 The exact RS hardware manual lists an unexplained 200 kHz pulse-frequency limit;
 its applicability to serial motion remains unresolved. Legal individual fields
-do not qualify all combinations. No guessed limit or completion override is used.
+do not qualify all combinations. The default policy below is a conservative
+operating envelope, not a claimed repair to the drive firmware.
 
 The regular API and firmware implement these operations without a functional
 mode. [Short motion checks](functional_bench.md) use the same preparations as
@@ -26,6 +27,50 @@ trigger and completion sequence. Construction and advancement perform no I/O, re
 clock and allocate nothing. Short bench tests establish drive-reported activity
 and stopping for the recorded subset; independent shaft timing remains unmeasured.
 
+## Default position operating limits
+
+`prepareMoveRelative`, `prepareMoveAbsolute`, `prepareMoveAngle` and
+`PositionCommand::prepare*` apply the same `PositionLimits` by default:
+
+- Requested speed <=2,000 rpm **and** subdivision x rpm / 60 <=200,000 command
+  increments/s. Maximum integer speed: `min(2000, 12000000 / subdivision)`.
+- Each native acceleration/deceleration ramp word: 100..2,000 ms.
+- Supply the active drive subdivision in `MovePrerequisites::subdivision` or
+  `PositionCommand::subdivision`. Unknown/invalid values reject before work is
+  published. Host origin, gear ratio and linear lead are not needed for this check.
+
+| Drive subdivision | Default maximum rpm |
+| ---: | ---: |
+| 400..6,000 | 2,000 |
+| 6,400 | 1,875 |
+| 12,800 | 937 |
+| 25,600 | 468 |
+| 51,200 | 234 |
+
+`positionSpeedLimit` returns the integer ceiling; `checkPositionLimits` is the
+shared pure validator. The standalone uses configuration readback and reports
+the ceiling through `settings`. Contexts retain the policy/subdivision.
+Rejection leaves the output unchanged and does not stage, start or clamp the
+request. Correct a rejected simple move's speed/ramp and issue a new move;
+no result release or recovery is required for this no-write rejection.
+
+Defaults follow the [four-hour experiment](reports/2026-10-07_rate_boundary.md)
+and [boundary follow-up](reports/2026-10-07_position_limits.md) on the secured,
+free-shaft ESS23-RS20, raw firmware `0x0029`. They are not universal motor ratings
+or proof of absolute reliability. A 2,700 rpm reset-like failure occurred at only
+180,000 increments/s; a rate-only limit was insufficient. Supply transients,
+loaded mechanics and the internal failure cause remain unresolved. Very small
+moves can still be unobservable at the feedback resolution. Negative motion,
+continuous velocity and homing gain no qualification from this position policy.
+
+A caller may explicitly change `limits` under its own qualification; manual
+wire ranges still apply. With `USE_STORED`, supplied values must match the active
+profile; preparation cannot discover unknown settings. Raw
+`buildWritePositionProfile`, `buildStartPosition` and register codecs retain their
+wire/field contracts: they are low-level access, not policy-checked movement.
+A drive reset can invalidate volatile settings; applications still own
+configuration freshness, stop/recovery and no uncertain replay.
+
 ## Native commands and remembered intent
 
 `ESS_RS::PositionCommand` holds caller intent: endpoint/binding, word order,
@@ -41,6 +86,7 @@ ESS::PositionCommand motor;
 motor.target.id = 1;
 motor.target.address = 1;
 motor.target.generation = 1; // Application's current endpoint binding.
+motor.subdivision = 1000; // Supply the established active drive value.
 motor.speedRpm = 60;
 motor.accelerationTime = motor.decelerationTime = 100; // Native ramp words.
 
@@ -124,7 +170,8 @@ enabled/stationary/alarm-free readiness and permission from the actual input
 and drive-limit configuration. Plain raw readback is insufficient for unresolved
 firmware semantics. Starting speed must be known in compatible native RPM units
 and no greater than selected speed; ambiguous raw `0x0020` is not promoted.
-The reviewed speed/ramp ranges are 1..3000 RPM and 0..2000 raw ramp values.
+The manual wire ranges are 1..3000 RPM and 0..2000 raw ramp values;
+the default preparation policy above deliberately admits a narrower envelope.
 These ramp words are reused verbatim, never labelled physical acceleration.
 The implemented mathematical target subset is signed32; negative targets also
 require explicit qualified two's-complement encoding. A caller must establish

@@ -1,5 +1,15 @@
 # Features implementation tasks and open questions
 
+## Default position boundary, 7 October
+
+- [x] Share conservative RPM/rate/ramp validation across native/common position
+  preparation, using actual drive subdivision. Show the ceiling in `settings`.
+- [x] Reject out-of-envelope moves without staging/start or silent clamping;
+  keep the next valid command usable and preserve raw codec contracts.
+- [x]408 boundary cases,68 no-TX overspeed rejections and ordinary relative/absolute
+  console regression pass; original settings restored and standstill confirmed.
+- Boundary evidence and remaining limits: [follow-up](reports/2026-10-07_position_limits.md).
+
 ## Pulse-rate boundary investigation, 7 October
 
 - [x] Complete 4h08s active practical-envelope testing: 4,145 ordinary moves
@@ -13,7 +23,7 @@
 - [ ] Determine reset cause: supply transient versus internal firmware failure.
   ESP32 uptime continued; zero alarm after reset does not identify the cause.
 - [ ] Obtain vendor clarification of the 200 kHz input-frequency rating and
-  persistent RUNNING; no universal library limit is justified by these results.
+  persistent RUNNING; empirical position defaults are not a universal vendor rating.
 - [Evidence and exact experiment scope](reports/2026-10-07_rate_boundary.md).
 
 
@@ -130,7 +140,8 @@
 - [x] One normal `settings` read shows subdivision and current motion parameters,
   separate from next-move preferences; detailed commands/JSON remain available.
 - [x] Read original manual pages and admit positioning 0..3000 rpm (zero is a
-  nonmoving setting), ramp times 0..2000 ms; remove old experiment caps.
+  nonmoving setting), ramp times 0..2000 ms. The 7 October default position
+  policy now narrows motion admission; these remain the native field ranges.
 - [x] Host boot intent: 60 rpm, 100 ms ramps, ASSUMED 1000 command steps/turn.
   No automatic movement, enable, I/O, position clearing or persistent writes.
 - [x] Bound move observation independently from preparation, up to 30 seconds;

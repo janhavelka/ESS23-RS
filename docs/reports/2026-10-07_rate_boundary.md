@@ -22,6 +22,10 @@ retain every failed attempt. The archive's `manifest.json` hashes each member.
 Archive: 49,880,721 bytes, 202 members, SHA256
 `1145c04b46c2c4f9b620938e3b9d6f00bcb78d2b1158722d279ecc4fe2f0e18a`.
 
+**Subsequent user-requested policy:** [the boundary follow-up](2026-10-07_position_limits.md)
+adds conservative combined RPM/rate/ramp defaults. The no-cap disposition above
+records this earlier study; neither report establishes a universal vendor limit.
+
 ## Scope and evidence rules
 
 This study tests the hypothesis suggested by the exact ESS23-RS hardware
