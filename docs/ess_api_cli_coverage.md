@@ -1,17 +1,13 @@
-# API and console coverage handoff
+# Public API and console coverage
 
-Prompt25's Arduino/native-IDF consumers compile the same complete application
-and command inventory. No native family is omitted by framework selection.
-[Build and read-only evidence](reports/ess_release_25_2026-10-05.md) cover startup,
-console pressure, probe/typed reads and core header isolation. Prompt26 and its
-fresh audit add the bounded cross-platform motion/load evidence below; existing
-native-family gaps remain in this inventory.
+This page maps the implemented library to the shared Arduino/native-IDF console.
+Start with [1.0.0 scope and limits](releases/1.0.0.md) and
+[getting started](getting_started.md). Complete ESS coverage is not claimed.
 
-Prompt23 reconciles the implemented surface. The installed library remains
-independent of the console, runner and platform. The command metadata in
-`examples/probe_cli/ProbeConsole.cpp` supplies names, help, effects and dispatch;
-callback availability also controls help and capability reporting. It is a
-bounded application inventory, not a register schema or another command engine.
+Both ESP32-S3 examples compile the same application and command inventory.
+The installed core is independent of the console, runner and platform.
+`examples/probe_cli/ProbeConsole.cpp` supplies command names, help, effects and
+dispatch. Callback availability controls help and capability reporting.
 
 ## Installed API roles
 
@@ -76,9 +72,10 @@ the installed core performs no UART, clock, retry, queue, heap or logging work.
 | Passive observations | `status`, `health`, `config`, `drv`, `memory`, `stats` | Cached application snapshots; no motor reads |
 | Axis configuration and preview | `axis config`, `axis config set ...`, `axis origin`, `prepare` | `Axis.h`/`Units.h`; exact-number parsing and one conversion path |
 | Explicit actions | `enable`, `motor-release`, `alarm-clear`, `position-clear`, `stop normal|fast` | Common action preparation and ESS `Actions.h` |
-| Finite positioning | `move relative|absolute|angle` | Shared target preparation and ESS position sequence |
+| Finite positioning | `moveby`, `moveto`, `move relative|absolute|angle` | Shared target preparation and ESS position sequence; simple commands refresh prerequisites |
+| Remembered intent and subdivision | `speed`, `accel`, `decel`, `subdivision [INTEGER|options]` | Speed/ramps are host intent until a move; subdivision uses the typed driver setter/readback |
 | Velocity | `velocity` | Common target preparation and ESS velocity sequence; unresolved acceleration mapping rejected |
-| Homing | `home methods`, `home ...` | ESS method descriptors and homing sequence; only methods33–35 implemented |
+| Homing | `home methods`, `home ...` | ESS method descriptors and homing sequence; only methods 33-35 implemented |
 | Driver and optional I/O | `driver read|set`, `io read|set` | ESS whole-candidate driver preparation and checked readback |
 | Stored records | `segment position|speed|start INDEX read|set` | One indexed helper per real layout; no serial record trigger |
 | Control and tuning | `control read|set`, `tuning GROUP read|set` | ESS typed parameter validation and common settings sequence |
@@ -87,7 +84,7 @@ the installed core performs no UART, clock, retry, queue, heap or logging work.
 | Local lifecycle | `result [ID]`, `release ID`, `cancel [ID]`, `monitor ...`, `stats reset`, `recover` | Non-consuming retained inspection, explicit release/cancel, finite polling, host recovery |
 | Diagnostics/profile snapshot | `debug off|raw|decoded`, `motion-profile read|inspect|restore|forget`, `load ...`, `capture-read` | Installed traffic capture/decoder, typed position-profile codecs, bounded application adapters |
 
-`help COMMAND` describes exact syntax. Each operation has one console route into its public preparation and callback. Relative previews require an
+`help COMMAND` describes exact syntax. Equivalent common, profile and simple routes reuse public preparations and the same application callbacks. Relative previews require an
 explicit basis. Integers/rational values are checked before admission; a
 generic bare-address setter is not provided. Only ESS is implemented, so there
 is no second profile to select. `flush` remains unavailable; recovery is the
@@ -99,7 +96,13 @@ All callbacks run in the cooperative owner task. Inputs are copied by admission;
 borrowed result views last through synchronous formatting. Commands have host
 correlation IDs, separate from operation IDs. Nine ordinary correlations and
 one reserved stop are bounded independently of retained operation storage.
-Results/status are non-consuming; `release` explicitly frees a terminal slot.
+Result/status inspection is non-consuming. Successful human-console results are
+recycled before the next bus command only after both bounded output queues have
+drained. Failed/uncertain results and explicit correlated/JSON/API results remain
+retained; `release ID` frees their terminal storage after review. Storage ownership
+is separate from motor ownership: a confirmed stop can settle interrupted motion
+without erasing its uncertain historical result. Eight ordinary terminal slots
+and reserved stop capacity keep storage bounded.
 Counter reset and recovery preserve unread results, raw traffic, original tuple
 and generations, and uncertain execution. They never replay a motor write.
 
@@ -136,9 +139,9 @@ Successful stored reconciliation does not manufacture an acknowledgement.
 
 The snapshot is volatile application storage. On this bench, opening another
 USB session reset that storage while the motor retained its staged parameters.
-The prompt23 report preserves the original target5000 and final stopped
-target100 separately. Session restoration cannot recover an archive lost on
-host restart; arbitrary archived parameter preparation belongs to09/11.
+The prompt23 report preserves the original target 5000 and final stopped
+target 100 separately. Session restoration cannot recover an archive lost on
+host restart; arbitrary archived parameter preparation belongs to 09/11.
 
 The local `wiring` command queries declarations or explicitly changes one
 terminal's declaration while idle. It supplies operation prerequisites without
@@ -146,7 +149,7 @@ assigning drive functions or observing a voltage. Its changes have no device
 read/write credit in the operation inventory. Input reports distinguish declared wiring (`unknown`, `unconnected`,
 `connected`), assignment (`unresolved`, `disabled`, `assigned`) and observed
 levels. Typed `io set x0 none`/`y0 none` use the same checked function setter
-with documented value0. Neither polarity nor unconnected wiring disables an
+with documented value 0. Neither polarity nor unconnected wiring disables an
 assignment, and disabled outputs do not promise an electrical level.
 
 ## Coverage and explicit gaps
@@ -178,17 +181,43 @@ Substantial prerequisite gaps remain assigned to their original prompts:
 
 Unsupported torque/current motion and serial segment start remain distinct from
 those gaps. Settings access does not establish those motion capabilities.
-Physical qualification, missing external fixtures, persistence/restart proof,
-engineering ramp conversion and endurance remain separate from implementation.
-The operation rows now cite the recorded positive relative staging/move and
-normal/fast stop subset on both S3 frameworks, and the recorded enable/release
-observations. Their scoped PASS does not qualify negative motion, all position
-paths, physical response-source measurements or shaft accuracy. Clear-alarm,
-zero-clear, absolute and velocity scenarios keep their separate evidence gaps;
-none is described as blocked by a removed global analyzer gate. Historical I/O
-and segment write uncertainty and the shared-start hardware FAIL are retained.
-Prompt23 delivers integration and this handoff to24–26; it does not declare the
-full native family denominator or the release complete.
+Physical qualification is separate from implementation. The original cross-platform
+matrix covers positive relative moves and normal/fast stops on both S3 frameworks.
+Later Arduino studies add absolute/simple-command checks and longer finite-motion
+runs. [The four-hour study](reports/2026-10-07_rate_boundary.md) records 4,580 cases
+in a restricted envelope, with broader high-speed failures retained separately.
+[The default-boundary matrix](reports/2026-10-07_position_limits.md) adds 408 cases
+and 68 above-limit rejections. These do not qualify every trajectory, negative
+encoding, external fixtures, linear travel, continuous velocity or persistence.
+The newest boundary matrix was not repeated physically on native IDF.
+Independent shaft accuracy, electrical timing and thermal behavior remain
+unmeasured. Historical I/O/segment write uncertainty and the shared-start
+readback failure remain open; passing later reads do not resolve them.
+
+## Position defaults and completion
+
+`PositionLimits` is shared by native `PositionCommand` and observation-aware
+`prepareMoveRelative/Absolute/Angle`. Supply the active drive subdivision in
+command increments per revolution. The defaults are:
+
+- At most 2,000 rpm.
+- At most 200,000 command increments/s: maximum integer rpm is
+  `min(2000, floor(12000000 / subdivision))`.
+- Each acceleration/deceleration word is 100..2,000 native ms.
+
+A failed check publishes no work and does not clamp the request. These are
+conservative defaults tested on the ESS23-RS20 with raw firmware `0x0029`, not
+universal vendor ratings. An explicit caller policy requires its own validation.
+Raw codecs/profile/start builders validate their wire contracts only; they do
+not enforce readiness or this operating policy. `USE_STORED` requires supplied
+settings to match the drive; it performs no hidden read.
+
+Native remembered commands report acknowledgement, not completion. Observed
+moves require a new running-to-arrived/stopped transition. When the caller has
+qualified feedback coordinates and a stationary baseline, two consecutive exact
+endpoint/zero-speed/arrived reports can confirm a short move whose RUNNING phase
+was missed. A position change alone, a start echo or an old arrival flag is not
+completion. Unresolved completion requires a separate stop; it is never replayed.
 
 FieldCore RS485 CLI/owner/backend remain read-only integration references.
 Passive snapshots, explicit request correlation and bounded owner progression

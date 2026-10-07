@@ -1,5 +1,9 @@
 # Roadmap to a supported ESS release
 
+## First release 1.0.0
+
+The first release consolidates the development versions. See the [release scope](releases/1.0.0.md) for supported code, measured limits and open qualification. This milestone does not close the unresolved rows below.
+
 [Default position limits](reports/2026-10-07_position_limits.md) combine
 2,000 rpm, 200,000 command increments/s and 100..2,000 ms native ramps.
 This is a conservative preparation policy, not repaired or universally qualified
@@ -119,14 +123,14 @@ position settings. Raw commands, setup/start acknowledgement and observed
 completion remain distinct. Its new image and verification do not replace the
 historical prompt30 artifact hashes or close physical/native-family gaps.
 
-[Prompt30](release_candidate.md) delivers the unpublished0.6.0 partial candidate,
+[Prompt30](release_candidate.md) delivered the historical 0.6.0 development candidate,
 clean package and [FieldCore handoff](fieldcore_handoff.md). Its
 [exact source/artifact/CI record](reports/ess_release_30_2026-10-05.md) passes
 the clean full verifier,74 registered checks and eight embedded builds. Software/package
 verification and functional evidence remain separate from full ESS/native
 coverage, endurance and fixture qualification. Publication/integration are
 separately dispatched work. Historical block summaries below retain their
-original test totals; the candidate report records the current verifier.
+original test totals; the candidate report records the verifier used at that time.
 
 The [fresh30 audit](reports/ess_release_30_audit_2026-10-05.md) corrects its
 completed index disposition and FieldCore result-reclamation mapping, preserving
@@ -140,7 +144,7 @@ An initial stale-identity settings refusal remains a failed aggregate run;
 the zero-TX cause was reproduced and the prerequisite correction verified.
 The full74-check/eight-build verifier passes. Multi-hour endurance, physical
 fault fixtures, independent electrical/shaft measurements and the nine named
-native-family gaps remain open. Prompt30 prepares an unpublished partial candidate and current-source FieldCore handoff; see [candidate disposition](release_candidate.md).
+native-family gaps remain open. Prompt30 prepared the historical candidate and FieldCore handoff; see [candidate disposition](release_candidate.md).
 
 The [integrated28 audit](reports/ess_release_28_2026-10-05.md) corrects immediate
 configuration invalidation, separates ESS discovery evidence from common
@@ -364,7 +368,7 @@ this session; integrating there is a separate delivery step.
 | 5. First controlled motion | Explicit enable/release, small relative move and documented stop | Verified units and limits, acknowledgement vs completion, interrupted/lost replies, stop while another operation is active; bench measurements | Exact preparation and action/finite sequence software pass; short positive relative motion and normal/direct stops functionally qualify on both S3 frameworks in26; independent shaft/electrical, negative encoding and other fixture cases remain open |
 | 6. Complete common motion API | Absolute/relative position, step/angle/travel modes, velocity, acceleration, homing and fault clear where supported | Same public API in firmware and CLI; unsupported operations fail before TX; origin/rounding/path policy tested | 07–11 implement exact preparation, origins, finite relative/absolute/wrapped positioning, zero clear and finite serial velocity/shared stop; bounded homing33/34/35 implemented in14; acceleration mapping, external-switch methods and physical qualification remain open |
 | 7. ESS native coverage and discovery | Typed documented ESS extensions; bounded non-changing discovery | Coverage matrix for every documented command/field; uncertain firmware behavior marked explicitly; read side effects reviewed | Ledger/codecs and typed identity/config reads exist; complete operation inventory derives remaining obligations; bounded ESS discovery implemented; remaining native families and alternate motor tuple/collision qualification tracked separately |
-| 8. Platform and release qualification | Arduino and native ESP-IDF examples, package/install checks, maintenance documentation | Clean consumer builds; repeatable hardware suite, extended soak, resource budgets, documented exact supported models and limitations | Shared Arduino/IDF applications; available S3 capture/load/finite motion/stop/settings parity PASS in26/29; S2 core/portable compile-only and installed core PASS.30 delivers a verified unpublished partial candidate and FieldCore handoff; full native coverage, electrical/fixture/endurance gates and release publication remain open |
+| 8. Platform and release qualification | Arduino and native ESP-IDF examples, package/install checks, maintenance documentation | Clean consumer builds; repeatable hardware suite, extended soak, resource budgets, documented exact supported models and limitations | Shared Arduino/IDF applications; available S3 capture/load/finite motion/stop/settings parity PASS in26/29; S2 core/portable compile-only and installed core PASS.1.0.0 consolidates the first release and keeps the FieldCore handoff separate; full native coverage, electrical/fixture qualification and renewed overnight USB endurance remain open |
 
 Stages 3 and 4 can progress while independent electrical captures are being
 arranged. Motion qualification must use reviewed transport evidence and the

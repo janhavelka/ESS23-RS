@@ -1,44 +1,20 @@
 # MotorControl-RS architecture
 
-Prompt25 adds a [real native ESP-IDF consumer](esp_idf_probe.md). Arduino and IDF
-compile the same `ProbeApp.cpp`, console, owner, UART/capture and core operations.
-Small example-only platform functions provide USB, idle scheduling and boot
-diagnostics; framework startup supplies pins/topology and the owner task.
-The installed core retains no platform dependency. [Verification](reports/ess_release_25_2026-10-05.md)
-separates initial read-only evidence from prompt26's motion/load qualification.
+The installed C++11 core supplies units, exact target preparation, checked ESS
+codecs, typed observations/settings and bounded operation contexts. Applications
+provide time, transport, scheduling and result storage; the core performs no I/O
+and allocates no heap memory. [API/CLI coverage](ess_api_cli_coverage.md) lists
+actual operations and unresolved native-family gaps.
 
-Prompt23 completes the [API/CLI integration handoff](ess_api_cli_coverage.md) with bounded host target selection, explicit snapshot release and retained uncertainty through reset/recovery. The installed core remains unchanged in platform ownership; named native-family gaps stay in the complete coverage denominator.
+Arduino and native ESP-IDF ESP32-S3 examples compile the same `ProbeApp.cpp`,
+console, owner, UART/capture adapter and core operations. Small example-only
+platform functions handle startup, USB, idle scheduling and diagnostics. Board
+pins and memory placement remain application configuration. The [IDF guide](esp_idf_probe.md)
+and [verification guide](verification.md) cover the reproducible consumers.
 
-Prompt22 adds [bounded ESS discovery](ess_discovery.md), minimal public probes and retained
-scan evidence with explicit recovery/restoration. [Verification](reports/ess_release_22_2026-10-05.md) records
-COM13 address/tuple scans, budget limits and unchanged motor settings/state.
-
-Prompt19 adds [application-owned host serial selection](host_serial.md).
-One bus owner reserves settled configuration, one adapter changes UART2, and
-each request retains its admitted tuple/generation. Transient serial selection
-does not rebind logical endpoints or erase prepared motor intent. Failed setup
-blocks dispatch until explicit repair; no UART or SDK types enter the core.
-
-Prompt14 adds [bounded homing](ess_homing.md) through the same application owner, checked codecs and stop reservation. Methods33/34/35 require qualified method/native/active-auxiliary prerequisites. Fresh evidence may establish only a qualified native reference; host origin remains separate.
-
-Prompt13 adds [bounded typed driver settings](ess_driver_settings.md), checked
-write/readback progress and same-axis effects through the existing application
-owner. No additional bus queue or I/O enters the reusable core. Unsupported
-limit pairs, activation/persistence and physical qualification remain explicit.
-
-
-Prompt09 implements [finite relative positioning](ess_position.md) with pure
-exact preparation and bounded supplied events. The existing application action
-loop owns staging/trigger reservations and priority stop, with one bus queue.
-The bounded positive relative move and normal/direct stops have matched
-[functional evidence on both S3 frameworks](reports/ess_release_26_2026-10-05.md).
-Independent shaft measurements and other motion subsets remain unqualified.
-
-Prompt10 extends that same mover with absolute endpoints and explicit wrapped
-paths, and the same action sequencer with zero-only device position clear.
-Host origins and coordinate confidence use the public supplied-reference API.
-
-Prompts 05–06 implement bounded [typed identity/configuration/state reads](ess_reads.md), common/profile routes, passive per-block status/health and finite opt-in polling. The [linked inventory](reference/ess_rs_operations.json) separates read/write/action, native and hardware evidence. These reads perform no writes and alone do not qualify model/firmware compatibility, physical feedback units, readiness or motion.
+[1.0.0 scope](releases/1.0.0.md) distinguishes software support, measured finite
+motion and unqualified physical cases. The latest [position policy study](reports/2026-10-07_position_limits.md)
+adds tested Arduino operating defaults without claiming universal drive reliability.
 
 This is the accepted design baseline for a general, framework-independent
 serial motion library. ESS23-RS is its first implementation target. A common
@@ -59,25 +35,17 @@ Profiles must expose their documented disabled/no-function assignments.
 Unconnected wiring is separate from a disabled assignment; neither may be
 inferred from an inactive signal. See the [profile I/O contract](profile_contract.md).
 
-Implemented blocks supply pure units, an ESS register catalogue and checked
-wire codecs with a minimal model-register probe. An example-owned RTU runner
-is implemented and tested with a native fake adapter; see [runner.md](runner.md).
-The [ESP32-S3 polling adapter and probe CLI](esp32_probe.md) now have native and bench
-evidence, with external timing qualification still open. Exact host coordinate preparation
-is implemented in [Axis.h](axis_preparation.md); finite ESS motion sequencing
-uses the installed position API. Bounded discovery and typed CLI integration are
-implemented; FieldCore adapters remain separately authorized future work. See the root
-README for current callable APIs and build commands. Recorded probes and typed identity/configuration/state reads have response evidence; no motion or electrical qualification is implied.
-The [application bus reference](bus_owner.md) adds copied admission, per-producer
-FIFO/cyclic fairness, immutable deadlines, reserved urgent/results storage,
-cancellation and explicit recovery. Release prompt 03 connects the responsive
-console, retained results and qualified observation ages to this owner.
-The [historical architecture report](architecture_report.md) maps the
-2026-10-03 source snapshot. The [integrated audit](reports/ess_release_28_2026-10-05.md)
-records current boundaries and corrections, and the
-[qualification matrix](reports/ess_release_29_2026-10-05.md) keeps software,
-functional and unperformed physical cases separate. The planned layout below
-is a design guide, not a list of implemented files.
+The [application bus owner](bus_owner.md) provides copied admission,
+per-producer fairness, deadlines, urgent-stop capacity, retained results,
+cancellation and explicit recovery. The [runner](runner.md) and
+[ESP32-S3 adapter](esp32_probe.md) execute its transactions. Bounded discovery,
+commissioning and motion reuse that owner; no second UART engine is introduced.
+FieldCore integration remains separate work through its existing owner.
+
+The [historical architecture report](architecture_report.md) preserves the
+3 October source review. Use current headers and the API inventory for file and
+symbol names. The planned layout below remains a design guide, not a list of
+implemented files.
 
 The [axis contract](axis_contract.md) defines common operations and units;
 the [profile contract](profile_contract.md) defines native command coverage;

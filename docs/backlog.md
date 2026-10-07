@@ -1,5 +1,11 @@
 # Features implementation tasks and open questions
 
+## Release 1.0.0 documentation
+
+- [x] Consolidate unpublished 0.x history, current getting-started/API notes and version metadata into the first release.
+- [x] Preserve native-family gaps and firmware/fixture limitations in the [release scope](releases/1.0.0.md).
+- Qualification work below remains open independently of release publication.
+
 ## Default position boundary, 7 October
 
 - [x] Share conservative RPM/rate/ramp validation across native/common position
@@ -94,6 +100,10 @@
 - Evidence: [stop/resume audit](reports/2026-10-06_stop_and_resume.md).
 
 ## Firmware health follow-up, 6 October
+
+Historical investigations below predate the captured 7 October USB lost-event
+failure and shared-driver fix. The earlier no-dump stall is not definitively
+attributed; repeating the full overnight duration remains open.
 
 - [x] Watch the actual owner task, feeding only after completed application turns.
 - [x] Reproduce and fix capture ISR crash during watchdog flash dump; preserve

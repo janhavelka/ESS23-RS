@@ -24,7 +24,11 @@ unresolved execution blocks new moves until reconciled by a checked stop.
 Release, unexpected running and interpretation changes invalidate the fixed zero;
 enabled feedback variation alone does not. Ramp times are not
 physical acceleration. Position speed accepts 0..3000 rpm (a move needs nonzero),
-ramps 0..2000 ms; old 60-rpm/250-increment experiment caps are removed.
+ramps 0..2000 ms as host intent. Position admission additionally enforces the
+shared defaults: at most 2000 rpm, 200000 command increments/s and 100..2000 ms
+ramps. `settings` shows the subdivision-dependent RPM ceiling; moves reject
+outside it without clamping. See [position limits](ess_position.md#default-position-operating-limits).
+The old 60-rpm/250-increment experiment caps are removed.
 `settings` reads current configuration and position parameters without writes and
 separates those from next-move intent. It replaces the old host `config` alias.
 Existing detailed commands remain available to automation.

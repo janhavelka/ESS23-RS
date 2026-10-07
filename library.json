@@ -1,6 +1,6 @@
 {
   "name": "MotorControl-RS",
-  "version": "0.6.0",
+  "version": "1.0.0",
   "description": "Framework-independent C++11 exact targets, units, checked ESS-RS codecs, typed reads/settings and bounded motion/action operations. Partial native coverage; application-owned transport.",
   "keywords": ["rs485", "modbus", "stepper", "servo", "ess23", "motion"],
   "authors": [{"name": "Jan Havelka", "maintainer": true}],

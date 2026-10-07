@@ -168,8 +168,10 @@ on pages 80-90 is a different family and is excluded from this profile.
 Consult the [implementation reference](reference/01_implementation_reference.md)
 and [hardware manual](vendor/ESS23-RS1020_Series_Bus_Integrated_Motor_Hardware_Manual.pdf)
 for conflicts and applicability limits. This table defines required coverage.
-The raw codecs and minimal model probe already implement part of it, with
-limited read-only bench evidence; complete typed coverage remains pending.
+Typed reads, settings and bounded operations implement part of this inventory;
+[API coverage](ess_api_cli_coverage.md) names the remaining gaps. Recorded
+finite-motion evidence is separate from field-by-field physical qualification.
+Complete documented native coverage remains pending.
 Track implementation and hardware qualification separately for each operation.
 
 | Native group | Required serial API coverage and distinctions | Evidence |

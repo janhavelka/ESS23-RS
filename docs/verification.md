@@ -1,10 +1,11 @@
 # Repeatable verification and core packages
 
-[30's candidate record](reports/ess_release_30_2026-10-05.md) pins the clean full
-verifier, exact canonical source commit, core ZIP/evidence hashes and hosted CI.
-Its README and installed/current-FieldCore contract consumers also build outside
-repository-private helpers. These are software checks, separate from hardware
-qualification and incomplete native-family coverage.
+Use the commands below to verify the current source and produce a core package.
+The package version comes from `library.json`; generated headers and installed
+CMake metadata must agree. Software checks do not establish motor or electrical
+qualification. Older candidate and hardware records remain under
+[reports](reports/ess_release_30_2026-10-05.md) with their original versions,
+commits and hashes.
 
 Run from the repository root with Python 3.10+, CMake/CTest 3.26+, Ninja and
 GCC or Clang with GNU/LLVM `nm` available to CMake. The verifier is qualified
@@ -77,11 +78,29 @@ cmake --build consumer-build
 ```
 
 An independent consumer needs only its own CMake project/main and
-`find_package(MotorControlRS 0.6.0 EXACT CONFIG REQUIRED)` followed by linking
+`find_package(MotorControlRS 1.0.0 EXACT CONFIG REQUIRED)` followed by linking
 `MotorControlRS::MotorControlRS`. The checked consumer fixture also supports
 `MOTORCONTROLRS_SOURCE_DIR` and `MOTORCONTROLRS_HEADERS_DIR` for direct source
 and individual-header checks. Hardware and endurance dispositions remain in
 their owning reports; a green verifier is software/build evidence.
+
+## First release tag
+
+The first published version is prepared as `v1.0.0`. Earlier `0.x` numbers were
+development snapshots, not published releases. Do not retag those snapshots or
+change the versions recorded in their evidence.
+
+Create the annotated tag only after the release commit is pushed and all four
+CI jobs pass. Push the tag, then check the new tag-triggered run as well. A tag
+does not publish a GitHub Release; publication is a separate GitHub action.
+The active remote remains `janhavelka/ESS23-RS` until the
+[planned repository rename](repository_rename.md) exists.
+
+GitHub's automatically generated source archives contain the repository,
+including separately licensed vendor references. The verifier's
+`MotorControl-RS-1.0.0.zip` is the smaller core-only distribution; attach that
+ZIP when a consumer needs only the library. Its SHA-256 is recorded in the
+verifier's `summary.json`.
 
 ## Earlier verification records (historical)
 

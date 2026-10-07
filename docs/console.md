@@ -49,8 +49,9 @@ after success or a read-only preparation rejection. Actual enable, alarm, encodi
 | `stop normal` | Stop using the configured deceleration. |
 | `stop fast` | Request ESS emergency stop without that ramp; RS485 command, not a hardwired safety circuit. |
 
-Speed/ramp choices apply on the next move, not immediately. These manufacturer
-positioning ranges replace the old 60 rpm / 250-increment experiment limits.
+Speed/ramp choices apply on the next move, not immediately. The stored
+intent range is wider than the default operating policy; admission checks the
+combined subdivision, speed and ramps before any motion write.
 A move must also meet the drive's starting-speed setting, shown by `settings`.
 Native target encoding and configured limits still apply. Motion observation is
 bounded to 30 seconds by default (`ApplicationOptions::moveTimeoutMs`, 1..30000).
@@ -248,12 +249,13 @@ reuse that completion. The advanced native route remains explicit.
 
 ### Known high-subdivision completion discrepancy
 
-On the recorded ESS23-RS20,51200 subdivision with speed2000 and a900-degree
-relative request can leave the drive reporting running after the main movement.
+Historical tests on the recorded ESS23-RS20 at 51200 subdivision, 2000 rpm and
+a 900-degree relative request left the drive reporting running after the main
+movement. The default policy now rejects this combination before a motion write.
 Do not release/replay the move to bypass this. `stop fast` established stopped
-state in the reproduced case; normal stop did not. The same assumed2.5-turn
-request completed at1600/2000 and51200/60. Use `subdivision 1600` for the tested
-2000-speed path; changing subdivision explicitly establishes a new session zero.
+state in the reproduced case; normal stop did not. The same assumed 2.5-turn
+request completed at subdivision 1600 / 2000 rpm and 51200 / 60 rpm. Use
+`subdivision 1600` for the tested 2000-rpm path; changing subdivision explicitly establishes a new session zero.
 The exact drive cause remains [open with evidence](reports/2026-10-06_completion_discrepancy.md).
 
 Normal stop allows up to three seconds of bounded status observation so the documented two-second deceleration can finish. Fast stop keeps its existing policy. A deadline still means completion was not established; no stop is replayed automatically. See the [measured stop correction](reports/2026-10-06_normal_stop_budget.md).

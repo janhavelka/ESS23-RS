@@ -9,7 +9,9 @@ Prompt 09 implements the bounded ESS finite-relative sequence; prompt 10 reuses
 it for absolute and wrapped-angle motion with shared `preparePosition` arithmetic.
 Prompt11 adds [finite serial velocity](ess_velocity.md), shared exact rate
 preparation, native ramp snapshots and the existing priority stop.
-Physical qualification and general profile ramp mapping remain open. See
+Finite position/stop evidence covers the documented bench subset; wider physical
+qualification and general profile ramp mapping remain open. Current operations
+and gaps are in the [API inventory](ess_api_cli_coverage.md). See
 [encoder and units evidence](reference/06_encoder_units.md) for the initial API.
 The [architecture](architecture.md) defines the three layers and ownership,
 the [profile contract](profile_contract.md) defines complete family access,

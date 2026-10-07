@@ -2,18 +2,15 @@
 
 ## Current scope
 
-Implementation is authorized in small, tested blocks. Implemented foundations
-are configurable units, the complete documented ESS register catalogue,
-standalone build/board settings and checked ESS wire codecs with a minimal
-probe. The standalone runner under `examples/common/` now has native fake
-tests. The ESP32-S3 adapter supports polling and GPTimer capture; the
-read-only probe/load CLI has native tests and measured bench evidence. External timing qualification, motion sequences,
-discovery orchestration and the full CLI follow; do not add placeholder APIs.
-The accepted scope remains a general framework-independent serial motion
-library: common axis API, drive profiles and application integration. Implement
-ESS first; design against Leadshine iEM-RS without claiming it is implemented
-or qualified. Preserve original downloaded references. The checkout directory
-name is not part of the library API; `MotorControl-RS` is the recommended name.
+The first release is 1.0.0. Implemented code includes exact units/targets,
+checked ESS codecs, typed reads/settings and bounded motion/action/discovery
+sequences. Arduino and native ESP-IDF share the standalone owner and console.
+Scope and qualification are in `docs/releases/1.0.0.md`; nine named native-family
+gaps and 18 guarded paired setters remain. Do not infer full native coverage
+or physical qualification from the register catalogue or a successful build.
+New implementation remains authorized in small tested blocks, without placeholder
+APIs. Keep the core framework-independent and ESS-first; Leadshine and CANopen
+are not implemented here. Preserve original downloaded references.
 
 CANopen belongs in a separate future motion library, initially targeting the
 verified CL86-C subset. Keep one documented motion vocabulary and behavioral
@@ -155,8 +152,9 @@ extracts may scramble tables, omit figures, or lose notation. Check the actual
 PDF page before turning an ambiguous table into constants or code. The
 function manual covers multiple product families: use the ESS-RS material,
 not unrelated DM-PR registers. Record unresolved documentation/firmware
-differences instead of guessing. Only the recorded read-only bench probes have
-hardware evidence; do not generalize that to motion or full timing qualification.
+differences instead of guessing. Qualification is specific to each recorded
+image, operation and fixture; do not generalize finite bench results to full
+native coverage, all motion modes or electrical timing qualification.
 
 ## Intended structure and architecture
 

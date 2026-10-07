@@ -1,12 +1,15 @@
 # Drive discovery and non-changing probes
 
-Prompt 05 implements the bounded [typed identity/configuration read API](ess_reads.md), common/profile read routes and minimal read capabilities. The [linked inventory](reference/ess_rs_operations.json) keeps read/write/action and native/hardware evidence separate. These reads perform no writes and establish no state or motion qualification by themselves. Later state reads and finite ordinary-firmware motion tests have their own checked drive-reported evidence; exact model/firmware mappings, independent shaft observation and electrical timing remain unresolved or unmeasured.
+ESS presence probes, typed identity/configuration reads and bounded scans are
+implemented through the shared application owner. See the
+[discovery API](ess_discovery.md) and [read API](ess_reads.md) for actual types,
+commands and limits. Other manufacturers are not implemented.
 
-Discovery and a minimal non-changing presence probe are required design
-considerations for every supported drive profile and manufacturer grouping.
-This contract defines the public API and standalone CLI design. The ESS raw
-probe codec and [read-only probe CLI](esp32_probe.md) are implemented, with bench
-response evidence. Typed ESS identity preparation/decoding and bounded ESS scans are implemented; exact-model mapping and alternate motor tuples remain unqualified. See [the implemented API](ess_discovery.md).
+This contract defines query evidence, side effects and application ownership.
+Discovery performs reviewed reads only. A valid responder does not establish
+its exact model/firmware mapping, readiness or completed motion. Alternate
+motor tuples remain unqualified. The [coverage inventory](ess_api_cli_coverage.md)
+separates implementation from hardware evidence.
 
 The [axis API](axis_contract.md) exposes the common operations, the
 [profile contract](profile_contract.md) records per-device evidence, and the

@@ -6,8 +6,11 @@ are **physical PDF pages, counted from 1**; printed page numbers in both
 manufacturer manuals are two lower. The complete first source transcription is
 now in the [register catalogue](05_ess_register_catalog.md); pure conversions and
 bench assumptions are in [encoder and units notes](06_encoder_units.md).
-Checked raw wire codecs and a minimal probe are implemented; typed commands,
-motion preparation and hardware qualification remain future work.
+Checked codecs, typed reads/settings, pure target preparation and bounded
+motion/action sequences are implemented. The [current coverage inventory](../ess_api_cli_coverage.md)
+records supported routes and remaining gaps; [1.0.0 scope](../releases/1.0.0.md)
+separates tested motion from unqualified cases. This manual index is not a
+current implementation checklist.
 The [timing and gap audit](09_timing_and_gap_audit.md) records the subsequent
 full appendix review, RTU timing rules and unresolved device deadlines.
 

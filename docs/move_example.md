@@ -156,7 +156,7 @@ or another task. Motion is never started automatically at boot by this example.
 ## Exact numbers, rounding and other frames
 
 `Rational(1, 10)` means exactly 0.1. Integer values convert implicitly. The simple
-functions require an exact representable target. Use `submitMove` for explicit
+functions use nearest-step rounding. Use `submitMove` for explicit
 motor/load frames, rounding, radians or wrapped-angle policy, reusing the core
 `PositionRequest` rather than adding another conversion function:
 
@@ -175,15 +175,21 @@ target.maximumApproximationError = 0.01;
 Status accepted = submitMove(target, 60, operation);
 ```
 
-The standalone example accepts the reviewed positioning range up to 3000 RPM,
-with 0..2000 ms ramp times, and retains native encoding/configured-limit checks.
-The old 60 RPM/250-increment experiment limits are removed. Its motion-observation
-deadline defaults to 30 seconds (configurable 1..30000 ms). Default angular scale
+The standalone example applies the same default position limits as the core:
+maximum 2,000 RPM and 200,000 command increments/s, with each native ramp in
+100..2,000 ms. Active subdivision determines the lower RPM ceiling:
+`min(2000, floor(12000000 / subdivision))`. Settings come from checked readback;
+requests outside the policy reject before setup/start. See
+[the shared policy and evidence](ess_position.md#default-position-operating-limits).
+Its motion-observation deadline defaults to 30 seconds (configurable 1..30000 ms). Default angular scale
 is explicitly ASSUMED 1000 command steps/turn; free-shaft tests do not calibrate
 angle or establish linear travel.
 Engineering absolute targets need the relevant origin; a raw position register
 does not automatically establish it. Unsupported sign/basis/mode requests fail
-before writes. The reusable core is not restricted to the example's bench range.
-An unseen very short movement remains completion-unobserved rather than being
-declared successful from an old arrival flag. Polling belongs to the upper
-firmware and does not independently measure shaft motion.
+before writes. Core callers may explicitly supply another `PositionLimits`
+policy under their own qualification; raw wire builders do not perform motion-policy checks.
+These direct example submissions require new RUNNING then stopped/arrived
+observations. The interactive `moveby`/`moveto` path can also confirm a short
+move using two exact final-position reports under its explicit session coordinate
+convention. An old arrival flag or an arbitrary position change is insufficient.
+Polling belongs to the upper firmware and does not independently measure shaft motion.

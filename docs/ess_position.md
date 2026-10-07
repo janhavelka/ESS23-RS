@@ -245,15 +245,17 @@ priority stop cancels only unsent continuation work and settles in-flight TX.
 Interrupted and stop results remain separate under output/result pressure.
 Uncertainty survives result release and host recovery; no queued trigger resumes.
 
-The application drops current native-reference confidence when trigger TX is
-accepted. A terminal triggered move invalidates dependent origins/limits until
-a newly qualified reference is supplied; arrival flags alone cannot establish
-its exact endpoint. Release, accepted or uncertain device clear, reference
-expiry when enabled, observed external movement and relevant settings changes also invalidate
-coordinate knowledge while retaining historical raw evidence. Host `axis origin`
-changes no motor counter and requires idle stationary native reference evidence.
-The current board cannot establish that reference from unsigned raw feedback
-or an old zero readback.
+Motion invalidates the current position sample, while preserving the fixed
+counter-to-host origin. A later move needs a new stationary observation; arrival
+flags alone cannot establish an exact endpoint. Enabled age expiry also expires
+the sample, not the origin. Release, device-position clear, unexplained external
+movement and relevant scale/decoding changes can invalidate coordinate knowledge.
+Historical raw evidence keeps its original context.
+
+Host `axis origin` changes no motor counter and requires idle stationary
+reference evidence. The simple console establishes a RAM-only boot/session zero
+from checked stationary feedback under its explicit coordinate convention.
+That convention is not a physical calibration or persistent home reference.
 
 Host preference and limit edits preserve unchanged coordinate interpretation
 through `configureAxis`'s optional retained-reference output, including its
@@ -286,14 +288,15 @@ quantization and copied reference provenance are retained. Context lookup is
 non-consuming. Maximum output is 4608 bytes, including bounded reference and
 numerical provenance.
 
-The standalone free-shaft software ceiling remains250 native increments of
-relative displacement, at most60 in the native speed field, a3-second deadline
-and64 observations spaced20ms apart. Unreferenced native absolute targets0..250
-are admitted only from fresh stopped, zero-speed raw feedback within0..250;
-displacement stays unknown. This example envelope does not limit the library.
-Read `motion-profile` and current state first. Configuration, active inputs,
-negative encoding and conversion prerequisites remain real checks; there is no
-analyzer admission flag or implicit motor commissioning.
+The application uses the shared position operating policy above; the earlier
+250-increment/60-rpm experiment was a historical test envelope, not a current
+console cap. `ApplicationOptions::moveTimeoutMs` defaults to 30,000 ms and accepts
+1..30,000 ms. Each move also has at most 64 observations, requested 20 ms apart;
+either the observation limit or the deadline can end an unconfirmed move.
+These bounds do not promise every legal target completes within that budget.
+Direct submissions need checked configuration/state/profile caches. Simple
+console commands perform missing preparatory reads. Neither path adds implicit
+enable, motor commissioning or an analyzer admission flag.
 
 Python `move-relative`, `move-absolute` and `move-angle` with explicit
 `--cleanup-stop normal|fast` perform one attempt,
@@ -335,9 +338,11 @@ snapshot; the two reports do not claim exact drive sample timing.
 bytes, covering the full reply. JSON exposes the policy, confirmation and both
 reports; Python checks CRC, correlation, ordering and endpoint agreement.
 Historical nine-byte evidence remains readable. The public default stays off.
-Ordinary `moveby`/`moveto` and C++ `moveBy`/`moveTo` enable it after fresh
-preparatory reads under the standalone session's existing labelled coordinate
-convention. Advanced CLI moves retain their existing observation policy.
+The simple CLI `moveby`/`moveto` preparation session enables it only with the
+standalone's boot-coordinate convention and a known stationary reference.
+Direct C++ `moveBy`/`moveTo`/`submitMove` and advanced CLI moves leave this
+fallback disabled; they require the observed RUNNING transition. Direct users
+of the core may explicitly supply the qualified prerequisites described above.
 
 The [firmware0x0029 investigation](reports/2026-10-07_position_completion.md)
 records short-move success and remaining high-subdivision failures. Exact
