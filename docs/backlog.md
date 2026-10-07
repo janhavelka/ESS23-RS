@@ -1,5 +1,14 @@
 # Features implementation tasks and open questions
 
+## Position completion and firmware identification, 7 October
+
+- [x] Read raw firmware0x0029/model0x4EEA; recheck official manuals/downloads.
+- [x] Run25 parameter cases plus9 repeats with checked staged values and stop/restore.
+- [x] Confirm short moves using two fresh exact stopped endpoint reports in the shared mover;15/15 physical regressions pass.
+- [ ] Resolve drive-side persistent RUNNING/normal-stop behavior; vendor firmware mapping/update procedure remains unavailable.
+- [Evidence, matrix and vendor questions](reports/2026-10-07_position_completion.md).
+
+
 ## Overnight qualification and USB driver, 7 October
 
 - [x] 9,325 finite matrix cases plus2,799 simple commands recorded; both failed
@@ -8,8 +17,8 @@
 - [x] Capture live HWCDC lost-TX-event state; reproduce matching ISR race from
   pinned driver source, reuse existing IDF USB implementation on both frameworks.
 - [ ] Repeat overnight qualification on the shared-driver image.
-- [ ] Resolve high-subdivision/high-speed persistent-running behavior and very
-  short move completion without fabricating an observed transition.
+- [ ] Resolve high-subdivision/high-speed persistent-running behavior.
+- [x] Short-move completion has a qualified exact-position alternative; see above.
 - [Evidence, causes and remaining limits](reports/2026-10-07_overnight_hil.md).
 
 

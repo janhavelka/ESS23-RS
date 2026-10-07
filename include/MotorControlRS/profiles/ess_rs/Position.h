@@ -41,6 +41,10 @@ struct MovePrerequisites {
     bool negativeTwosComplementVerified = false;
     bool configuredRampVerified = false, serialInputsPermit = false;
     bool readinessQualified = false;
+    /** Caller-established relation between feedback 0x000A/B and command
+     * coordinates, including scale, sign and reference. Off by default.
+     * Enables exact endpoint verification when RUNNING was missed. */
+    bool positionFeedbackMatchesCommand = false;
     uint16_t accelerationTime = 0, decelerationTime = 0;
     bool wordOrderKnown = false;
     bool startSpeedKnown = false;
@@ -72,6 +76,10 @@ struct MoveContext {
     ActionExecution execution = ActionExecution::NOT_TRANSMITTED;
     ActionCompletion completion = ActionCompletion::NOT_OBSERVED;
     bool stagingApplied = false, uncertain = false, runningObserved = false, observationKnown = false;
+    bool positionConfirmed = false;
+    int32_t observedPosition = 0;
+    uint16_t observedSpeed = 0;
+    ActionEvidence positionMatchEvidence; ///< First of two consecutive exact stopped endpoint reports.
     uint16_t words[5] = {}, rawAlarm = 0, rawMotion = 0;
     uint64_t startedUs = 0, deadlineUs = 0, servicedUs = 0, eligibleUs = 0;
     uint8_t step = 0, polls = 0;
@@ -156,8 +164,11 @@ Status prepareMoveAngle(MoveContext&, const AxisConfig&, const AxisReference*,
                         const ActionOptions& = ActionOptions()) noexcept;
 Status nextMove(const MoveContext&, uint64_t nowUs, PreparedMove&) noexcept;
 /** Copies bounded evidence. Confirmed echoes acknowledge only; completion needs
- * a fresh post-trigger RUNNING report followed by arrived and stopped. A short
- * move missed between polls stays unobserved. Cancellation never sends stop,
+ * a fresh post-trigger RUNNING report followed by arrived and stopped, or two
+ * consecutive exact endpoint/zero-speed/arrived reports when the caller has
+ * qualified feedback coordinates and supplied a fresh stationary baseline.
+ * The latter requires an acknowledged trigger and a changed endpoint; it never
+ * accepts an old arrival flag or an arbitrary position change. Cancellation never sends stop,
  * truncates TX or retries setup/trigger. Wrong envelopes leave state unchanged.
  * A write deadline may expire before the retained operation deadline, reporting
  * READINESS. The caller must honor yielded deadlines through queue/setup/TX.

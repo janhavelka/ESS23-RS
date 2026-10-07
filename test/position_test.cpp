@@ -656,7 +656,57 @@ static void testOptionalAgePolicy() {
     assert(c.state == ActionState::FAILED && c.outcome == ActionOutcome::DEADLINE);
     assert(Ess::nextMove(c, deadline, work) && work.kind == Ess::ActionWork::DONE && !work.length);
 }
+static void testShortMoveEndpointEvidence() {
+    auto prepare = [](Ess::WordOrder order = Ess::WordOrder::HIGH_WORD_FIRST, int32_t baseline = 100) {
+        auto p = prerequisites(); p.positionFeedbackMatchesCommand = true; p.wordOrder = order;
+        AxisReference ref; ref.target = axis().target; ref.configurationGeneration = axis().generation;
+        ref.nativeKnown = ref.stationary = true; ref.nativePosition = baseline;
+        ref.basis = RelativeBasis::ACTUAL; ref.source = ScaleSource::READBACK;
+        ref.observedUs = 80; ref.nowUs = 100; ref.maximumAgeUs = 1000;
+        Ess::MoveContext c; auto o = options(); o.maxPolls = 10;
+        assert(Ess::prepareMoveRelative(c, axis(), &ref, 12, request(), p, 100, 10000, o));
+        trigger(c); return c;
+    };
+    auto observe = [](Ess::MoveContext& c, int32_t position, uint16_t flags = 1, uint16_t speed = 0, bool corrupt = false) {
+        Ess::PreparedMove work; assert(Ess::nextMove(c, c.eligibleUs, work));
+        assert(work.reg == 6 && work.count == 7 && !work.write);
+        uint16_t pair[2]; assert(Ess::encodeInt32(position, c.prerequisites.wordOrder, pair, 2));
+        std::vector<uint8_t> b = {1, 3, 14, 0, 0, uint8_t(flags >> 8), uint8_t(flags), 0, 0, 0, 0,
+            uint8_t(pair[0] >> 8), uint8_t(pair[0]), uint8_t(pair[1] >> 8), uint8_t(pair[1]), uint8_t(speed >> 8), uint8_t(speed)};
+        crc(b); if (corrupt) b.back() ^= 1;
+        const auto at = c.eligibleUs + 20;
+        assert(Ess::advanceMove(c, frame(c, b, at), at + 20));
+    };
+    for (auto order : {Ess::WordOrder::HIGH_WORD_FIRST, Ess::WordOrder::LOW_WORD_FIRST}) {
+        auto c = prepare(order);
+        observe(c, 100); assert(c.state == ActionState::ACTIVE && !c.positionMatchEvidence.length); // Old arrival.
+        observe(c, 110); assert(c.state == ActionState::ACTIVE); // Arbitrary movement is insufficient.
+        observe(c, 125); assert(c.state == ActionState::ACTIVE && c.positionMatchEvidence.length == 19);
+        observe(c, 125, 1, 1); assert(!c.positionMatchEvidence.length); // Nonzero speed resets the witness.
+        observe(c, 125); assert(c.state == ActionState::ACTIVE);
+        observe(c, 125); assert(c.positionConfirmed && !c.runningObserved && !c.uncertain);
+        assert(c.state == ActionState::SUCCEEDED && c.lastObservation.length == 19);
+        assert(c.positionMatchEvidence.step + 1 == c.lastObservation.step); noMoreWork(c);
+    }
+    auto negative = prepare(Ess::WordOrder::LOW_WORD_FIRST, -100);
+    observe(negative, -75); observe(negative, -75); assert(negative.positionConfirmed);
+    auto wrong = prepare(); observe(wrong, 125); observe(wrong, 125, 1, 0, true);
+    assert(wrong.state == ActionState::FAILED && !wrong.positionConfirmed && wrong.status.code == Err::CRC_ERROR);
+    auto alarm = prepare(); observe(alarm, 125); observe(alarm, 125, 9);
+    assert(alarm.state == ActionState::FAILED && !alarm.positionConfirmed);
+    auto running = prepare(); observe(running, 125, 4); observe(running, 125, 4);
+    assert(running.state == ActionState::ACTIVE && !running.positionConfirmed); // Cannot mask the high-speed discrepancy.
+    auto unknown = prepare(); unknown.execution = ActionExecution::UNKNOWN;
+    observe(unknown, 125); observe(unknown, 125); assert(unknown.state == ActionState::ACTIVE && !unknown.positionConfirmed);
+    auto cancelled = prepare(); observe(cancelled, 125);
+    assert(Ess::advanceMove(cancelled, local(cancelled, ReadEventKind::CANCEL), cancelled.servicedUs + 1));
+    assert(cancelled.state == ActionState::FAILED && !cancelled.positionConfirmed);
+    auto p = prerequisites(); p.positionFeedbackMatchesCommand = true;
+    Ess::MoveContext untouched; const Saved<Ess::MoveContext> saved(untouched);
+    assert(!Ess::prepareMoveRelative(untouched, axis(), nullptr, 12, request(), p, 100, 10000)); saved.check(untouched);
+}
 int main() {
+    testShortMoveEndpointEvidence();
     testOptionalAgePolicy();
     testTypedPositionProfile(); testNativeAbsoluteDoesNotInventDisplacement(); testNativeAbsoluteTargetsAndReadiness();
     testTriggerObservationKeepsUnknownExecution(); testTriggerPreservesFailures();

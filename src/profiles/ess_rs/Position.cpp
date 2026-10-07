@@ -72,6 +72,9 @@ void beginMove(MoveContext& c, const ReadTarget& target, uint32_t id,
     c.triggerStep = c.request.setup == MoveSetup::VERIFY_AND_UPDATE ? 2 : 1;
     if (c.request.setup == MoveSetup::USE_STORED) { c.step = c.triggerStep; c.setupCount = 0; }
 }
+uint16_t observationCount(const MoveContext& c) {
+    return c.prerequisites.positionFeedbackMatchesCommand ? 7 : 2;
+}
 uint16_t startValue(bool relative) {
     return static_cast<uint16_t>(MotionCommandBit::START_POSITION) |
         (relative ? 0 : static_cast<uint16_t>(MotionCommandBit::ABSOLUTE_POSITION));
@@ -192,6 +195,13 @@ static Status prepareMove(MoveContext& output, const AxisConfig& axis, const Axi
             return invalid(MoveError::READINESS, "native reference freshness must cover both write budgets");
         prepared.reference = *reference;
     }
+    if (prerequisites.positionFeedbackMatchesCommand &&
+        (!reference || !reference->nativeKnown || !reference->stationary ||
+         reference->basis != RelativeBasis::ACTUAL || !prepared.prepared.endpointKnown ||
+         prepared.prepared.endpointNative == reference->nativePosition ||
+         prepared.prepared.endpointNative < std::numeric_limits<int32_t>::min() ||
+         prepared.prepared.endpointNative > std::numeric_limits<int32_t>::max()))
+        return invalid(MoveError::READINESS, "endpoint observation requires a fresh changed command-coordinate reference");
     if (prepared.prepared.zeroDisplacement)
         return failed(MoveError::INVALID_REQUEST, "effective relative displacement is zero");
     const int64_t native = prepared.prepared.effectiveNative;
@@ -262,7 +272,7 @@ Status nextMove(const MoveContext& c, uint64_t nowUs, PreparedMove& output) noex
         next.value = startValue(c.request.position.relative); next.count = 1;
         next.length = buildStartPosition(c.target.address, c.request.position.relative, next.bytes, sizeof(next.bytes));
     } else {
-        next.function = 3; next.reg = Registers::ERROR_CODE; next.count = 2;
+        next.function = 3; next.reg = Registers::ERROR_CODE; next.count = observationCount(c);
         next.length = buildReadRegisters(c.target.address, next.reg, next.count, next.bytes, sizeof(next.bytes));
     }
     if (!next.length) return invalid(MoveError::INVALID_STATE, "invalid move frame");
@@ -298,7 +308,7 @@ Status advanceMove(MoveContext& c, const ActionEvent& supplied, uint64_t nowUs) 
     evidence.length = event.length < ACTION_MAX_REPLY_BYTES ? event.length : ACTION_MAX_REPLY_BYTES;
     if (evidence.length) std::memcpy(evidence.raw, event.frame, evidence.length);
     const bool checking = verifying(c), setting = staging(c), triggering = c.step == c.triggerStep;
-    uint16_t words[5] = {}; std::size_t count = 0;
+    uint16_t words[7] = {}; std::size_t count = 0;
     if (event.kind == ReadEventKind::FRAME) {
         if (checking) evidence.status = parseRegisters(event.frame, event.length, c.target.address, 5,
             words, 5, count, &evidence.frameError);
@@ -309,8 +319,8 @@ Status advanceMove(MoveContext& c, const ActionEvent& supplied, uint64_t nowUs) 
                 Registers::POSITION_ACCELERATION_TIME + c.setupOffset, c.setupCount, &evidence.frameError);
         else if (triggering) evidence.status = parseWriteSingleRegister(event.frame, event.length, c.target.address,
             Registers::MOTION_COMMAND, startValue(c.request.position.relative), &evidence.frameError);
-        else evidence.status = parseRegisters(event.frame, event.length, c.target.address, 2,
-            words, 2, count, &evidence.frameError);
+        else evidence.status = parseRegisters(event.frame, event.length, c.target.address, observationCount(c),
+            words, 7, count, &evidence.frameError);
     } else if (event.kind == ReadEventKind::CANCEL)
         evidence.status = failed(MoveError::CANCELLED, "move locally cancelled");
     else if (event.kind == ReadEventKind::DEADLINE)
@@ -344,7 +354,7 @@ Status advanceMove(MoveContext& c, const ActionEvent& supplied, uint64_t nowUs) 
             finish(c, ActionOutcome::DEADLINE, expiredStep(c));
         else if (checking) {
             c.verificationKnown = true;
-            std::memcpy(c.verificationWords, words, sizeof(words));
+            std::memcpy(c.verificationWords, words, sizeof(c.verificationWords));
             unsigned scalars = 0, changed = 0;
             for (unsigned i = 0; i < 3; ++i) if (words[i] != c.words[i]) { ++scalars; changed = i; }
             const bool pairChanged = words[3] != c.words[3] || words[4] != c.words[4];
@@ -360,14 +370,30 @@ Status advanceMove(MoveContext& c, const ActionEvent& supplied, uint64_t nowUs) 
     } else {
         ++c.polls; c.lastObservation = evidence; c.observationKnown = true;
         c.rawAlarm = words[0]; c.rawMotion = words[1];
+        bool endpointMatch = false;
+        if (c.prerequisites.positionFeedbackMatchesCommand) {
+            decodeInt32(words + 4, 2, c.prerequisites.wordOrder, c.observedPosition);
+            c.observedSpeed = words[6];
+            endpointMatch = c.execution == ActionExecution::ACKNOWLEDGED &&
+                !words[0] && !(words[1] & (RUNNING | FAULTS)) && (words[1] & ARRIVED) &&
+                !words[6] && c.observedPosition == c.prepared.endpointNative;
+        }
+        if (!endpointMatch) c.positionMatchEvidence = ActionEvidence();
         if (words[0] || (words[1] & FAULTS)) finish(c, ActionOutcome::REPLY_ERROR,
             failed(MoveError::DRIVE_FAULT, "drive alarm, release or limit interrupted the move"));
         else if (words[1] & RUNNING) {
             if (!c.runningObserved) c.activityEvidence = evidence;
             c.runningObserved = true;
-        } else if (c.runningObserved && (words[1] & ARRIVED)) {
+        } else if (c.runningObserved && (words[1] & ARRIVED) &&
+                   (!c.prerequisites.positionFeedbackMatchesCommand || !c.observedSpeed)) {
             c.completion = ActionCompletion::OBSERVED;
             finish(c, ActionOutcome::OBSERVED, Ok());
+        }
+        if (c.state == ActionState::ACTIVE && endpointMatch) {
+            if (c.positionMatchEvidence.length) {
+                c.positionConfirmed = true; c.completion = ActionCompletion::OBSERVED;
+                finish(c, ActionOutcome::OBSERVED, Ok());
+            } else c.positionMatchEvidence = evidence;
         }
         if (c.state == ActionState::ACTIVE) {
             if (c.polls >= c.options.maxPolls) finish(c, ActionOutcome::OBSERVATION_LIMIT,

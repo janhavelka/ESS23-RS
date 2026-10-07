@@ -874,6 +874,10 @@ Probe::Action startMove(void* context, uint32_t commandId, uint8_t address,
     }
     const MoveRequest& request = supplied;
     AxisReference reference = axisReference(a);
+    // Reuse the standalone session's explicit feedback-coordinate convention.
+    // The core never assumes that an arbitrary encoder pair is command position.
+    prerequisites.positionFeedbackMatchesCommand = a.simple.admitting && a.bootCoordinates &&
+        reference.nativeKnown && reference.stationary;
     ESS::MoveContext& prepared = record->move;
     const uint64_t deadline = now + static_cast<uint64_t>(a.options.moveTimeoutMs) * 1000;
     ActionOptions options; options.maxPolls = ESS::ACTION_MAX_POLLS; options.pollIntervalUs = 20000;

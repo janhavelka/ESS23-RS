@@ -2495,6 +2495,10 @@ bool Console::formatSimpleMotion(uint32_t id, const SimpleMotionView& view, bool
     }
     fits = fits && append(output_,sizeof(output_),used,"\",\"read_operation_id\":%lu}",
         static_cast<unsigned long>(view.readOperationId));
+    if (fits && !view.settingsOnly && !view.subdivisionOnly) {
+        --used;
+        fits = append(output_, sizeof(output_), used, ",\"position_confirmed\":%s}", boolean(move && move->positionConfirmed));
+    }
     if (fits && !view.settingsOnly && view.targetPrepared) {
         --used;
         fits = append(output_,sizeof(output_),used,",\"effective_native\":%lld,\"rounding_error\":%.17g}",
@@ -2601,6 +2605,14 @@ bool Console::formatMove(uint32_t id, uint32_t commandId, uint32_t operationId,
         static_cast<unsigned long>(c.reference.configurationGeneration), boolean(c.reference.nativeKnown), static_cast<long long>(c.reference.nativePosition),
         static_cast<unsigned>(c.reference.basis), static_cast<unsigned>(c.reference.source),
         static_cast<unsigned long long>(c.reference.observedUs), static_cast<unsigned long long>(c.reference.maximumAgeUs)) && append(output_, sizeof(output_), used, "}");
+    if (fits) {
+        --used;
+        fits = append(output_, sizeof(output_), used,
+            ",\"position_feedback_matches_command\":%s,\"position_confirmed\":%s,\"observed_position\":%ld,\"observed_speed\":%u,\"position_match_evidence\":",
+            boolean(c.prerequisites.positionFeedbackMatchesCommand), boolean(c.positionConfirmed),
+            static_cast<long>(c.observedPosition), c.observedSpeed) &&
+            actionEvidence(output_, sizeof(output_), used, c.positionMatchEvidence) && append(output_, sizeof(output_), used, "}");
+    }
     if (!fits || !appendReportSerial(used)) return false;
     emit(inspection ? 0 : operationId);
     return true;

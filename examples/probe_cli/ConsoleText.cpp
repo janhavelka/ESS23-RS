@@ -468,7 +468,10 @@ bool motionReport(Writer& writer, const Value& report, const char* subject) {
         return writer.text("Requested target already satisfied; drive reports standstill. No new motion command was sent.\n") && motionDetails(writer, report);
     if (observed && !uncertain && !interrupted && !cancelled) {
         const char* observation = !std::strcmp(subject, "Move") ?
-            (equal(member(report, "running_observed"), "true") ? "Drive reported running, then target reached." : "Drive reported target reached; running was not observed.") :
+            (equal(member(report, "running_observed"), "true") ? "Drive reported running, then target reached." :
+             equal(member(report, "position_confirmed"), "true") ?
+                "Final position verified twice; drive reports stopped. RUNNING was missed between reads." :
+                "Drive reported target reached; running was not observed.") :
             !std::strcmp(subject, "Stop") ? "Drive reported stopped." :
             !std::strcmp(subject, "Enable") ? "Drive reported enabled." :
             !std::strcmp(subject, "Motor release") ? "Drive reported released." :

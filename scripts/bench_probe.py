@@ -966,8 +966,8 @@ class Console:
                     all(integer(entry.get(k), -2**31, 2**31 - 1) for k in ("detail", "transport_detail")) and
                     entry.get("status") in {"OK", "INVALID_CONFIG", "ILLEGAL_VALUE", "UNSUPPORTED", "CRC_ERROR", "FRAME_ERROR", "EXCEPTION"}, name + " invalid")
             raw = entry.get("raw_hex")
-            require(isinstance(raw, str) and re.fullmatch(r"(?:[0-9a-fA-F]{2}){0,9}", raw) is not None, name + " raw invalid")
-            raw = bytes.fromhex(raw); require(len(raw) == min(entry["received_length"], 9), name + " length differs")
+            require(isinstance(raw, str) and re.fullmatch(r"(?:[0-9a-fA-F]{2}){0,19}", raw) is not None, name + " raw invalid")
+            raw = bytes.fromhex(raw); require(len(raw) in (min(entry["received_length"], 9), min(entry["received_length"], 19)), name + " length differs")
             empty = all(entry.get(key) == value for key, value in dict(step=0, event=0, raw_hex="", received_length=0,
                 tx_accepted=0, tx_complete=False, response_confirmed=False, qualified=False, execution_unknown=False,
                 earliest_us=0, latest_us=0, delivered_us=0, transport_detail=0, status="OK", detail=0, frame_error=0).items())
@@ -1025,7 +1025,7 @@ class Console:
         latest = item.get("last_observation")
         require(isinstance(latest, dict) and integer(latest.get("step"), 0, 255) and
                 all(integer(latest.get(key)) for key in ("earliest_us", "latest_us", "delivered_us")) and
-                isinstance(latest.get("raw_hex"), str) and re.fullmatch(r"(?:[0-9a-fA-F]{2}){0,9}", latest["raw_hex"]) is not None, "latest observation invalid")
+                isinstance(latest.get("raw_hex"), str) and re.fullmatch(r"(?:[0-9a-fA-F]{2}){0,19}", latest["raw_hex"]) is not None, "latest observation invalid")
         if item["observation_known"]:
             raw = bytes.fromhex(latest["raw_hex"])
             require(len(raw) == 9 and raw[:3] == bytes((item["address"], 3, 4)) and wire_crc(raw) == 0 and
@@ -1223,10 +1223,21 @@ class Console:
                 require(parsed["path"] == requested["angle_path"] and parsed["tie"] == requested["half_turn_tie"], "angle policy differs")
             if parsed["approximate"]:
                 require(retained_allowance(parsed["approximation_error"], requested["maximum_approximation_error"]), "radian error differs")
+        position_feedback = item.get("position_feedback_matches_command", False)
+        position_confirmed = item.get("position_confirmed", False)
+        require(type(position_feedback) is bool and type(position_confirmed) is bool and
+                (not position_confirmed or position_feedback), "invalid position completion policy")
+        if position_feedback:
+            require(reference["native_known"] and item["endpoint_known"] and
+                    item["endpoint_native"] != reference["native_position"] and
+                    -2**31 <= item["endpoint_native"] < 2**31,
+                    "position completion lacks a changed qualified endpoint")
+        observation_size, observation_bytes = (19, 14) if position_feedback else (9, 4)
         evidence = {}
         specs = [("staging_evidence", trigger_step - 1, setup_size), ("trigger_evidence", trigger_step, 8),
                  ("activity_evidence", None, 8), ("last_observation", None, 8), ("failure_evidence", None, None)]
         if "setup" in item or setup == "verify": specs.append(("verification_evidence", 0, 8))
+        if "position_match_evidence" in item: specs.append(("position_match_evidence", None, 8))
         for name, token, tx_size in specs:
             entry = item.get(name)
             require(isinstance(entry, dict), "missing " + name)
@@ -1238,9 +1249,9 @@ class Console:
                     entry.get("status") in {"OK", "INVALID_CONFIG", "ILLEGAL_VALUE", "UNSUPPORTED", "CRC_ERROR", "FRAME_ERROR", "EXCEPTION"},
                     name + " evidence is malformed")
             raw = entry.get("raw_hex")
-            require(isinstance(raw, str) and re.fullmatch(r"(?:[0-9a-fA-F]{2}){0,9}", raw) is not None, name + " raw bytes are invalid")
+            require(isinstance(raw, str) and re.fullmatch(r"(?:[0-9a-fA-F]{2}){0,19}", raw) is not None, name + " raw bytes are invalid")
             raw = bytes.fromhex(raw)
-            require(len(raw) == min(entry["received_length"], 9), name + " retained length differs")
+            require(len(raw) in (min(entry["received_length"], 9), min(entry["received_length"], 19)), name + " retained length differs")
             empty = all(entry.get(key) == value for key, value in dict(step=0, event=0, raw_hex="", received_length=0,
                 tx_accepted=0, tx_complete=False, response_confirmed=False, qualified=False, execution_unknown=False,
                 earliest_us=0, latest_us=0, delivered_us=0, transport_detail=0, status="OK", detail=0, frame_error=0).items())
@@ -1270,7 +1281,7 @@ class Console:
             require(isinstance(full_hex, str) and re.fullmatch(r"(?:[0-9a-fA-F]{2}){0,15}", full_hex) is not None,
                     "verification raw bytes are invalid")
             full = bytes.fromhex(full_hex)
-            require(len(full) == min(verification["received_length"], 15) and full[:9] == prefix,
+            require(len(full) == min(verification["received_length"], 15) and full[:len(prefix)] == prefix,
                     "verification raw retention differs")
             verified_words = item.get("verification_words")
             require(isinstance(verified_words, list) and len(verified_words) == 5 and all(integer(word, 0, 65535) for word in verified_words),
@@ -1339,7 +1350,7 @@ class Console:
                 require(prior["latest_us"] <= write_deadline and prior["delivered_us"] < write_deadline,
                         "trigger follows expired setup readiness")
         if item["running_observed"]:
-            activity, raw = confirmed("activity_evidence", (item["address"], 3, 4), 9)
+            activity, raw = confirmed("activity_evidence", (item["address"], 3, observation_bytes), observation_size)
             motion = int.from_bytes(raw[5:7], "big")
             require(item["observation_known"] and trigger_step + 1 <= activity["step"] <= item["polls"] + trigger_step and
                     trigger["delivered_us"] < activity["earliest_us"] and int.from_bytes(raw[3:5], "big") == 0 and
@@ -1347,7 +1358,7 @@ class Console:
         else:
             require(evidence["activity_evidence"][2], "unobserved activity retains a report")
         if item["observation_known"]:
-            observed, raw = confirmed("last_observation", (item["address"], 3, 4), 9)
+            observed, raw = confirmed("last_observation", (item["address"], 3, observation_bytes), observation_size)
             require(observable_trigger and item["polls"] >= 1 and observed["step"] == item["polls"] + trigger_step and
                     trigger["delivered_us"] < observed["earliest_us"] and
                     item.get("raw_alarm") == int.from_bytes(raw[3:5], "big") and item.get("raw_motion") == int.from_bytes(raw[5:7], "big"),
@@ -1357,11 +1368,27 @@ class Console:
                 require(activity == observed, "same activity and observation token changed retained evidence")
         else:
             require(item.get("raw_alarm") is None and item.get("raw_motion") is None and evidence["last_observation"][2], "unknown report publishes values")
+        if position_feedback and item["observation_known"]:
+            pair = [int.from_bytes(raw[i:i+2], "big") for i in (11, 13)]
+            if prerequisites["word_order"]: pair.reverse()
+            position = (pair[0] << 16) | pair[1]
+            if position & 0x80000000: position -= 2**32
+            require(item.get("observed_position") == position and item.get("observed_speed") == int.from_bytes(raw[15:17], "big"),
+                    "position fields differ from checked feedback")
+        if position_confirmed:
+            match, match_raw = confirmed("position_match_evidence", (item["address"], 3, 14), 19)
+            require(item["ok"] and item["execution"] == "acknowledged" and item["observation_known"] and
+                    match["step"] + 1 == observed["step"] and trigger["delivered_us"] < match["earliest_us"] and
+                    match["delivered_us"] < observed["earliest_us"] and
+                    int.from_bytes(match_raw[3:5], "big") == 0 and int.from_bytes(match_raw[5:7], "big") & 0x7D == 1 and
+                    match_raw[11:17] == raw[11:17] and item["observed_speed"] == 0 and
+                    item["observed_position"] == item["endpoint_native"], "completion lacks two exact stopped endpoint reports")
         if item["ok"]:
-            require(item["running_observed"] and item["observation_known"] and item["uncertain"] is False and
-                    activity["delivered_us"] < observed["earliest_us"] and observed["delivered_us"] == item["serviced_us"] and
+            require(not position_feedback or item["observed_speed"] == 0, "completion reports nonzero speed")
+            require((position_confirmed or (item["running_observed"] and activity["delivered_us"] < observed["earliest_us"])) and item["observation_known"] and item["uncertain"] is False and
+                    observed["delivered_us"] == item["serviced_us"] and
                     item["raw_alarm"] == 0 and item["raw_motion"] & 0x7D == 1 and evidence["failure_evidence"][2],
-                    "completion lacks new running-to-arrival evidence")
+                    "completion lacks correlated activity or exact endpoint evidence")
         else:
             require(not evidence["failure_evidence"][2] and evidence["failure_evidence"][0]["delivered_us"] == item["serviced_us"],
                     "failure lacks terminal evidence")
@@ -1391,7 +1418,7 @@ class Console:
                 expected = "reply_error"
             elif not failure["response_confirmed"] and not (failure["step"] == trigger_step and unconfirmed_trigger):
                 expected = "unconfirmed_response"
-            elif failure["step"] > trigger_step and len(raw) == 9 and (int.from_bytes(raw[3:5], "big") or int.from_bytes(raw[5:7], "big") & 0x78):
+            elif failure["step"] > trigger_step and len(raw) == observation_size and (int.from_bytes(raw[3:5], "big") or int.from_bytes(raw[5:7], "big") & 0x78):
                 expected = "reply_error"
             else:
                 require(item["outcome"] in ("deadline", "observation_limit") and
@@ -1726,9 +1753,9 @@ class Console:
             require(all(type(e.get(k)) is int and -0x80000000 <= e[k] <= 0x7FFFFFFF for k in ("detail", "transport_detail")) and
                     e.get("status") in ("OK", "INVALID_CONFIG", "ILLEGAL_VALUE", "UNSUPPORTED", "CRC_ERROR", "FRAME_ERROR", "EXCEPTION"), name + " invalid status")
             raw = e.get("raw_hex")
-            require(isinstance(raw, str) and re.fullmatch(r"(?:[0-9A-Fa-f]{2}){0,9}", raw) is not None, name + " malformed raw frame")
+            require(isinstance(raw, str) and re.fullmatch(r"(?:[0-9A-Fa-f]{2}){0,19}", raw) is not None, name + " malformed raw frame")
             raw = bytes.fromhex(raw)
-            require(len(raw) == min(e["received_length"], 9), name + " inconsistent raw length")
+            require(len(raw) in (min(e["received_length"], 9), min(e["received_length"], 19)), name + " inconsistent raw length")
             expected = 21 if e["step"] == 0 else 8
             require(not e["tx_complete"] or e["tx_accepted"] == expected, name + " incomplete accepted TX")
             if e["delivered_us"]:
@@ -1904,10 +1931,10 @@ class Console:
                     and entry.get("status") in {"OK", "INVALID_CONFIG", "ILLEGAL_VALUE", "UNSUPPORTED",
                         "CRC_ERROR", "FRAME_ERROR", "EXCEPTION"}, name + " has invalid status")
             raw = entry.get("raw_hex")
-            require(isinstance(raw, str) and re.fullmatch(r"(?:[0-9a-fA-F]{2}){0,9}", raw) is not None,
+            require(isinstance(raw, str) and re.fullmatch(r"(?:[0-9a-fA-F]{2}){0,19}", raw) is not None,
                     name + " raw frame is malformed")
             raw = bytes.fromhex(raw)
-            require(len(raw) == min(entry["received_length"], 9), name + " length is inconsistent")
+            require(len(raw) in (min(entry["received_length"], 9), min(entry["received_length"], 19)), name + " length is inconsistent")
             if entry["status"] == "OK":
                 require(entry["detail"] == entry["frame_error"] == 0, name + " successful codec retains an error")
             elif entry["status"] == "EXCEPTION":

@@ -1,11 +1,20 @@
 # Roadmap to a supported ESS release
 
+[Position/firmware follow-up](reports/2026-10-07_position_completion.md) identifies
+raw drive firmware0x0029 and records34 parameter cases/repeats. Persistent RUNNING
+remains unresolved, including normal-stop failure; fast stop confirmed cleanup.
+Fifteen short moves pass the new shared exact-endpoint completion path, twelve
+without observed RUNNING. This closes that demonstrated false uncertainty,
+not all feedback quantization or high-speed cases. No motor firmware update
+has been established or applied.
+
+
 [7 October overnight evidence](reports/2026-10-07_overnight_hil.md) records9,325
 matrix cases and2,799 simple commands. Normal-stop budgeting is corrected.
 The failed campaign's USB TX stall was captured live, a matching HWCDC ISR race
 reproduced, and both platforms now share the existing IDF USB console driver.
 The replacement image still needs overnight qualification; high-subdivision
-completion and very short unobserved moves remain open. Historical failed runs
+completion remains open; the exact-position short-move subset is addressed above. Historical failed runs
 below retain their original disposition.
 
 

@@ -9,7 +9,7 @@
 namespace MotorControlRS { namespace ESS_RS {
 
 constexpr uint8_t ACTION_MAX_POLLS = 64;
-constexpr std::size_t ACTION_MAX_REPLY_BYTES = 9;
+constexpr std::size_t ACTION_MAX_REPLY_BYTES = 19;
 enum class ActionWork : uint8_t { TRANSACTION, WAIT, DONE };
 /** One copied transaction observation. receivedLength retains the full supplied
  * size when raw[] holds only a prefix. Invalid frames never update decoded data. */

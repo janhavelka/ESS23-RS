@@ -521,6 +521,34 @@ class Serial:
 
 
 class Framing(unittest.TestCase):
+    def test_exact_endpoint_completion_without_running(self):
+        t = move_terminal(1)
+        empty = dict(t["failure_evidence"])
+        t.update(running_observed=False, position_feedback_matches_command=True, position_confirmed=True,
+                 observed_position=1100, observed_speed=0, endpoint_known=True, endpoint_native=1100,
+                 activity_evidence=empty)
+        t["reference"].update(target=1, generation=9, configuration_generation=3, native_known=True,
+                             native_position=100, source=1, observed_us=900, maximum_age_us=10000)
+        def position_frame(e, pos=1100, speed=0, flags=1):
+            raw = bytes([1,3,14,0,0,0,flags,0,0,0,0]) + pos.to_bytes(4,'big') + speed.to_bytes(2,'big')
+            raw += bench.wire_crc(raw).to_bytes(2,'little')
+            e.update(raw_hex=raw.hex(), received_length=len(raw))
+        t["position_match_evidence"] = dict(move_terminal(1)["activity_evidence"])
+        position_frame(t["position_match_evidence"]); position_frame(t["last_observation"])
+        bench.Console._check_move(t,1,None)
+        for field, value in (("position_confirmed",False),("execution","unknown"),("observed_position",1101),
+                             ("observed_speed",1),("position_feedback_matches_command",False)):
+            bad=copy.deepcopy(t);bad[field]=value
+            with self.assertRaises(bench.BenchError): bench.Console._check_move(bad,1,None)
+        for name in ("position_match_evidence","last_observation"):
+            for pos,speed,flags in ((100,0,1),(1101,0,1),(1100,1,1),(1100,0,4),(1100,0,9)):
+                bad=copy.deepcopy(t);position_frame(bad[name],pos,speed,flags)
+                with self.assertRaises(bench.BenchError): bench.Console._check_move(bad,1,None)
+        bad=copy.deepcopy(t);bad["position_match_evidence"]["step"]=1
+        with self.assertRaises(bench.BenchError): bench.Console._check_move(bad,1,None)
+        bad=copy.deepcopy(t);bad["position_match_evidence"]["delivered_us"]=4100
+        with self.assertRaises(bench.BenchError): bench.Console._check_move(bad,1,None)
+
     HOME_ARGS = ("35", "60", "30", "100", "zero")
 
     def test_evidence_limits_stop_with_one_retained_failure_record(self):

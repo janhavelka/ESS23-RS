@@ -53,11 +53,17 @@ void prepareSimple(bool serviceAfterAdmission = true, uint32_t position = 0) {
     for(unsigned i=0;i<25000 && profile.view.pending;++i) step();
     if (serviceAfterAdmission) pump();
 }
+std::vector<uint8_t> simpleObservation(uint32_t child, uint16_t motion) {
+    const auto& c = findRecord(*app, child)->move;
+    if (!c.prerequisites.positionFeedbackMatchesCommand) return registers(1,{0,motion});
+    const uint32_t position = static_cast<uint32_t>(c.prepared.endpointNative);
+    return registers(1,{0,motion,0,0,uint16_t(position >> 16),uint16_t(position),0});
+}
 void completeSimple() {
     const auto child=app->simple.view.moveOperationId; assert(child);
     if (findRecord(*app,child)->move.request.setup != MoveSetup::USE_STORED) moveStep(child);
     moveStep(child);
-    moveStep(child,registers(1,{0,4})); moveStep(child,registers(1,{0,1})); pump(1000);
+    moveStep(child,simpleObservation(child,4)); moveStep(child,simpleObservation(child,1)); pump(1000);
 }
 void finishSubdivision(uint16_t original, uint16_t value, bool rejectWrite = false, uint16_t changedAfterWrite = 0, uint32_t position = 100) {
     using Phase = Probe::SimpleMotionPhase;
@@ -309,8 +315,8 @@ void testSimpleAbsoluteMoveUsesOrdinaryAbsoluteTrigger() {
     moveStep(child); // Absolute-position bit plus position-start bit.
     assert(hardware.tx.size()==8 && hardware.tx[1]==6 && hardware.tx[3]==0x27);
     assert(hardware.tx[4]==0 && hardware.tx[5]==5);
-    moveStep(child,registers(1,{0,4}));
-    moveStep(child,registers(1,{0,1})); pump(1000);
+    moveStep(child,simpleObservation(child,4));
+    moveStep(child,simpleObservation(child,1)); pump(1000);
     assert(!view(wrapper).pending && app->simple.view.ok && app->simple.view.delivered);
     assert(app->simple.view.runningObserved && app->simple.view.completion==ActionCompletion::OBSERVED);
     assert(app->simple.view.execution==ActionExecution::ACKNOWLEDGED);
@@ -328,11 +334,11 @@ void testBootDefaultsManufacturerRangeAndLongerMove() {
     assert(move.deadlineUs-move.startedUs==30000000 && move.options.pollIntervalUs==20000);
     moveStep(child); moveStep(child);
     const auto started=hardware.time;
-    moveStep(child,registers(1,{0,4}));
+    moveStep(child,simpleObservation(child,4));
     assert(move.runningObserved && move.options.pollIntervalUs==500000);
-    for(unsigned i=0;i<13;++i) moveStep(child,registers(1,{0,4}));
+    for(unsigned i=0;i<13;++i) moveStep(child,simpleObservation(child,4));
     assert(hardware.time-started>5000000 && view(child).pending);
-    moveStep(child,registers(1,{0,1})); pump(1000);
+    moveStep(child,simpleObservation(child,1)); pump(1000);
     assert(app->simple.view.ok && app->simple.view.delivered);
 
     command("@3 speed 3000\n"); assert(app->simple.desired.speedRpm==3000);
@@ -659,7 +665,7 @@ void testStoppedSimpleMoveRetainsFailureAndAllowsNextSession() {
         const auto wrapper=app->simple.view.operationId, child=app->simple.view.moveOperationId;
         moveStep(child);
         if (triggerInFlight) waitTx(child);
-        else { moveStep(child); moveStep(child,registers(1,{0,4})); }
+        else { moveStep(child); moveStep(child,simpleObservation(child,4)); }
         command("@2 stop fast\n");
         const auto stopping=app->latestOperationId;
         assert(stopping!=wrapper && view(stopping).actionContext);
@@ -706,7 +712,7 @@ void testRetainedFailedMovesReportCapacityAndCanBeReleased() {
 void testFailedStopAndBlockedResultDoNotReleaseSimpleSession() {
     fresh(); command("@1 moveby 100\n"); prepareSimple();
     const auto wrapper=app->simple.view.operationId, child=app->simple.view.moveOperationId;
-    moveStep(child); moveStep(child); moveStep(child,registers(1,{0,4}));
+    moveStep(child); moveStep(child); moveStep(child,simpleObservation(child,4));
     command("@2 stop fast\n"); const auto failedStop=app->latestOperationId;
     actionStep(failedStop,crc({1,0x86,2})); pump(1000);
     assert(view(failedStop).actionContext->completion!=ActionCompletion::OBSERVED);
@@ -776,7 +782,19 @@ void testConvenienceRoundingUsesSharedPreparation() {
     const auto before=hardware.writes;
     assert(!MotorControlRSExample::submitMove(exact,60,id) && hardware.writes==before);
 }
+void testShortMoveUsesFreshExactEndpoint() {
+    fresh(); command("moveby 10 steps\n"); prepareSimple(true,100);
+    const auto child = app->simple.view.moveOperationId; assert(child);
+    const auto& c = findRecord(*app,child)->move;
+    assert(c.prerequisites.positionFeedbackMatchesCommand && c.prepared.endpointNative == 110);
+    moveStep(child); moveStep(child);
+    moveStep(child,simpleObservation(child,1)); assert(app->simple.view.pending);
+    moveStep(child,simpleObservation(child,1)); pump(1000);
+    assert(app->simple.view.ok && c.positionConfirmed && !c.runningObserved);
+    assert(Serial.output.find("Final position verified twice") != std::string::npos);
+}
 int main() {
+    testShortMoveUsesFreshExactEndpoint();
     testOneCommandSubdivisionAndFollowingMove();
     testInteractiveSuccessRecyclingAndExplicitRetention();
     testIdleAndProfileRestoreKeepBootZero();

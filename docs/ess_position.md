@@ -141,8 +141,8 @@ Default `WRITE_ALL` tokens:
 | --- | --- |
 | 0 | FC10 `0x0021/5`: acceleration, deceleration, RPM, target pair in retained word order |
 | 1 | Only after checked, qualified, confirmed staging acknowledgement: FC06 `0x0027=0x0001` relative or `0x0005` absolute/wrapped, both finite and noninterrupting |
-| 2 onward | Bounded FC03 `0x0006/2` observations, separated by waits which hold no bus transaction |
-| Completion | Fresh post-trigger RUNNING report, then a later checked ARRIVED and not-RUNNING report without alarm/release/limit interruption |
+| 2 onward | Bounded FC03 `0x0006/2` observations (`0x0006/7` with qualified feedback), separated by waits which hold no bus transaction |
+| Completion | Fresh RUNNING then stopped/ARRIVED without faults, or two exact stopped endpoint reports under the qualified feedback policy below |
 
 `VERIFY_AND_UPDATE` uses token 0 for the read, optional token 1 for its selected
 write, token 2 for start and token 3 onward for observations. `USE_STORED` begins
@@ -170,8 +170,9 @@ consume a terminal event and retain original diagnostics. No phase retries.
 `uncertain` have separate meanings. FC10 atomic application is undocumented:
 any accepted setup bytes on terminal failure conservatively retain possibly
 changed parameters, even when the trigger was not sent. A trigger echo is only
-acknowledgement. Old arrival, target equality, or a tiny move entirely missed
-between polls does not establish completion. The retained activity and final
+acknowledgement. Old arrival or unqualified target equality alone does not
+establish completion. The default policy requires the RUNNING transition; the
+qualified feedback alternative below can confirm a move missed between polls. The retained activity and final
 evidence prove checked drive reports, not exact internal sample times or
 independently measured shaft motion.
 
@@ -256,3 +257,34 @@ motion had not run in that historical image; the later short campaign records
 native absolute returns. Equivalent-unit shaft comparisons and linear travel
 remain NOT RUN;
 free-shaft arithmetic is not machine-travel qualification.
+
+## Exact final-position completion
+
+A caller may set `MovePrerequisites::positionFeedbackMatchesCommand` only when
+feedback scale, sign and coordinate relation are established for the selected
+configuration. Supply a stationary actual-position `AxisReference`; admission
+checks its binding, freshness and changed signed-32-bit endpoint. Ordinary native
+relative requests still need no unrelated origin/reference.
+
+The same sequencer reads the reviewed seven-word alarm/motion/I/O/position/speed
+window. If RUNNING was missed, an acknowledged trigger followed by two consecutive
+checked reports of the exact prepared endpoint, ARRIVED, not-RUNNING, zero speed
+and no fault establishes completion. A mismatch resets the first witness. No
+arbitrary displacement, tolerance, lost trigger acknowledgement or persistent
+RUNNING is accepted. The usual RUNNING path also requires zero reported speed
+when feedback is available. The window is not documented as an atomic internal
+snapshot; the two reports do not claim exact drive sample timing.
+
+`positionConfirmed`, `observedPosition`, `observedSpeed` and
+`positionMatchEvidence` preserve this proof. `ActionEvidence` retains up to19
+bytes, covering the full reply. JSON exposes the policy, confirmation and both
+reports; Python checks CRC, correlation, ordering and endpoint agreement.
+Historical nine-byte evidence remains readable. The public default stays off.
+Ordinary `moveby`/`moveto` and C++ `moveBy`/`moveTo` enable it after fresh
+preparatory reads under the standalone session's existing labelled coordinate
+convention. Advanced CLI moves retain their existing observation policy.
+
+The [firmware0x0029 investigation](reports/2026-10-07_position_completion.md)
+records short-move success and remaining high-subdivision failures. Exact
+matching leaves ambiguous/quantized endpoints unconfirmed; no encoder tolerance
+or universal firmware qualification is invented.
