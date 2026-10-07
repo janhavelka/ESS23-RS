@@ -1,5 +1,15 @@
 # Roadmap to a supported ESS release
 
+The [pulse-rate boundary study](reports/2026-10-07_rate_boundary.md) reproduces
+motor-controller reset-like loss of volatile settings both above and below
+200,000 command increments/s. Ramp controls narrow the failing combination,
+but do not distinguish a supply transient from internal firmware failure.
+A blanket 200 kHz speed limit is not a demonstrated fix. Four hours of active
+endurance testing (4,580 cases) passed the narrower <=2,000-rpm/rate/ramp
+envelope; one host-file interruption remains a failed session with clean cleanup. The measured practical
+endurance envelope and failed broader cases remain separate qualification rows.
+
+
 [Position/firmware follow-up](reports/2026-10-07_position_completion.md) identifies
 raw drive firmware0x0029 and records34 parameter cases/repeats. Persistent RUNNING
 remains unresolved, including normal-stop failure; fast stop confirmed cleanup.

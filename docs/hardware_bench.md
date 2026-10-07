@@ -1,5 +1,16 @@
 # Motor bench and testing authorization
 
+Latest [rate-boundary/endurance experiment](reports/2026-10-07_rate_boundary.md)
+completed 4h08s active testing and 4,580 cases in the stated <=2,000-rpm,
+<=200,000-increment/s ramp envelope. Broader high-speed tests reproduced four
+motor reset-like failures, including two below 200 kHz; their cause remains open.
+Final restoration: subdivision 51,200; profile `[30,500,500,60,0,32000]`;
+raw position 216,080,428, speed0, motion1, alarm0. Monitor/load/debug off,
+UART/DE settled, no queued/autonomous motion, COM13 free. Same ESP32 image and
+motor firmware0x0029; no persistence writes. Full failed and passing evidence
+and restored settings are in the report.
+
+
 **Latest, 7 October overnight follow-up:**
 [Full disposition and final image](reports/2026-10-07_overnight_hil.md).
 The overnight campaign failed on a captured HWCDC transmit stall after9,325

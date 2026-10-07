@@ -19,6 +19,21 @@ mapping or supported motor firmware updater was found in the searches below.
 That describes the search result, not proof that none exists. Forum reports and
 general FAQs concern mostly different drives and do not establish a fix here.
 
+## Measured follow-up
+
+The [rate-boundary experiment](../reports/2026-10-07_rate_boundary.md) tests this
+lead on firmware `0x0029`. It also reproduces a reset-like loss of volatile
+settings at **180,000 increments/s**, subdivision 4,000, 2,700 rpm and 100/100
+ramps. Slower acceleration or deceleration avoids that particular finite-case
+failure. A 200 kHz ceiling alone is therefore not a demonstrated reliability
+fix. This reset is distinct from persistent RUNNING; neither internal cause
+has been established. The follow-up retains its failed attempts and separates
+them from the narrower endurance envelope.
+
+The original RS20 drawing A4573, revision 0, dated 26 May 2025, explicitly labels
+the 200 kHz row **MAX. INPUT FREQUENCY**. That wording still does not establish
+an internal serial-positioning speed limit.
+
 ## Exact-model manuals: the frequency question
 
 The preserved [ESS23-RS hardware manual](../vendor/ESS23-RS1020_Series_Bus_Integrated_Motor_Hardware_Manual.pdf#page=5),

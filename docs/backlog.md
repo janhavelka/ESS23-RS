@@ -1,5 +1,22 @@
 # Features implementation tasks and open questions
 
+## Pulse-rate boundary investigation, 7 October
+
+- [x] Complete 4h08s active practical-envelope testing: 4,145 ordinary moves
+  plus 435 planned stops, no new motor/transport failures; host-file interruption
+  and broader failed cases retained. Original settings and standstill restored.
+
+- [x] Reproduce loss of volatile motor settings at 6,400/2,812 rpm and at
+  4,000/2,700 rpm (the latter only 180,000 command increments/s).
+- [x] Compare 100/100, 100/500, 500/100 and 500/500 ramps at the failing
+  4,000/2,700-rpm five-turn case; only 100/100 reproduced the reset-like event.
+- [ ] Determine reset cause: supply transient versus internal firmware failure.
+  ESP32 uptime continued; zero alarm after reset does not identify the cause.
+- [ ] Obtain vendor clarification of the 200 kHz input-frequency rating and
+  persistent RUNNING; no universal library limit is justified by these results.
+- [Evidence and exact experiment scope](reports/2026-10-07_rate_boundary.md).
+
+
 ## Position completion and firmware identification, 7 October
 
 - [x] Read raw firmware0x0029/model0x4EEA; recheck official manuals/downloads.

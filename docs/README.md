@@ -1,5 +1,9 @@
 # MotorControl-RS documentation
 
+[Pulse-rate boundary and endurance evidence](reports/2026-10-07_rate_boundary.md)
+records the measured speed/subdivision/ramp matrix, reproducible reset-like
+failures below and above 200 kHz, and the tested practical envelope.
+
 [High-subdivision motion research](reference/12_ess_rs_motion_web_review.md)
 compares the exact ESS-RS manuals, current vendor FAQs and community reports
 against firmware `0x0029` bench evidence, including the unresolved 200 kHz entry.
