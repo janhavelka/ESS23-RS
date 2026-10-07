@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Exercise the actual application owner, serial callback and console with SDK fakes.
 #include "../examples/probe_cli/ProbeApp.cpp"
+#include "fakes/esp32_uart/UsbConsoleFixture.h"
 #include "../examples/probe_cli/ArduinoPlatform.cpp"
 #include "../examples/probe_cli/main.cpp"
 #include <cassert>
@@ -9,12 +10,11 @@
 #include <string>
 #include <vector>
 
-FakeSerial Serial;
 namespace {
 void fresh() {
     if (app) { app->~App(); std::free(app); app = nullptr; }
     uart.~Esp32S3Uart(); new (&uart) Esp32S3Uart;
-    resetHardware(); Serial = FakeSerial(); platformReady = writeResponseConfirmed = false;
+    resetHardware(); resetUsbConsole(); platformReady = writeResponseConfirmed = false;
     setup(); assert(app && uart.ready() && app->owner.valid() && !hardware.writes);
     hardware.txCharacterUs = 87;
     assert(uart.startCapture(20, timing().holdUs));

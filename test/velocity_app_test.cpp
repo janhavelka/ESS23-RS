@@ -2,6 +2,7 @@
 // Exercise the actual cooperative application with simulated SDK/wire evidence.
 // Qualification below belongs solely to this fake fixture, never the real bench.
 #include "../examples/probe_cli/ProbeApp.cpp"
+#include "fakes/esp32_uart/UsbConsoleFixture.h"
 #include "../examples/probe_cli/ArduinoPlatform.cpp"
 #include "../examples/probe_cli/main.cpp"
 #include <cassert>
@@ -10,13 +11,12 @@
 #include <string>
 #include <vector>
 
-FakeSerial Serial;
 namespace {
 using namespace MotorControlRS;
 void fresh() {
     if (app) { app->~App(); std::free(app); app = nullptr; }
     uart.~Esp32S3Uart(); new (&uart) Esp32S3Uart;
-    resetHardware(); Serial = FakeSerial(); platformReady = false; writeResponseConfirmed = false;
+    resetHardware(); resetUsbConsole(); platformReady = false; writeResponseConfirmed = false;
     setup();
     assert(app && uart.ready() && app->owner.valid() && hardware.writes == 0);
     hardware.txCharacterUs = 87;

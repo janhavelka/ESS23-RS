@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: MIT
 #include "../examples/probe_cli/ProbeApp.cpp"
+#include "fakes/esp32_uart/UsbConsoleFixture.h"
 #include "../examples/probe_cli/ArduinoPlatform.cpp"
 #include "../examples/probe_cli/main.cpp"
 #include <cassert>
 #include <cstdlib>
 #include <string>
 #include <vector>
-FakeSerial Serial;
 namespace {
 using namespace MotorControlRS;
 void step() { advanceHardware(hardware.time+10); loop(); }
@@ -66,7 +66,7 @@ void testHostTupleWaitsForProfileHarvest() {
     assert(hostSerial(app,&restore,serial)==Probe::Action::OK && serial.active.baud==115200);
     app->~App(); std::free(app); app=nullptr;
     uart.~Esp32S3Uart(); new (&uart) Esp32S3Uart;
-    Serial=FakeSerial(); platformReady=false;
+    resetUsbConsole(); platformReady=false;
 }
 void testUncertainRestoreRequiresExplicitReadOnlySettlement() {
     resetHardware(); setup(); hardware.txCharacterUs=87;
@@ -117,7 +117,7 @@ void testUncertainRestoreRequiresExplicitReadOnlySettlement() {
     assert(motionProfileCommand(app,Probe::MotionProfileCommand::FORGET,view)==Probe::Action::OK);
     app->~App(); std::free(app); app=nullptr;
     uart.~Esp32S3Uart(); new (&uart) Esp32S3Uart;
-    Serial=FakeSerial(); platformReady=false;
+    resetUsbConsole(); platformReady=false;
 }
 }
 int main() {

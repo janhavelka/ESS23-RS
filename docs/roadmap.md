@@ -1,5 +1,14 @@
 # Roadmap to a supported ESS release
 
+[7 October overnight evidence](reports/2026-10-07_overnight_hil.md) records9,325
+matrix cases and2,799 simple commands. Normal-stop budgeting is corrected.
+The failed campaign's USB TX stall was captured live, a matching HWCDC ISR race
+reproduced, and both platforms now share the existing IDF USB console driver.
+The replacement image still needs overnight qualification; high-subdivision
+completion and very short unobserved moves remain open. Historical failed runs
+below retain their original disposition.
+
+
 [High-subdivision completion investigation](reports/2026-10-06_completion_discrepancy.md)
 reproduces a drive-reported running/arrival discrepancy at51200 subdivision,
 2000 speed and128000 increments. It remains open; fast stop and the tested

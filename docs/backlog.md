@@ -1,5 +1,18 @@
 # Features implementation tasks and open questions
 
+## Overnight qualification and USB driver, 7 October
+
+- [x] 9,325 finite matrix cases plus2,799 simple commands recorded; both failed
+  aggregates retained, not relabelled PASS.
+- [x] Correct normal-stop observation budget; verify500/2000 native ramps.
+- [x] Capture live HWCDC lost-TX-event state; reproduce matching ISR race from
+  pinned driver source, reuse existing IDF USB implementation on both frameworks.
+- [ ] Repeat overnight qualification on the shared-driver image.
+- [ ] Resolve high-subdivision/high-speed persistent-running behavior and very
+  short move completion without fabricating an observed transition.
+- [Evidence, causes and remaining limits](reports/2026-10-07_overnight_hil.md).
+
+
 ## High-subdivision completion discrepancy, 6 October
 
 - [x] Retain result219 and reproduce51200/2000-rpm completion failure; fast stop confirms cleanup.

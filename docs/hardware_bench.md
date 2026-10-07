@@ -1,5 +1,18 @@
 # Motor bench and testing authorization
 
+**Latest, 7 October overnight follow-up:**
+[Full disposition and final image](reports/2026-10-07_overnight_hil.md).
+The overnight campaign failed on a captured HWCDC transmit stall after9,325
+matrix cases. Both platforms now share the existing IDF USB console driver;
+10,000-query/motion/stop and loaded reopen regressions pass. COM13 is closed,
+no queued/autonomous motion, fresh speed0/alarm0/nonrunning, load/debug off.
+Subdivision51200; native profile500/500ms,60rpm,target32000. Host preferences
+60rpm/100/100ms are pending for the next move. These are recorded ending values,
+not a claim that every original overnight parameter was restored. New RAM
+session zero, no NVS coordinates. Replacement-driver overnight qualification
+and high-speed/high-subdivision completion remain open.
+
+
 **Latest, 6 October completion investigation:**
 [Retained failures and finite comparisons](reports/2026-10-06_completion_discrepancy.md)
 confirm fast-stop cleanup. Subdivision restored to the user's51200, new RAM

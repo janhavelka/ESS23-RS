@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Actual standalone application with fake UART/SDK and explicit simulated fixture evidence.
 #include "../examples/probe_cli/ProbeApp.cpp"
+#include "fakes/esp32_uart/UsbConsoleFixture.h"
 #include "../examples/probe_cli/ArduinoPlatform.cpp"
 #include "../examples/probe_cli/main.cpp"
 #include <cassert>
@@ -8,13 +9,12 @@
 #include <string>
 #include <vector>
 
-FakeSerial Serial;
 namespace {
 using Kind = Probe::CommunicationCommandKind;
 void fresh() {
     if (app) { app->~App(); std::free(app); app = nullptr; }
     uart.~Esp32S3Uart(); new (&uart) Esp32S3Uart;
-    resetHardware(); Serial = FakeSerial(); platformReady = writeResponseConfirmed = false;
+    resetHardware(); resetUsbConsole(); platformReady = writeResponseConfirmed = false;
     setup(); assert(app && !hardware.writes);
     hardware.txCharacterUs = 87; assert(uart.startCapture(20, timing().holdUs));
 }

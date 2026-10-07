@@ -3,6 +3,7 @@
 // Qualification below belongs solely to this fake fixture, never the real bench.
 // Both platform variants run these same scenarios and assertions.
 #include "../examples/probe_cli/ProbeApp.cpp"
+#include "fakes/esp32_uart/UsbConsoleFixture.h"
 #if MOTORCONTROLRS_TEST_IDF
 #include "fakes/esp32_uart/FakeUsb.h"
 #include "../examples/probe_idf/main/IdfPlatform.cpp"
@@ -17,18 +18,12 @@
 #include <string>
 #include <vector>
 
-#if !MOTORCONTROLRS_TEST_IDF
-FakeSerial Serial;
-#endif
 namespace {
 using namespace MotorControlRS;
 void fresh(uint32_t maximumAgeMs = 0, const UnitConfig& units = ApplicationOptions().positionUnits) {
     if (app) { app->~App(); std::free(app); app = nullptr; }
     uart.~Esp32S3Uart(); new (&uart) Esp32S3Uart;
-    resetHardware(); Serial = FakeSerial(); platformReady = false; writeResponseConfirmed = false;
-#if MOTORCONTROLRS_TEST_IDF
-    resetUsbHardware(); Platform::consoleReady = false; Platform::pendingByte = -1;
-#endif
+    resetHardware(); resetUsbConsole(); platformReady = false; writeResponseConfirmed = false;
     ApplicationOptions options; options.observationMaxAgeMs = maximumAgeMs;
     options.positionUnits = units;
     assert(beginApplication({Board::kRs485TxPin, Board::kRs485RxPin, Board::kRs485DeRePin,

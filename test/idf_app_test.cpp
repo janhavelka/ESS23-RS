@@ -3,6 +3,7 @@
 // scheduled UART fake used by Arduino. No second command/operation model.
 #include "fakes/esp32_uart/FakeUsb.h"
 #include "../examples/probe_cli/ProbeApp.cpp"
+#include "fakes/esp32_uart/UsbConsoleFixture.h"
 #include "../examples/probe_idf/main/IdfPlatform.cpp"
 #include "../examples/probe_idf/main/main.cpp"
 #include <cassert>
@@ -21,8 +22,7 @@ void fresh() {
     loadFixture.~Esp32Load(); new (&loadFixture) Esp32Load;
     fixtureReady = false; nextServiceUs = 0;
 #endif
-    resetHardware(); resetUsbHardware();
-    Platform::consoleReady = false; Platform::pendingByte = -1;
+    resetHardware(); resetUsbConsole();
     platformReady = false;
 }
 void startOwner() {

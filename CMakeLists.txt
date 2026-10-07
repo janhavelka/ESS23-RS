@@ -107,6 +107,9 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
             target_include_directories(${suite}_test PRIVATE test/fakes/esp32_uart)
             target_compile_definitions(${suite}_test PRIVATE CONFIG_IDF_TARGET_ESP32S3=1)
         endforeach()
+        foreach(suite discovery_app persistence_app motion_profile_app communication_app probe_app probe_app_monitor_control move_app simple_motion_app velocity_app driver_app home_app io_app control_app tuning_app host_app)
+            target_sources(${suite}_test PRIVATE test/fakes/esp32_uart/FakeUsb.cpp)
+        endforeach()
         target_sources(probe_app_test PRIVATE examples/probe_cli/ProbeConsole.cpp examples/probe_cli/ConsoleText.cpp
             examples/common/RtuBusOwner.cpp examples/common/EssRtuValidator.cpp)
         target_sources(probe_app_monitor_control_test PRIVATE examples/probe_cli/ProbeConsole.cpp examples/probe_cli/ConsoleText.cpp
@@ -136,6 +139,7 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
             examples/common/RtuRunner.cpp examples/common/RtuBusOwner.cpp
             examples/common/EssRtuValidator.cpp examples/common/Esp32S3Uart.cpp
             test/fakes/esp32_uart/FakeEsp.cpp)
+        target_sources(probe_app_load_test PRIVATE test/fakes/esp32_uart/FakeUsb.cpp)
         target_link_libraries(probe_app_load_test PRIVATE MotorControlRS)
         set_target_properties(probe_app_load_test PROPERTIES CXX_STANDARD 11 CXX_STANDARD_REQUIRED YES CXX_EXTENSIONS OFF)
         target_include_directories(probe_app_load_test PRIVATE test/fakes/esp32_uart)
@@ -163,7 +167,7 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
             target_compile_options(idf_app_test PRIVATE -UNDEBUG -Wall -Wextra -Wpedantic)
         endif()
         add_test(NAME idf_app COMMAND idf_app_test)
-        # Reuse identical operation/failure assertions with each real USB adapter.
+        # Reuse identical operation/failure assertions with both framework startup adapters.
         foreach(suite move_app simple_motion_app control_app)
             add_executable(idf_${suite}_test test/${suite}_test.cpp
                 examples/probe_cli/ProbeConsole.cpp examples/probe_cli/ConsoleText.cpp

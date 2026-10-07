@@ -2,8 +2,8 @@
 
 [`examples/probe_idf`](../examples/probe_idf/) is an ESP-IDF 5.5.5 consumer
 of the same MotorControl-RS core, runner, bus owner and CLI application used by
-the Arduino example. The native application has its own USB transport, task
-startup and SDK configuration. Its CMake build consumes the actual core
+the Arduino example. Both use the shared IDF USB console adapter; the native
+application has its own task startup and SDK configuration. Its CMake build consumes the actual core
 component under the name `MotorControlRS`; the checkout directory name is not
 an API or component requirement.
 
@@ -194,7 +194,8 @@ the whole-flash backup remains local. Whole-flash rollback was not performed.
 command callbacks, operations, caches, evidence, no-replay policy and bounded
 service/output logic. Arduino and native IDF compile that same source with the
 same console, adapter, runner and public codecs. `ArduinoPlatform.cpp` and
-`IdfPlatform.cpp` supply only console I/O, idle scheduling and boot diagnostics;
+`IdfPlatform.cpp` supply framework idle scheduling and SDK checks;
+`Esp32UsbConsole.cpp` supplies shared console I/O and boot diagnostics;
 their startup files supply pins/topology and the framework task lifecycle.
 
 SDK time, PSRAM allocation and the ESP32 load fixture remain example concerns.

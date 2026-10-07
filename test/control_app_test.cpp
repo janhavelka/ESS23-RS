@@ -2,6 +2,7 @@
 // Actual application paths with simulated stopped-state/wire qualifications.
 // Both platform variants run these same scenarios and assertions.
 #include "../examples/probe_cli/ProbeApp.cpp"
+#include "fakes/esp32_uart/UsbConsoleFixture.h"
 #if MOTORCONTROLRS_TEST_IDF
 #include "fakes/esp32_uart/FakeUsb.h"
 #include "../examples/probe_idf/main/IdfPlatform.cpp"
@@ -15,18 +16,12 @@
 #include <cstdlib>
 #include <string>
 #include <vector>
-#if !MOTORCONTROLRS_TEST_IDF
-FakeSerial Serial;
-#endif
 namespace {
 using namespace MotorControlRS;
 void fresh(uint32_t maximumAgeMs = 0) {
     if (app) { app->~App(); std::free(app); app = nullptr; }
     uart.~Esp32S3Uart(); new (&uart) Esp32S3Uart;
-    resetHardware(); Serial = FakeSerial(); platformReady = writeResponseConfirmed = false;
-#if MOTORCONTROLRS_TEST_IDF
-    resetUsbHardware(); Platform::consoleReady = false; Platform::pendingByte = -1;
-#endif
+    resetHardware(); resetUsbConsole(); platformReady = writeResponseConfirmed = false;
     ApplicationOptions options; options.observationMaxAgeMs = maximumAgeMs;
     assert(beginApplication({Board::kRs485TxPin, Board::kRs485RxPin, Board::kRs485DeRePin,
         Board::kRs485DeReActiveHigh}, false, options)); // Explicit alternate/unknown-echo topology.

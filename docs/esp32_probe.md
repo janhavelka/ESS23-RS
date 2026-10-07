@@ -1,5 +1,12 @@
 # ESP32-S3 standalone motor bench
 
+Arduino and native IDF share `Esp32UsbConsole.cpp`, using the pinned IDF USB
+Serial/JTAG driver. Probe builds disable Arduino HWCDC auto-start to keep one
+USB owner. Output remains nonblocking with64-byte chunks; queued replies are
+retained under pressure. The [overnight diagnosis](reports/2026-10-07_overnight_hil.md)
+records the HWCDC interrupt race and the replacement driver's qualification limit.
+
+
 Both consumers supervise the owner task after completed turns and check heap
 integrity at boot before capture starts. The timer's small IRAM entry prevents
 flash access during cache-disabled intervals; resumption faults capture until

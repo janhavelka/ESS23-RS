@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Exercise actual setup/loop and callbacks. Fakes supply SDK/wire/USB evidence.
 #include "../examples/probe_cli/ProbeApp.cpp"
+#include "fakes/esp32_uart/UsbConsoleFixture.h"
 #include "../examples/probe_cli/ArduinoPlatform.cpp"
 #include "../examples/probe_cli/main.cpp"
 #include "../examples/probe_cli/StateCache.h"
@@ -10,7 +11,6 @@
 #include <string>
 #include <vector>
 
-FakeSerial Serial;
 namespace {
 const std::vector<uint8_t> REPLY = {1, 3, 2, 0, 0x3C, 0xB8, 0x55};
 void fresh(uint32_t maximumAgeMs = 0) {
@@ -20,13 +20,13 @@ void fresh(uint32_t maximumAgeMs = 0) {
     loadFixture.~Esp32Load(); new (&loadFixture) Esp32Load;
     fixtureReady = false; nextServiceUs = 0;
 #endif
-    resetHardware(); Serial = FakeSerial(); platformReady = false; writeResponseConfirmed = false;
+    resetHardware(); resetUsbConsole(); platformReady = false; writeResponseConfirmed = false;
     ApplicationOptions options; options.observationMaxAgeMs = maximumAgeMs;
     assert(beginApplication({Board::kRs485TxPin, Board::kRs485RxPin, Board::kRs485DeRePin,
         Board::kRs485DeReActiveHigh}, false, options)); // The fixture exercises unconfirmed FC06 echo.
     assert(app && uart.ready() && app->owner.valid() && hardware.writes == 0);
     assert(!writeResponseConfirmed);
-    assert(Serial.txTimeoutMs == 0);
+    assert(usbHardware.installs == 1 && usbHardware.config.tx_buffer_size == 1024);
     hardware.txCharacterUs = 87;
 }
 void step(uint32_t us = 10) { advanceHardware(hardware.time + us); loop(); }
@@ -132,13 +132,16 @@ void testQueuePressureAndQueuedCancellation() {
 }
 void testOutputBackpressureKeepsTransportAndTerminal() {
     fresh(); timerCapture(); Serial.writeCapacity = 0; Serial.input = "@10 probe\n";
+    const auto writesBeforePressure = Serial.writeCalls;
+    Serial.output.clear();
     for (unsigned i = 0; i < 1000 && !Serial.input.empty(); ++i) step();
     assert(Serial.input.empty()); startTx(0);
     scheduleReply(hardware.writeStarted + 8 * 87 + 1000, REPLY);
     for (unsigned i = 0; i < 1000 && view(1).pending; ++i) step();
-    assert(!view(1).pending && app->ok && Serial.output.empty() && Serial.writeCalls == 0);
+    assert(!view(1).pending && app->ok && Serial.output.empty() && Serial.writeCalls == writesBeforePressure);
     const Probe::ResultView retained = view(1); pump();
     assert(view(1).probe.transport.endedUs == retained.probe.transport.endedUs);
+    usbHardware.syntheticPartialWrites = true; // Defensive injection; SDK normally returns all-or-zero.
     Serial.writeCapacity = 4096; Serial.writeLimit = 7; pump(1000);
     contains("\"result\":\"accepted\""); contains("\"type\":\"probe\"");
     assert(occurrences(Serial.output, "\"type\":\"probe\"") == 1);
@@ -1702,7 +1705,25 @@ void testOwnerWatchdogTracksCompletedTurnsAndBlocksAdmissionOnFeedFailure() {
     const unsigned failedFeeds = hardware.watchdogFeeds;
     pump(); assert(hardware.watchdogFeeds == failedFeeds); // Fault is not silently repaired/retried.
 }
+void testSharedUsbDriverOwnershipAndBoundedAdmission() {
+    fresh();
+    assert(usbHardware.installed && usbHardware.installs == 1);
+    assert(usbHardware.maskCalls == 1 && usbHardware.enableAtInstall == 0);
+    assert(usbHardware.interruptRaw == 0x208); // Keep pending TX-empty/FIFO status.
+    assert(!Platform::beginConsole() && usbHardware.installs == 1);
+    uint8_t bytes[65] = {};
+    const auto writes = usbHardware.writes;
+    assert(Platform::writeConsole(bytes, 65) == 0 && usbHardware.writes == writes);
+    assert(Platform::writeConsole(nullptr, 1) == 0 && Platform::writeConsole(bytes, 0) == 0);
+    Serial.output.clear(); Serial.writeCapacity = 63;
+    assert(Platform::writeConsole(bytes, 64) == 0 && Serial.output.empty());
+    Serial.writeCapacity = 64;
+    assert(Platform::writeConsole(bytes, 64) == 64 && Serial.output.size() == 64);
+    // Every fake SDK call asserts a zero tick timeout; no wait/flush loop exists.
+    assert(hardware.writes == 0);
+}
 int main() {
+    testSharedUsbDriverOwnershipAndBoundedAdmission();
     testOwnerWatchdogTracksCompletedTurnsAndBlocksAdmissionOnFeedFailure();
     testRuntimeWitnessSurvivesResetWithoutMotorState();
     testDefaultAgeKeepsEstablishedHostEvidence();

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Actual setup/loop, owner, profile parsers and UART adapter; SDK/wire are faked.
 #include "../examples/probe_cli/ProbeApp.cpp"
+#include "fakes/esp32_uart/UsbConsoleFixture.h"
 #include "../examples/probe_cli/ArduinoPlatform.cpp"
 #include "../examples/probe_cli/main.cpp"
 #include <cassert>
@@ -9,7 +10,6 @@
 #include <string>
 #include <vector>
 
-FakeSerial Serial;
 namespace {
 using ScanPhase = Probe::DiscoveryPhase;
 using ScanOutcome = Probe::DiscoveryOutcome;
@@ -17,7 +17,7 @@ using ProbeOutcome = MotorControlRS::ProbeOutcome;
 void fresh() {
     if (app) { app->~App(); std::free(app); app = nullptr; }
     uart.~Esp32S3Uart(); new (&uart) Esp32S3Uart;
-    resetHardware(); Serial = FakeSerial(); platformReady = false; writeResponseConfirmed = false;
+    resetHardware(); resetUsbConsole(); platformReady = false; writeResponseConfirmed = false;
     setup(); assert(app && uart.ready() && app->owner.valid() && !hardware.writes);
     hardware.txCharacterUs = 87;
     assert(uart.startCapture(20, timing().holdUs));

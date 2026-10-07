@@ -1,19 +1,19 @@
 // SPDX-License-Identifier: MIT
 // Actual application and console paths; supplied SDK evidence is simulated.
 #include "../examples/probe_cli/ProbeApp.cpp"
+#include "fakes/esp32_uart/UsbConsoleFixture.h"
 #include "../examples/probe_cli/ArduinoPlatform.cpp"
 #include "../examples/probe_cli/main.cpp"
 #include <cassert>
 #include <cstdlib>
 #include <string>
 #include <vector>
-FakeSerial Serial;
 namespace {
 using namespace MotorControlRS;
 void fresh() {
     if (app) { app->~App(); std::free(app); app = nullptr; }
     uart.~Esp32S3Uart(); new (&uart) Esp32S3Uart;
-    resetHardware(); Serial = FakeSerial(); platformReady = writeResponseConfirmed = false;
+    resetHardware(); resetUsbConsole(); platformReady = writeResponseConfirmed = false;
     assert(beginApplication({Board::kRs485TxPin, Board::kRs485RxPin, Board::kRs485DeRePin,
         Board::kRs485DeReActiveHigh}, false)); // Explicit alternate/unknown-echo topology.
     assert(app && !hardware.writes && !writeResponseConfirmed);

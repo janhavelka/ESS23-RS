@@ -1,6 +1,7 @@
 set(EXAMPLES "${CMAKE_CURRENT_LIST_DIR}/../..")
 idf_component_register(
     SRCS "main.cpp" "IdfPlatform.cpp"
+        "${EXAMPLES}/probe_cli/Esp32UsbConsole.cpp"
         "${EXAMPLES}/probe_cli/ProbeApp.cpp"
         "${EXAMPLES}/probe_cli/ProbeConsole.cpp"
         "${EXAMPLES}/probe_cli/ConsoleText.cpp"
