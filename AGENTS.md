@@ -1,5 +1,7 @@
 # MotorControl-RS engineering guidance
 
+Always synchronize Git with the intended upstream branch before starting work by fetching and fast-forwarding safely, preserving existing local changes and reporting any divergence, conflict, or synchronization failure.
+
 ## Current scope
 
 Implementation is authorized in small, tested blocks. Implemented foundations
